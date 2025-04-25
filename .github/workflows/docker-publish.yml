@@ -1,0 +1,101 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+env:
+  DOCKER_HUB_USERNAME: nguyenhuyphc@gmail.com
+  # VPS_HOST: ${{ secrets.VPS_HOST }}
+  # VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
+  # VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: nguyenhuyphc@gmail.com
+          password: Phuc0847911068
+
+      - name: Build and push AI.API
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: AI.API/Dockerfile
+          push: true
+          tags: nguyenhuyphc@gmail.com/docai-ai-api:${{ github.sha }}
+
+      - name: Build and push Auth.API
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Auth.API/Dockerfile
+          push: true
+          tags: nguyenhuyphc@gmail.com/docai-auth-api:${{ github.sha }}
+
+      - name: Build and push Document.API
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Document.API/Dockerfile
+          push: true
+          tags: nguyenhuyphc@gmail.com/docai-document-api:${{ github.sha }}
+
+      - name: Build and push Notification.API
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Notification.API/Dockerfile
+          push: true
+          tags: nguyenhuyphc@gmail.com/docai-notification-api:${{ github.sha }}
+
+      - name: Build and push API Gateway
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ApiGateway/Dockerfile
+          push: true
+          tags: nguyenhuyphc@gmail.com/docai-gateway:${{ github.sha }}
+
+  # deploy:
+  #   needs: build-and-push
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v3
+
+  #     - name: Copy docker-compose to VPS
+  #       uses: appleboy/scp-action@master
+  #       with:
+  #         host: ${{ secrets.VPS_HOST }}
+  #         username: ${{ secrets.VPS_USERNAME }}
+  #         key: ${{ secrets.VPS_SSH_KEY }}
+  #         source: "compose.yml"
+  #         target: "~/docai"
+
+  #     - name: Deploy to VPS
+  #       uses: appleboy/ssh-action@master
+  #       with:
+  #         host: ${{ secrets.VPS_HOST }}
+  #         username: ${{ secrets.VPS_USERNAME }}
+  #         key: ${{ secrets.VPS_SSH_KEY }}
+  #         script: |
+  #           cd ~/docai
+  #           export DOCKER_HUB_USERNAME=${{ secrets.DOCKER_HUB_USERNAME }}
+  #           export TAG=${{ github.sha }}
+  #           docker login -u "${{ secrets.DOCKER_HUB_USERNAME }}" -p "${{ secrets.DOCKER_HUB_TOKEN }}"
+  #           docker-compose -f compose.yml pull
+  #           docker-compose -f compose.yml up -d
+  #           docker-compose -f compose.yml ps
+  #           docker system prune -f
