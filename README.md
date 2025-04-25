@@ -108,5 +108,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Contact
 
-Your Name - your.email@example.com
-Project Link: https://github.com/yourusername/DocAI_KingOfBE
+Your Name - nguyenhuyphc@gmail.comcom
+Project Link: https://github.com/DocAI-DocumentAI/DocAI_KingOfBE
