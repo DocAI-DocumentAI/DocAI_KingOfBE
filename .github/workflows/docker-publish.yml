@@ -35,7 +35,7 @@ jobs:
           context: .
           file: AI.API/Dockerfile
           push: true
-          tags: nguyenhuyphc@gmail.com/docai-ai-api:latest
+          tags: docai/docai-ai-api:latest
 
       # Build and push Auth.API
       - name: Build and push Auth.API
@@ -44,7 +44,7 @@ jobs:
           context: .
           file: Auth.API/Dockerfile
           push: true
-          tags: nguyenhuyphc@gmail.com/docai-auth-api:latest
+          tags: docai/docai-auth-api:latest
 
       # Build and push Document.API
       - name: Build and push Document.API
@@ -53,7 +53,7 @@ jobs:
           context: .
           file: Document.API/Dockerfile
           push: true
-          tags: nguyenhuyphc@gmail.com/docai-document-api:latest
+          tags: docai/docai-document-api:latest
 
       # Build and push Notification.API
       - name: Build and push Notification.API
@@ -62,7 +62,7 @@ jobs:
           context: .
           file: Notification.API/Dockerfile
           push: true
-          tags: nguyenhuyphc@gmail.com/docai-notification-api:latest
+          tags: docai/docai-notification-api:latest
 
       # Build and push API Gateway
       - name: Build and push API Gateway
@@ -71,7 +71,7 @@ jobs:
           context: .
           file: ApiGateway/Dockerfile
           push: true
-          tags: nguyenhuyphc@gmail.com/docai-gateway:latest
+          tags: docai/docai-gateway:latest
 
   # deploy:
   #   needs: build-and-push
