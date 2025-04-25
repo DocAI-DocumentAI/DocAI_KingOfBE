@@ -66,6 +66,14 @@
               "target": "Package",
               "version": "[2.2.1, )"
             },
+            "Serilog.AspNetCore": {
+              "target": "Package",
+              "version": "[9.0.0, )"
+            },
+            "Serilog.Expressions": {
+              "target": "Package",
+              "version": "[5.1.0-dev-02301, )"
+            },
             "Swashbuckle.AspNetCore.ReDoc": {
               "target": "Package",
               "version": "[8.1.1, )"

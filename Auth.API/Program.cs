@@ -1,59 +1,100 @@
 using Auth.API.Constants;
 using Scalar.AspNetCore;
+using Serilog;
+using Serilog.Events;
+using Serilog.Templates;
+using Serilog.Templates.Themes;
 
-var builder = WebApplication.CreateBuilder(args);
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateBootstrapLogger();
 
-builder.Services.AddCors(options =>
+Log.Information("Starting up!");
+
+try
 {
-    options.AddPolicy(CorConstant.PolicyName,
-        policy => { policy.WithOrigins("*").AllowAnyHeader().AllowAnyMethod(); });
-});
+    var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddOpenApi();
+    // Use Serilog as the logging provider
+    builder.Services.AddSerilog((services, lc) => lc
+        .ReadFrom.Configuration(builder.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext()
+        .WriteTo.Console(new ExpressionTemplate(
+            // Include trace and span ids when present.
+            "[{@t:HH:mm:ss} {@l:u3}{#if @tr is not null} ({substring(@tr,0,4)}:{substring(@sp,0,4)}){#end}] {@m}\n{@x}",
+            theme: TemplateTheme.Code)));
 
-var app = builder.Build();
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy(CorConstant.PolicyName,
+            policy => policy
+                .AllowAnyOrigin() // You had .WithOrigins("*") which is invalid. Use AllowAnyOrigin() instead.
+                .AllowAnyHeader()
+                .AllowAnyMethod());
+    });
 
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
+    builder.Services.AddOpenApi();
+
+    var app = builder.Build();
+
+    if (app.Environment.IsDevelopment())
+    {
+        app.MapOpenApi();
+
+        app.UseSwaggerUI(options =>
+        {
+            options.SwaggerEndpoint("/openapi/v1.json", "Notification API V1");
+        });
+
+        app.UseReDoc(options =>
+        {
+            options.SpecUrl("/openapi/v1.json");
+        });
+
+        app.MapScalarApiReference();
+    }
+
+    app.UseHttpsRedirection();
     
-    app.UseSwaggerUI(options =>
-    {
-        options.SwaggerEndpoint("/openapi/v1.json", "Notification API V1");
-    });
+    app.UseSerilogRequestLogging();
+    
+    app.UseCors(CorConstant.PolicyName);
 
-    app.UseReDoc(options =>
+    var summaries = new[]
     {
-        options.SpecUrl("/openapi/v1.json");
-    });
+        "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
+    };
 
-    app.MapScalarApiReference();
+    app.MapGet("/api/auth/weatherforecast", () =>
+        {
+            var forecast = Enumerable.Range(1, 5).Select(index =>
+                    new WeatherForecast
+                    (
+                        DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
+                        Random.Shared.Next(-20, 55),
+                        summaries[Random.Shared.Next(summaries.Length)]
+                    ))
+                .ToArray();
+            return forecast;
+        })
+        .WithName("GetWeatherForecast");
+
+    app.Run();
+
+    Log.Information("Stopped cleanly");
+
+    return 0;
 }
-
-app.UseHttpsRedirection();
-
-app.UseCors(CorConstant.PolicyName);
-
-var summaries = new[]
+catch (Exception ex)
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/api/auth/weatherforecast", () =>
-    {
-        var forecast = Enumerable.Range(1, 5).Select(index =>
-                new WeatherForecast
-                (
-                    DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-                    Random.Shared.Next(-20, 55),
-                    summaries[Random.Shared.Next(summaries.Length)]
-                ))
-            .ToArray();
-        return forecast;
-    })
-    .WithName("GetWeatherForecast");
-
-app.Run();
+    Log.Fatal(ex, "An unhandled exception occurred during bootstrapping");
+    return 1;
+}
+finally
+{
+    Log.CloseAndFlush();
+}
 
 record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
 {
