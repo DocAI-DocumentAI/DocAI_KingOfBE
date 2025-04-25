@@ -1,0 +1,41 @@
+﻿services:
+  ai.api:
+    image: ai.api
+    build:
+      context: .
+      dockerfile: AI.API/Dockerfile
+    ports:
+      - "5003:5003"
+
+  auth.api:
+    image: auth.api
+    build:
+      context: .
+      dockerfile: Auth.API/Dockerfile
+    ports:
+      - "5001:5001"
+
+  apigateway:
+    image: apigateway
+    build:
+      context: .
+      dockerfile: ApiGateway/Dockerfile
+    ports:
+      - "5000:5000"
+
+  document.api:
+    image: document.api
+    build:
+      context: .
+      dockerfile: Document.API/Dockerfile
+    ports:
+      - "5002:5002"
+
+  notification.api:
+    image: notification.api
+    build:
+      context: .
+      dockerfile: Notification.API/Dockerfile
+    ports:
+      - "5004:5004"
+

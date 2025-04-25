@@ -1,0 +1,78 @@
+# ========== .NET ========== #
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio
+.vscode/
+*.vs/
+*.ncb
+*.cache
+*.log
+*.sdf
+*.dbmdl
+
+# Build results
+*.dll
+*.exe
+*.app
+*.pdb
+*.cache
+*.class
+*.csproj.user
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+*.nuspec
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Entity Framework Migrations
+Migrations/
+
+# ASP.NET
+wwwroot/
+*.db
+appsettings.Development.json
+appsettings.Local.json
+
+# Rider
+.idea/
+
+# Logs
+*.log
+logs/
+
+# dotenv
+.env
+.env.*
+
+# Docker
+**/docker-compose.override.yml
+**/docker-compose.*.yml
+**/Dockerfile.*
+docker-compose.generated.yml
+
+# Scalar / Swagger UI cache
+Scalar/
+openapi/
+*.http
+
+# ========== Others ========== #
+*.DS_Store
+Thumbs.db
+*.swp
+*.bak
+*.tmp
+
+# Node (nếu có frontend client)
+node_modules/
+dist/
+build/
