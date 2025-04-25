@@ -1,26 +1,26 @@
 ﻿services:
   ai.api:
-    image: nguyenhuyphc@gmail.com/docai-ai-api:latest
+    image: magicflexing/docai-ai-api:latest
     ports:
       - "5003:5003"
 
   auth.api:
-    image: nguyenhuyphc@gmail.com/docai-auth-api:latest
+    image: magicflexing/docai-auth-api:latest
     ports:
       - "5001:5001"
 
   apigateway:
-    image: nguyenhuyphc@gmail.com/docai-gateway:latest
+    image: magicflexing/docai-gateway:latest
     ports:
       - "5000:5000"
 
   document.api:
-    image: nguyenhuyphc@gmail.com/docai-document-api:latest
+    image: magicflexing/docai-document-api:latest
     ports:
       - "5002:5002"
 
   notification.api:
-    image: nguyenhuyphc@gmail.com/docai-notification-api:latest
+    image: magicflexing/docai-notification-api:latest
     ports:
       - "5004:5004"
 
