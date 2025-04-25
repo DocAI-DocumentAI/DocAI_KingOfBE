@@ -22,16 +22,4 @@
       </Content>
     </ItemGroup>
 
-    <ItemGroup>
-      <Folder Include="Controllers\" />
-      <Folder Include="Enums\" />
-      <Folder Include="Extensions\" />
-      <Folder Include="Middlewares\" />
-      <Folder Include="Models\" />
-      <Folder Include="Payload\" />
-      <Folder Include="Services\" />
-      <Folder Include="Utils\" />
-      <Folder Include="Validators\" />
-    </ItemGroup>
-
 </Project>
