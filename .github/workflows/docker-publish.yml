@@ -35,16 +35,16 @@ jobs:
           context: .
           file: AI.API/Dockerfile
           push: true
-          tags: docai/docai-ai-api:latest
+          tags: magicflexing/docai-ai-api:latest
 
       # Build and push Auth.API
       - name: Build and push Auth.API
-        uses: docker/build-push-action@v4
+        uses: magicflexing/build-push-action@v4
         with:
           context: .
           file: Auth.API/Dockerfile
           push: true
-          tags: docai/docai-auth-api:latest
+          tags: magicflexing/docai-auth-api:latest
 
       # Build and push Document.API
       - name: Build and push Document.API
@@ -53,7 +53,7 @@ jobs:
           context: .
           file: Document.API/Dockerfile
           push: true
-          tags: docai/docai-document-api:latest
+          tags: magicflexing/docai-document-api:latest
 
       # Build and push Notification.API
       - name: Build and push Notification.API
@@ -62,7 +62,7 @@ jobs:
           context: .
           file: Notification.API/Dockerfile
           push: true
-          tags: docai/docai-notification-api:latest
+          tags: magicflexing/docai-notification-api:latest
 
       # Build and push API Gateway
       - name: Build and push API Gateway
@@ -71,7 +71,7 @@ jobs:
           context: .
           file: ApiGateway/Dockerfile
           push: true
-          tags: docai/docai-gateway:latest
+          tags: magicflexing/docai-gateway:latest
 
   # deploy:
   #   needs: build-and-push
