@@ -34,3 +34,15 @@ C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\obj\Debug\net9.0\ref\AI.AP
 C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Scalar.AspNetCore.dll
 C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Swashbuckle.AspNetCore.ReDoc.dll
 C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Swashbuckle.AspNetCore.SwaggerUI.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Microsoft.Extensions.DependencyModel.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Serilog.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Serilog.AspNetCore.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Serilog.Expressions.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Serilog.Extensions.Hosting.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Serilog.Extensions.Logging.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Serilog.Formatting.Compact.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Serilog.Settings.Configuration.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Serilog.Sinks.Console.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Serilog.Sinks.Debug.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\bin\Debug\net9.0\Serilog.Sinks.File.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\AI.API\obj\Debug\net9.0\AI.API.sourcelink.json

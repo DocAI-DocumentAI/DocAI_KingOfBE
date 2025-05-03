@@ -83,4 +83,5 @@ public abstract class IGenericRepository<T> : IDisposable where T : class
     public abstract void DeleteAsync(T entity);
     public abstract void DeleteRangeAsync(IEnumerable<T> entities);
     public abstract void Dispose();
+    
 }

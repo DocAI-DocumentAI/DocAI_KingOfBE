@@ -1,4 +1,6 @@
 using Auth.API.Constants;
+using Auth.API.Extensions;
+using Auth.API.Middlewares;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
@@ -35,6 +37,23 @@ try
     });
 
     builder.Services.AddOpenApi();
+    builder.Services.AddDatabase();
+    builder.Services.AddRedis(builder.Configuration);
+    builder.Services.AddUnitOfWork();
+    builder.Services.AddServices(builder.Configuration);
+    builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+    
+    builder.Services.AddEndpointsApiExplorer(); 
+    builder.Services.AddAuthorization();
+    builder.Services.AddControllers();
+    builder.Services.AddJwtAuthentication(builder.Configuration);
+    builder.Services.AddSwaggerGen();
+    builder.Services.AddHttpContextAccessor();
+    
+    builder.Services.Configure<HostOptions>(hostOptions =>
+    {
+        hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
+    });
 
     var app = builder.Build();
 
@@ -44,7 +63,7 @@ try
 
         app.UseSwaggerUI(options =>
         {
-            options.SwaggerEndpoint("/openapi/v1.json", "Notification API V1");
+            options.SwaggerEndpoint("/openapi/v1.json", "Auth API V1");
         });
 
         app.UseReDoc(options =>
@@ -54,31 +73,22 @@ try
 
         app.MapScalarApiReference();
     }
+    
+    
+    
+    app.UseAuthentication();
+    
+    app.UseMiddleware<ExceptionHandlingMiddleware>();
+    
+    app.UseAuthorization();
 
     app.UseHttpsRedirection();
     
     app.UseSerilogRequestLogging();
     
+    app.MapControllers();
+    
     app.UseCors(CorConstant.PolicyName);
-
-    var summaries = new[]
-    {
-        "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-    };
-
-    app.MapGet("/api/auth/weatherforecast", () =>
-        {
-            var forecast = Enumerable.Range(1, 5).Select(index =>
-                    new WeatherForecast
-                    (
-                        DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-                        Random.Shared.Next(-20, 55),
-                        summaries[Random.Shared.Next(summaries.Length)]
-                    ))
-                .ToArray();
-            return forecast;
-        })
-        .WithName("GetWeatherForecast");
 
     app.Run();
 
@@ -94,9 +104,4 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
-}
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
 }

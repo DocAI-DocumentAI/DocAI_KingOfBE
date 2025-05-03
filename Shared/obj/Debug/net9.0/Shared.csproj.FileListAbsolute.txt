@@ -9,3 +9,4 @@ C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\Shared\obj\Debug\net9.0\Shared.dl
 C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\Shared\obj\Debug\net9.0\refint\Shared.dll
 C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\Shared\obj\Debug\net9.0\Shared.pdb
 C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\Shared\obj\Debug\net9.0\ref\Shared.dll
+C:\Users\Admin\Desktop\Capstone\DocAI_KingOfBE\Shared\obj\Debug\net9.0\Shared.sourcelink.json
