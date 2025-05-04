@@ -1,11 +1,15 @@
 using Auth.API.Constants;
 using Auth.API.Extensions;
 using Auth.API.Middlewares;
+using Microsoft.OpenApi.Models;
+using NSwag;
+using NSwag.Generation.Processors.Security;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
 using Serilog.Templates;
 using Serilog.Templates.Themes;
+using OpenApiSecurityScheme = NSwag.OpenApiSecurityScheme;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -42,36 +46,58 @@ try
     builder.Services.AddUnitOfWork();
     builder.Services.AddServices(builder.Configuration);
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
-    
     builder.Services.AddEndpointsApiExplorer(); 
     builder.Services.AddAuthorization();
     builder.Services.AddControllers();
     builder.Services.AddJwtAuthentication(builder.Configuration);
-    builder.Services.AddSwaggerGen();
+    // builder.Services.AddSwaggerGen();
     builder.Services.AddHttpContextAccessor();
     
     builder.Services.Configure<HostOptions>(hostOptions =>
     {
         hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
     });
+    // Register the NSwag services
+    builder.Services.AddOpenApiDocument(options =>
+    {
+        // Title và version
+        options.Title = "DocAI System";
+        options.Version = "v1";
+
+        // Security
+        options.AddSecurity("Bearer", new NSwag.OpenApiSecurityScheme
+        {
+            Type = NSwag.OpenApiSecuritySchemeType.Http,
+            Scheme = "Bearer",
+            BearerFormat = "JWT",
+            Name = "Authorization",
+            In = NSwag.OpenApiSecurityApiKeyLocation.Header,
+            Description = "Please enter a valid token"
+        });
+
+        options.OperationProcessors.Add(new NSwag.Generation.Processors.Security.AspNetCoreOperationSecurityScopeProcessor("Bearer"));
+    });
+
 
     var app = builder.Build();
 
     if (app.Environment.IsDevelopment())
     {
         app.MapOpenApi();
+        app.UseOpenApi();
+        app.UseSwaggerUi();
 
-        app.UseSwaggerUI(options =>
-        {
-            options.SwaggerEndpoint("/openapi/v1.json", "Auth API V1");
-        });
-
-        app.UseReDoc(options =>
-        {
-            options.SpecUrl("/openapi/v1.json");
-        });
-
-        app.MapScalarApiReference();
+        // app.UseSwaggerUI(options =>
+        // {
+        //     options.SwaggerEndpoint("/openapi/v1.json", "Auth API V1");
+        // });
+        //
+        // app.UseReDoc(options =>
+        // {
+        //     options.SpecUrl("/openapi/v1.json");
+        // });
+        //
+        // app.MapScalarApiReference();
     }
     
     
