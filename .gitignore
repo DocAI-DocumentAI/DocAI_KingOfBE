@@ -1,6 +1,16 @@
 # ========== .NET ========== #
 bin/
 obj/
+Auth.API/bin/
+Auth.API/obj/
+ApiGateway/bin/
+ApiGateway/obj/
+Notification.API/bin/
+Notification.API/obj/
+AI.API/bin/
+AI.API/obj/
+Document.API/obj/
+Document.API/bin/
 *.obj
 *.bin
 *.user
