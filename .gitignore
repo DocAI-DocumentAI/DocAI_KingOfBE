@@ -1,8 +1,8 @@
 # ========== .NET ========== #
 bin/
 obj/
-*.obj/
-*.bin/
+*.obj
+*.bin
 *.user
 *.suo
 *.userosscache
