@@ -73,7 +73,7 @@ public class UserService : BaseService<UserService>, IUserService
         throw new BadHttpRequestException(MessageConstant.User.PhoneNumberExisted);
 
 
-    var key = request.Username;
+    var key = request.Email;
     var existingOtp = await _redisService.GetStringAsync(key); 
     if (string.IsNullOrEmpty(existingOtp))
         throw new BadHttpRequestException(MessageConstant.OTP.OtpNotFound);
