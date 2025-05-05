@@ -1,4 +1,6 @@
-﻿namespace Auth.API.Utils;
+﻿using System;
+
+namespace Auth.API.Utils;
 
 public class OtpUtil
 {

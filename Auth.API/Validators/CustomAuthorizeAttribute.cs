@@ -1,4 +1,5 @@
-﻿using Auth.API.Enums;
+﻿using System.Linq;
+using Auth.API.Enums;
 using Auth.API.Utils;
 using Microsoft.AspNetCore.Authorization;
 

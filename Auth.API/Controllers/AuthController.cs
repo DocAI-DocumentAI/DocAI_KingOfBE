@@ -1,11 +1,15 @@
-﻿using System.Reflection.Metadata.Ecma335;
+﻿using System;
+using System.Reflection.Metadata.Ecma335;
+using System.Threading.Tasks;
 using Auth.API.Constants;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Response;
 using Auth.API.Services.Interface;
 using AutoMapper.Features;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using LoginRequest = Auth.API.Payload.Request.LoginRequest;
 using RegisterRequest = Auth.API.Payload.Request.RegisterRequest;
 

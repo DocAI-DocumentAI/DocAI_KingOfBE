@@ -1,6 +1,10 @@
+using System;
 using Auth.API.Constants;
 using Auth.API.Extensions;
 using Auth.API.Middlewares;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Models;
 using NSwag;
 using NSwag.Generation.Processors.Security;

@@ -1,3 +1,8 @@
+using System;
+using System.Linq;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Scalar.AspNetCore;
 
 using Serilog;
@@ -35,7 +40,7 @@ try
 
         app.UseSwaggerUI(options =>
         {
-            options.SwaggerEndpoint("/openapi/v1.json", "Notification API V1");
+            options.SwaggerEndpoint("/openapi/v1.json", "AI API V1");
         });
 
         app.UseReDoc(options =>

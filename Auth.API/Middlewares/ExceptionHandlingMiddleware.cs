@@ -1,6 +1,10 @@
-﻿using System.Net;
+﻿using System;
+using System.Net;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Auth.API.Payload.Response;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 
 namespace Auth.API.Middlewares;
 

@@ -1,4 +1,6 @@
-﻿using System.Transactions;
+﻿using System;
+using System.Threading.Tasks;
+using System.Transactions;
 using Auth.API.Constants;
 using Auth.API.Enums;
 using Auth.API.Models;
@@ -8,7 +10,10 @@ using Auth.API.Repository.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Auth.API.Utils;
 using AutoMapper;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity.Data;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using LoginRequest = Auth.API.Payload.Request.LoginRequest;
 using RegisterRequest = Auth.API.Payload.Request.RegisterRequest;
 

@@ -1,5 +1,7 @@
-﻿using System.Net;
+﻿using System;
+using System.Net;
 using System.Net.Mail;
+using Microsoft.Extensions.Configuration;
 
 namespace Auth.API.Utils;
 

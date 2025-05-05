@@ -1,4 +1,8 @@
-﻿namespace Auth.API.Services.Interface;
+﻿using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+namespace Auth.API.Services.Interface;
 
 public interface IRedisService
 {

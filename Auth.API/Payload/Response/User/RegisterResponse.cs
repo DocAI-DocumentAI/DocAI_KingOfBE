@@ -1,4 +1,6 @@
-﻿namespace Auth.API.Payload.Response;
+﻿using System;
+
+namespace Auth.API.Payload.Response;
 
 public class RegisterResponse
 {

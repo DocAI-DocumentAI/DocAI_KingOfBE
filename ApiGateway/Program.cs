@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,7 +18,7 @@ if (app.Environment.IsDevelopment())
     
     app.UseSwaggerUI(options =>
     {
-        options.SwaggerEndpoint("/openapi/v1.json", "Notification API V1");
+        options.SwaggerEndpoint("/openapi/v1.json", "Api Gateway V1");
     });
 
     app.UseReDoc(options =>

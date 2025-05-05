@@ -1,4 +1,5 @@
-﻿using Auth.API.Enums;
+﻿using System;
+using Auth.API.Enums;
 namespace Auth.API.Payload.Response;
 
 public class LoginResponse

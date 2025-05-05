@@ -1,8 +1,12 @@
-﻿using System.Security.Claims;
+﻿using System;
+using System.Security.Claims;
 using Auth.API.Enums;
 using Auth.API.Models;
 using Auth.API.Repository.Interfaces;
 using AutoMapper;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace Auth.API.Services;
 

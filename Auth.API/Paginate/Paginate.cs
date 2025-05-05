@@ -1,4 +1,7 @@
-﻿namespace Auth.API.Paginate;
+﻿using System;
+using System.Collections.Generic;
+
+namespace Auth.API.Paginate;
 
 public class Paginate<TResult> : IPaginate<TResult>
 {
