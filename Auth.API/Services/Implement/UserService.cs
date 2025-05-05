@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Auth.API.Utils;
 using AutoMapper;
 using Microsoft.AspNetCore.Identity.Data;
+using LoginRequest = Auth.API.Payload.Request.LoginRequest;
 using RegisterRequest = Auth.API.Payload.Request.RegisterRequest;
 
 namespace Auth.API.Services.Interface;
@@ -23,6 +24,39 @@ public class UserService : BaseService<UserService>, IUserService
         _configuration = configuration;
         _redisService = redisService;
     }
+    
+    public async Task<LoginResponse> LoginAsync(LoginRequest request)
+    {
+        if (request == null || string.IsNullOrEmpty(request.Username) || string.IsNullOrEmpty(request.Password))
+            throw new BadHttpRequestException(MessageConstant.User.LoginRequestNoNull);
+        var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.UserName == request.Username
+        );
+        if (user == null || !PasswordUtil.VerifyPassword(request.Password, user.Password))
+        {
+            _logger.LogWarning("Login failed for username: {UserName}", request.Username);
+            throw new BadHttpRequestException(MessageConstant.User.UsernameOrPasswork);
+        }
+        Tuple<string, Guid> guidClaim = new Tuple<string, Guid>("userId",user.UserId);
+        var response = new LoginResponse()
+        {
+            UserId = user.UserId,
+            Username = user.UserName,
+            Role = user.Role,
+            Email = user.Email,
+        };
+        response.Token = JwtUtil.GenerateJwtToken(user, guidClaim, _configuration);
+        response.RefreshToken = JwtUtil.GenerateRefreshToken();
+        
+        _unitOfWork.GetRepository<User>().UpdateAsync(user);
+        bool isSuccessful = await _unitOfWork.CommitAsync() > 0;
+        if (isSuccessful)
+        {
+            return response;
+        }
+        return null;
+    }
+    
     public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
 {
     if (request == null)

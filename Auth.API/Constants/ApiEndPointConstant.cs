@@ -12,5 +12,6 @@ public class ApiEndPointConstant
     {
         public const string Register = ApiEndpoint + "/register";
         public const string SendOtp = ApiEndpoint + "/otp";
+        public const string Login = ApiEndpoint + "/login";
     }
 }

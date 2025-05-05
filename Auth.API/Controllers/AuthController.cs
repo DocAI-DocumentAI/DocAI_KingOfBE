@@ -1,9 +1,12 @@
-﻿using Auth.API.Constants;
+﻿using System.Reflection.Metadata.Ecma335;
+using Auth.API.Constants;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Response;
 using Auth.API.Services.Interface;
+using AutoMapper.Features;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
+using LoginRequest = Auth.API.Payload.Request.LoginRequest;
 using RegisterRequest = Auth.API.Payload.Request.RegisterRequest;
 
 namespace Auth.API.Controllers;
@@ -21,6 +24,22 @@ public class AuthController : ControllerBase
         _userService = userService ?? throw new ArgumentNullException(nameof(userService));
     }
 
+    [HttpPost(ApiEndPointConstant.User.Login)]
+    [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> Login([FromBody] LoginRequest request)
+    {
+        var response = await _userService.LoginAsync(request);
+        if (response == null)
+        {
+            _logger.LogError($"Login failed with {request.Username}");
+            return Problem(MessageConstant.User.LoginFailed);
+        }
+        _logger.LogInformation($"Login succeeded with {request.Username}");
+        return Ok(response);
+    }
+    
     [HttpPost(ApiEndPointConstant.User.Register)]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status400BadRequest)]
