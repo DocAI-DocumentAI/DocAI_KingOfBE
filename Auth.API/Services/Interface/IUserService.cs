@@ -9,6 +9,8 @@ namespace Auth.API.Services.Interface;
 
 public interface IUserService
 {
+    public Task<MemberResponse> GetInformationOfMemberAsync();
+    
     public Task<LoginResponse> LoginAsync(LoginRequest request);
     
     public Task<RegisterResponse> RegisterAsync(RegisterRequest request);

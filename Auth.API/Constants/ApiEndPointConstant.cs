@@ -14,4 +14,9 @@ public class ApiEndPointConstant
         public const string SendOtp = ApiEndpoint + "/otp";
         public const string Login = ApiEndpoint + "/login";
     }
+    
+    public class Member
+    {
+      public const string MemberInformation = ApiEndpoint + "/member";
+    }
 }

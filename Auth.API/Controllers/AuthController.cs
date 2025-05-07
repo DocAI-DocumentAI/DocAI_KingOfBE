@@ -28,6 +28,17 @@ public class AuthController : ControllerBase
         _userService = userService ?? throw new ArgumentNullException(nameof(userService));
     }
 
+
+    [HttpGet(ApiEndPointConstant.Member.MemberInformation)]
+    [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetMemberInformationAsync()
+    {
+        var response = await _userService.GetInformationOfMemberAsync();
+        return Ok(response);
+    }
+
     [HttpPost(ApiEndPointConstant.User.Login)]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status400BadRequest)]

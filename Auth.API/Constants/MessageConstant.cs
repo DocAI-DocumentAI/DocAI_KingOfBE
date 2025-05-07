@@ -10,6 +10,12 @@ public class MessageConstant
         public const string LoginFailed = "Đăng nhập thất bại";
         public const string UsernameOrPasswork = "Tài khoản hoặc mật khẩu không chính xác";
         public const string LoginRequestNoNull = "Tài khoản hoặc mật khẩu không để trống";
+        public const string UserNotFound = "User không tồn tại";
+    }
+    
+    public class Member
+    {
+        public const string MemberNotFound = "Member không tồn tại";
     }
     
     public class OTP
