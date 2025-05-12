@@ -15,24 +15,45 @@ public class JwtUtil
     {
         
     }
-        public static string GenerateJwtToken(User user, Tuple<string, Guid> guidClaim, IConfiguration configuration)
+    public static string GenerateJwtToken(User user, Tuple<string, Guid> guidClaim, IConfiguration configuration)
+    {
+        string secret = configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret is missing in configuration.");
+        string issuer = configuration["JWT:Issuer"] ?? throw new InvalidOperationException("JWT:Issuer is missing in configuration.");
+
+        if (secret.Length < 32)
         {
-            JwtSecurityTokenHandler jwtHandler = new JwtSecurityTokenHandler();
-            SymmetricSecurityKey secrectKey = 
-                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["JWT:Secret"]!));;
-            var credentials = new SigningCredentials(secrectKey, SecurityAlgorithms.HmacSha256Signature);
-            List<Claim> claims = new List<Claim>()
-            {
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                new Claim(JwtRegisteredClaimNames.Sub, user.UserName),
-                new Claim(ClaimTypes.Role, user.Role.ToString()),
-            };
-            
-            if(guidClaim != null) claims.Add(new Claim(guidClaim.Item1, guidClaim.Item2.ToString()));
-            var expires = DateTime.Now.AddDays(30);
-            var token = new JwtSecurityToken(configuration["JWT:Issuer"], null, claims, notBefore: DateTime.Now, expires, credentials);
-            return jwtHandler.WriteToken(token);
+            throw new InvalidOperationException("JWT:Secret must be at least 32 characters long for HS256.");
         }
+
+        var secretKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+        var credentials = new SigningCredentials(secretKey, SecurityAlgorithms.HmacSha256);
+
+        var claims = new List<Claim>
+        {
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim(JwtRegisteredClaimNames.Sub, user.UserName),
+            new Claim(JwtRegisteredClaimNames.Iss, issuer),
+            new Claim(JwtRegisteredClaimNames.Nbf, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()),
+            new Claim(JwtRegisteredClaimNames.Exp, DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds().ToString()),
+            new Claim(ClaimTypes.Role, user.Role.ToString())
+        };
+
+        if (guidClaim != null)
+        {
+            claims.Add(new Claim(guidClaim.Item1, guidClaim.Item2.ToString()));
+        }
+
+        var token = new JwtSecurityToken(
+            issuer: issuer,
+            audience: null,
+            claims: claims,
+            notBefore: DateTime.UtcNow,
+            expires: DateTime.UtcNow.AddHours(1),
+            signingCredentials: credentials
+        );
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
 
     public static string GenerateRefreshToken()
     {

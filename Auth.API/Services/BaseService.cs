@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Security.Authentication;
 using System.Security.Claims;
 using Auth.API.Enums;
 using Auth.API.Models;
@@ -7,6 +8,10 @@ using AutoMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.IdentityModel.Tokens.Jwt;
+using Microsoft.IdentityModel.Tokens;
+using System.Linq;
+using Serilog;
 
 namespace Auth.API.Services;
 
@@ -39,11 +44,32 @@ public class BaseService<T> where T : class
 
     protected Guid GetUserIdFromJwt()
     {
-        var userIdClaim = _httpContextAccessor.HttpContext?.User?.FindFirst("userId");
-        if (userIdClaim != null)
+        var httpContext = _httpContextAccessor.HttpContext;
+        Log.Information("HttpContext: {HttpContext}", httpContext?.ToString() ?? "null");
+
+        var user = httpContext?.User;
+        if (user == null || !user.Identity.IsAuthenticated)
         {
-            return Guid.Parse(userIdClaim.Value);
+            Log.Error("User is not authenticated. Identity: {Identity}", user?.Identity?.ToString() ?? "null");
+            throw new AuthenticationException("User is not authenticated.");
         }
-        return Guid.Empty;
+
+        var claims = user.Claims.Select(c => $"{c.Type}: {c.Value}").ToList();
+        Log.Information("Claims found: {Claims}", string.Join(", ", claims));
+
+        var userIdClaim = user.FindFirst("userId");
+        if (userIdClaim == null || string.IsNullOrEmpty(userIdClaim.Value))
+        {
+            Log.Error("User ID claim not found in token.");
+            throw new AuthenticationException("User ID claim not found in token.");
+        }
+
+        if (!Guid.TryParse(userIdClaim.Value, out var userId))
+        {
+            Log.Error("Invalid user ID format: {Value}", userIdClaim.Value);
+            throw new AuthenticationException("Invalid user ID format in token.");
+        }
+
+        return userId;
     }
 }

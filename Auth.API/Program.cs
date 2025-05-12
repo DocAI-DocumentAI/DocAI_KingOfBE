@@ -14,6 +14,9 @@ using Serilog.Events;
 using Serilog.Templates;
 using Serilog.Templates.Themes;
 using OpenApiSecurityScheme = NSwag.OpenApiSecurityScheme;
+using System.IdentityModel.Tokens.Jwt;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -64,24 +67,20 @@ try
     // Register the NSwag services
     builder.Services.AddOpenApiDocument(options =>
     {
-        // Title và version
         options.Title = "DocAI System";
         options.Version = "v1";
 
-        // Security
-        options.AddSecurity("Bearer", new NSwag.OpenApiSecurityScheme
+        options.AddSecurity("Bearer", new OpenApiSecurityScheme
         {
-            Type = NSwag.OpenApiSecuritySchemeType.Http,
-            Scheme = "Bearer",
+            Type = OpenApiSecuritySchemeType.Http,
+            Scheme = "bearer",
             BearerFormat = "JWT",
             Name = "Authorization",
-            In = NSwag.OpenApiSecurityApiKeyLocation.Header,
-            Description = "Please enter a valid token"
+            In = OpenApiSecurityApiKeyLocation.Header,
         });
 
-        options.OperationProcessors.Add(new NSwag.Generation.Processors.Security.AspNetCoreOperationSecurityScopeProcessor("Bearer"));
+        options.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("Bearer"));
     });
-
 
     var app = builder.Build();
 
@@ -104,21 +103,13 @@ try
         // app.MapScalarApiReference();
     }
     
-    
-    
-    app.UseAuthentication();
-    
-    app.UseMiddleware<ExceptionHandlingMiddleware>();
-    
-    app.UseAuthorization();
-
+    app.UseCors(CorConstant.PolicyName); 
     app.UseHttpsRedirection();
-    
+    app.UseAuthentication();
+    app.UseMiddleware<ExceptionHandlingMiddleware>();
+    app.UseAuthorization();
     app.UseSerilogRequestLogging();
-    
     app.MapControllers();
-    
-    app.UseCors(CorConstant.PolicyName);
 
     app.Run();
 

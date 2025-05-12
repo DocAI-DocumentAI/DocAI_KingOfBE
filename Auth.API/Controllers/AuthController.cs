@@ -6,6 +6,7 @@ using Auth.API.Payload.Request;
 using Auth.API.Payload.Response;
 using Auth.API.Services.Interface;
 using AutoMapper.Features;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
@@ -33,6 +34,7 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status500InternalServerError)]
+    [Authorize]
     public async Task<IActionResult> GetMemberInformationAsync()
     {
         var response = await _userService.GetInformationOfMemberAsync();
