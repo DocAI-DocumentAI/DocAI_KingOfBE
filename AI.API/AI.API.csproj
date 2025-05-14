@@ -22,4 +22,8 @@
       </Content>
     </ItemGroup>
 
+    <ItemGroup>
+      <ProjectReference Include="..\AI.Infrastructure\AI.Infrastructure.csproj" />
+    </ItemGroup>
+
 </Project>

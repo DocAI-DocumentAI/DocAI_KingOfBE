@@ -28,4 +28,8 @@
       <Folder Include="Mappers\" />
     </ItemGroup>
 
+    <ItemGroup>
+      <ProjectReference Include="..\Notification.Infrastructure\Notification.Infrastructure.csproj" />
+    </ItemGroup>
+
 </Project>
