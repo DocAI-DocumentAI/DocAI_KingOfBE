@@ -1,5 +1,8 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35931.197 d17.13
+MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shared", "Shared\Shared.csproj", "{E6C98919-5F72-45A1-A7DC-37C4268860C8}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AI.API", "AI.API\AI.API.csproj", "{F7506777-66CF-4592-8DF1-9E58E789F3C4}"
@@ -16,6 +19,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Document.API", "Document.API\Document.API.csproj", "{D054E02A-35B2-419E-9F65-D7F95D37D914}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Notification.API", "Notification.API\Notification.API.csproj", "{D0C39C1F-20FC-4B4A-9D93-76D39373004E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DocAI.AppHost", "DocAI.AppHost\DocAI.AppHost.csproj", "{9F57E377-9B46-4EA4-86BA-EED140AC27CB}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -47,5 +52,12 @@ Global
 		{D0C39C1F-20FC-4B4A-9D93-76D39373004E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D0C39C1F-20FC-4B4A-9D93-76D39373004E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D0C39C1F-20FC-4B4A-9D93-76D39373004E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9F57E377-9B46-4EA4-86BA-EED140AC27CB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9F57E377-9B46-4EA4-86BA-EED140AC27CB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9F57E377-9B46-4EA4-86BA-EED140AC27CB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9F57E377-9B46-4EA4-86BA-EED140AC27CB}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
 	EndGlobalSection
 EndGlobal
