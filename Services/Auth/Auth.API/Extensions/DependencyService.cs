@@ -4,6 +4,7 @@ using System.Text;
 using Auth.API.Models;
 using Auth.API.Repository.Implement;
 using Auth.API.Repository.Interfaces;
+using Auth.API.Services.Implement;
 using Auth.API.Services.Interface;
 using DOCA.API.Services.Implement;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -62,6 +63,7 @@ public static class DependencyService
     {
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRedisService, RedisService>();
+        services.AddScoped<IMemberService, MemberService>();
         return services;
     }
     

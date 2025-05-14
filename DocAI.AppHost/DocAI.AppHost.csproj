@@ -16,11 +16,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AI.API\AI.API.csproj" />
     <ProjectReference Include="..\ApiGateway\ApiGateway.csproj" />
-    <ProjectReference Include="..\Auth.API\Auth.API.csproj" />
-    <ProjectReference Include="..\Document.API\Document.API.csproj" />
-    <ProjectReference Include="..\Notification.API\Notification.API.csproj" />
+    <ProjectReference Include="..\Services\AI\AI.API\AI.API.csproj" />
+    <ProjectReference Include="..\Services\Auth\Auth.API\Auth.API.csproj" />
+    <ProjectReference Include="..\Services\Document\Document.API\Document.API.csproj" />
+    <ProjectReference Include="..\Services\Notification\Notification.API\Notification.API.csproj" />
   </ItemGroup>
+  
 
 </Project>

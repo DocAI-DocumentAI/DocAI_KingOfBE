@@ -30,22 +30,6 @@ public class UserService : BaseService<UserService>, IUserService
         _configuration = configuration;
         _redisService = redisService;
     }
-
-    public async Task<MemberResponse> GetInformationOfMemberAsync()
-    {
-        var userId = GetUserIdFromJwt();
-        if (userId == null)
-            throw new AuthenticationException(MessageConstant.User.UserNotFound);
-        var member = await _unitOfWork.GetRepository<Member>().SingleOrDefaultAsync(
-            predicate: u => u.UserId == userId,
-            include: m => m.Include(u => u.User)
-        );
-        if(member == null)
-            throw new BadHttpRequestException(MessageConstant.Member.MemberNotFound);
-        var response = _mapper.Map<MemberResponse>(member);
-        
-        return response;
-    }
     
     public async Task<LoginResponse> LoginAsync(LoginRequest request)
     {

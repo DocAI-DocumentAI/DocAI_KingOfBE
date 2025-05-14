@@ -17,6 +17,7 @@ public class ApiEndPointConstant
     
     public class Member
     {
+      public const string Members = ApiEndpoint + "/members";
       public const string MemberInformation = ApiEndpoint + "/member";
     }
 }
