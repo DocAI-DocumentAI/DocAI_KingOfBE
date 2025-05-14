@@ -9,11 +9,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Auth.API.Migrations
+namespace Auth.Domain.Migrations
 {
     [DbContext(typeof(DocAIAuthContext))]
-    [Migration("20250503093832_migration3")]
-    partial class migration3
+    [Migration("20250514083149_migration1")]
+    partial class migration1
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -119,9 +119,8 @@ namespace Auth.API.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("Role")
+                        .HasColumnType("integer");
 
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean");
@@ -139,22 +138,6 @@ namespace Auth.API.Migrations
                     b.HasKey("UserId");
 
                     b.ToTable("Users");
-
-                    b.HasData(
-                        new
-                        {
-                            UserId = new Guid("e97befe4-2bfc-44b2-ad46-8310a1bec04f"),
-                            CreatAt = new DateTime(2025, 5, 3, 9, 38, 31, 945, DateTimeKind.Utc).AddTicks(3264),
-                            Email = "admin@gmail.com",
-                            FullName = "Admin",
-                            Password = "jGl25bVBBBW96Qi9Te4V37Fnqchz/Eu4qB9vKrRIqRg=",
-                            Phone = "0847911068",
-                            Role = "Manager",
-                            TwoFactorEnabled = false,
-                            TwoFactorMethod = "Email",
-                            UpdateAt = new DateTime(2025, 5, 3, 9, 38, 31, 945, DateTimeKind.Utc).AddTicks(3380),
-                            UserName = "admin"
-                        });
                 });
 
             modelBuilder.Entity("Auth.API.Models.Member", b =>

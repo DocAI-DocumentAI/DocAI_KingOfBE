@@ -3,20 +3,17 @@ using System;
 using Auth.API.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Auth.API.Migrations
+namespace Auth.Domain.Migrations
 {
     [DbContext(typeof(DocAIAuthContext))]
-    [Migration("20250428085937_InitialCreate")]
-    partial class InitialCreate
+    partial class DocAIAuthContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
-        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -32,35 +29,10 @@ namespace Auth.API.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("Address")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("City")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("CityCode")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreateAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("District")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("DistrictCode")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Province")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProvinceCode")
-                        .IsRequired()
-                        .HasColumnType("text");
 
                     b.Property<DateTime>("UpdateAt")
                         .HasColumnType("timestamp with time zone");
@@ -126,11 +98,14 @@ namespace Auth.API.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean");
 
                     b.Property<string>("TwoFactorMethod")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<DateTime>("UpdateAt")
@@ -143,6 +118,22 @@ namespace Auth.API.Migrations
                     b.HasKey("UserId");
 
                     b.ToTable("Users");
+
+                    b.HasData(
+                        new
+                        {
+                            UserId = new Guid("9ffd9537-0f71-4ffa-970d-376d3cd2d884"),
+                            CreatAt = new DateTime(2025, 5, 14, 8, 44, 45, 444, DateTimeKind.Utc).AddTicks(1106),
+                            Email = "admin@gmail.com",
+                            FullName = "Admin",
+                            Password = "OGhu6gLFs9JGQWIHBGkEkD9TXcNLJ2a1ej2ndRdGQffzCmq231zdWJAEzrK2fZ7w",
+                            Phone = "0847911068",
+                            Role = "Manager",
+                            TwoFactorEnabled = false,
+                            TwoFactorMethod = "Email",
+                            UpdateAt = new DateTime(2025, 5, 14, 8, 44, 45, 444, DateTimeKind.Utc).AddTicks(1256),
+                            UserName = "admin"
+                        });
                 });
 
             modelBuilder.Entity("Auth.API.Models.Member", b =>

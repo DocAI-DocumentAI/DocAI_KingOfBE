@@ -9,11 +9,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Auth.API.Migrations
+namespace Auth.Domain.Migrations
 {
     [DbContext(typeof(DocAIAuthContext))]
-    [Migration("20250503074447_Migration2")]
-    partial class Migration2
+    [Migration("20250514084044_migration2")]
+    partial class migration2
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -32,35 +32,10 @@ namespace Auth.API.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("Address")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("City")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("CityCode")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreateAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("District")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("DistrictCode")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Province")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProvinceCode")
-                        .IsRequired()
-                        .HasColumnType("text");
 
                     b.Property<DateTime>("UpdateAt")
                         .HasColumnType("timestamp with time zone");
@@ -150,8 +125,8 @@ namespace Auth.API.Migrations
                     b.HasData(
                         new
                         {
-                            UserId = new Guid("8f7a8fd0-a972-4776-b451-f1d866f5e0bb"),
-                            CreatAt = new DateTime(2025, 5, 3, 7, 44, 47, 214, DateTimeKind.Utc).AddTicks(9415),
+                            UserId = new Guid("34eed860-a6e6-4774-b5db-1b44ae54e4cf"),
+                            CreatAt = new DateTime(2025, 5, 14, 8, 40, 44, 325, DateTimeKind.Utc).AddTicks(1361),
                             Email = "admin@gmail.com",
                             FullName = "Admin",
                             Password = "jGl25bVBBBW96Qi9Te4V37Fnqchz/Eu4qB9vKrRIqRg=",
@@ -159,7 +134,7 @@ namespace Auth.API.Migrations
                             Role = "Manager",
                             TwoFactorEnabled = false,
                             TwoFactorMethod = "Email",
-                            UpdateAt = new DateTime(2025, 5, 3, 7, 44, 47, 214, DateTimeKind.Utc).AddTicks(9582),
+                            UpdateAt = new DateTime(2025, 5, 14, 8, 40, 44, 325, DateTimeKind.Utc).AddTicks(1493),
                             UserName = "admin"
                         });
                 });

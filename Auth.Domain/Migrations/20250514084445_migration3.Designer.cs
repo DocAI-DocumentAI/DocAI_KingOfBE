@@ -3,17 +3,20 @@ using System;
 using Auth.API.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Auth.API.Migrations
+namespace Auth.Domain.Migrations
 {
     [DbContext(typeof(DocAIAuthContext))]
-    partial class DocAIAuthContextModelSnapshot : ModelSnapshot
+    [Migration("20250514084445_migration3")]
+    partial class migration3
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -31,26 +34,8 @@ namespace Auth.API.Migrations
                     b.Property<string>("Address")
                         .HasColumnType("text");
 
-                    b.Property<string>("City")
-                        .HasColumnType("text");
-
-                    b.Property<string>("CityCode")
-                        .HasColumnType("text");
-
                     b.Property<DateTime>("CreateAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("District")
-                        .HasColumnType("text");
-
-                    b.Property<string>("DistrictCode")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Province")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProvinceCode")
-                        .HasColumnType("text");
 
                     b.Property<DateTime>("UpdateAt")
                         .HasColumnType("timestamp with time zone");
@@ -140,16 +125,16 @@ namespace Auth.API.Migrations
                     b.HasData(
                         new
                         {
-                            UserId = new Guid("e97befe4-2bfc-44b2-ad46-8310a1bec04f"),
-                            CreatAt = new DateTime(2025, 5, 3, 9, 38, 31, 945, DateTimeKind.Utc).AddTicks(3264),
+                            UserId = new Guid("9ffd9537-0f71-4ffa-970d-376d3cd2d884"),
+                            CreatAt = new DateTime(2025, 5, 14, 8, 44, 45, 444, DateTimeKind.Utc).AddTicks(1106),
                             Email = "admin@gmail.com",
                             FullName = "Admin",
-                            Password = "jGl25bVBBBW96Qi9Te4V37Fnqchz/Eu4qB9vKrRIqRg=",
+                            Password = "OGhu6gLFs9JGQWIHBGkEkD9TXcNLJ2a1ej2ndRdGQffzCmq231zdWJAEzrK2fZ7w",
                             Phone = "0847911068",
                             Role = "Manager",
                             TwoFactorEnabled = false,
                             TwoFactorMethod = "Email",
-                            UpdateAt = new DateTime(2025, 5, 3, 9, 38, 31, 945, DateTimeKind.Utc).AddTicks(3380),
+                            UpdateAt = new DateTime(2025, 5, 14, 8, 44, 45, 444, DateTimeKind.Utc).AddTicks(1256),
                             UserName = "admin"
                         });
                 });

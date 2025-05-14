@@ -35,8 +35,7 @@ public static class DependencyService
         var connectionString = configuration.GetConnectionString("DefaultConnection");
 
         services.AddDbContext<DocAIAuthContext>(options =>
-                options.UseNpgsql(connectionString, b => b.MigrationsAssembly("Auth.API")) 
-        );
+            options.UseNpgsql(connectionString, b => b.MigrationsAssembly("Auth.API")));
 
         services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
         services.AddScoped<DbContext, DocAIAuthContext>();
