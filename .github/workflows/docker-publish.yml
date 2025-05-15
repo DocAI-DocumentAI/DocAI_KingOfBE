@@ -73,14 +73,14 @@ jobs:
           push: true
           tags: magicflexing/docai-gateway:latest
           
-      # Build and push App Host
-      - name: Build and push App Host
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: DocAI.AppHost/Dockerfile
-          push: true
-          tags: magicflexing/docai-gateway:latest
+      # # Build and push App Host
+      # - name: Build and push App Host
+      #   uses: docker/build-push-action@v4
+      #   with:
+      #     context: .
+      #     file: DocAI.AppHost/Dockerfile
+      #     push: true
+      #     tags: magicflexing/docai-gateway:latest
 
 
   # deploy:
