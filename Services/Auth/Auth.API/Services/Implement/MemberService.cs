@@ -1,15 +1,15 @@
 ﻿using System.Reflection;
 using System.Security.Authentication;
 using Auth.API.Constants;
-using Auth.API.Models;
-using Auth.API.Paginate;
 using Auth.API.Payload.Request.Member;
 using Auth.API.Payload.Response;
-using Auth.API.Repository.Interfaces;
 using Auth.API.Services.Interface;
+using Auth.Domain.Models;
+using Auth.Infrastructure.Paginate;
+using Auth.Infrastructure.Repository.Interfaces;
 using AutoMapper;
 using Microsoft.EntityFrameworkCore;
-using MemberFilter = Auth.API.Filter.MemberFilter;
+using MemberFilter = Auth.Infrastructure.Filter.MemberFilter;
 
 namespace Auth.API.Services.Implement;
 

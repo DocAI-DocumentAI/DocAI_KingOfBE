@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace Auth.API.Paginate;
+namespace Auth.Infrastructure.Paginate;
 
 public interface IPaginate<TResult>
 {

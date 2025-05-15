@@ -1,7 +1,6 @@
 ﻿using System.Linq.Expressions;
-using Auth.API.Models;
-
-namespace Auth.API.Filter;
+using Auth.Domain.Models;
+namespace Auth.Infrastructure.Filter;
 
 public class StaffFilter : IFilter<Staff>
 {

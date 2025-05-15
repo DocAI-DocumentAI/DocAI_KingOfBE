@@ -1,4 +1,4 @@
-﻿namespace Auth.API.Constants;
+﻿namespace Notification.Api.Constants;
 
 public class ApiEndPointConstant
 {

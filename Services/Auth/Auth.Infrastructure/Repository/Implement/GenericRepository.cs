@@ -4,13 +4,13 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Threading.Tasks;
-using Auth.API.Filter;
-using Auth.API.Paginate;
-using Auth.API.Repository.Interfaces;
+using Auth.Infrastructure.Filter;
+using Auth.Infrastructure.Paginate;
+using Auth.Infrastructure.Repository.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
 
-namespace Auth.API.Repository.Implement;
+namespace Auth.Infrastructure.Repository.Implement;
 
 public class GenericRepository<T> : IGenericRepository<T> where T : class
 	{

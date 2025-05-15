@@ -1,8 +1,8 @@
 ﻿using Auth.API.Constants;
-using Auth.API.Filter;
 using Auth.API.Payload.Request.Staff;
 using Auth.API.Payload.Response.Staff;
 using Auth.API.Services.Interface;
+using Auth.Infrastructure.Filter;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Auth.API.Controllers;

@@ -1,7 +1,7 @@
 ﻿using System.Linq.Expressions;
-using Auth.API.Models;
+using Auth.Domain.Models;
 
-namespace Auth.API.Filter;
+namespace Auth.Infrastructure.Filter;
 
 public class MemberFilter : IFilter<Member>
 {

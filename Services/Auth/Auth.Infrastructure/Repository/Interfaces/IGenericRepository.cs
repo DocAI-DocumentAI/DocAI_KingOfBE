@@ -4,12 +4,12 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Threading.Tasks;
-using Auth.API.Filter;
-using Auth.API.Paginate;
+using Auth.Infrastructure.Filter;
+using Auth.Infrastructure.Paginate;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
 
-namespace Auth.API.Repository.Interfaces;
+namespace Auth.Infrastructure.Repository.Interfaces;
 
 public abstract class IGenericRepository<T> : IDisposable where T : class
 {

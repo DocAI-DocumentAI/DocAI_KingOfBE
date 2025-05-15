@@ -1,12 +1,12 @@
 ﻿using System.Security.Authentication;
 using Auth.API.Constants;
-using Auth.API.Filter;
-using Auth.API.Models;
-using Auth.API.Paginate;
 using Auth.API.Payload.Request.Staff;
 using Auth.API.Payload.Response.Staff;
-using Auth.API.Repository.Interfaces;
 using Auth.API.Services.Interface;
+using Auth.Domain.Models;
+using Auth.Infrastructure.Filter;
+using Auth.Infrastructure.Paginate;
+using Auth.Infrastructure.Repository.Interfaces;
 using AutoMapper;
 using Microsoft.EntityFrameworkCore;
 

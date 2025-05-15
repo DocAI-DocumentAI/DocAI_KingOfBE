@@ -1,5 +1,5 @@
-﻿using Auth.API.Models;
-using Auth.API.Payload.Response.Staff;
+﻿using Auth.API.Payload.Response.Staff;
+using Auth.Domain.Models;
 using AutoMapper;
 
 namespace Auth.API.Mappers;

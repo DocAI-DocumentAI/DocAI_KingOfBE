@@ -1,7 +1,7 @@
-﻿using Auth.API.Filter;
-using Auth.API.Paginate;
-using Auth.API.Payload.Request.Member;
+﻿using Auth.API.Payload.Request.Member;
 using Auth.API.Payload.Response;
+using Auth.Infrastructure.Filter;
+using Auth.Infrastructure.Paginate;
 
 namespace Auth.API.Services.Interface;
 

@@ -1,12 +1,12 @@
 ﻿using System;
 using System.Security.Cryptography;
 using System.Text;
-using Auth.API.Enums;
-using Auth.API.Models;
+using Auth.Domain.Enums;
+using Auth.Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace Auth.API.Configuration;
+namespace Auth.Domain.ConversationConfiguration;
 
 public class UserConfiguration : IEntityTypeConfiguration<User>
 {

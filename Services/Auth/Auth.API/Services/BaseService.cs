@@ -1,9 +1,6 @@
 ﻿using System;
 using System.Security.Authentication;
 using System.Security.Claims;
-using Auth.API.Enums;
-using Auth.API.Models;
-using Auth.API.Repository.Interfaces;
 using AutoMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -11,6 +8,9 @@ using Microsoft.Extensions.Logging;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.IdentityModel.Tokens;
 using System.Linq;
+using Auth.Domain.Enums;
+using Auth.Domain.Models;
+using Auth.Infrastructure.Repository.Interfaces;
 using Serilog;
 
 namespace Auth.API.Services;

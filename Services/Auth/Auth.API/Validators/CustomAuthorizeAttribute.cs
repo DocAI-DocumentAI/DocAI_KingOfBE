@@ -1,6 +1,6 @@
 ﻿using System.Linq;
-using Auth.API.Enums;
 using Auth.API.Utils;
+using Auth.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 
 namespace Auth.API.Validators;

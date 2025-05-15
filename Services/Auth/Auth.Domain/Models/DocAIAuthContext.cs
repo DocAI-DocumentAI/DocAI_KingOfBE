@@ -3,7 +3,7 @@ using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
-namespace Auth.API.Models
+namespace Auth.Domain.Models
 {
     public class DocAIAuthContext : DbContext
     {

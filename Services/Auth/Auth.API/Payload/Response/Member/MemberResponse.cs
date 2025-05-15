@@ -1,4 +1,6 @@
-﻿using Auth.API.Models;
+﻿
+
+using Auth.Domain.Models;
 
 namespace Auth.API.Payload.Response;
 

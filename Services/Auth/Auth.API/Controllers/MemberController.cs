@@ -1,10 +1,10 @@
 ﻿using Auth.API.Constants;
-using Auth.API.Enums;
-using Auth.API.Filter;
 using Auth.API.Payload.Request.Member;
 using Auth.API.Payload.Response;
 using Auth.API.Services.Interface;
 using Auth.API.Validators;
+using Auth.Domain.Enums;
+using Auth.Infrastructure.Filter;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
