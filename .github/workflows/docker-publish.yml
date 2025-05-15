@@ -32,7 +32,7 @@ jobs:
       - name: Build and push AI.API
         uses: docker/build-push-action@v4
         with:
-          context: .
+          context: Services/AI/AI.API
           file: Services/AI/AI.API/Dockerfile
           push: true
           tags: magicflexing/docai-ai-api:latest
