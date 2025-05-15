@@ -1,4 +1,4 @@
-﻿namespace Auth.API.Middlewares;
+﻿namespace Notification.API.Middlewares;
 
 public class ExceptionHandlingMiddleware
 {

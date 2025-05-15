@@ -7,10 +7,12 @@ EXPOSE 8081
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
-COPY ["Document.API/Document.API.csproj", "Document.API/"]
-RUN dotnet restore "Document.API/Document.API.csproj"
+COPY ["Services/Document/Document.API/Document.API.csproj", "Services/Document/Document.API/"]
+COPY ["Services/Document/Document.Infrastructure/Document.Infrastructure.csproj", "Services/Document/Document.Infrastructure/"]
+COPY ["Services/Document/Document.Domain/Document.Domain.csproj", "Services/Document/Document.Domain/"]
+RUN dotnet restore "Services/Document/Document.API/Document.API.csproj"
 COPY . .
-WORKDIR "/src/Document.API"
+WORKDIR "/src/Services/Document/Document.API"
 RUN dotnet build "./Document.API.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
 FROM build AS publish

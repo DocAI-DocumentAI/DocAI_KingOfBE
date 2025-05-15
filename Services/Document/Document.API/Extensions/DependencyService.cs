@@ -1,4 +1,4 @@
-﻿namespace Auth.API.Extensions;
+﻿namespace Document.API.Extensions;
 
 public class DependencyService
 {

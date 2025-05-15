@@ -2,7 +2,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace Auth.API.Models;
+namespace Auth.Domain.Models;
 
 public class Staff
 {

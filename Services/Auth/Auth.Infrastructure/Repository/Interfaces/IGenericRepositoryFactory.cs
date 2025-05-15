@@ -1,4 +1,4 @@
-﻿namespace Auth.API.Repository.Interfaces;
+﻿namespace Auth.Infrastructure.Repository.Interfaces;
 
 public interface IGenericRepositoryFactory
 {

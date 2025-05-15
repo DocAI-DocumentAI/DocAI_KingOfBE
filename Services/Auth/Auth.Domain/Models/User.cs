@@ -1,8 +1,8 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations;
-using Auth.API.Enums;
+using Auth.Domain.Enums;
 
-namespace Auth.API.Models;
+namespace Auth.Domain.Models;
 
 public class User
 {

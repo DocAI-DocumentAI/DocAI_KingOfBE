@@ -3,7 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 
-namespace Auth.API.Paginate;
+namespace Auth.Infrastructure.Paginate;
 
 public static class PaginateExtension
 {

@@ -2,7 +2,7 @@
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 
-namespace Auth.API.Repository.Interfaces;
+namespace Auth.Infrastructure.Repository.Interfaces;
 
 public interface IUnitOfWork : IGenericRepositoryFactory, IDisposable
 {

@@ -1,4 +1,4 @@
-﻿using Auth.API.Paginate;
+﻿using Auth.Infrastructure.Paginate;
 using AutoMapper;
 
 namespace Auth.API.Mappers;

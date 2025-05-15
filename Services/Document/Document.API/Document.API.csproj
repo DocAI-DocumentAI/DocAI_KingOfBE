@@ -19,17 +19,13 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Content Include="..\.dockerignore">
+      <ProjectReference Include="..\Document.Infrastructure\Document.Infrastructure.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Include="..\..\..\.dockerignore">
         <Link>.dockerignore</Link>
       </Content>
-    </ItemGroup>
-
-    <ItemGroup>
-      <Folder Include="Mappers\" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <ProjectReference Include="..\Document.Infrastructure\Document.Infrastructure.csproj" />
     </ItemGroup>
 
 </Project>

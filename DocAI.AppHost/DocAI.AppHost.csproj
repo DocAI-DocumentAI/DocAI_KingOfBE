@@ -9,6 +9,7 @@
     <Nullable>enable</Nullable>
     <IsAspireHost>true</IsAspireHost>
     <UserSecretsId>e24df526-7368-40ae-8358-4bf0f1a5772c</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,6 +22,12 @@
     <ProjectReference Include="..\Services\Auth\Auth.API\Auth.API.csproj" />
     <ProjectReference Include="..\Services\Document\Document.API\Document.API.csproj" />
     <ProjectReference Include="..\Services\Notification\Notification.API\Notification.API.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\.dockerignore">
+      <Link>.dockerignore</Link>
+    </Content>
   </ItemGroup>
   
 

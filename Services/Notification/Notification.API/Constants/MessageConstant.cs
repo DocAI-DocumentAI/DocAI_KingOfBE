@@ -1,4 +1,4 @@
-﻿namespace Auth.API.Constants;
+﻿namespace Notification.API.Constants;
 
 public class MessageConstant
 {

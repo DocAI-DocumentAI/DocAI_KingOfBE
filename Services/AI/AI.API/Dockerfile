@@ -7,10 +7,12 @@ EXPOSE 8081
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
-COPY ["AI.API/AI.API.csproj", "AI.API/"]
-RUN dotnet restore "AI.API/AI.API.csproj"
+COPY ["Services/AI/AI.API/AI.API.csproj", "Services/AI/AI.API/"]
+COPY ["Services/AI/AI.Infrastructure/AI.Infrastructure.csproj", "Services/AI/AI.Infrastructure/"]
+COPY ["Services/AI/AI.Domain/AI.Domain.csproj", "Services/AI/AI.Domain/"]
+RUN dotnet restore "Services/AI/AI.API/AI.API.csproj"
 COPY . .
-WORKDIR "/src/AI.API"
+WORKDIR "/src/Services/AI/AI.API"
 RUN dotnet build "./AI.API.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
 FROM build AS publish

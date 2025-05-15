@@ -1,7 +1,7 @@
 ﻿using System.Linq.Expressions;
-using Auth.API.Models;
+using Auth.Domain.Models;
 
-namespace Auth.API.Filter;
+namespace Auth.Infrastructure.Filter;
 
 public class MemberFilter : IFilter<Member>
 {
@@ -12,6 +12,7 @@ public class MemberFilter : IFilter<Member>
     public DateTime? CreateAt { get; set; }
     public DateTime? UpdateAt { get; set; }
     public bool? TwoFactorEnabled { get; set; }
+    public string? TwoFactorMethod { get; set; }
 
     public Expression<Func<Member, bool>> ToExpression()
     {
@@ -22,6 +23,7 @@ public class MemberFilter : IFilter<Member>
             (string.IsNullOrEmpty(FullName) || member.User.FullName.Contains(FullName)) &&
             (!CreateAt.HasValue || member.CreateAt.Date == CreateAt.Value.Date) &&
             (!UpdateAt.HasValue || member.UpdateAt.Date == UpdateAt.Value.Date) &&
-            (!TwoFactorEnabled.HasValue || member.User.TwoFactorEnabled == TwoFactorEnabled.Value);          
+            (!TwoFactorEnabled.HasValue || member.User.TwoFactorEnabled == TwoFactorEnabled.Value) &&
+            (string.IsNullOrEmpty(TwoFactorMethod) || member.User.TwoFactorMethod.Contains(TwoFactorMethod));          
     }
 }

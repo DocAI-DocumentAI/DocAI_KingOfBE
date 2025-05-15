@@ -1,4 +1,4 @@
-﻿namespace Auth.API.Middlewares;
+﻿namespace Document.API.Middlewares;
 
 public class ExceptionHandlingMiddleware
 {

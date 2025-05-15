@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
 using System.IO;
 
-namespace Auth.API.Models
+namespace Auth.Domain.Models
 {
     public class DocAIAuthContextFactory : IDesignTimeDbContextFactory<DocAIAuthContext>
     {

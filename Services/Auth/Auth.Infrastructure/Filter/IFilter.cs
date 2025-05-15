@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Linq.Expressions;
 
-namespace Auth.API.Filter;
+namespace Auth.Infrastructure.Filter;
 
 public interface IFilter<T>
 {
