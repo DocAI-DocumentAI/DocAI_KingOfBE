@@ -5,10 +5,7 @@ FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
-# Copy file .csproj với đúng đường dẫn
 COPY ["DocAI.AppHost/DocAI.AppHost.csproj", "DocAI.AppHost/"]
-
-# Copy các project khác theo cấu trúc Services/...
 COPY ["Services/Notification/Notification.API/Notification.API.csproj", "Services/Notification/Notification.API/"]
 COPY ["Services/Notification/Notification.Infrastructure/Notification.Infrastructure.csproj", "Services/Notification/Notification.Infrastructure/"]
 COPY ["Services/Notification/Notification.Domain/Notification.Domain.csproj", "Services/Notification/Notification.Domain/"]
@@ -33,10 +30,9 @@ RUN dotnet build "./DocAI.AppHost.csproj" -c $BUILD_CONFIGURATION -o /app/build
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src/DocAI.AppHost
-RUN dotnet publish -c $BUILD_CONFIGURATION -o ./publish /p:UseAppHost=false
-RUN ls -al ./publish
+RUN dotnet publish "./DocAI.AppHost.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
 
 FROM base AS final
 WORKDIR /app
-COPY --from=publish /src/DocAI.AppHost/publish .
+COPY --from=publish /app/publish .
 ENTRYPOINT ["dotnet", "DocAI.AppHost.dll"]
