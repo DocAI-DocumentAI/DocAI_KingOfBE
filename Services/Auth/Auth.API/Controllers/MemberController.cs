@@ -1,6 +1,7 @@
 ﻿using Auth.API.Constants;
 using Auth.API.Enums;
 using Auth.API.Filter;
+using Auth.API.Payload.Request.Member;
 using Auth.API.Payload.Response;
 using Auth.API.Services.Interface;
 using Auth.API.Validators;
@@ -41,7 +42,25 @@ public class MemberController : ControllerBase
     [CustomAuthorize(RoleEnum.Manager,RoleEnum.Staff)]
     public async Task<IActionResult> GetAllMembersAsync(int page = 1, int size =  30, [FromQuery] MemberFilter? filter = null, string? sortBy = null, bool isAsc = true)
     {
-        var response = await _memberService.GetAllMemberAsync(page, size, filter, sortBy, isAsc);
+        var response = await _memberService.GetAllMembersAsync(page, size, filter, sortBy, isAsc);
         return Ok(response);
     }
+
+    [HttpPatch(ApiEndPointConstant.Member.UpdateMember)]
+    [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> UpdateMembersAsync(UpdateMemberRequest updateMemberRequest)
+    {
+        var response = await _memberService.UpdateMemberAsync(updateMemberRequest);
+        if (response == null)
+        {
+            _logger.LogError($"Update member failed");
+            return Problem(MessageConstant.Member.UpdateFail);
+        }
+        _logger.LogInformation($"Update member successful");
+        return Ok(response);
+    }
+    
 }

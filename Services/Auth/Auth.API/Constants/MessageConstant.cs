@@ -16,6 +16,13 @@ public class MessageConstant
     public class Member
     {
         public const string MemberNotFound = "Member không tồn tại";
+        public const string UpdateFail = "Cập nhật member thất bại";
+    }
+    
+    public class Staff
+    {
+        public const string StaffNotFound = "Staff không tồn tại";
+        public const string UpdateFail = "Cập nhật staff thất bại";
     }
     
     public class OTP

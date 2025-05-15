@@ -64,6 +64,7 @@ public static class DependencyService
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRedisService, RedisService>();
         services.AddScoped<IMemberService, MemberService>();
+        services.AddScoped<IStaffService, StaffService>();
         return services;
     }
     
