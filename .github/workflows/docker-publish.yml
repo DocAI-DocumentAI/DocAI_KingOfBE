@@ -32,8 +32,8 @@ jobs:
       - name: Build and push AI.API
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: AI.API/Dockerfile
+          context: Services/AI/AI.API
+          file: Services/AI/AI.API/Dockerfile
           push: true
           tags: magicflexing/docai-ai-api:latest
 
@@ -41,8 +41,8 @@ jobs:
       - name: Build and push Auth.API
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: Auth.API/Dockerfile
+          context: Services/Auth/Auth.API
+          file: Services/Auth/Auth.API/Dockerfile
           push: true
           tags: magicflexing/docai-auth-api:latest
 
@@ -50,8 +50,8 @@ jobs:
       - name: Build and push Document.API
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: Document.API/Dockerfile
+          context: Services/Document/Document.API
+          file: Services/Document/Document.API/Dockerfile
           push: true
           tags: magicflexing/docai-document-api:latest
 
@@ -59,8 +59,8 @@ jobs:
       - name: Build and push Notification.API
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: Notification.API/Dockerfile
+          context: Services/Notification/Notification.API
+          file: Services/Notification/Notification.API/Dockerfile
           push: true
           tags: magicflexing/docai-notification-api:latest
 
@@ -70,6 +70,15 @@ jobs:
         with:
           context: .
           file: ApiGateway/Dockerfile
+          push: true
+          tags: magicflexing/docai-gateway:latest
+          
+      # Build and push App Host
+      - name: Build and push App Host
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: DocAI.AppHost/Dockerfile
           push: true
           tags: magicflexing/docai-gateway:latest
 
