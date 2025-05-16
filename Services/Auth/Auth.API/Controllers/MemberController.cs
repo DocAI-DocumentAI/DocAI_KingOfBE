@@ -28,7 +28,6 @@ public class MemberController : ControllerBase
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status500InternalServerError)]
-    [Authorize]
     public async Task<IActionResult> GetMemberInformationAsync()
     {
         var response = await _memberService.GetInformationOfMemberAsync();
