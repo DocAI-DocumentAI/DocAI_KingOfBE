@@ -35,6 +35,7 @@ public class MemberController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Member.Members)]
+    [ApiExplorerSettings(IgnoreApi = false)] // False hiển thị trên swagger, true không hiểm thị trên swagger nhưng api vẫn hoạt đông nếu biết được endpoint
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status500InternalServerError)]
