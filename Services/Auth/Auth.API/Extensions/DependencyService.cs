@@ -7,6 +7,7 @@ using Auth.Domain.Models;
 using Auth.Infrastructure.Repository.Implement;
 using Auth.Infrastructure.Repository.Interfaces;
 using DOCA.API.Services.Implement;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -65,6 +66,17 @@ public static class DependencyService
         services.AddScoped<IRedisService, RedisService>();
         services.AddScoped<IMemberService, MemberService>();
         services.AddScoped<IStaffService, StaffService>();
+        services.AddMassTransit(x =>
+        {
+            x.UsingRabbitMq((context, cfg) =>
+            {
+                cfg.Host("rabbitmq://localhost", h =>
+                {
+                    h.Username("guest");
+                    h.Password("guest");
+                });
+            });
+        });
         return services;
     }
     

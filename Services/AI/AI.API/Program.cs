@@ -3,6 +3,8 @@ using System.Linq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using NSwag;
+using NSwag.Generation.Processors.Security;
 using Scalar.AspNetCore;
 
 using Serilog;
@@ -31,49 +33,36 @@ try
             theme: TemplateTheme.Code)));
 
     builder.Services.AddOpenApi();
+    
+    builder.Services.AddOpenApiDocument(options =>
+    {
+        options.Title = "DocAI Document API";
+        options.Version = "v1";
+
+        options.AddSecurity("Bearer", new OpenApiSecurityScheme
+        {
+            Type = OpenApiSecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            Name = "Authorization",
+            In = OpenApiSecurityApiKeyLocation.Header,
+        });
+
+        options.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("Bearer"));
+    });
 
     var app = builder.Build();
 
     if (app.Environment.IsDevelopment())
     {
         app.MapOpenApi();
-
-        app.UseSwaggerUI(options =>
-        {
-            options.SwaggerEndpoint("/openapi/v1.json", "AI API V1");
-        });
-
-        app.UseReDoc(options =>
-        {
-            options.SpecUrl("/openapi/v1.json");
-        });
-
-        app.MapScalarApiReference();
+        app.UseOpenApi();
+        app.UseSwaggerUi();
     }
 
     app.UseHttpsRedirection();
     
     app.UseSerilogRequestLogging();
-
-    var summaries = new[]
-    {
-        "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-    };
-
-    app.MapGet("/api/Ai/weatherforecast", () =>
-        {
-            var forecast = Enumerable.Range(1, 5).Select(index =>
-                    new WeatherForecast
-                    (
-                        DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-                        Random.Shared.Next(-20, 55),
-                        summaries[Random.Shared.Next(summaries.Length)]
-                    ))
-                .ToArray();
-            return forecast;
-        })
-        .WithName("GetWeatherForecast");
-
     app.Run();
 
     Log.Information("Stopped cleanly");
@@ -88,9 +77,4 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
-}
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
 }
