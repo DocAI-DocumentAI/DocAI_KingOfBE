@@ -1,4 +1,5 @@
 ﻿using Auth.API.Constants;
+using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.Member;
 using Auth.API.Payload.Response;
 using Auth.API.Services.Interface;
@@ -28,6 +29,7 @@ public class MemberController : ControllerBase
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status500InternalServerError)]
+    [Authorize]
     public async Task<IActionResult> GetMemberInformationAsync()
     {
         var response = await _memberService.GetInformationOfMemberAsync();
@@ -62,5 +64,22 @@ public class MemberController : ControllerBase
         _logger.LogInformation($"Update member successful");
         return Ok(response);
     }
-    
+
+    [HttpPatch(ApiEndPointConstant.Member.ResetPassword)]
+    [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status500InternalServerError)]
+    [Authorize]
+    public async Task<IActionResult> ResetPasswordAsync(ResetPasswordRequest resetPasswordRequest)
+    {
+        var response = await _memberService.ResetPasswordAsync(resetPasswordRequest);
+        if (response == null)
+        {
+            _logger.LogError($"Reset password failed");
+            return Problem(MessageConstant.Member.ResetPasswordFail);
+        }
+        _logger.LogInformation($"Reset password successful");
+        return Ok(response);
+    }
 }

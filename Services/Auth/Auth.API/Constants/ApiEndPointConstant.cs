@@ -20,6 +20,7 @@ public class ApiEndPointConstant
       public const string Members = ApiEndpoint + "/members";
       public const string MemberInformation = ApiEndpoint + "/member";
       public const string UpdateMember = ApiEndpoint + "/update/member";
+      public const string ResetPassword = ApiEndpoint + "/reset-password";
     }
 
     public class Staff
