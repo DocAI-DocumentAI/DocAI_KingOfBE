@@ -5,6 +5,7 @@ using Auth.API.Services.Interface;
 using Auth.API.Validators;
 using Auth.Domain.Enums;
 using Auth.Infrastructure.Filter;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Auth.API.Controllers;
@@ -37,6 +38,7 @@ public class StaffController : ControllerBase
     [ProducesResponseType(typeof(StaffResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(StaffResponse), StatusCodes.Status500InternalServerError)]
     [CustomAuthorize(RoleEnum.Manager, RoleEnum.Staff)]
+    [Authorize]
     public async Task<IActionResult> GetStaffInformationAsync()
     {
         var response = await _staffService.GetStaffInformationAsync();

@@ -73,8 +73,9 @@ public class StaffService : BaseService<Staff> , IStaffService
         staff.User.TwoFactorEnabled = request.TwoFactorEnabled.HasValue ? request.TwoFactorEnabled.Value : staff.User.TwoFactorEnabled;
         staff.User.TwoFactorMethod = string.IsNullOrEmpty(request.TwoFactorMethod) ? staff.User.TwoFactorMethod : request.TwoFactorMethod;
         staff.Type = string.IsNullOrEmpty(request.Type) ? staff.Type : request.Type;
-        staff.UpdateAt = DateTime.Now;
-        staff.User.UpdateAt = DateTime.Now;
+        staff.UpdateAt = DateTime.UtcNow;
+        staff.User.UpdateAt = DateTime.UtcNow;
+        _unitOfWork.GetRepository<User>().UpdateAsync(staff.User);
         _unitOfWork.GetRepository<Staff>().UpdateAsync(staff);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;
         StaffResponse response = null;
