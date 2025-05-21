@@ -10,4 +10,13 @@
       <ProjectReference Include="..\AI.Domain\AI.Domain.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+      <Folder Include="FIlter\" />
+      <Folder Include="Paginate\" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="AutoMapper" Version="14.0.0" />
+    </ItemGroup>
+
 </Project>
