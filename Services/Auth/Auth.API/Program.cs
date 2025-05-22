@@ -86,9 +86,11 @@ try
 
     // if (app.Environment.IsDevelopment())
     // {
-        app.MapOpenApi();
-        app.UseOpenApi();
-        app.UseSwaggerUi();
+    app.UseOpenApi();
+    app.UseSwaggerUi(options =>
+    {
+        options.Path = "/swagger"; 
+    });
     // }
     
     app.UseCors(CorConstant.PolicyName); 
