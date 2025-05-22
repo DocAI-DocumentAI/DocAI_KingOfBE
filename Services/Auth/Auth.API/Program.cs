@@ -84,12 +84,12 @@ try
 
     var app = builder.Build();
 
-    if (app.Environment.IsDevelopment())
-    {
+    // if (app.Environment.IsDevelopment())
+    // {
         app.MapOpenApi();
         app.UseOpenApi();
         app.UseSwaggerUi();
-    }
+    // }
     
     app.UseCors(CorConstant.PolicyName); 
     app.UseHttpsRedirection();
