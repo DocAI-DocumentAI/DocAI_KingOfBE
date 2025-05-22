@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using Document.API.Extensions;
+using Document.API.Middlewares;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -31,7 +33,13 @@ try
             theme: TemplateTheme.Code)));
 
     builder.Services.AddOpenApi();
-
+    builder.Services.AddDatabase();
+    builder.Services.AddUnitOfWork();
+    builder.Services.AddServices(builder.Configuration);
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddControllers();
     var app = builder.Build();
 
     if (app.Environment.IsDevelopment())
@@ -55,24 +63,13 @@ try
     
     app.UseSerilogRequestLogging();
 
-    var summaries = new[]
-    {
-        "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-    };
+    app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-    app.MapGet("/api/document/weatherforecast", () =>
-        {
-            var forecast = Enumerable.Range(1, 5).Select(index =>
-                    new WeatherForecast
-                    (
-                        DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-                        Random.Shared.Next(-20, 55),
-                        summaries[Random.Shared.Next(summaries.Length)]
-                    ))
-                .ToArray();
-            return forecast;
-        })
-        .WithName("GetWeatherForecast");
+    app.MapControllers();
+
+    app.UseSerilogRequestLogging();
+
+    app.UseHttpsRedirection();
 
     app.Run();
 
