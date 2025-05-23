@@ -72,7 +72,7 @@ try
     // if (app.Environment.IsDevelopment())
     // {
         app.MapOpenApi();
-
+        app.UseOpenApi();
         app.UseSwaggerUI(options =>
         {
             options.RoutePrefix = "swagger"; 
