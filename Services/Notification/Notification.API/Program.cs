@@ -36,7 +36,7 @@ try
     
     builder.Services.AddOpenApiDocument(options =>
     {
-        options.Title = "DocAI Document API";
+        options.Title = "DocAI Notification API";
         options.Version = "v1";
 
         options.AddSecurity("Bearer", new OpenApiSecurityScheme
@@ -57,7 +57,13 @@ try
     {
         app.MapOpenApi();
         app.UseOpenApi();
-        app.UseSwaggerUi();
+        app.UseSwaggerUI(options =>
+        {
+            options.RoutePrefix = "swagger"; 
+            options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1"); 
+        });
+
+        // app.UseSwaggerUi();
         
         // app.UseSwaggerUI(options =>
         // {
