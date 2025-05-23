@@ -54,11 +54,15 @@ try
 
     var app = builder.Build();
 
-    if (app.Environment.IsDevelopment())
-    {
+    // if (app.Environment.IsDevelopment())
+    // {
         app.MapOpenApi();
         app.UseOpenApi();
-        app.UseSwaggerUi();
+        app.UseSwaggerUI(options =>
+        {
+            options.RoutePrefix = "swagger"; 
+            options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1"); 
+        });
 
         // app.UseSwaggerUI(options =>
         // {
@@ -71,7 +75,7 @@ try
         // });
         //
         // app.MapScalarApiReference();
-    }
+    // }
 
     app.UseHttpsRedirection();
     
