@@ -7,7 +7,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Models;
 using NSwag;
-using NSwag.AspNetCore;
 using NSwag.Generation.Processors.Security;
 using Scalar.AspNetCore;
 using Serilog;
@@ -88,10 +87,10 @@ try
     // if (app.Environment.IsDevelopment())
     // {
     app.UseOpenApi();
-    app.UseSwaggerUi(options =>
+    app.UseSwaggerUI(options =>
     {
-        options.Path = "/auth/swagger"; // Đường dẫn Swagger UI trên backend, khớp với Nginx
-        options.DocumentPath = "/auth/swagger/v1/swagger.json"; // Đường dẫn tài liệu OpenAPI trên backend
+        options.RoutePrefix = "swagger"; 
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1"); 
     });
     // }
     
