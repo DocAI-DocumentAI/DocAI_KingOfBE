@@ -13,7 +13,7 @@ builder.Services.AddReverseProxy()
 // Register the NSwag services
 builder.Services.AddOpenApiDocument(options =>
 {
-    options.Title = "DocAI Auth API";
+    options.Title = "DocAI API Gateway";
     options.Version = "v1";
 
     options.AddSecurity("Bearer", new OpenApiSecurityScheme
