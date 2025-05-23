@@ -87,9 +87,10 @@ try
     // if (app.Environment.IsDevelopment())
     // {
     app.UseOpenApi();
-    app.UseSwaggerUi(options =>
+    app.UseSwaggerUI(options =>
     {
-        options.Path = "/swagger"; 
+        options.RoutePrefix = "swagger"; 
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1"); 
     });
     // }
     
