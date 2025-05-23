@@ -1,9 +1,11 @@
 ﻿using System.Reflection;
 using System.Security.Authentication;
 using Auth.API.Constants;
+using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.Member;
 using Auth.API.Payload.Response;
 using Auth.API.Services.Interface;
+using Auth.API.Utils;
 using Auth.Domain.Models;
 using Auth.Infrastructure.Paginate;
 using Auth.Infrastructure.Repository.Interfaces;
@@ -78,11 +80,44 @@ public class MemberService : BaseService<MemberService>, IMemberService
         member.User.Phone = string.IsNullOrEmpty(updateMemberRequest.Phone) ? member.User.Phone : updateMemberRequest.Phone;
         member.User.TwoFactorEnabled = updateMemberRequest.TwoFactorEnabled.HasValue ? updateMemberRequest.TwoFactorEnabled.Value : member.User.TwoFactorEnabled;
         member.User.TwoFactorMethod = string.IsNullOrEmpty(updateMemberRequest.TwoFactorMethod) ? member.User.TwoFactorMethod : updateMemberRequest.TwoFactorMethod;
-        member.UpdateAt = DateTime.Now;
-        member.User.UpdateAt = DateTime.Now;
+        member.UpdateAt = DateTime.UtcNow;
+        member.User.UpdateAt = DateTime.UtcNow;
+        _unitOfWork.GetRepository<User>().UpdateAsync(member.User);
         _unitOfWork.GetRepository<Member>().UpdateAsync(member);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;
         MemberResponse response = new MemberResponse();
+        if(isSuccess) response = _mapper.Map<MemberResponse>(member);
+        return response;
+    }
+
+    public async Task<MemberResponse> ResetPasswordAsync(ResetPasswordRequest resetPasswordRequest)
+    {
+        var userId = GetUserIdFromJwt();
+        if(userId == null)
+            throw new AuthenticationException(MessageConstant.User.UserNotFound);
+        if (string.IsNullOrEmpty(resetPasswordRequest.passwordOld))
+            throw new BadHttpRequestException(MessageConstant.Member.PasswordOldNotNull);
+        if(string.IsNullOrEmpty(resetPasswordRequest.passwordNew))
+            throw new BadHttpRequestException(MessageConstant.Member.PasswordNewNotNull);
+        if (string.IsNullOrEmpty(resetPasswordRequest.passwordConfirm))
+            throw new BadHttpRequestException(MessageConstant.Member.PasswordConfirmNotNull);
+        var member = await _unitOfWork.GetRepository<Member>().SingleOrDefaultAsync(
+            predicate: m => m.UserId == userId,
+            include: m => m.Include(u => u.User)
+        );
+        if(member == null)
+            throw new BadHttpRequestException(MessageConstant.Member.MemberNotFound);
+        if (!PasswordUtil.VerifyPassword(resetPasswordRequest.passwordOld, member.User.Password))
+            throw new BadHttpRequestException(MessageConstant.Member.PasswordOldWrong);
+        if (resetPasswordRequest.passwordNew != resetPasswordRequest.passwordConfirm)
+            throw new BadHttpRequestException(MessageConstant.Member.PasswordConfirmWrong);
+        member.User.Password = PasswordUtil.HashPassword(resetPasswordRequest.passwordNew);
+        member.UpdateAt = DateTime.UtcNow;
+        member.User.UpdateAt = DateTime.UtcNow;
+        _unitOfWork.GetRepository<User>().UpdateAsync(member.User);
+        _unitOfWork.GetRepository<Member>().UpdateAsync(member);
+        var isSuccess = await _unitOfWork.CommitAsync() > 0;
+        MemberResponse response = null;
         if(isSuccess) response = _mapper.Map<MemberResponse>(member);
         return response;
     }

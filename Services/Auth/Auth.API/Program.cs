@@ -67,7 +67,7 @@ try
     // Register the NSwag services
     builder.Services.AddOpenApiDocument(options =>
     {
-        options.Title = "DocAI System";
+        options.Title = "DocAI Auth API";
         options.Version = "v1";
 
         options.AddSecurity("Bearer", new OpenApiSecurityScheme
@@ -84,24 +84,15 @@ try
 
     var app = builder.Build();
 
-    if (app.Environment.IsDevelopment())
+    // if (app.Environment.IsDevelopment())
+    // {
+    app.UseOpenApi();
+    app.UseSwaggerUI(options =>
     {
-        app.MapOpenApi();
-        app.UseOpenApi();
-        app.UseSwaggerUi();
-
-        // app.UseSwaggerUI(options =>
-        // {
-        //     options.SwaggerEndpoint("/openapi/v1.json", "Auth API V1");
-        // });
-        //
-        // app.UseReDoc(options =>
-        // {
-        //     options.SpecUrl("/openapi/v1.json");
-        // });
-        //
-        // app.MapScalarApiReference();
-    }
+        options.RoutePrefix = "swagger"; 
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1"); 
+    });
+    // }
     
     app.UseCors(CorConstant.PolicyName); 
     app.UseHttpsRedirection();

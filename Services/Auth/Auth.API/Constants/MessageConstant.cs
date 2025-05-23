@@ -17,6 +17,12 @@ public class MessageConstant
     {
         public const string MemberNotFound = "Member không tồn tại";
         public const string UpdateFail = "Cập nhật member thất bại";
+        public const string ResetPasswordFail = "Reset password member thất bại";
+        public const string PasswordOldNotNull = "Password cũ không để trống";
+        public const string PasswordNewNotNull = "Password mới không để trống";
+        public const string PasswordConfirmNotNull = "Comfirm password để trống";
+        public const string PasswordOldWrong = "Password cũ không đúng";
+        public const string PasswordConfirmWrong = "Confirm password không đúng";
     }
     
     public class Staff

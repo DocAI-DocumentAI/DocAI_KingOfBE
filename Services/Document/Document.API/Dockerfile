@@ -22,4 +22,4 @@ RUN dotnet publish "./Document.API.csproj" -c $BUILD_CONFIGURATION -o /app/publi
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "Document.API.dll"]
+ENTRYPOINT ["dotnet", "Document.API.dll", "--urls", "http://0.0.0.0:5002"]
