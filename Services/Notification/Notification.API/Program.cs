@@ -53,8 +53,8 @@ try
 
     var app = builder.Build();
 
-    if (app.Environment.IsDevelopment())
-    {
+    // if (app.Environment.IsDevelopment())
+    // {
         app.MapOpenApi();
         app.UseOpenApi();
         app.UseSwaggerUI(options =>
@@ -76,7 +76,7 @@ try
         // });
         //
         // app.MapScalarApiReference();
-    }
+    // }
 
     app.UseHttpsRedirection();
     
