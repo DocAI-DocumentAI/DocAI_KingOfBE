@@ -82,7 +82,7 @@ jobs:
           host: ${{ env.VPS_HOST }}
           username: ${{ env.VPS_USERNAME }}
           password: ${{ env.VPS_PASSWORD }}
-          source: "docker-compose.yml"  
+          source: "DocAI/docker-compose.yml"  
           target: "~/DocAI"  
 
       - name: Deploy to VPS
