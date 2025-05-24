@@ -82,6 +82,7 @@ jobs:
           script: |
             cd ~/DocAI
             echo "${{ env.DOCKER_HUB_ACCESS_TOKEN }}" | docker login -u "${{ env.DOCKER_HUB_USERNAME }}" --password-stdin
+            docker-compose down --rmi all --volumes --remove-orphans
+            docker system prune -a
             docker-compose pull
             docker-compose up -d
-            docker system prune -f
