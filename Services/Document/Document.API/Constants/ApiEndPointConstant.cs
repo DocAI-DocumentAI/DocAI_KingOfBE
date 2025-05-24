@@ -7,15 +7,4 @@ public class ApiEndPointConstant
     public const string RootEndPoint = "/api";
     public const string ApiVersion = "/document";
     public const string ApiEndpoint = RootEndPoint + ApiVersion;
-
-    public class Document
-    {
-        //public const string GetAll = ApiEndpoint + "/documents";
-        //public const string GetById = ApiEndpoint + "/documents/{id}";
-        //public const string Create = ApiEndpoint + "/documents";
-        public const string Upload = ApiEndpoint + "/documents";
-        public const string GetDocument = ApiEndpoint + "/documents/{id}";
-        public const string UpdateMetaData = ApiEndpoint + "/documents/{id}";
-        public const string Delete = ApiEndpoint + "/documents/{id}";
-    }
 }

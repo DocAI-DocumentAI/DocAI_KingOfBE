@@ -6,6 +6,8 @@ using AI.API.Services.Interface;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using NSwag;
+using NSwag.Generation.Processors.Security;
 using Scalar.AspNetCore;
 
 using Serilog;
@@ -44,28 +46,45 @@ try
                   .AllowAnyHeader();
         });
     });
-    // Add services
+    
+    // Register the NSwag services
+    builder.Services.AddOpenApiDocument(options =>
+    {
+        options.Title = "DocAI Auth API";
+        options.Version = "v1";
+
+        options.AddSecurity("Bearer", new OpenApiSecurityScheme
+        {
+            Type = OpenApiSecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            Name = "Authorization",
+            In = OpenApiSecurityApiKeyLocation.Header,
+        });
+
+        options.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("Bearer"));
+    });
 
     builder.Services.AddOpenApi();
 
     var app = builder.Build();
 
-    if (app.Environment.IsDevelopment())
-    {
+    // if (app.Environment.IsDevelopment())
+    // {
         app.MapOpenApi();
-
+        app.UseOpenApi();
         app.UseSwaggerUI(options =>
         {
-            options.SwaggerEndpoint("/openapi/v1.json", "AI API V1");
+            options.RoutePrefix = "swagger"; 
+            options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1"); 
         });
-
-        app.UseReDoc(options =>
-        {
-            options.SpecUrl("/openapi/v1.json");
-        });
-
-        app.MapScalarApiReference();
-    }
+        // app.UseReDoc(options =>
+        // {
+        //     options.SpecUrl("/openapi/v1.json");
+        // });
+        //
+        // app.MapScalarApiReference();
+    // }
 
     app.UseHttpsRedirection();
     app.UseCors("AllowAll");

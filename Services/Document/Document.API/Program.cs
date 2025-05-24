@@ -1,7 +1,5 @@
 using System;
 using System.Linq;
-using Document.API.Extensions;
-using Document.API.Middlewares;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -36,6 +34,7 @@ try
 
     builder.Services.AddOpenApi();
 
+
     builder.Services.AddDatabase();
     builder.Services.AddUnitOfWork();
     builder.Services.AddServices(builder.Configuration);
@@ -43,6 +42,7 @@ try
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddControllers();
+
     
     // Register the NSwag services
     builder.Services.AddOpenApiDocument(options =>
@@ -90,16 +90,6 @@ try
     app.UseHttpsRedirection();
     
     app.UseSerilogRequestLogging();
-
-
-    app.UseMiddleware<ExceptionHandlingMiddleware>();
-
-    app.MapControllers();
-
-    app.UseSerilogRequestLogging();
-
-    app.UseHttpsRedirection();
-
 
     app.Run();
 

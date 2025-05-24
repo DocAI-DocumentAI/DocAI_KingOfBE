@@ -3,20 +3,19 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Threading.Tasks;
-using Document.Domain.Context;
 using Document.Infrastructure.Repository.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Document.Infrastructure.Repository.Implement;
 
-public class UnitOfWork : IUnitOfWork
+public class UnitOfWork<TContext> : IUnitOfWork<TContext> where TContext : DbContext
 {
-    private readonly DocAIDocumentContext _context;
+    public TContext Context { get; }
     private Dictionary<Type, object> _repositories;
 
-    public UnitOfWork(DocAIDocumentContext context)
+    public UnitOfWork(TContext context)
     {
-        _context = context;
+        Context = context;
     }
 
     public IGenericRepository<TEntity> GetRepository<TEntity>() where TEntity : class
@@ -27,31 +26,31 @@ public class UnitOfWork : IUnitOfWork
             return (IGenericRepository<TEntity>)repository;
         }
 
-        repository = new GenericRepository<TEntity>(_context);
+        repository = new GenericRepository<TEntity>(Context);
         _repositories.Add(typeof(TEntity), repository);
         return (IGenericRepository<TEntity>)repository;
     }
 
     public void Dispose()
     {
-        _context?.Dispose();
+        Context?.Dispose();
     }
 
     public int Commit()
     {
         TrackChanges();
-        return _context.SaveChanges();
+        return Context.SaveChanges();
     }
 
     public async Task<int> CommitAsync()
     {
         TrackChanges();
-        return await _context.SaveChangesAsync();
+        return await Context.SaveChangesAsync();
     }
 
     private void TrackChanges()
     {
-        var validationErrors = _context.ChangeTracker.Entries<IValidatableObject>()
+        var validationErrors = Context.ChangeTracker.Entries<IValidatableObject>()
             .SelectMany(e => e.Entity.Validate(null))
             .Where(e => e != ValidationResult.Success)
             .ToArray();
