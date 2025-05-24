@@ -73,25 +73,14 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-        
-      - name: List files in root
-        run: ls -al
-
-      - name: List files in DocAI
-        run: ls -al DocAI
-
-      - name: Check docker-compose file
-        run: cat DocAI/docker-compose.yml
       - name: Copy docker-compose file to VPS
         uses: appleboy/scp-action@master
         with:
           host: ${{ env.VPS_HOST }}
           username: ${{ env.VPS_USERNAME }}
           password: ${{ env.VPS_PASSWORD }}
-          source: "DocAI/docker-compose.yml"  
-          target: "~/DocAI"  
+          source: "compose.yaml" 
+          target: "~/DocAI"
 
       - name: Deploy to VPS
         uses: appleboy/ssh-action@master
