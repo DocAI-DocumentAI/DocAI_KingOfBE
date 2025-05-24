@@ -9,7 +9,6 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.4"/>
-        <PackageReference Include="NSwag.AspNetCore" Version="14.4.0" />
         <PackageReference Include="Scalar.AspNetCore" Version="2.2.1" />
         <PackageReference Include="Swashbuckle.AspNetCore.ReDoc" Version="8.1.1" />
         <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="8.1.1" />

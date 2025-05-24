@@ -20,4 +20,4 @@ RUN dotnet publish "./ApiGateway.csproj" -c $BUILD_CONFIGURATION -o /app/publish
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "ApiGateway.dll","--urls", "http://0.0.0.0:5000"]
+ENTRYPOINT ["dotnet", "ApiGateway.dll"]
