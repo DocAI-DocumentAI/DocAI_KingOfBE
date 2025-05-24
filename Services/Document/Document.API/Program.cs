@@ -43,9 +43,6 @@ try
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddControllers();
-
-
-    if (app.Environment.IsDevelopment())
     
     // Register the NSwag services
     builder.Services.AddOpenApiDocument(options =>
