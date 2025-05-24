@@ -43,7 +43,7 @@ try
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddControllers();
-    var app = builder.Build();
+
 
     if (app.Environment.IsDevelopment())
     
