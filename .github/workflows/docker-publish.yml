@@ -73,15 +73,6 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Copy docker-compose file to VPS
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ env.VPS_HOST }}
-          username: ${{ env.VPS_USERNAME }}
-          password: ${{ env.VPS_PASSWORD }}
-          source: "compose.yaml" 
-          target: "~/DocAI"
-
       - name: Deploy to VPS
         uses: appleboy/ssh-action@master
         with:
