@@ -14,63 +14,63 @@ env:
   VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+  # build-and-push:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@v2
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ env.DOCKER_HUB_USERNAME }}
-          password: ${{ env.DOCKER_HUB_ACCESS_TOKEN }}
+  #     - name: Login to Docker Hub
+  #       uses: docker/login-action@v2
+  #       with:
+  #         username: ${{ env.DOCKER_HUB_USERNAME }}
+  #         password: ${{ env.DOCKER_HUB_ACCESS_TOKEN }}
 
-      - name: Build and push AI.API
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: Services/AI/AI.API/Dockerfile
-          push: true
-          tags: magicflexing/docai-ai-api:latest
+  #     - name: Build and push AI.API
+  #       uses: docker/build-push-action@v4
+  #       with:
+  #         context: .
+  #         file: Services/AI/AI.API/Dockerfile
+  #         push: true
+  #         tags: magicflexing/docai-ai-api:latest
 
-      - name: Build and push Auth.API
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: Services/Auth/Auth.API/Dockerfile
-          push: true
-          tags: magicflexing/docai-auth-api:latest
+  #     - name: Build and push Auth.API
+  #       uses: docker/build-push-action@v4
+  #       with:
+  #         context: .
+  #         file: Services/Auth/Auth.API/Dockerfile
+  #         push: true
+  #         tags: magicflexing/docai-auth-api:latest
 
-      - name: Build and push Document.API
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: Services/Document/Document.API/Dockerfile
-          push: true
-          tags: magicflexing/docai-document-api:latest
+  #     - name: Build and push Document.API
+  #       uses: docker/build-push-action@v4
+  #       with:
+  #         context: .
+  #         file: Services/Document/Document.API/Dockerfile
+  #         push: true
+  #         tags: magicflexing/docai-document-api:latest
 
-      - name: Build and push Notification.API
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: Services/Notification/Notification.API/Dockerfile
-          push: true
-          tags: magicflexing/docai-notification-api:latest
+  #     - name: Build and push Notification.API
+  #       uses: docker/build-push-action@v4
+  #       with:
+  #         context: .
+  #         file: Services/Notification/Notification.API/Dockerfile
+  #         push: true
+  #         tags: magicflexing/docai-notification-api:latest
 
-      - name: Build and push API Gateway
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: ApiGateway/Dockerfile
-          push: true
-          tags: magicflexing/docai-gateway:latest
+  #     - name: Build and push API Gateway
+  #       uses: docker/build-push-action@v4
+  #       with:
+  #         context: .
+  #         file: ApiGateway/Dockerfile
+  #         push: true
+  #         tags: magicflexing/docai-gateway:latest
 
   deploy:
-    needs: build-and-push
+    # needs: build-and-push
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to VPS
@@ -80,14 +80,21 @@ jobs:
           username: ${{ env.VPS_USERNAME }}
           password: ${{ env.VPS_PASSWORD }}
           script: |
-            # Đặt biến môi trường locale
+            set -eo pipefail
             export LANG=C.UTF-8
             export LC_ALL=C.UTF-8
             export PYTHONIOENCODING=utf-8
 
             cd ~/DocAI
-            echo "${{ env.DOCKER_HUB_ACCESS_TOKEN }}" | docker login -u "${{ env.DOCKER_HUB_USERNAME }}" --password-stdin
-            docker-compose down --rmi all --volumes --remove-orphans
-            docker system prune -a --force
+
+            # Chuyển hướng stdout và stderr của docker login sang /dev/null
+            echo "${{ env.DOCKER_HUB_ACCESS_TOKEN }}" | docker login -u "${{ env.DOCKER_HUB_USERNAME }}" --password-stdin > /dev/null 2>&1
+
+            # Chuyển hướng stdout và stderr của docker-compose down sang /dev/null
+            docker-compose down --rmi all --volumes --remove-orphans > /dev/null 2>&1
+            
+            # Chuyển hướng stdout và stderr của docker system prune sang /dev/null
+            docker system prune -a --force > /dev/null 2>&1
+            
             docker-compose pull
             docker-compose up -d
