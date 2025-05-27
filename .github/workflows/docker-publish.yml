@@ -83,6 +83,7 @@ jobs:
             # Đặt biến môi trường locale
             export LANG=C.UTF-8
             export LC_ALL=C.UTF-8
+            export PYTHONIOENCODING=utf-8
 
             cd ~/DocAI
             echo "${{ env.DOCKER_HUB_ACCESS_TOKEN }}" | docker login -u "${{ env.DOCKER_HUB_USERNAME }}" --password-stdin
