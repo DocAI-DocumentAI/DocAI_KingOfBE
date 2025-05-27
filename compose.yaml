@@ -11,10 +11,18 @@
       - "5001:5001"
     restart: always
 
-  apigateway:
+  # API Gateway Instance 1
+  apigateway1:
     image: magicflexing/docai-gateway:latest
     ports:
-      - "5000:5000"
+      - "5000:5000" # Ánh xạ cổng 5000 của container ra cổng 5000 của host
+    restart: always
+
+  # API Gateway Instance 2
+  apigateway2:
+    image: magicflexing/docai-gateway:latest
+    ports:
+      - "5005:5000" # Ánh xạ cổng 5000 của container ra cổng 5005 của host
     restart: always
 
   document.api:
@@ -28,7 +36,8 @@
     ports:
       - "5004:5004"
     restart: always
-    
+
+
 #  apphost:
 #    image: magicflexing/docai-apphost:latest
 #    ports:
