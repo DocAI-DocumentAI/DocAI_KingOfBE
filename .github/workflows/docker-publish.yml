@@ -85,16 +85,28 @@ jobs:
             export LC_ALL=C.UTF-8
             export PYTHONIOENCODING=utf-8
 
+            echo "Changing directory to DocAI..."
             cd ~/DocAI
+            echo "Directory changed."
 
-            # Chuyển hướng stdout và stderr của docker login sang /dev/null
+            echo "Attempting Docker login..."
             echo "${{ env.DOCKER_HUB_ACCESS_TOKEN }}" | docker login -u "${{ env.DOCKER_HUB_USERNAME }}" --password-stdin > /dev/null 2>&1
+            echo "Docker login completed."
 
-            # Chuyển hướng stdout và stderr của docker-compose down sang /dev/null
+            echo "Attempting docker-compose down..."
             docker-compose down --rmi all --volumes --remove-orphans > /dev/null 2>&1
-            
-            # Chuyển hướng stdout và stderr của docker system prune sang /dev/null
+            echo "docker-compose down completed."
+
+            echo "Attempting docker system prune..."
             docker system prune -a --force > /dev/null 2>&1
-            
+            echo "docker system prune completed."
+
+            echo "Attempting docker-compose pull..."
             docker-compose pull
+            echo "docker-compose pull completed."
+
+            echo "Attempting docker-compose up -d..."
             docker-compose up -d
+            echo "docker-compose up -d completed."
+
+            echo "Deployment script finished successfully."
