@@ -70,43 +70,20 @@ jobs:
   #         tags: magicflexing/docai-gateway:latest
 
   deploy:
-    # needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to VPS
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ env.VPS_HOST }}
-          username: ${{ env.VPS_USERNAME }}
-          password: ${{ env.VPS_PASSWORD }}
-          script: |
-            set -eo pipefail
-            export LANG=C.UTF-8
-            export LC_ALL=C.UTF-8
-            export PYTHONIOENCODING=utf-8
+   # needs: build-and-push
+   runs-on: ubuntu-latest
+   steps:
+    - name: Deploy to VPS
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ env.VPS_HOST }}
+        username: ${{ env.VPS_USERNAME }}
+        password: ${{ env.VPS_PASSWORD }}
+        script: |
+          cd ~/DocAI
+          echo "${{ env.DOCKER_HUB_ACCESS_TOKEN }}" | docker login -u "${{ env.DOCKER_HUB_USERNAME }}" --password-stdin
+          docker-compose down --rmi all --volumes --remove-orphans
+          docker system prune -a -f
+          docker-compose pull
+          docker-compose up -d
 
-            echo "Changing directory to DocAI..."
-            cd ~/DocAI
-            echo "Directory changed."
-
-            echo "Attempting Docker login..."
-            echo "${{ env.DOCKER_HUB_ACCESS_TOKEN }}" | docker login -u "${{ env.DOCKER_HUB_USERNAME }}" --password-stdin > /dev/null 2>&1
-            echo "Docker login completed."
-
-            echo "Attempting docker-compose down..."
-            docker-compose down --rmi all --volumes --remove-orphans > /dev/null 2>&1
-            echo "docker-compose down completed."
-
-            echo "Attempting docker system prune..."
-            docker system prune -a --force > /dev/null 2>&1
-            echo "docker system prune completed."
-
-            echo "Attempting docker-compose pull..."
-            docker-compose pull
-            echo "docker-compose pull completed."
-
-            echo "Attempting docker-compose up -d..."
-            docker-compose up -d
-            echo "docker-compose up -d completed."
-
-            echo "Deployment script finished successfully."
