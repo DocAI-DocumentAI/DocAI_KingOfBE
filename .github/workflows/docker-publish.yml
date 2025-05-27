@@ -80,9 +80,13 @@ jobs:
           username: ${{ env.VPS_USERNAME }}
           password: ${{ env.VPS_PASSWORD }}
           script: |
+            # Đặt biến môi trường locale
+            export LANG=C.UTF-8
+            export LC_ALL=C.UTF-8
+
             cd ~/DocAI
             echo "${{ env.DOCKER_HUB_ACCESS_TOKEN }}" | docker login -u "${{ env.DOCKER_HUB_USERNAME }}" --password-stdin
             docker-compose down --rmi all --volumes --remove-orphans
-            docker system prune -a --force # <-- Added --force here
+            docker system prune -a --force
             docker-compose pull
             docker-compose up -d
