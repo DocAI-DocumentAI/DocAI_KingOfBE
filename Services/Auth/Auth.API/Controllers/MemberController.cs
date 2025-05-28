@@ -42,7 +42,7 @@ public class MemberController : ControllerBase
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(MemberResponse), StatusCodes.Status500InternalServerError)]
     // [CustomAuthorize(RoleEnum.Manager,RoleEnum.Staff)]
-    [Authorize]
+    // [Authorize]
     public async Task<IActionResult> GetAllMembersAsync(int page = 1, int size =  30, [FromQuery] MemberFilter? filter = null, string? sortBy = null, bool isAsc = true)
     {
         var response = await _memberService.GetAllMembersAsync(page, size, filter, sortBy, isAsc);
