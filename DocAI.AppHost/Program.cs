@@ -19,5 +19,6 @@ var apigatewayAPI = builder.AddProject<Projects.ApiGateway>("apiservice-apigatew
     .WithReference(authAPI)
     .WithReference(notiAPI);
 
+
 // Build và chạy ứng dụng
 builder.Build().Run();

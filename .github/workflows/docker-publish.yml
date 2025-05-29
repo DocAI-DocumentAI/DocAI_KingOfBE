@@ -82,32 +82,23 @@ jobs:
       #     push: true
       #     tags: magicflexing/docai-gateway:latest
 
-
-  # deploy:
-  #   needs: build-and-push
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v3
-
-  #     - name: Copy docker-compose to VPS
-  #       uses: appleboy/scp-action@master
-  #       with:
-  #         host: ${{ secrets.VPS_HOST }}
-  #         username: ${{ secrets.VPS_USERNAME }}
-  #         key: ${{ secrets.VPS_SSH_KEY }}
-  #         source: "compose.yaml"
-  #         target: "~/docai"
-
-  #     - name: Deploy to VPS
-  #       uses: appleboy/ssh-action@master
-  #       with:
-  #         host: ${{ secrets.VPS_HOST }}
-  #         username: ${{ secrets.VPS_USERNAME }}
-  #         key: ${{ secrets.VPS_SSH_KEY }}
-  #         script: |
-  #           cd ~/docai
-  #           echo "${{ secrets.DOCKER_HUB_TOKEN }}" | docker login -u "${{ secrets.DOCKER_HUB_USERNAME }}" --password-stdin
-  #           docker-compose pull
-  #           docker-compose up -d
-  #           docker system prune -f
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ env.VPS_HOST }}
+          username: ${{ env.VPS_USERNAME }}
+          password: ${{ env.VPS_PASSWORD }}
+          script: |
+            export LANG=C.UTF-8
+            export LC_ALL=C.UTF-8
+            cd ~/DocAI || { echo "Failed to change directory" > deploy.log; exit 1; }
+            echo "${{ env.DOCKER_HUB_ACCESS_TOKEN }}" | docker login -u "${{ env.DOCKER_HUB_USERNAME }}" --password-stdin >> deploy.log 2>&1 || { echo "Docker login failed" >> deploy.log; exit 1; }
+            docker-compose down --rmi all --volumes --remove-orphans >> deploy.log 2>&1 || { echo "Docker-compose down failed" >> deploy.log; exit 1; }
+            docker system prune -a -f >> deploy.log 2>&1 || { echo "Docker prune failed" >> deploy.log; exit 1; }
+            docker-compose pull >> deploy.log 2>&1 || { echo "Docker-compose pull failed" >> deploy.log; exit 1; }
+            docker-compose up -d >> deploy.log 2>&1 || { echo "Docker-compose up failed" >> deploy.log; exit 1; }
+            cat deploy.log

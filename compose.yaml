@@ -3,29 +3,67 @@
     image: magicflexing/docai-ai-api:latest
     ports:
       - "5003:5003"
+    restart: always
+    networks:
+      - docai_network
 
   auth.api:
     image: magicflexing/docai-auth-api:latest
     ports:
       - "5001:5001"
+    restart: always
+    networks:
+      - docai_network
 
-  apigateway:
+  apigateway1:
     image: magicflexing/docai-gateway:latest
     ports:
       - "5000:5000"
+    restart: always
+    depends_on:
+      - auth.api
+      - document.api
+      - ai.api
+      - notification.api
+    networks:
+      - docai_network
+
+  apigateway2:
+    image: magicflexing/docai-gateway:latest
+    ports:
+      - "5005:5000"
+    restart: always
+    depends_on:
+      - auth.api
+      - document.api
+      - ai.api
+      - notification.api
+    networks:
+      - docai_network
 
   document.api:
     image: magicflexing/docai-document-api:latest
     ports:
       - "5002:5002"
+    restart: always
+    networks:
+      - docai_network
 
   notification.api:
     image: magicflexing/docai-notification-api:latest
     ports:
       - "5004:5004"
-  
-  apphost:
-    image: magicflexing/docai-apphost:latest
-    ports:
-      - "5005:8080"
+    restart: always
+    networks:
+      - docai_network
+
+networks:
+  docai_network:
+    driver: bridge
+
+
+#  apphost:
+#    image: magicflexing/docai-apphost:latest
+#    ports:
+#      - "5005:8080"
 
