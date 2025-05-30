@@ -86,21 +86,22 @@ try
 
     // if (app.Environment.IsDevelopment())
     // {
+    app.MapOpenApi();
     app.UseOpenApi();
     app.UseSwaggerUI(options =>
     {
         options.RoutePrefix = "swagger"; 
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1"); 
     });
-    app.UseReDoc(options =>
-    {
-        options.SpecUrl = "/openapi/v1.json";
-    });
-    app.MapScalarApiReference();
+    // app.UseReDoc(options =>
+    // {
+    //     options.SpecUrl = "/openapi/v1.json";
+    // });
+    // app.MapScalarApiReference();
     // }
     
     app.UseCors(CorConstant.PolicyName); 
-    app.UseHttpsRedirection();
+    // app.UseHttpsRedirection();
     app.UseAuthentication();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseAuthorization();
