@@ -34,7 +34,6 @@ var app = builder.Build();
 // if (app.Environment.IsDevelopment())
 // {
     app.MapOpenApi();
-    
     app.UseOpenApi();
     app.UseSwaggerUI(options =>
     {
@@ -50,7 +49,7 @@ var app = builder.Build();
 //     app.MapScalarApiReference();
 // }
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
 
 app.MapReverseProxy();
 
