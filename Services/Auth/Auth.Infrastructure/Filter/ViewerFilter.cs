@@ -3,7 +3,7 @@ using Auth.Domain.Models;
 
 namespace Auth.Infrastructure.Filter;
 
-public class MemberFilter : IFilter<Member>
+public class ViewerFilter : IFilter<Viewer>
 {
     public string? Email { get; set; }
     public string? Username { get; set; }
@@ -14,7 +14,7 @@ public class MemberFilter : IFilter<Member>
     public bool? TwoFactorEnabled { get; set; }
     public string? TwoFactorMethod { get; set; }
 
-    public Expression<Func<Member, bool>> ToExpression()
+    public Expression<Func<Viewer, bool>> ToExpression()
     {
         return member =>
             (string.IsNullOrEmpty(Email) || member.User.Email.Contains(Email)) &&

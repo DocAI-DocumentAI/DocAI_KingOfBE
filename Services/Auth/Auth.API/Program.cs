@@ -17,6 +17,7 @@ using OpenApiSecurityScheme = NSwag.OpenApiSecurityScheme;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using DotNetEnv;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -47,6 +48,9 @@ try
                 .AllowAnyMethod());
     });
 
+    // Tải file .env
+    DotNetEnv.Env.Load();
+    
     builder.Services.AddOpenApi();
     builder.Services.AddDatabase();
     builder.Services.AddRedis(builder.Configuration);
@@ -107,10 +111,12 @@ try
     app.UseAuthorization();
     app.UseSerilogRequestLogging();
     app.MapControllers();
-
+    
     app.Run();
 
     Log.Information("Stopped cleanly");
+    
+    
 
     return 0;
 }

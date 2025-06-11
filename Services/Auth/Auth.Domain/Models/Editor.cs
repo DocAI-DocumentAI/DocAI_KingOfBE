@@ -4,7 +4,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Auth.Domain.Models;
 
-public class Staff
+public class Editor
 {
     [Key]
     public Guid Id { get; set; }

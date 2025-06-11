@@ -1,6 +1,6 @@
 ﻿namespace Auth.API.Payload.Request.Staff;
 
-public class UpdateStaffRequest
+public class UpdateEditorRequest
 {
     public string? FullName { get; set; }
     public string? Email { get; set; }

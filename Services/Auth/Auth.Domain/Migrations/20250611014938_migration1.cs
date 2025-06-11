@@ -33,28 +33,7 @@ namespace Auth.Domain.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "Members",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Address = table.Column<string>(type: "text", nullable: true),
-                    CreateAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    UpdateAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Members", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_Members_Users_UserId",
-                        column: x => x.UserId,
-                        principalTable: "Users",
-                        principalColumn: "UserId",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Staffs",
+                name: "Editors",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -65,9 +44,30 @@ namespace Auth.Domain.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Staffs", x => x.Id);
+                    table.PrimaryKey("PK_Editors", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_Staffs_Users_UserId",
+                        name: "FK_Editors_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "UserId",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Viewers",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Address = table.Column<string>(type: "text", nullable: true),
+                    CreateAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    UpdateAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Viewers", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Viewers_Users_UserId",
                         column: x => x.UserId,
                         principalTable: "Users",
                         principalColumn: "UserId",
@@ -77,16 +77,16 @@ namespace Auth.Domain.Migrations
             migrationBuilder.InsertData(
                 table: "Users",
                 columns: new[] { "UserId", "CreatAt", "Email", "FullName", "Password", "Phone", "Role", "TwoFactorEnabled", "TwoFactorMethod", "UpdateAt", "UserName" },
-                values: new object[] { new Guid("5af84a80-6cb4-4892-b649-9de7ab0b9dcb"), new DateTime(2025, 5, 22, 4, 3, 15, 744, DateTimeKind.Utc).AddTicks(8832), "admin@gmail.com", "Admin", "Fsao3j4FDtxIU42ipIVlYCT0x2H5j4/LVZhECzeKD3TMT8i6QsixyPKBoIxRO6OC", "0847911068", "Manager", false, "Email", new DateTime(2025, 5, 22, 4, 3, 15, 744, DateTimeKind.Utc).AddTicks(8959), "admin" });
+                values: new object[] { new Guid("05e3deef-adff-44f8-98df-36d5c32230dd"), new DateTime(2025, 6, 11, 1, 49, 38, 262, DateTimeKind.Utc).AddTicks(3072), "admin@gmail.com", "Admin", "ZXm3hwM4C+bulAbRfKFkVggM69umcrXwuYrGXadbsv4DrPWP+7+7+z9eGDutQWRt", "0847911068", "Admin", false, "Email", new DateTime(2025, 6, 11, 1, 49, 38, 262, DateTimeKind.Utc).AddTicks(3182), "${adminUsername}" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_Members_UserId",
-                table: "Members",
+                name: "IX_Editors_UserId",
+                table: "Editors",
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Staffs_UserId",
-                table: "Staffs",
+                name: "IX_Viewers_UserId",
+                table: "Viewers",
                 column: "UserId");
         }
 
@@ -94,10 +94,10 @@ namespace Auth.Domain.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "Members");
+                name: "Editors");
 
             migrationBuilder.DropTable(
-                name: "Staffs");
+                name: "Viewers");
 
             migrationBuilder.DropTable(
                 name: "Users");

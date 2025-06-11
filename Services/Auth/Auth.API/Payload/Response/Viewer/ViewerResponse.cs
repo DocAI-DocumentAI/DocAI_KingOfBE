@@ -1,15 +1,13 @@
-﻿using System;
-using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
+﻿
 
-namespace Auth.Domain.Models;
+using Auth.Domain.Models;
 
-public class Member
+namespace Auth.API.Payload.Response;
+
+public class ViewerResponse
 {
-    [Key]
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
-    [ForeignKey(nameof(UserId))]
     public User User { get; set; }
     public string? Address { get; set; }
     public DateTime CreateAt { get; set; }

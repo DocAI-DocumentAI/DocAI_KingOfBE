@@ -2,8 +2,8 @@
 
 public enum RoleEnum
 {
-    Manager,
-    Staff,
-    Member,
+    Admin,
+    Editor,
+    Viewer,
     None,
 }

@@ -22,32 +22,7 @@ namespace Auth.Domain.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Auth.Domain.Models.Member", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Address")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreateAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("UpdateAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("Members");
-                });
-
-            modelBuilder.Entity("Auth.Domain.Models.Staff", b =>
+            modelBuilder.Entity("Auth.Domain.Models.Editor", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -70,7 +45,7 @@ namespace Auth.Domain.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Staffs");
+                    b.ToTable("Editors");
                 });
 
             modelBuilder.Entity("Auth.Domain.Models.User", b =>
@@ -122,21 +97,46 @@ namespace Auth.Domain.Migrations
                     b.HasData(
                         new
                         {
-                            UserId = new Guid("5af84a80-6cb4-4892-b649-9de7ab0b9dcb"),
-                            CreatAt = new DateTime(2025, 5, 22, 4, 3, 15, 744, DateTimeKind.Utc).AddTicks(8832),
+                            UserId = new Guid("05e3deef-adff-44f8-98df-36d5c32230dd"),
+                            CreatAt = new DateTime(2025, 6, 11, 1, 49, 38, 262, DateTimeKind.Utc).AddTicks(3072),
                             Email = "admin@gmail.com",
                             FullName = "Admin",
-                            Password = "Fsao3j4FDtxIU42ipIVlYCT0x2H5j4/LVZhECzeKD3TMT8i6QsixyPKBoIxRO6OC",
+                            Password = "ZXm3hwM4C+bulAbRfKFkVggM69umcrXwuYrGXadbsv4DrPWP+7+7+z9eGDutQWRt",
                             Phone = "0847911068",
-                            Role = "Manager",
+                            Role = "Admin",
                             TwoFactorEnabled = false,
                             TwoFactorMethod = "Email",
-                            UpdateAt = new DateTime(2025, 5, 22, 4, 3, 15, 744, DateTimeKind.Utc).AddTicks(8959),
-                            UserName = "admin"
+                            UpdateAt = new DateTime(2025, 6, 11, 1, 49, 38, 262, DateTimeKind.Utc).AddTicks(3182),
+                            UserName = "${adminUsername}"
                         });
                 });
 
-            modelBuilder.Entity("Auth.Domain.Models.Member", b =>
+            modelBuilder.Entity("Auth.Domain.Models.Viewer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreateAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("UpdateAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Viewers");
+                });
+
+            modelBuilder.Entity("Auth.Domain.Models.Editor", b =>
                 {
                     b.HasOne("Auth.Domain.Models.User", "User")
                         .WithMany()
@@ -147,7 +147,7 @@ namespace Auth.Domain.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Auth.Domain.Models.Staff", b =>
+            modelBuilder.Entity("Auth.Domain.Models.Viewer", b =>
                 {
                     b.HasOne("Auth.Domain.Models.User", "User")
                         .WithMany()

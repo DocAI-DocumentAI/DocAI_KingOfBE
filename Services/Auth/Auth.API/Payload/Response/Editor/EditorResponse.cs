@@ -1,6 +1,6 @@
 ﻿namespace Auth.API.Payload.Response.Staff;
 
-public class StaffResponse
+public class EditorResponse
 {
     public string? Username { get; set; }
     public string? Email { get; set; }

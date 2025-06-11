@@ -4,10 +4,10 @@ using AutoMapper;
 
 namespace Auth.API.Mappers;
 
-public class StaffMapper : Profile
+public class EditorMapper : Profile
 {
-    public StaffMapper()
+    public EditorMapper()
     {
-        CreateMap<Staff,StaffResponse>();
+        CreateMap<Editor,EditorResponse>();
     }
 }

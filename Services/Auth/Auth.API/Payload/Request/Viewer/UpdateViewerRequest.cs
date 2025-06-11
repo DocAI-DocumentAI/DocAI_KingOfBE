@@ -1,6 +1,6 @@
 ﻿namespace Auth.API.Payload.Request.Member;
 
-public class UpdateMemberRequest
+public class UpdateViewerRequest
 {
     public string? FullName { get; set; }
     public string? Email { get; set; }

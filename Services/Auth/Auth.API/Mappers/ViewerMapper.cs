@@ -5,10 +5,10 @@ using AutoMapper;
 
 namespace Auth.API.Mappers;
 
-public class MemberMapper : Profile
+public class ViewerMapper : Profile
 {
-    public MemberMapper()
+    public ViewerMapper()
     {
-        CreateMap<Member, MemberResponse>();
+        CreateMap<Viewer, ViewerResponse>();
     }   
 }

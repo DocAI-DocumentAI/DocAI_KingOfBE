@@ -15,18 +15,18 @@ public class ApiEndPointConstant
         public const string Login = ApiEndpoint + "/login";
     }
     
-    public class Member
+    public class Viewer
     {
-      public const string Members = ApiEndpoint + "/members";
-      public const string MemberInformation = ApiEndpoint + "/member";
-      public const string UpdateMember = ApiEndpoint + "/update/member";
+      public const string Viewers = ApiEndpoint + "/viewers";
+      public const string ViewerInformation = ApiEndpoint + "/viewer";
+      public const string UpdateViewer = ApiEndpoint + "/update/viewer";
       public const string ResetPassword = ApiEndpoint + "/reset-password";
     }
 
-    public class Staff
+    public class Editor
     {
-        public const string StaffInformation = ApiEndpoint + "/staff";
-        public const string Staffs = ApiEndpoint + "/staffs";
-        public const string UpdateStaff = ApiEndpoint + "/update/staff";
+        public const string EditorInformation = ApiEndpoint + "/editor";
+        public const string Editors = ApiEndpoint + "/editors";
+        public const string UpdateEditor = ApiEndpoint + "/update/editor";
     }
 }

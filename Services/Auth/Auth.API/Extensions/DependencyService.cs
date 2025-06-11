@@ -64,8 +64,8 @@ public static class DependencyService
     {
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRedisService, RedisService>();
-        services.AddScoped<IMemberService, MemberService>();
-        services.AddScoped<IStaffService, StaffService>();
+        services.AddScoped<IViewerService, ViewerService>();
+        services.AddScoped<IEditorService, EditorService>();
         // services.AddMassTransit(x =>
         // {
         //     x.UsingRabbitMq((context, cfg) =>

@@ -43,15 +43,17 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
                 v => v.ToString(),
                 v => (RoleEnum)Enum.Parse(typeof(RoleEnum), v)
             );
+        var adminUsername = Environment.GetEnvironmentVariable("ADMIN_USERNAME");
+        var adminPassword = Environment.GetEnvironmentVariable("ADMIN_PASSWORD");
         builder.HasData(new User()
         {
             UserId = Guid.NewGuid(),
-            UserName = "admin",
-            Password = HashPassword("admin"),
+            UserName = "${adminUsername}",
+            Password = HashPassword("${adminPassword}"),
             Email = "admin@gmail.com",
             Phone = "0847911068",
             FullName = "Admin",
-            Role = RoleEnum.Manager,
+            Role = RoleEnum.Admin,
             CreatAt = DateTime.UtcNow,
             UpdateAt = DateTime.UtcNow, 
             TwoFactorEnabled = false, 

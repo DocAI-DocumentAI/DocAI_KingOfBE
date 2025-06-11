@@ -93,11 +93,11 @@ public class UserService : BaseService<UserService>, IUserService
     var user = _mapper.Map<User>(request);
     user.UserId = Guid.NewGuid();
     user.Password = PasswordUtil.HashPassword(request.Password);
-    user.Role = RoleEnum.Member;
+    user.Role = RoleEnum.Viewer;
     user.CreatAt = DateTime.UtcNow; 
     user.UpdateAt = DateTime.UtcNow; 
 
-    var member = new Member 
+    var member = new Viewer 
     { 
         Id = Guid.NewGuid(), 
         UserId = user.UserId, 
@@ -111,7 +111,7 @@ public class UserService : BaseService<UserService>, IUserService
         try
         {
             await _unitOfWork.GetRepository<User>().InsertAsync(user);
-            await _unitOfWork.GetRepository<Member>().InsertAsync(member);
+            await _unitOfWork.GetRepository<Viewer>().InsertAsync(member);
             
             bool isSuccessful = await _unitOfWork.CommitAsync() > 0;
             if (!isSuccessful)
