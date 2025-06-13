@@ -5,6 +5,7 @@ using Auth.API.Constants;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Response;
 using Auth.API.Services.Interface;
+using Auth.Domain.Enums;
 using AutoMapper.Features;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -45,25 +46,26 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
     
-    [HttpPost(ApiEndPointConstant.User.Register)]
-    [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> Register([FromBody] RegisterRequest request)
-    {
-        var response = await _userService.RegisterAsync(request);
-        if (response == null)
-        {
-            _logger.LogError($"Register failed with {request.Username}");
-            return Problem(MessageConstant.User.RegisterFail);
-        }
-        _logger.LogInformation($"Register successful with {request.Username}");
-        return CreatedAtAction(nameof(Register), response);
-    }
+    // [HttpPost(ApiEndPointConstant.User.Register)]
+    // [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
+    // [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status400BadRequest)]
+    // [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status500InternalServerError)]
+    // public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+    // {
+    //     var response = await _userService.RegisterAsync(request);
+    //     if (response == null)
+    //     {
+    //         _logger.LogError($"Register failed with {request.Username}");
+    //         return Problem(MessageConstant.User.RegisterFail);
+    //     }
+    //     _logger.LogInformation($"Register successful with {request.Username}");
+    //     return CreatedAtAction(nameof(Register), response);
+    // }
     
     [HttpPost(ApiEndPointConstant.User.SendOtp)]
     [ProducesResponseType(typeof(string), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
+    [Authorize(Roles = $"{nameof(RoleEnum.Admin)},{nameof(RoleEnum.Manager)}")]
     public async Task<IActionResult> SendOtp([FromBody] GenerateEmailOtpRequest request)
     {
         var result = await _userService.GenerateOtpAsync(request);

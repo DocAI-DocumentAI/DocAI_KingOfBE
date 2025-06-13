@@ -4,14 +4,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Auth.Domain.Models;
 
-public class Viewer
+public class Role
 {
     [Key]
     public Guid Id { get; set; }
-    public Guid UserId { get; set; }
-    [ForeignKey(nameof(UserId))]
-    public User User { get; set; }
-    public string? Address { get; set; }
+    public string RoleName { get; set; }
+    public string Description { get; set; }
     public DateTime CreateAt { get; set; }
     public DateTime UpdateAt { get; set; }
+    public virtual ICollection<RolePermission>? RolePermissions { get; set; }
 }

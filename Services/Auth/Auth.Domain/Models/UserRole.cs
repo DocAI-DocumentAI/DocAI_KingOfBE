@@ -4,14 +4,14 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Auth.Domain.Models;
 
-public class Editor
+public class UserRole
 {
     [Key]
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
-    [ForeignKey(nameof(UserId))]
+    [ForeignKey("UserId")]
     public User User { get; set; }
-    public string Type { get; set; }
-    public DateTime CreateAt { get; set; }
-    public DateTime UpdateAt { get; set; }
+    public Guid RoleId { get; set; }
+    [ForeignKey("RoleId")]
+    public Role Role { get; set; }
 }

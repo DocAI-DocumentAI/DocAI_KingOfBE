@@ -10,8 +10,14 @@ namespace Auth.Domain.Models
         public DocAIAuthContext(DbContextOptions<DocAIAuthContext> options) : base(options) { }
 
         public DbSet<User> Users { get; set; }
-        public DbSet<Editor> Editors { get; set; }
-        public DbSet<Viewer> Viewers { get; set; }
+        public DbSet<Role> Roles { get; set; }
+        public DbSet<UserRole> UserRoles { get; set; }
+        public DbSet<Department> Departments { get; set; }
+        public DbSet<UserDepartment> UserDepartments { get; set; }
+        public DbSet<Permission> Permissions { get; set; }
+        public DbSet<RolePermission> RolePermissions { get; set; }
+        
+       
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

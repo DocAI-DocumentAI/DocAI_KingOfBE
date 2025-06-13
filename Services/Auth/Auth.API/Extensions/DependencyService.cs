@@ -1,12 +1,14 @@
 ﻿using System;
 using System.IO;
+using System.Security.Claims;
 using System.Text;
-using Auth.API.Services.Implement;
 using Auth.API.Services.Interface;
 using Auth.Domain.Models;
 using Auth.Infrastructure.Repository.Implement;
 using Auth.Infrastructure.Repository.Interfaces;
 using DOCA.API.Services.Implement;
+// using Auth.API.Services.Implement;
+// using Auth.API.Services.Interface;
 // using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -64,8 +66,8 @@ public static class DependencyService
     {
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRedisService, RedisService>();
-        services.AddScoped<IViewerService, ViewerService>();
-        services.AddScoped<IEditorService, EditorService>();
+        // services.AddScoped<IViewerService, ViewerService>();
+        // services.AddScoped<IEditorService, EditorService>();
         // services.AddMassTransit(x =>
         // {
         //     x.UsingRabbitMq((context, cfg) =>
@@ -88,44 +90,53 @@ public static class DependencyService
             throw new InvalidOperationException("JWT:Secret must be at least 32 characters long for HS256.");
         }
 
-        services.AddAuthentication(options =>
-            {
-                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-            })
-            .AddJwtBearer(options =>
-            {
-                options.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuer = true,
-                    ValidateAudience = false,
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true,
-                    ValidIssuer = configuration["JWT:Issuer"] ?? "DocAI",
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret)),
-                    ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 }
-                };
-                options.SaveToken = true;
+        var key = Encoding.UTF8.GetBytes(secret);
 
-                options.Events = new JwtBearerEvents
+        services.AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        })
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = false,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = configuration["JWT:Issuer"] ?? "DocAI",
+                IssuerSigningKey = new SymmetricSecurityKey(key),
+
+                // ⚠️ Thêm dòng này để hỗ trợ [Authorize(Roles = "...")]
+                RoleClaimType = ClaimTypes.Role,
+
+                // Nếu bạn dùng custom claim name như "roles", bạn có thể chỉnh ở đây
+                // RoleClaimType = "roles",
+            };
+
+            options.SaveToken = true;
+
+            options.Events = new JwtBearerEvents
+            {
+                OnMessageReceived = context =>
                 {
-                    OnMessageReceived = context =>
-                    {
-                        Log.Information("Token received: {Token}", context.Token);
-                        return Task.CompletedTask;
-                    },
-                    OnAuthenticationFailed = context =>
-                    {
-                        Log.Error("JWT authentication failed: {Message}", context.Exception.Message);
-                        return Task.CompletedTask;
-                    },
-                    OnTokenValidated = context =>
-                    {
-                        Log.Information("JWT token validated successfully. Claims: {Claims}", context.Principal.Claims.Select(c => $"{c.Type}: {c.Value}"));
-                        return Task.CompletedTask;
-                    }
-                };
-            });
+                    Log.Information("Token received: {Token}", context.Token);
+                    return Task.CompletedTask;
+                },
+                OnAuthenticationFailed = context =>
+                {
+                    Log.Error("JWT authentication failed: {Message}", context.Exception.Message);
+                    return Task.CompletedTask;
+                },
+                OnTokenValidated = context =>
+                {
+                    Log.Information("JWT token validated successfully. Claims: {Claims}",
+                        string.Join(", ", context.Principal.Claims.Select(c => $"{c.Type}: {c.Value}")));
+                    return Task.CompletedTask;
+                }
+            };
+        });
 
         return services;
     }
