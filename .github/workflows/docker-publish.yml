@@ -60,6 +60,14 @@ jobs:
           file: Services/Notification/Notification.API/Dockerfile
           push: true
           tags: magicflexing/docai-notification-api:latest
+          
+      - name: Build and push ChatBox.API
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Services/ChatBox/ChatBox.API/Dockerfile
+          push: true
+          tags: magicflexing/docai-chatbox-api:latest
 
       - name: Build and push API Gateway
         uses: docker/build-push-action@v4

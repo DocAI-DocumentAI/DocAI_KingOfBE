@@ -11,6 +11,8 @@ public class RegisterRequest
     [MaxLength(20)]
     public string Password { get; set; }
     [Required]
+    public Guid DepartmentId { get; set; }
+    [Required]
     public string Email { get; set; }
     [Required]
     public string Phone { get; set; }
@@ -18,4 +20,5 @@ public class RegisterRequest
     public string FullName { get; set; }
     [Required]
     public string Otp { get; set; }
+    public string? ActivationCode { get; set; }
 }

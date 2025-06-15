@@ -74,6 +74,16 @@
     restart: always
     networks:
       - docai_network
+  chatbox.api:
+    build:
+      context: .
+      dockerfile: Services/ChatBox/ChatBox.API/Dockerfile
+    #    image: magicflexing/docai-notification-api:latest
+    ports:
+      - "5006:5006"
+    restart: always
+    networks:
+      - docai_network
 
 networks:
   docai_network:

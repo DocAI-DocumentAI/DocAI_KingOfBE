@@ -11,6 +11,24 @@ public class MessageConstant
         public const string UsernameOrPasswork = "Tài khoản hoặc mật khẩu không chính xác";
         public const string LoginRequestNoNull = "Tài khoản hoặc mật khẩu không để trống";
         public const string UserNotFound = "User không tồn tại";
+        public const string EmailExisted = "Email đã tồn tại";
+        public const string UserNotHaveRole = "User không có role";
+    }
+    
+    public class Role
+    {
+        public const string RoleNotFound =  "Role không tồn tại";
+    }
+    
+    public class ActivationCode
+    {
+        public const string ActivationcodeNotFound = "Activation code không đúng";
+        public const string CreateActiveKeyFail = "Create activeKey thất bại";
+    }
+    
+    public class Department
+    {
+        public const string DepartmentNotFound = "Department không tồn tại";
     }
     
     public class Viewer

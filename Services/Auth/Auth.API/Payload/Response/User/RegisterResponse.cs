@@ -1,4 +1,5 @@
 ﻿using System;
+using Auth.API.Payload.Response.Staff;
 
 namespace Auth.API.Payload.Response;
 
@@ -8,6 +9,8 @@ public class RegisterResponse
     public string Email { get; set; }
     public string Phone { get; set; }
     public string FullName { get; set; }
+    public ICollection<RoleResponse> Roles { get; set; }
+    public ICollection<DepartmentResponse> Departments { get; set; }
     public DateTime CreatAt { get; set; }
     public DateTime UpdateAt { get; set; }
     public bool TwoFactorEnabled { get; set; }

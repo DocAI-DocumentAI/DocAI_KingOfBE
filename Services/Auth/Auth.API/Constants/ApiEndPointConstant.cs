@@ -13,6 +13,7 @@ public class ApiEndPointConstant
         public const string Register = ApiEndpoint + "/register";
         public const string SendOtp = ApiEndpoint + "/otp";
         public const string Login = ApiEndpoint + "/login";
+        public const string CreateActiveKey = ApiEndpoint + "/create-active-key";
     }
     
     public class Viewer
