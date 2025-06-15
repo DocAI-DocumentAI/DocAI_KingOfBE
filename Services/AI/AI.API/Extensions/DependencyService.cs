@@ -1,4 +1,6 @@
-﻿using AI.Domain.Models;
+﻿using AI.API.Services.Implement;
+using AI.API.Services.Interface;
+using AI.Domain.Models;
 using AI.Infrastructure.Repository.Implement;
 using AI.Infrastructure.Repository.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -34,6 +36,7 @@ namespace AI.API.Extensions
         }
         public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
         {
+            services.AddScoped<IOllamaAIService, OllamaAIService>();
 
             return services;
         }

@@ -1,4 +1,4 @@
-﻿namespace Auth.API.Constants;
+﻿namespace AI.API.Constants;
 
 public class ApiEndPointConstant
 {
