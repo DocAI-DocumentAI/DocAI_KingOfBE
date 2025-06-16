@@ -35,6 +35,7 @@ try
 
     builder.Services.AddDatabase();
     builder.Services.AddControllers();
+    builder.Services.AddApplicationServices(builder.Configuration);
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("AllowAll", policy =>

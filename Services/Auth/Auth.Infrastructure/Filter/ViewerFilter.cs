@@ -1,0 +1,29 @@
+﻿// using System.Linq.Expressions;
+// using Auth.Domain.Models;
+//
+// namespace Auth.Infrastructure.Filter;
+//
+// public class ViewerFilter : IFilter<UserRole>
+// {
+//     public string? Email { get; set; }
+//     public string? Username { get; set; }
+//     public string? Phone { get; set; }
+//     public string? FullName { get; set; }
+//     public DateTime? CreateAt { get; set; }
+//     public DateTime? UpdateAt { get; set; }
+//     public bool? TwoFactorEnabled { get; set; }
+//     public string? TwoFactorMethod { get; set; }
+//
+//     public Expression<Func<UserRole, bool>> ToExpression()
+//     {
+//         return member =>
+//             (string.IsNullOrEmpty(Email) || member.User.Email.Contains(Email)) &&
+//             (string.IsNullOrEmpty(Username) || member.User.UserName.Contains(Username)) &&
+//             (string.IsNullOrEmpty(Phone) || member.User.Phone.Contains(Phone)) &&
+//             (string.IsNullOrEmpty(FullName) || member.User.FullName.Contains(FullName)) &&
+//             (!CreateAt.HasValue || member.CreateAt.Date == CreateAt.Value.Date) &&
+//             (!UpdateAt.HasValue || member.UpdateAt.Date == UpdateAt.Value.Date) &&
+//             (!TwoFactorEnabled.HasValue || member.User.TwoFactorEnabled == TwoFactorEnabled.Value) &&
+//             (string.IsNullOrEmpty(TwoFactorMethod) || member.User.TwoFactorMethod.Contains(TwoFactorMethod));          
+//     }
+// }

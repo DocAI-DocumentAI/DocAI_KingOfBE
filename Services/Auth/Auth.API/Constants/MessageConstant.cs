@@ -13,11 +13,11 @@ public class MessageConstant
         public const string UserNotFound = "User không tồn tại";
     }
     
-    public class Member
+    public class Viewer
     {
-        public const string MemberNotFound = "Member không tồn tại";
-        public const string UpdateFail = "Cập nhật member thất bại";
-        public const string ResetPasswordFail = "Reset password member thất bại";
+        public const string ViewerNotFound = "Viewer không tồn tại";
+        public const string UpdateFail = "Cập nhật Viewer thất bại";
+        public const string ResetPasswordFail = "Reset password Viewer thất bại";
         public const string PasswordOldNotNull = "Password cũ không để trống";
         public const string PasswordNewNotNull = "Password mới không để trống";
         public const string PasswordConfirmNotNull = "Comfirm password để trống";
@@ -25,10 +25,10 @@ public class MessageConstant
         public const string PasswordConfirmWrong = "Confirm password không đúng";
     }
     
-    public class Staff
+    public class Editor
     {
-        public const string StaffNotFound = "Staff không tồn tại";
-        public const string UpdateFail = "Cập nhật staff thất bại";
+        public const string EditorNotFound = "Editor không tồn tại";
+        public const string UpdateFail = "Cập nhật Editor thất bại";
     }
     
     public class OTP

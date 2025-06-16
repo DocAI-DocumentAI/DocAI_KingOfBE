@@ -11,6 +11,10 @@
 *.userosscache
 *.sln.docstates
 
+# Dotenv files
+*.env
+
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
@@ -25,6 +29,8 @@ bld/
 [Bb]in/
 [Oo]bj/
 [Ll]og/
+
+
 
 # Visual Studio 2015 cache/options directory
 .vs/
@@ -612,3 +618,6 @@ fabric.properties
 .idea/caches/build_file_checksums.ser
 
 # End of https://www.toptal.com/developers/gitignore/api/aspnetcore,dotnetcore,csharp,rider
+
+# Dotenv files
+.env

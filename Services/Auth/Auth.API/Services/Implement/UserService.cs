@@ -5,6 +5,7 @@ using System.Transactions;
 using Auth.API.Constants;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Response;
+using Auth.API.Payload.Response.Staff;
 using Microsoft.EntityFrameworkCore;
 using Auth.API.Utils;
 using Auth.Domain.Enums;
@@ -36,20 +37,36 @@ public class UserService : BaseService<UserService>, IUserService
         if (request == null || string.IsNullOrEmpty(request.Username) || string.IsNullOrEmpty(request.Password))
             throw new BadHttpRequestException(MessageConstant.User.LoginRequestNoNull);
         var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
-            predicate: u => u.UserName == request.Username
+            predicate: u => u.UserName == request.Username,
+            include: u => u.Include(u => u.UserRoles).ThenInclude(u => u.Role)
+                .Include(u => u.UserDepartments).ThenInclude(u => u.Department)
         );
         if (user == null || !PasswordUtil.VerifyPassword(request.Password, user.Password))
         {
             _logger.LogWarning("Login failed for username: {UserName}", request.Username);
             throw new BadHttpRequestException(MessageConstant.User.UsernameOrPasswork);
         }
-        Tuple<string, Guid> guidClaim = new Tuple<string, Guid>("userId",user.UserId);
+        Tuple<string, Guid> guidClaim = new Tuple<string, Guid>("userId",user.Id);
         var response = new LoginResponse()
         {
-            UserId = user.UserId,
+            UserId = user.Id,
             Username = user.UserName,
-            Role = user.Role,
             Email = user.Email,
+            Roles = user.UserRoles?.Select(ur => new RoleResponse
+            {
+                RoleName = ur.Role.RoleName,
+                Description = ur.Role.Description,
+                CreateAt = ur.Role.CreateAt,
+                UpdateAt = ur.Role.UpdateAt
+            }).ToList() ?? new List<RoleResponse>(),
+
+            Departments = user.UserDepartments?.Select(ud => new DepartmentResponse
+            {
+                Name = ud.Department.Name,
+                Description = ud.Department.Description,
+                CreateAt = ud.Department.CreateAt,
+                UpdateAt = ud.Department.UpdateAt
+            }).ToList() ?? new List<DepartmentResponse>(),
         };
         response.Token = JwtUtil.GenerateJwtToken(user, guidClaim, _configuration);
         response.RefreshToken = JwtUtil.GenerateRefreshToken();
@@ -63,85 +80,85 @@ public class UserService : BaseService<UserService>, IUserService
         return null;
     }
     
-    public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
-{
-    if (request == null)
-        throw new ArgumentNullException(nameof(request), "Register request cannot be null");
-    
-    var usernameExists = await _unitOfWork.GetRepository<User>()
-        .SingleOrDefaultAsync(predicate:u => u.UserName == request.Username); 
-    if (usernameExists != null)
-        throw new BadHttpRequestException(MessageConstant.User.UserNameExisted);
-    
-    var phoneExists = await _unitOfWork.GetRepository<User>()
-        .SingleOrDefaultAsync(predicate:u => u.Phone == request.Phone);
-    if (phoneExists != null)
-        throw new BadHttpRequestException(MessageConstant.User.PhoneNumberExisted);
-
-
-    var key = request.Email;
-    var existingOtp = await _redisService.GetStringAsync(key); 
-    if (string.IsNullOrEmpty(existingOtp))
-        throw new BadHttpRequestException(MessageConstant.OTP.OtpNotFound);
-
-    if (existingOtp != request.Otp)
-        throw new BadHttpRequestException(MessageConstant.OTP.OtpIncorrect);
-
-    
-    await _redisService.RemoveKeyAsync(key); 
-
-    var user = _mapper.Map<User>(request);
-    user.UserId = Guid.NewGuid();
-    user.Password = PasswordUtil.HashPassword(request.Password);
-    user.Role = RoleEnum.Member;
-    user.CreatAt = DateTime.UtcNow; 
-    user.UpdateAt = DateTime.UtcNow; 
-
-    var member = new Member 
-    { 
-        Id = Guid.NewGuid(), 
-        UserId = user.UserId, 
-        User = user,
-        CreateAt = DateTime.UtcNow, 
-        UpdateAt = DateTime.UtcNow 
-    };
-
-    using (var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled))
-    {
-        try
-        {
-            await _unitOfWork.GetRepository<User>().InsertAsync(user);
-            await _unitOfWork.GetRepository<Member>().InsertAsync(member);
-            
-            bool isSuccessful = await _unitOfWork.CommitAsync() > 0;
-            if (!isSuccessful)
-                throw new InvalidOperationException("Failed to save user and member data");
-
-            transaction.Complete();
-            
-            if (isSuccessful)
-            {
-                var response = _mapper.Map<RegisterResponse>(user);
-                response.Token = JwtUtil.GenerateJwtToken(user, new Tuple<string, Guid>("userId", user.UserId),
-                    _configuration);
-                response.RefreshToken = JwtUtil.GenerateRefreshToken();
-                return response;
-            }
-
-            return null;
-        }
-        catch (DbUpdateException ex)
-        {
-            _logger.LogError(ex, "Database error during user registration: {Message}. Inner: {InnerMessage}", ex.Message, ex.InnerException?.Message);
-            throw new BadHttpRequestException("Failed to register due to database error");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error during user registration: {Message}", ex.Message);
-            throw new BadHttpRequestException("An unexpected error occurred during registration");
-        }
-    }
-}
+//     public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
+// {
+//     if (request == null)
+//         throw new ArgumentNullException(nameof(request), "Register request cannot be null");
+//     
+//     var usernameExists = await _unitOfWork.GetRepository<User>()
+//         .SingleOrDefaultAsync(predicate:u => u.UserName == request.Username); 
+//     if (usernameExists != null)
+//         throw new BadHttpRequestException(MessageConstant.User.UserNameExisted);
+//     
+//     var phoneExists = await _unitOfWork.GetRepository<User>()
+//         .SingleOrDefaultAsync(predicate:u => u.Phone == request.Phone);
+//     if (phoneExists != null)
+//         throw new BadHttpRequestException(MessageConstant.User.PhoneNumberExisted);
+//
+//
+//     var key = request.Email;
+//     var existingOtp = await _redisService.GetStringAsync(key); 
+//     if (string.IsNullOrEmpty(existingOtp))
+//         throw new BadHttpRequestException(MessageConstant.OTP.OtpNotFound);
+//
+//     if (existingOtp != request.Otp)
+//         throw new BadHttpRequestException(MessageConstant.OTP.OtpIncorrect);
+//
+//     
+//     await _redisService.RemoveKeyAsync(key); 
+//
+//     var user = _mapper.Map<User>(request);
+//     user.UserId = Guid.NewGuid();
+//     user.Password = PasswordUtil.HashPassword(request.Password);
+//     user.Role = RoleEnum.Viewer;
+//     user.CreatAt = DateTime.UtcNow; 
+//     user.UpdateAt = DateTime.UtcNow; 
+//
+//     var member = new UserRole 
+//     { 
+//         Id = Guid.NewGuid(), 
+//         UserId = user.UserId, 
+//         User = user,
+//         CreateAt = DateTime.UtcNow, 
+//         UpdateAt = DateTime.UtcNow 
+//     };
+//
+//     using (var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled))
+//     {
+//         try
+//         {
+//             await _unitOfWork.GetRepository<User>().InsertAsync(user);
+//             await _unitOfWork.GetRepository<UserRole>().InsertAsync(member);
+//             
+//             bool isSuccessful = await _unitOfWork.CommitAsync() > 0;
+//             if (!isSuccessful)
+//                 throw new InvalidOperationException("Failed to save user and member data");
+//
+//             transaction.Complete();
+//             
+//             if (isSuccessful)
+//             {
+//                 var response = _mapper.Map<RegisterResponse>(user);
+//                 response.Token = JwtUtil.GenerateJwtToken(user, new Tuple<string, Guid>("userId", user.UserId),
+//                     _configuration);
+//                 response.RefreshToken = JwtUtil.GenerateRefreshToken();
+//                 return response;
+//             }
+//
+//             return null;
+//         }
+//         catch (DbUpdateException ex)
+//         {
+//             _logger.LogError(ex, "Database error during user registration: {Message}. Inner: {InnerMessage}", ex.Message, ex.InnerException?.Message);
+//             throw new BadHttpRequestException("Failed to register due to database error");
+//         }
+//         catch (Exception ex)
+//         {
+//             _logger.LogError(ex, "Unexpected error during user registration: {Message}", ex.Message);
+//             throw new BadHttpRequestException("An unexpected error occurred during registration");
+//         }
+//     }
+// }
     
     public async Task<string> GenerateOtpAsync(GenerateEmailOtpRequest request)
     {
