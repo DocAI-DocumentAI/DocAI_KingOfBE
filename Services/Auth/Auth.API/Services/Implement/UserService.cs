@@ -2,6 +2,7 @@
 using System.Text;
 using System.Transactions;
 using Auth.API.Constants;
+using Auth.API.Payload;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.ActiveKey;
 using Auth.API.Payload.Response;
@@ -15,6 +16,7 @@ using Auth.Infrastructure.Repository.Interfaces;
 using AutoMapper;
 using LoginRequest = Auth.API.Payload.Request.LoginRequest;
 using RegisterRequest = Auth.API.Payload.Request.RegisterRequest;
+using Microsoft.EntityFrameworkCore;
 
 namespace Auth.API.Services.Interface;
 
@@ -46,7 +48,7 @@ public class UserService : BaseService<UserService>, IUserService
         var response = CreateLoginResponse(user);
         await UpdateLastLoginAsync(user);
 
-        return response;
+        return await response;
     }
 
     private void ValidateLoginRequest(LoginRequest request)
@@ -58,23 +60,57 @@ public class UserService : BaseService<UserService>, IUserService
 
     private async Task<User> GetUserWithDetailsAsync(string username)
     {
-        return await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
-            predicate: u => u.UserName == username,
-            include: u => u
-                .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
-                .Include(u => u.UserDepartments).ThenInclude(ud => ud.Department)
-        );
+        // Lấy IQueryable từ repository, sau đó áp dụng AsNoTracking() và các Include
+        var query = _unitOfWork.GetRepository<User>().GetQuery()
+            .AsNoTracking() // <<< Lỗi này sẽ được giải quyết vì GetQuery() trả về IQueryable
+            .Where(u => u.UserName == username)
+            .Include(u => u.UserRoles)
+            .ThenInclude(ur => ur.Role)
+            .ThenInclude(r => r.RolePermissions)
+            .ThenInclude(rp => rp.Permission)
+            .Include(u => u.UserDepartments)
+            .ThenInclude(ud => ud.Department)
+            .Include(u => u.DepartmentRolePermissions)
+            .ThenInclude(d => d.Department)
+            .Include(u => u.DepartmentRolePermissions)
+            .ThenInclude(r => r.Role)
+            .Include(u => u.DepartmentRolePermissions)
+            .ThenInclude(p => p.Permission);
+
+        return await query.SingleOrDefaultAsync(); // Gọi SingleOrDefaultAsync trên IQueryable
     }
 
-    private LoginResponse CreateLoginResponse(User user)
+    private async Task<LoginResponse> CreateLoginResponse(User user)
     {
-        var claim = new Tuple<string, Guid>("userId", user.Id);
+        // 1. Lấy Contextual Permissions TRỰC TIẾP từ user.DepartmentRolePermissions
+        // Đảm bảo Distinct để tránh các claim trùng lặp nếu có lỗi dữ liệu hoặc logic.
+        var contextualPermissions = user.DepartmentRolePermissions
+            ?.Select(drp => new ContextualPermissionClaim
+            {
+                DeptId = drp.DepartmentId,
+                DeptName = drp.Department.Name,
+                RoleName = drp.Role.RoleName,
+                PermissionName = drp.Permission.Name,
+            })
+            .Distinct() // Rất quan trọng để tránh trùng lặp trong JWT
+            .ToList() ?? new List<ContextualPermissionClaim>();
+
+        // 2. Xác định General Roles (ví dụ: "Admin")
+        // Các vai trò này thường không gắn với DepartmentId cụ thể.
+        // Lấy từ UserRoles của user.
+        var generalRoles = user.UserRoles
+            ?.Where(ur => ur.Role?.RoleName == "Admin") // Giả định "Admin" là general role
+            .Select(ur => ur.Role.RoleName)
+            .ToList() ?? new List<string>();
 
         return new LoginResponse
         {
             UserId = user.Id,
             Username = user.UserName,
             Email = user.Email,
+            FullName = user.FullName, // Thêm FullName
+
+            // Dữ liệu hiển thị (có thể giữ lại nếu frontend cần)
             Roles = user.UserRoles?.Select(ur => new RoleResponse
             {
                 RoleName = ur.Role.RoleName,
@@ -85,28 +121,50 @@ public class UserService : BaseService<UserService>, IUserService
 
             Departments = user.UserDepartments?.Select(ud => new DepartmentResponse
             {
-                Name = ud.Department.Name,
+                Name = ud.Department.Name, // Dùng Department.Name
                 Description = ud.Department.Description,
                 CreateAt = ud.Department.CreateAt,
                 UpdateAt = ud.Department.UpdateAt
             }).ToList() ?? new List<DepartmentResponse>(),
 
-            Token = JwtUtil.GenerateJwtToken(user, claim, _configuration),
+            // Dữ liệu chính cho JWT
+            ContextualPermissions = contextualPermissions,
+            GeneralRoles = generalRoles,
+
+            Token = JwtUtil.GenerateJwtToken(user, contextualPermissions, generalRoles, _configuration),
             RefreshToken = JwtUtil.GenerateRefreshToken()
         };
     }
 
     private async Task UpdateLastLoginAsync(User user)
     {
-        // Có thể lưu thời gian đăng nhập cuối nếu cần
-        // user.LastLogin = DateTime.UtcNow;
+        // Bước 1: Lấy lại user từ DB bằng một truy vấn MỚI.
+        // Điều này đảm bảo rằng đối tượng 'userToUpdate' này được theo dõi bởi DbContext hiện tại
+        // và sẽ không có xung đột với các đối tượng 'NoTracking' từ GetUserWithDetailsAsync.
+        var userToUpdate = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Id == user.Id // Chỉ cần ID của user để lấy lại
+        );
 
-        _unitOfWork.GetRepository<User>().UpdateAsync(user);
-        var success = await _unitOfWork.CommitAsync() > 0;
-
-        if (!success)
+        // Bước 2: Kiểm tra nếu user được tìm thấy để cập nhật
+        if (userToUpdate != null)
         {
-            _logger.LogWarning("Login succeeded but failed to update user: {UserName}", user.UserName);
+            // Bước 3: Thực hiện thay đổi trên đối tượng đã được theo dõi
+            userToUpdate.UpdateAt = DateTime.UtcNow; // Cập nhật thời gian cuối cùng đăng nhập
+            // userToUpdate.LastLogin = DateTime.UtcNow; // Nếu bạn có trường LastLogin riêng biệt
+
+            // Bước 4: Gọi UpdateAsync trên đối tượng đã được theo dõi
+            // Phương thức UpdateAsync của bạn sẽ hoạt động đúng ở đây vì userToUpdate đã được theo dõi
+            _unitOfWork.GetRepository<User>().UpdateAsync(userToUpdate);
+            var success = await _unitOfWork.CommitAsync() > 0;
+
+            if (!success)
+            {
+                _logger.LogWarning("Login succeeded but failed to update user: {UserName}", user.UserName);
+            }
+        }
+        else
+        {
+            _logger.LogError("User not found for update after successful login: {UserId}", user.Id);
         }
     }
 
@@ -127,8 +185,8 @@ public class UserService : BaseService<UserService>, IUserService
         var userDepartment = new UserDepartment()
         {
             Id = Guid.NewGuid(),
-            departmentId = deparment.Id,
-            userId = user.Id,
+            DepartmentId = deparment.Id,
+            UserId = user.Id,
         };
         var userRole = new UserRole
         {
@@ -161,7 +219,8 @@ public class UserService : BaseService<UserService>, IUserService
 
                 transaction.Complete();
 
-                return CreateRegisterResponse(user);
+                return null;
+                // return CreateRegisterResponse(user);
             }
             catch (DbUpdateException ex)
             {
@@ -250,27 +309,27 @@ public class UserService : BaseService<UserService>, IUserService
         return role;
     }
 
-    private RegisterResponse CreateRegisterResponse(User user)
-    {
-        var response = _mapper.Map<RegisterResponse>(user);
-        response.Roles = user.UserRoles?.Select(ur => new RoleResponse
-        {
-            RoleName = ur.Role.RoleName,
-            Description = ur.Role.Description,
-            CreateAt = ur.Role.CreateAt,
-            UpdateAt = ur.Role.UpdateAt
-        }).ToList() ?? new List<RoleResponse>();
-        response.Departments = user.UserDepartments?.Select(ud => new DepartmentResponse
-        {
-            Name = ud.Department.Name,
-            Description = ud.Department.Description,
-            CreateAt = ud.Department.CreateAt,
-            UpdateAt = ud.Department.UpdateAt
-        }).ToList() ?? new List<DepartmentResponse>();
-        response.Token = JwtUtil.GenerateJwtToken(user, new Tuple<string, Guid>("userId", user.Id), _configuration);
-        response.RefreshToken = JwtUtil.GenerateRefreshToken();
-        return response;
-    }
+    // private RegisterResponse CreateRegisterResponse(User user)
+    // {
+    //     var response = _mapper.Map<RegisterResponse>(user);
+    //     response.Roles = user.UserRoles?.Select(ur => new RoleResponse
+    //     {
+    //         RoleName = ur.Role.RoleName,
+    //         Description = ur.Role.Description,
+    //         CreateAt = ur.Role.CreateAt,
+    //         UpdateAt = ur.Role.UpdateAt
+    //     }).ToList() ?? new List<RoleResponse>();
+    //     response.Departments = user.UserDepartments?.Select(ud => new DepartmentResponse
+    //     {
+    //         Name = ud.Department.Name,
+    //         Description = ud.Department.Description,
+    //         CreateAt = ud.Department.CreateAt,
+    //         UpdateAt = ud.Department.UpdateAt
+    //     }).ToList() ?? new List<DepartmentResponse>();
+    //     response.Token = JwtUtil.GenerateJwtToken(user, new Tuple<string, Guid>("userId", user.Id), _configuration);
+    //     response.RefreshToken = JwtUtil.GenerateRefreshToken();
+    //     return response;
+    // }
 
     public async Task<string> GenerateActivationCode(int length = 32)
     {
@@ -307,7 +366,8 @@ public class UserService : BaseService<UserService>, IUserService
         if (currentUserRole == null)
             throw new UnauthorizedAccessException(MessageConstant.User.UserNotHaveRole);
 
-        var targetRole = await _unitOfWork.GetRepository<Role>().SingleOrDefaultAsync(predicate: r => r.Id == request.RoleId);
+        var targetRole = await _unitOfWork.GetRepository<Role>()
+            .SingleOrDefaultAsync(predicate: r => r.Id == request.RoleId);
 
         if (targetRole == null)
             throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);

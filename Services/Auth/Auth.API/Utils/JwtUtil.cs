@@ -4,9 +4,11 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using Auth.API.Payload;
 using Auth.Domain.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
+using Newtonsoft.Json;
 
 namespace Auth.API.Utils;
 public class JwtUtil
@@ -15,10 +17,15 @@ public class JwtUtil
     {
         
     }
-    public static string GenerateJwtToken(User user, Tuple<string, Guid>? guidClaim, IConfiguration configuration)
+    public static string GenerateJwtToken(
+        User user,
+        List<ContextualPermissionClaim> contextualPermissions, // MỚI
+        List<string> generalRoles,                             // MỚI
+        IConfiguration configuration)
     {
         string secret = configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret is missing in configuration.");
         string issuer = configuration["JWT:Issuer"] ?? throw new InvalidOperationException("JWT:Issuer is missing in configuration.");
+        string audience = configuration["JWT:Audience"] ?? ""; // Lấy Audience từ config
 
         if (secret.Length < 32)
         {
@@ -33,33 +40,35 @@ public class JwtUtil
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new Claim(JwtRegisteredClaimNames.Sub, user.UserName ?? ""),
             new Claim("userId", user.Id.ToString()),
-            new Claim("email", user.Email ?? "")
+            new Claim("email", user.Email ?? ""),
+            new Claim("fullName", user.FullName ?? "") // Thêm FullName vào claim
         };
 
-        // Add all roles
-        if (user.UserRoles != null)
+        // 1. Thêm General Roles (dưới dạng claim "role" chuẩn)
+        if (generalRoles != null)
         {
-            foreach (var role in user.UserRoles)
+            foreach (var roleName in generalRoles)
             {
-                if (!string.IsNullOrEmpty(role.Role?.RoleName))
-                {
-                    claims.Add(new Claim(ClaimTypes.Role, role.Role.RoleName));
-                }
+                claims.Add(new Claim(ClaimTypes.Role, roleName));
             }
         }
 
-        // Add custom GUID claim (if needed)
-        if (guidClaim != null && !claims.Any(c => c.Type == guidClaim.Item1))
+        // 2. Thêm Contextual Permissions (dưới dạng claim tùy chỉnh "contextualPermissions")
+        if (contextualPermissions != null && contextualPermissions.Any())
         {
-            claims.Add(new Claim(guidClaim.Item1, guidClaim.Item2.ToString()));
+            claims.Add(new Claim(
+                "contextualPermissions",
+                JsonConvert.SerializeObject(contextualPermissions),
+                JsonClaimValueTypes.JsonArray // Quan trọng để chỉ định đây là JSON array
+            ));
         }
-        
+
         var token = new JwtSecurityToken(
             issuer: issuer,
-            audience: null, // you can set this if needed
+            audience: audience,
             claims: claims,
             notBefore: DateTime.UtcNow,
-            expires: DateTime.UtcNow.AddHours(1),
+            expires: DateTime.UtcNow.AddHours(1), // Thời gian hết hạn
             signingCredentials: credentials
         );
 
@@ -75,27 +84,6 @@ public class JwtUtil
             rng.GetBytes(randomNumber);
             return Convert.ToBase64String(randomNumber);
         }
-    }
-
-    public static ClaimsPrincipal GetPrincipalFromExpiredToken(string token, IConfiguration configuration)
-    {
-        var tokenValidationParameters = new TokenValidationParameters
-        {
-            ValidIssuer = configuration["JWT:Issuer"],
-            ValidateIssuer = true,
-            ValidateAudience = false,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["JWT:Secret"]!)),
-        };
-        var tokenHandler = new JwtSecurityTokenHandler();
-        SecurityToken securityToken;
-        var principal = tokenHandler.ValidateToken(token, tokenValidationParameters, out securityToken);
-        var jwtSecurityToken = securityToken as JwtSecurityToken;
-        if (jwtSecurityToken == null || !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256Signature, StringComparison.InvariantCultureIgnoreCase))
-        {
-            throw new SecurityTokenException("Invalid token");
-        }
-        return principal;
     }
     
 }

@@ -18,11 +18,6 @@ public class ActiveKeyConfiguration : IEntityTypeConfiguration<ActiveKey>
                 Id = Guid.Parse("65de7f7d-0bcc-4cdf-bd8c-f8d1ac290cd8"),
                 ActivationCode = "zXYmN7pLcVTEqF59jKADrCbhQuU630aw",
                 RoleName = "Manager"
-            },
-            new ActiveKey {
-                Id = Guid.Parse("23deb45b-705a-4c86-be05-61201fcac8be"),
-                ActivationCode = "g1UHzv7McAbpRKeYwXd29fQsTNLqJo5C",
-                RoleName = "Director"
             }
         );
     }

@@ -7,11 +7,11 @@ public class UserDepartment
 {
     [Key]
     public Guid Id { get; set; }
-    public Guid userId { get; set; }
-    [ForeignKey("userId")]
+    public Guid UserId { get; set; }
+    [ForeignKey("UserId")]
     public User User { get; set; }
-    public Guid departmentId { get; set; }
-    [ForeignKey("departmentId")]
+    public Guid DepartmentId { get; set; }
+    [ForeignKey("DepartmentId")]
     public Department Department { get; set; }
     public bool IsDepartmentHead {get; set;}
 }

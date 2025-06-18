@@ -14,4 +14,5 @@ public interface IUnitOfWork : IGenericRepositoryFactory, IDisposable
 public interface IUnitOfWork<TContext> : IUnitOfWork where TContext : DbContext
 {
     TContext Context { get; }
+    
 }

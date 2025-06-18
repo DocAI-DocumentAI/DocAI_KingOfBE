@@ -22,6 +22,11 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
 			_dbContext = context;
 			_dbSet = context.Set<T>();
 		}
+		
+		public override IQueryable<T> GetQuery()
+		{
+			return _dbSet; // DbSet đã là IQueryable, không cần AsQueryable() ở đây
+		}
 
 		public override void Dispose()
 		{

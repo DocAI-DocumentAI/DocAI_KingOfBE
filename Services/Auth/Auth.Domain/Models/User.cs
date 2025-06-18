@@ -19,4 +19,5 @@ public class User
     public string? TwoFactorMethod { get; set; }
     public virtual ICollection<UserRole>? UserRoles { get; set; }
     public virtual ICollection<UserDepartment>? UserDepartments { get; set; }
+    public virtual ICollection<DepartmentRolePermission>? DepartmentRolePermissions { get; set; }
 }

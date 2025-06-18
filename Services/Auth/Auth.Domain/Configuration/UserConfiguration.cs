@@ -52,19 +52,6 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             },
             new User
             {
-                Id = Guid.Parse("a9df371e-9249-47b8-83ce-8cd940140b9b"),
-                UserName = "director",
-                Password = HashPassword("director"),
-                Email = "director@gmail.com",
-                Phone = "0123456789",
-                FullName = "Director",
-                CreatAt = DateTime.UtcNow,
-                UpdateAt = DateTime.UtcNow,
-                TwoFactorEnabled = false,
-                TwoFactorMethod = "Email"
-            },
-            new User
-            {
                 Id = Guid.Parse("595dd357-aaec-455e-9fa7-4fc88d4b819c"),
                 UserName = "manager",
                 Password = HashPassword("manager"),
