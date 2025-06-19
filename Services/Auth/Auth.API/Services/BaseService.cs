@@ -42,6 +42,39 @@ public class BaseService<T> where T : class
         
     }
 
+    
+    protected ClaimsPrincipal GetCurrentUserClaimsPrincipal() // Đổi tên và kiểu trả về
+    {
+        var httpContext = _httpContextAccessor.HttpContext;
+
+        // Bỏ logging chi tiết ở đây, di chuyển ra ngoài nếu cần để giữ hàm gọn
+        // _logger.LogInformation("HttpContext: {HttpContext}", httpContext?.ToString() ?? "null");
+
+        var user = httpContext?.User;
+        if (user == null || !user.Identity.IsAuthenticated)
+        {
+            // _logger.LogError("User is not authenticated. Identity: {Identity}", user?.Identity?.ToString() ?? "null");
+            throw new AuthenticationException("User is not authenticated.");
+        }
+
+        // Bỏ logging claims ở đây
+        // var claims = user.Claims.Select(c => $"{c.Type}: {c.Value}").ToList();
+        // _logger.LogInformation("Claims found: {Claims}", string.Join(", ", claims));
+
+        // Kiểm tra cơ bản rằng có ít nhất User ID claim để đảm bảo token hợp lệ tối thiểu
+        var userIdClaim = user.FindFirst("userId");
+        if (userIdClaim == null || string.IsNullOrEmpty(userIdClaim.Value))
+        {
+            // _logger.LogError("User ID claim not found in token.");
+            throw new AuthenticationException("User ID claim not found in token.");
+        }
+
+        // Không cần Guid.TryParse ở đây nữa nếu bạn chỉ trả về ClaimsPrincipal.
+        // Việc parse sẽ được thực hiện ở nơi gọi nếu cần userId cụ thể.
+
+        return user; // Trả về toàn bộ ClaimsPrincipal
+    }
+
     protected Guid GetUserIdFromJwt()
     {
         var httpContext = _httpContextAccessor.HttpContext;

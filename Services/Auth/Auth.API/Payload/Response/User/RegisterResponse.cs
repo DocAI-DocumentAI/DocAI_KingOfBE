@@ -5,16 +5,19 @@ namespace Auth.API.Payload.Response;
 
 public class RegisterResponse
 {
-    public string UserName { get; set; }
+    public Guid UserId { get; set; }
+    public string Username { get; set; }
     public string Email { get; set; }
-    public string Phone { get; set; }
-    public string FullName { get; set; }
-    public ICollection<RoleResponse> Roles { get; set; }
-    public ICollection<DepartmentResponse> Departments { get; set; }
-    public DateTime CreatAt { get; set; }
-    public DateTime UpdateAt { get; set; }
-    public bool TwoFactorEnabled { get; set; }
-    public string TwoFactorMethod { get; set; }
-    public string Token { get; set; } 
-    public string RefreshToken { get; set; } 
+    public string FullName { get; set; } // Thêm FullName
+
+    // Tùy chọn: Để hiển thị ở Frontend
+    public List<RoleResponse> Roles { get; set; }
+    public List<DepartmentResponse> Departments { get; set; }
+
+    // THÔNG TIN CHÍNH SẼ ĐƯA VÀO JWT
+    public List<ContextualPermissionClaim> ContextualPermissions { get; set; }
+    public List<string> GeneralRoles { get; set; } // Ví dụ: Admin
+
+    public string Token { get; set; }
+    public string RefreshToken { get; set; }
 }

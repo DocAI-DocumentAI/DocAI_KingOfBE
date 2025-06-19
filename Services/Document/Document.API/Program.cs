@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Document.API.Extensions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -33,6 +34,7 @@ try
             theme: TemplateTheme.Code)));
 
     builder.Services.AddOpenApi();
+    builder.Services.AddServices(builder.Configuration);
     
     // Register the NSwag services
     builder.Services.AddOpenApiDocument(options =>
@@ -51,6 +53,7 @@ try
 
         options.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("Bearer"));
     });
+    
 
     var app = builder.Build();
 
@@ -78,6 +81,8 @@ try
     // }
 
     app.UseHttpsRedirection();
+    
+    app.UseSerilogRequestLogging();
     
     app.UseSerilogRequestLogging();
 

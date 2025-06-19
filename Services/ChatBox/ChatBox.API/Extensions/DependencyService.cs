@@ -1,7 +1,7 @@
-﻿using Document.API.Consumers;
+﻿using ChatBox.API.Consumers;
 using MassTransit;
 
-namespace Document.API.Extensions;
+namespace ChatBox.API.Extensions;
 
 public static class DependencyService
 {
@@ -26,5 +26,5 @@ public static class DependencyService
             });
         });
         return services;
-    } 
+    }
 }

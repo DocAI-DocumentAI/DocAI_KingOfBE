@@ -1,7 +1,9 @@
 ﻿using System.Text;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Notification.API.Consumers;
 using Notification.Infrastructure.Repository.Implement;
 using Notification.Infrastructure.Repository.Interfaces;
 using Serilog;
@@ -52,17 +54,24 @@ public static class DependencyService
     public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
     {
         // services.AddScoped<IUserService, UserService>();
-        // services.AddMassTransit(x =>
-        // {
-        //     x.UsingRabbitMq((context, cfg) =>
-        //     {
-        //         cfg.Host("rabbitmq://localhost", h =>
-        //         {
-        //             h.Username("guest");
-        //             h.Password("guest");
-        //         });
-        //     });
-        // });
+        services.AddMassTransit(x =>
+        {
+            x.AddConsumer<UserRequestMessageConsumer>(); 
+            x.UsingRabbitMq((context, cfg) =>
+            {
+                cfg.Host("rabbitmq://localhost", h =>
+                {
+                    h.Username("guest");
+                    h.Password("guest");
+                });
+                
+                cfg.ReceiveEndpoint("user-request-queue", e =>
+                {
+                    // Chỉ định consumer nào sẽ xử lý message từ queue này
+                    e.ConfigureConsumer<UserRequestMessageConsumer>(context);
+                });
+            });
+        });
         return services;
     }
     

@@ -2,11 +2,13 @@
 using System.IO;
 using System.Security.Claims;
 using System.Text;
+using Auth.API.Consumers;
 using Auth.API.Services.Interface;
 using Auth.Domain.Models;
 using Auth.Infrastructure.Repository.Implement;
 using Auth.Infrastructure.Repository.Interfaces;
 using DOCA.API.Services.Implement;
+using MassTransit;
 // using Auth.API.Services.Implement;
 // using Auth.API.Services.Interface;
 // using MassTransit;
@@ -68,17 +70,24 @@ public static class DependencyService
         services.AddScoped<IRedisService, RedisService>();
         // services.AddScoped<IViewerService, ViewerService>();
         // services.AddScoped<IEditorService, EditorService>();
-        // services.AddMassTransit(x =>
-        // {
-        //     x.UsingRabbitMq((context, cfg) =>
-        //     {
-        //         cfg.Host("rabbitmq://localhost", h =>
-        //         {
-        //             h.Username("guest");
-        //             h.Password("guest");
-        //         });
-        //     });
-        // });
+        services.AddMassTransit(x =>
+        {
+            x.AddConsumer<UserRequestMessageConsumer>(); 
+            x.UsingRabbitMq((context, cfg) =>
+            {
+                cfg.Host("rabbitmq://localhost", h =>
+                {
+                    h.Username("guest");
+                    h.Password("guest");
+                });
+                
+                cfg.ReceiveEndpoint("user-request-queue", e =>
+                {
+                    // Chỉ định consumer nào sẽ xử lý message từ queue này
+                    e.ConfigureConsumer<UserRequestMessageConsumer>(context);
+                });
+            });
+        });
         return services;
     }
     

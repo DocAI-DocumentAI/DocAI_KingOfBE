@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using ChatBox.API.Extensions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -36,6 +37,7 @@ try
     builder.Services.AddAuthorization();
     builder.Services.AddControllers();
     builder.Services.AddHttpContextAccessor();
+    builder.Services.AddServices(builder.Configuration);
 
     builder.Services.Configure<HostOptions>(hostOptions =>
     {
@@ -70,8 +72,6 @@ try
     });
 
     app.UseHttpsRedirection();
-
-    app.UseSerilogRequestLogging();
     app.UseAuthentication();
     app.UseAuthorization();
     app.UseSerilogRequestLogging();

@@ -8,6 +8,8 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="MassTransit" Version="8.4.1" />
+        <PackageReference Include="MassTransit.RabbitMQ" Version="8.4.1" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.4"/>
         <PackageReference Include="Serilog.Expressions" Version="5.1.0-dev-02301" />
     </ItemGroup>
@@ -19,6 +21,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\..\..\Shared\Shared.csproj" />
       <ProjectReference Include="..\ChatBox.Infrastructure\ChatBox.Infrastructure.csproj" />
     </ItemGroup>
 
