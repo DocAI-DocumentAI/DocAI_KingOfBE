@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
 
 env:
   DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
@@ -60,7 +60,7 @@ jobs:
           file: Services/Notification/Notification.API/Dockerfile
           push: true
           tags: magicflexing/docai-notification-api:latest
-          
+
       - name: Build and push ChatBox.API
         uses: docker/build-push-action@v4
         with:

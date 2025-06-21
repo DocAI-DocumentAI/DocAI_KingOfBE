@@ -15,9 +15,45 @@ public class MessageConstant
         public const string UserNotHaveRole = "User không có role";
     }
     
+    public class DepartmentRolePermission
+    {
+        public const string DepartmentRolePermissionNotFound = "DepartmentRolePermission không tồn tại";
+    }
+    
+    public class UserDepartment
+    {
+        public const string UserDepartmentNotFound = "UserDepartment không tồn tại";
+    }
+    
+    public class Permission
+    {
+        public const string PermissionNotFonnd = "Permission không tồn tại";
+        public const string PermissionNotNull = "Permission không được để trống";
+        public const string PermissionExist = "Permission đã tồn tại";
+        public const string CreateFailed = "Create thất bại";
+        public const string UpdateFailed = "Update thất bại";
+        public const string DeleteFailed = "Delete thất bại";
+        
+    }
+    
     public class Role
     {
+        public const string RoleNotNull = "Role không được để trống";
         public const string RoleNotFound =  "Role không tồn tại";
+        public const string RoleExist = "Role đã tồn tại";
+        public const string CreateFailed = "Create thất bại";
+        public const string UpdateFailed = "Update thất bại";
+        public const string DeleteFailed = "Delete thất bại";
+    }
+    
+    public class UserRole
+    {
+        public const string UserRoleNotFound = "UserRole không tồn tại";
+    }
+    
+    public class RolePermission
+    {
+        public const string RolePermissionNotFound = "RolePermission không tồn tại";
     }
     
     public class ActivationCode
@@ -29,24 +65,11 @@ public class MessageConstant
     public class Department
     {
         public const string DepartmentNotFound = "Department không tồn tại";
-    }
-    
-    public class Viewer
-    {
-        public const string ViewerNotFound = "Viewer không tồn tại";
-        public const string UpdateFail = "Cập nhật Viewer thất bại";
-        public const string ResetPasswordFail = "Reset password Viewer thất bại";
-        public const string PasswordOldNotNull = "Password cũ không để trống";
-        public const string PasswordNewNotNull = "Password mới không để trống";
-        public const string PasswordConfirmNotNull = "Comfirm password để trống";
-        public const string PasswordOldWrong = "Password cũ không đúng";
-        public const string PasswordConfirmWrong = "Confirm password không đúng";
-    }
-    
-    public class Editor
-    {
-        public const string EditorNotFound = "Editor không tồn tại";
-        public const string UpdateFail = "Cập nhật Editor thất bại";
+        public const string DepartmentNotNull = "Department không để trống";
+        public const string DepartmentExist = "Department đã tồn tại";
+        public const string CreateFailed = "Create thất bại";
+        public const string UpdateFailed = "Update thất bại";
+        public const string DeleteFailed = "Delete thất bại";
     }
     
     public class OTP

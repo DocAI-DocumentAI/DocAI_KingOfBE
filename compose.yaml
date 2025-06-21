@@ -1,103 +1,158 @@
-﻿#services:
-#  ai.api:
-#    build:
-#      context: .
-#      dockerfile: Services/AI/AI.API/Dockerfile
-##    image: magicflexing/docai-ai-api:latest
-#    ports:
-#      - "5003:5003"
-#    restart: always
-#    networks:
-#      - docai_network
-#
-#  auth.api:
-#    build:
-#      context: .
-#      dockerfile: Services/Auth/Auth.API/Dockerfile
-##    image: magicflexing/docai-auth-api:latest
-#    ports:
-#      - "5001:5001"
-#    restart: always
-#    networks:
-#      - docai_network
-#
-#  apigateway1:
-#    build:
-#      context: .
-#      dockerfile: ApiGateway/Dockerfile
-##    image: magicflexing/docai-gateway:latest
-#    ports:
-#      - "5000:5000"
-#    restart: always
-#    depends_on:
-#      - auth.api
-#      - document.api
-#      - ai.api
-#      - notification.api
-#    networks:
-#      - docai_network
-#
-#  apigateway2:
-#    build:
-#      context: .
-#      dockerfile: ApiGateway/Dockerfile
-##    image: magicflexing/docai-gateway:latest
-#    ports:
-#      - "5005:5000"
-#    restart: always
-#    depends_on:
-#      - auth.api
-#      - document.api
-#      - ai.api
-#      - notification.api
-#    networks:
-#      - docai_network
-#
-#  document.api:
-#    build:
-#      context: .
-#      dockerfile: Services/Document/Document.API/Dockerfile
-##    image: magicflexing/docai-document-api:latest
-#    ports:
-#      - "5002:5002"
-#    restart: always
-#    networks:
-#      - docai_network
-#
-#  notification.api:
-#    build:
-#      context: .
-#      dockerfile: Services/Notification/Notification.API/Dockerfile
-##    image: magicflexing/docai-notification-api:latest
-#    ports:
-#      - "5004:5004"
-#    restart: always
-#    networks:
-#      - docai_network
-#  chatbox.api:
-#    build:
-#      context: .
-#      dockerfile: Services/ChatBox/ChatBox.API/Dockerfile
-#    #    image: magicflexing/docai-notification-api:latest
-#    ports:
-#      - "5006:5006"
-#    restart: always
-#    networks:
-#      - docai_network
-#
-#networks:
-#  docai_network:
-#    driver: bridge
-#
-#
-#  apphost:
-#    image: magicflexing/docai-apphost:latest
-#    ports:
-#      - "5005:8080"
+﻿services:
+ ai.api.1:
+   build:
+     context: .
+     dockerfile: Services/AI/AI.API/Dockerfile
+#    image: magicflexing/docai-ai-api:latest
+   ports:
+     - "5003:5003"
+   restart: always
+   networks:
+     - docai_network
 
+ ai.api.2:
+   build:
+     context: .
+     dockerfile: Services/AI/AI.API/Dockerfile
+#    image: magicflexing/docai-ai-api:latest
+   ports:
+     - "5103:5003"
+   restart: always
+   networks:
+     - docai_network
 
-services:
-  rabbitmq:
+ auth.api.1:
+   build:
+     context: .
+     dockerfile: Services/Auth/Auth.API/Dockerfile
+#    image: magicflexing/docai-auth-api:latest
+   ports:
+     - "5001:5001"
+   restart: always
+   networks:
+     - docai_network
+
+ auth.api.2:
+   build:
+     context: .
+     dockerfile: Services/Auth/Auth.API/Dockerfile
+#    image: magicflexing/docai-auth-api:latest
+   ports:
+     - "5101:5001"
+   restart: always
+   networks:
+     - docai_network
+ apigateway1:
+   build:
+     context: .
+     dockerfile: ApiGateway/Dockerfile
+#    image: magicflexing/docai-gateway:latest
+   ports:
+     - "5000:5000"
+   restart: always
+   depends_on:
+     - auth.api.1
+     - auth.api.2
+     - document.api.1
+     - document.api.2
+     - ai.api.1
+     - ai.api.2
+     - notification.api.1
+     - notification.api.2
+     - chatbox.api.1
+     - chatbox.api.2
+   networks:
+     - docai_network
+
+ apigateway2:
+   build:
+     context: .
+     dockerfile: ApiGateway/Dockerfile
+#    image: magicflexing/docai-gateway:latest
+   ports:
+     - "5100:5000"
+   restart: always
+   depends_on:
+     - auth.api.1
+     - auth.api.2
+     - document.api.1
+     - document.api.2
+     - ai.api.1
+     - ai.api.2
+     - notification.api.1
+     - notification.api.2
+     - chatbox.api.1
+     - chatbox.api.2
+   networks:
+     - docai_network
+
+ document.api.1:
+   build:
+     context: .
+     dockerfile: Services/Document/Document.API/Dockerfile
+#    image: magicflexing/docai-document-api:latest
+   ports:
+     - "5002:5002"
+   restart: always
+   networks:
+     - docai_network
+
+ document.api.2:
+   build:
+     context: .
+     dockerfile: Services/Document/Document.API/Dockerfile
+#    image: magicflexing/docai-document-api:latest
+   ports:
+     - "5102:5002"
+   restart: always
+   networks:
+     - docai_network
+
+ notification.api.1:
+   build:
+     context: .
+     dockerfile: Services/Notification/Notification.API/Dockerfile
+#    image: magicflexing/docai-notification-api:latest
+   ports:
+     - "5004:5004"
+   restart: always
+   networks:
+     - docai_network
+     
+ notification.api.2:
+   build:
+     context: .
+     dockerfile: Services/Notification/Notification.API/Dockerfile
+#    image: magicflexing/docai-notification-api:latest
+   ports:
+     - "5104:5004"
+   restart: always
+   networks:
+     - docai_network
+
+ chatbox.api.1:
+   build:
+     context: .
+     dockerfile: Services/ChatBox/ChatBox.API/Dockerfile
+   #    image: magicflexing/docai-notification-api:latest
+   ports:
+     - "5006:5006"
+   restart: always
+   networks:
+     - docai_network
+
+ chatbox.api.2:
+   build:
+     context: .
+     dockerfile: Services/ChatBox/ChatBox.API/Dockerfile
+   #    image: magicflexing/docai-notification-api:latest
+   ports:
+     - "5106:5006"
+   restart: always
+   networks:
+     - docai_network
+
+ rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: rabbitmq
     ports:
@@ -108,6 +163,10 @@ services:
       RABBITMQ_DEFAULT_PASSWORD: guest
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+
+networks:
+ docai_network:
+   driver: bridge
 
 volumes:
   rabbitmq_data:

@@ -3,6 +3,7 @@ using System.IO;
 using System.Security.Claims;
 using System.Text;
 using Auth.API.Consumers;
+using Auth.API.Services.Implement;
 using Auth.API.Services.Interface;
 using Auth.Domain.Models;
 using Auth.Infrastructure.Repository.Implement;
@@ -68,8 +69,9 @@ public static class DependencyService
     {
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRedisService, RedisService>();
-        // services.AddScoped<IViewerService, ViewerService>();
-        // services.AddScoped<IEditorService, EditorService>();
+        services.AddScoped<IPermissionService,PermissionService>();
+        services.AddScoped<IDepartmentService, DepartmentService>();
+        services.AddScoped<IRoleService, RoleService>();
         services.AddMassTransit(x =>
         {
             x.AddConsumer<UserRequestMessageConsumer>(); 

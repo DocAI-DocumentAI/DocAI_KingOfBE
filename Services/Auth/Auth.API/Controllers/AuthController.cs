@@ -47,7 +47,7 @@ public class AuthController : ControllerBase
         _logger.LogInformation($"Login succeeded with {request.Username}");
         return Ok(response);
     }
-    
+
     [HttpPost(ApiEndPointConstant.User.Register)]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status400BadRequest)]
@@ -78,7 +78,7 @@ public class AuthController : ControllerBase
         }
         return CreatedAtAction(nameof(CreateActiveKey), result);
     }
-    
+
     [HttpPost(ApiEndPointConstant.User.SendOtp)]
     [ProducesResponseType(typeof(string), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
@@ -90,8 +90,8 @@ public class AuthController : ControllerBase
         {
             return Problem(MessageConstant.OTP.SendOtpFailed);
         }
-    
+
         return CreatedAtAction(nameof(SendOtp), result);
     }
-    
+
 }
