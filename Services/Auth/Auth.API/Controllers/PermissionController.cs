@@ -36,14 +36,13 @@ public class PermissionController : ControllerBase
         return Ok(response);
     }
 
-    [HttpGet(ApiEndPointConstant.Permission.PermissionInformation)]
+    [HttpGet(ApiEndPointConstant.Permission.PermissionInformation + "/{permissionId}")]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status500InternalServerError)]
-    [Authorize]
-    public async Task<IActionResult> GetEditorInformationAsync(Guid PermissionId)
+    public async Task<IActionResult> GetEditorInformationAsync(Guid permissionId)
     {
-        var response = await _PermissionService.GetPermissionInformationAsync(PermissionId);
+        var response = await _PermissionService.GetPermissionInformationAsync(permissionId);
         return Ok(response);
     }
 
@@ -61,7 +60,7 @@ public class PermissionController : ControllerBase
         }
 
         _logger.LogInformation("Create Permission Success");
-        return CreatedAtAction(nameof(CreatePermissionAsync), response);
+        return Created($"{ApiEndPointConstant.Permission.PermissionInformation}/{response.Id}", response);
     }
 
     [HttpPatch(ApiEndPointConstant.Permission.UpdatePermission)]
@@ -69,9 +68,9 @@ public class PermissionController : ControllerBase
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> UpdateEditorAsync([FromBody] UpdatePermissionRequest updatePermissionRequest, Guid PermissionId)
+    public async Task<IActionResult> UpdateEditorAsync([FromBody] UpdatePermissionRequest updatePermissionRequest, Guid permissionId)
     {
-        var response = await _PermissionService.UpdatePermissionAsync(updatePermissionRequest, PermissionId);
+        var response = await _PermissionService.UpdatePermissionAsync(updatePermissionRequest, permissionId);
         if (response == null)
         {
             _logger.LogError($"Update Permission failed");
@@ -86,9 +85,9 @@ public class PermissionController : ControllerBase
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> DeletePermissionAsync(Guid PermissionId)
+    public async Task<IActionResult> DeletePermissionAsync(Guid permissionId)
     {
-        var response = await _PermissionService.DeletePermissionAsync(PermissionId);
+        var response = await _PermissionService.DeletePermissionAsync(permissionId);
         if (response == null)
         {
             _logger.LogError($"Delete Permission failed");

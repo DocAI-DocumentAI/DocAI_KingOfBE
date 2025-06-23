@@ -20,7 +20,7 @@ public class PermissionService : BaseService<PermissionService>, IPermissionServ
 {
     private readonly IConfiguration _configuration;
     private readonly IRedisService _redisService;
-    
+
     public PermissionService(IUnitOfWork<DocAIAuthContext> unitOfWork, ILogger<PermissionService> logger, IMapper mapper, IHttpContextAccessor httpContextAccessor, IConfiguration configuration, IRedisService redisService) : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
     {
         _redisService = redisService;
@@ -51,7 +51,7 @@ public class PermissionService : BaseService<PermissionService>, IPermissionServ
 
     public async Task<PermissionResponse> GetPermissionInformationAsync(Guid permissionId)
     {
-        if (permissionId == Guid.Empty) 
+        if (permissionId == Guid.Empty)
             throw new AuthenticationException(MessageConstant.Permission.PermissionNotFonnd);
         var permission = await _unitOfWork.GetRepository<Permission>().SingleOrDefaultAsync(
             predicate: r => r.Id == permissionId
@@ -82,13 +82,13 @@ public class PermissionService : BaseService<PermissionService>, IPermissionServ
         await _unitOfWork.GetRepository<Permission>().InsertAsync(newPermission);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;
         PermissionResponse response = null;
-        if(isSuccess) response = _mapper.Map<PermissionResponse>(newPermission);
+        if (isSuccess) response = _mapper.Map<PermissionResponse>(newPermission);
         return response;
     }
 
     public async Task<PermissionResponse> UpdatePermissionAsync(UpdatePermissionRequest request, Guid permissionId)
     {
-        if (permissionId == Guid.Empty) 
+        if (permissionId == Guid.Empty)
             throw new AuthenticationException(MessageConstant.Permission.PermissionNotFonnd);
         if (request == null)
             throw new AuthenticationException(MessageConstant.Permission.PermissionNotNull);
@@ -112,21 +112,23 @@ public class PermissionService : BaseService<PermissionService>, IPermissionServ
         var permission = await _unitOfWork.GetRepository<Permission>().SingleOrDefaultAsync(
             predicate: s => s.Id == permissionId
         );
-        if(permission == null)
+        if (permission == null)
             throw new BadHttpRequestException(MessageConstant.Permission.PermissionNotFonnd);
         var rolePermission = await _unitOfWork.GetRepository<RolePermission>().SingleOrDefaultAsync(
             predicate: ur => ur.PermissionId == permissionId
         );
-        if(rolePermission == null)
-            throw new BadHttpRequestException(MessageConstant.RolePermission.RolePermissionNotFound);
         var departmentRolePermission =
             await _unitOfWork.GetRepository<DepartmentRolePermission>().SingleOrDefaultAsync(
                 predicate: drp => drp.PermissionId == permissionId
             );
-        if (departmentRolePermission == null)
-            throw new BadHttpRequestException(MessageConstant.DepartmentRolePermission.DepartmentRolePermissionNotFound);
-        _unitOfWork.GetRepository<DepartmentRolePermission>().DeleteAsync(departmentRolePermission);
-        _unitOfWork.GetRepository<RolePermission>().DeleteAsync(rolePermission);
+        if (departmentRolePermission != null)
+        {
+            _unitOfWork.GetRepository<DepartmentRolePermission>().DeleteAsync(departmentRolePermission);
+        }
+        if (rolePermission != null)
+        {
+            _unitOfWork.GetRepository<RolePermission>().DeleteAsync(rolePermission);
+        }
         _unitOfWork.GetRepository<Permission>().DeleteAsync(permission);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;
         PermissionResponse response = null;

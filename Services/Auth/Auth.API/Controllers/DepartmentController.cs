@@ -36,14 +36,13 @@ public class DepartmentController : ControllerBase
         return Ok(response);
     }
 
-    [HttpGet(ApiEndPointConstant.Department.DepartmentInformation)]
+    [HttpGet(ApiEndPointConstant.Department.DepartmentInformation + "/{departmentId}")]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status500InternalServerError)]
-    [Authorize]
-    public async Task<IActionResult> GetEditorInformationAsync(Guid DepartmentId)
+    public async Task<IActionResult> GetEditorInformationAsync(Guid departmentId)
     {
-        var response = await _DepartmentService.GetDepartmentInformationAsync(DepartmentId);
+        var response = await _DepartmentService.GetDepartmentInformationAsync(departmentId);
         return Ok(response);
     }
 
@@ -61,7 +60,7 @@ public class DepartmentController : ControllerBase
         }
 
         _logger.LogInformation("Create Department Success");
-        return CreatedAtAction(nameof(CreateDepartmentAsync), response);
+        return Created($"{ApiEndPointConstant.Department.DepartmentInformation}/{response.Id}", response);
     }
 
     [HttpPatch(ApiEndPointConstant.Department.UpdateDepartment)]
@@ -69,9 +68,9 @@ public class DepartmentController : ControllerBase
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> UpdateEditorAsync([FromBody] UpdateDepartmentRequest updateDepartmentRequest, Guid DepartmentId)
+    public async Task<IActionResult> UpdateEditorAsync([FromBody] UpdateDepartmentRequest updateDepartmentRequest, Guid departmentId)
     {
-        var response = await _DepartmentService.UpdateDepartmentAsync(updateDepartmentRequest, DepartmentId);
+        var response = await _DepartmentService.UpdateDepartmentAsync(updateDepartmentRequest, departmentId);
         if (response == null)
         {
             _logger.LogError($"Update Department failed");
@@ -86,9 +85,9 @@ public class DepartmentController : ControllerBase
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> DeleteDepartmentAsync(Guid DepartmentId)
+    public async Task<IActionResult> DeleteDepartmentAsync(Guid departmentId)
     {
-        var response = await _DepartmentService.DeleteDepartmentAsync(DepartmentId);
+        var response = await _DepartmentService.DeleteDepartmentAsync(departmentId);
         if (response == null)
         {
             _logger.LogError($"Delete Department failed");

@@ -20,26 +20,26 @@ public class ApiEndPointConstant
     {
         public const string Roles = ApiEndpoint + "/roles";
         public const string RoleInformation = ApiEndpoint + "/role";
-        public const string CreateRole = ApiEndpoint + "create/role";
-        public const string UpdateRole = ApiEndpoint + "update/role";
-        public const string DeleteRole = ApiEndpoint + "delete/role";
+        public const string CreateRole = ApiEndpoint + "/create/role";
+        public const string UpdateRole = ApiEndpoint + "/update/role";
+        public const string DeleteRole = ApiEndpoint + "/delete/role";
     }
-    
+
     public class Department
     {
-        public const string Departments = ApiEndpoint + "/Departments";
-        public const string DepartmentInformation = ApiEndpoint + "/Department";
-        public const string CreateDepartment = ApiEndpoint + "create/Department";
-        public const string UpdateDepartment = ApiEndpoint + "update/Department";
-        public const string DeleteDepartment = ApiEndpoint + "delete/Department";
+        public const string Departments = ApiEndpoint + "/departments";
+        public const string DepartmentInformation = ApiEndpoint + "/department";
+        public const string CreateDepartment = ApiEndpoint + "/create/department";
+        public const string UpdateDepartment = ApiEndpoint + "/update/department";
+        public const string DeleteDepartment = ApiEndpoint + "/delete/department";
     }
-    
+
     public class Permission
     {
-        public const string Permissions = ApiEndpoint + "/Permissions";
-        public const string PermissionInformation = ApiEndpoint + "/Permission";
-        public const string CreatePermission = ApiEndpoint + "create/Permission";
-        public const string UpdatePermission = ApiEndpoint + "update/Permission";
-        public const string DeletePermission = ApiEndpoint + "delete/Permission";
+        public const string Permissions = ApiEndpoint + "/permissions";
+        public const string PermissionInformation = ApiEndpoint + "/permission";
+        public const string CreatePermission = ApiEndpoint + "/create/permission";
+        public const string UpdatePermission = ApiEndpoint + "/update/permission";
+        public const string DeletePermission = ApiEndpoint + "/delete/permission";
     }
 }

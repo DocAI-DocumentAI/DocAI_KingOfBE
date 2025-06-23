@@ -81,7 +81,7 @@ public class RoleService : BaseService<Role>, IRoleService
         await _unitOfWork.GetRepository<Role>().InsertAsync(newRole);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;
         RoleResponse response = null;
-        if(isSuccess) response = _mapper.Map<RoleResponse>(newRole);
+        if (isSuccess) response = _mapper.Map<RoleResponse>(newRole);
         return response;
     }
 
@@ -107,34 +107,37 @@ public class RoleService : BaseService<Role>, IRoleService
 
     public async Task<RoleResponse> DeleteRoleAsync(Guid roleId)
     {
-        if(roleId == Guid.Empty)
+        if (roleId == Guid.Empty)
             throw new AuthenticationException(MessageConstant.Role.RoleNotFound);
         var role = await _unitOfWork.GetRepository<Role>().SingleOrDefaultAsync(
             predicate: s => s.Id == roleId,
             include: s => s.Include(rp => rp.RolePermissions).ThenInclude(p => p.Permission)
         );
-        if(role == null)
+        if (role == null)
             throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
         var userRole = await _unitOfWork.GetRepository<UserRole>().SingleOrDefaultAsync(
             predicate: ur => ur.RoleId == roleId
         );
-        if(userRole == null)
-            throw new BadHttpRequestException(MessageConstant.UserRole.UserRoleNotFound);
         var rolePermission = await _unitOfWork.GetRepository<RolePermission>().SingleOrDefaultAsync(
             predicate: rp => rp.RoleId == roleId
             );
-        if(rolePermission == null)
-            throw new BadHttpRequestException(MessageConstant.RolePermission.RolePermissionNotFound);
         var departmentRolePermission =
             await _unitOfWork.GetRepository<DepartmentRolePermission>().SingleOrDefaultAsync(
                 predicate: drp => drp.RoleId == roleId
             );
-        if (departmentRolePermission == null)
-            throw new BadHttpRequestException(MessageConstant.DepartmentRolePermission.DepartmentRolePermissionNotFound);
-        _unitOfWork.GetRepository<DepartmentRolePermission>().DeleteAsync(departmentRolePermission);
+        if (departmentRolePermission != null)
+        {
+            _unitOfWork.GetRepository<DepartmentRolePermission>().DeleteAsync(departmentRolePermission);
+        }
+        if (userRole != null)
+        {
+            _unitOfWork.GetRepository<UserRole>().DeleteAsync(userRole);
+        }
+        if (rolePermission != null)
+        {
+            _unitOfWork.GetRepository<RolePermission>().DeleteAsync(rolePermission);
+        }
         _unitOfWork.GetRepository<Role>().DeleteAsync(role);
-        _unitOfWork.GetRepository<UserRole>().DeleteAsync(userRole);
-        _unitOfWork.GetRepository<RolePermission>().DeleteAsync(rolePermission);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;
         RoleResponse response = null;
         if (isSuccess) response = _mapper.Map<RoleResponse>(role);

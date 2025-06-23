@@ -16,7 +16,6 @@ public class RegisterResponse
 
     // THÔNG TIN CHÍNH SẼ ĐƯA VÀO JWT
     public List<ContextualPermissionClaim> ContextualPermissions { get; set; }
-    public List<string> GeneralRoles { get; set; } // Ví dụ: Admin
 
     public string Token { get; set; }
     public string RefreshToken { get; set; }

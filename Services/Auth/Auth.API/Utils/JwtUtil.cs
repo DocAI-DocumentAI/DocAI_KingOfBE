@@ -11,16 +11,16 @@ using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json;
 
 namespace Auth.API.Utils;
+
 public class JwtUtil
 {
     public JwtUtil()
     {
-        
+
     }
     public static string GenerateJwtToken(
         User user,
-        List<ContextualPermissionClaim> contextualPermissions, // MỚI
-        List<string> generalRoles,                             // MỚI
+        List<ContextualPermissionClaim> contextualPermissions,
         IConfiguration configuration)
     {
         string secret = configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret is missing in configuration.");
@@ -44,16 +44,7 @@ public class JwtUtil
             new Claim("fullName", user.FullName ?? "") // Thêm FullName vào claim
         };
 
-        // 1. Thêm General Roles (dưới dạng claim "role" chuẩn)
-        if (generalRoles != null)
-        {
-            foreach (var roleName in generalRoles)
-            {
-                claims.Add(new Claim(ClaimTypes.Role, roleName));
-            }
-        }
-
-        // 2. Thêm Contextual Permissions (dưới dạng claim tùy chỉnh "contextualPermissions")
+        // 1. Thêm Contextual Permissions (dưới dạng claim tùy chỉnh "contextualPermissions")
         if (contextualPermissions != null && contextualPermissions.Any())
         {
             claims.Add(new Claim(
@@ -85,5 +76,5 @@ public class JwtUtil
             return Convert.ToBase64String(randomNumber);
         }
     }
-    
+
 }

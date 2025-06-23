@@ -33,11 +33,10 @@ public class RoleController : ControllerBase
         return Ok(response);
     }
 
-    [HttpGet(ApiEndPointConstant.Role.RoleInformation)]
+    [HttpGet(ApiEndPointConstant.Role.RoleInformation + "/{roleId}")]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status500InternalServerError)]
-    [Authorize]
     public async Task<IActionResult> GetEditorInformationAsync(Guid roleId)
     {
         var response = await _roleService.GetRoleInformationAsync(roleId);
@@ -58,7 +57,7 @@ public class RoleController : ControllerBase
         }
 
         _logger.LogInformation("Create Role Success");
-        return CreatedAtAction(nameof(CreateRoleAsync), response);
+        return Created($"{ApiEndPointConstant.Role.RoleInformation}/{response.Id}", response);
     }
 
     [HttpPatch(ApiEndPointConstant.Role.UpdateRole)]

@@ -54,9 +54,9 @@ public class UserService : BaseService<UserService>, IUserService
 
         var response = CreateLoginResponse(user);
         await UpdateLastLoginAsync(user);
-        
+
         await _publishEndpoint.Publish(new UserRequestMessage(user.Id));
-        
+
         return await response;
     }
 
@@ -98,19 +98,13 @@ public class UserService : BaseService<UserService>, IUserService
             {
                 DeptId = drp.DepartmentId,
                 DeptName = drp.Department.Name,
+                RoleId = drp.RoleId,
                 RoleName = drp.Role.RoleName,
+                PermissionId = drp.PermissionId,
                 PermissionName = drp.Permission.Name,
             })
             .Distinct() // Rất quan trọng để tránh trùng lặp trong JWT
             .ToList() ?? new List<ContextualPermissionClaim>();
-
-        // 2. Xác định General Roles (ví dụ: "Admin")
-        // Các vai trò này thường không gắn với DepartmentId cụ thể.
-        // Lấy từ UserRoles của user.
-        var generalRoles = user.UserRoles
-            ?.Where(ur => ur.Role?.RoleName == "Admin") // Giả định "Admin" là general role
-            .Select(ur => ur.Role.RoleName)
-            .ToList() ?? new List<string>();
 
         return new LoginResponse
         {
@@ -122,6 +116,7 @@ public class UserService : BaseService<UserService>, IUserService
             // Dữ liệu hiển thị (có thể giữ lại nếu frontend cần)
             Roles = user.UserRoles?.Select(ur => new RoleResponse
             {
+                Id = ur.RoleId,
                 RoleName = ur.Role.RoleName,
                 Description = ur.Role.Description,
                 CreateAt = ur.Role.CreateAt,
@@ -130,7 +125,8 @@ public class UserService : BaseService<UserService>, IUserService
 
             Departments = user.UserDepartments?.Select(ud => new DepartmentResponse
             {
-                Name = ud.Department.Name, // Dùng Department.Name
+                Id = ud.DepartmentId,
+                Name = ud.Department.Name,
                 Description = ud.Department.Description,
                 CreateAt = ud.Department.CreateAt,
                 UpdateAt = ud.Department.UpdateAt
@@ -138,9 +134,8 @@ public class UserService : BaseService<UserService>, IUserService
 
             // Dữ liệu chính cho JWT
             ContextualPermissions = contextualPermissions,
-            GeneralRoles = generalRoles,
 
-            Token = JwtUtil.GenerateJwtToken(user, contextualPermissions, generalRoles, _configuration),
+            Token = JwtUtil.GenerateJwtToken(user, contextualPermissions, _configuration),
             RefreshToken = JwtUtil.GenerateRefreshToken()
         };
     }
@@ -187,7 +182,7 @@ public class UserService : BaseService<UserService>, IUserService
         await ValidateOtpAsync(request.Email, request.Otp);
 
         var user = CreateUserEntity(request);
-        var roleName = await GetRoleNameFromActivationCodeAsync(request.ActivationCode);
+        var roleName = await GetRoleNameFromActivationCodeAsync(request.ActivationCode, request.DepartmentId);
         var role = await GetRoleByNameAsync(roleName);
         var department = await GetDepartmentByIdAsync(request.DepartmentId); // Đổi tên biến để tránh trùng lặp
 
@@ -223,12 +218,6 @@ public class UserService : BaseService<UserService>, IUserService
                 DepartmentId = department.Id,
                 RoleId = role.Id,
                 PermissionId = rp.PermissionId,
-                // IsDepartmentHead trong DepartmentRolePermission
-                // Đây là điểm quan trọng: Nếu bạn giữ IsDepartmentHead ở đây,
-                // nó sẽ ghi lại trạng thái IsDepartmentHead TẠI THỜI ĐIỂM tạo bản ghi này.
-                // Nếu IsDepartmentHead của user thay đổi sau này trong UserDepartment,
-                // bạn cần cập nhật tất cả các bản ghi DepartmentRolePermission liên quan.
-                // Để đơn giản, tôi sẽ gán giá trị từ userDepartment.IsDepartmentHead
                 CreatAt = DateTime.UtcNow,
                 UpdateAt = DateTime.UtcNow
             });
@@ -261,9 +250,7 @@ public class UserService : BaseService<UserService>, IUserService
 
                 transaction.Complete();
 
-                // return null; // Bạn có thể muốn trả về một response thành công
-                // Giả định bạn có một hàm để tạo RegisterResponse
-                return await CreateRegisterResponse(user); // << Hồi phục lại dòng này
+                return await CreateRegisterResponse(user);
             }
             catch (DbUpdateException ex)
             {
@@ -318,15 +305,18 @@ public class UserService : BaseService<UserService>, IUserService
         return user;
     }
 
-    private async Task<string> GetRoleNameFromActivationCodeAsync(string activationCode)
+    private async Task<string> GetRoleNameFromActivationCodeAsync(string activationCode, Guid departmentId)
     {
         if (string.IsNullOrWhiteSpace(activationCode))
-            return "member";
+            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
 
         var activation = await _unitOfWork.GetRepository<ActiveKey>()
             .SingleOrDefaultAsync(predicate: u => u.ActivationCode == activationCode);
 
         if (activation == null)
+            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
+
+        if (activation.DepartmentId != departmentId)
             throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
 
         return activation.RoleName;
@@ -355,7 +345,6 @@ public class UserService : BaseService<UserService>, IUserService
     private async Task<RegisterResponse> CreateRegisterResponse(User user)
     {
         // Sử dụng _mapper để ánh xạ các thuộc tính cơ bản từ User sang RegisterResponse
-        // Đảm bảo mapper đã được cấu hình để ánh xạ từ User sang RegisterResponse
         var response = _mapper.Map<RegisterResponse>(user);
 
         // 1. Lấy Contextual Permissions từ user.DepartmentRolePermissions
@@ -366,18 +355,14 @@ public class UserService : BaseService<UserService>, IUserService
             .Select(drp => new ContextualPermissionClaim
             {
                 DeptId = drp.DepartmentId,
-                DeptName = drp.Department.Name, // Lấy DeptName
+                DeptName = drp.Department.Name,
+                RoleId = drp.RoleId,
                 RoleName = drp.Role.RoleName,
+                PermissionId = drp.PermissionId,
                 PermissionName = drp.Permission.Name,
             })
             .Distinct() // Rất quan trọng để tránh trùng lặp trong JWT
             .ToList() ?? new List<ContextualPermissionClaim>();
-
-        // 2. Xác định General Roles (ví dụ: "Admin")
-        var generalRoles = user.UserRoles
-            ?.Where(ur => ur.Role != null && ur.Role.RoleName == "Admin") // Giả định "Admin" là general role
-            .Select(ur => ur.Role.RoleName)
-            .ToList() ?? new List<string>();
 
         // Dữ liệu hiển thị (tương tự như LoginResponse)
         response.Roles = user.UserRoles?.Where(ur => ur.Role != null).Select(ur => new RoleResponse
@@ -399,11 +384,9 @@ public class UserService : BaseService<UserService>, IUserService
 
         // Gán các thông tin mới vào response
         response.ContextualPermissions = contextualPermissions;
-        response.GeneralRoles = generalRoles;
 
-        // 3. Gọi JwtUtil.GenerateJwtToken với các tham số mới
-        // Lưu ý: JwtUtil.GenerateJwtToken không cần Tuple<string, Guid> nữa
-        response.Token = JwtUtil.GenerateJwtToken(user, contextualPermissions, generalRoles, _configuration);
+        // 2. Gọi JwtUtil.GenerateJwtToken với các tham số mới
+        response.Token = JwtUtil.GenerateJwtToken(user, contextualPermissions, _configuration);
         response.RefreshToken = JwtUtil.GenerateRefreshToken();
 
         return response;
@@ -455,7 +438,7 @@ public class UserService : BaseService<UserService>, IUserService
         }
 
         var targetRole = await GetRoleByNameAsync(request.RoleId.ToString()); // request.RoleId là Guid, GetRoleByNameAsync nhận string RoleName
-                                                                             // Cần sửa GetRoleByNameAsync hoặc thêm GetRoleByIdAsync
+                                                                              // Cần sửa GetRoleByNameAsync hoặc thêm GetRoleByIdAsync
         if (targetRole == null)
         {
             throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);

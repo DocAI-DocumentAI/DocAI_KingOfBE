@@ -93,7 +93,7 @@ public class DepartmentService : BaseService<DepartmentService>, IDepartmentServ
         var department = await _unitOfWork.GetRepository<Department>().SingleOrDefaultAsync(
             predicate: s => s.Id == departmentId
         );
-        if(department == null)
+        if (department == null)
             throw new BadHttpRequestException(MessageConstant.Department.DepartmentNotFound);
         department.Name = string.IsNullOrEmpty(request.DepartmentName) ? department.Name : request.DepartmentName;
         department.Description =
@@ -118,16 +118,19 @@ public class DepartmentService : BaseService<DepartmentService>, IDepartmentServ
         var userDepartment = await _unitOfWork.GetRepository<UserDepartment>().SingleOrDefaultAsync(
             predicate: ur => ur.DepartmentId == departmentId
         );
-        if (userDepartment == null)
-            throw new BadHttpRequestException(MessageConstant.UserDepartment.UserDepartmentNotFound);
         var departmentRolePermission =
             await _unitOfWork.GetRepository<DepartmentRolePermission>().SingleOrDefaultAsync(
                 predicate: drp => drp.DepartmentId == departmentId
             );
-        if (departmentRolePermission == null)
-            throw new BadHttpRequestException(MessageConstant.DepartmentRolePermission.DepartmentRolePermissionNotFound);
-        _unitOfWork.GetRepository<DepartmentRolePermission>().DeleteAsync(departmentRolePermission);
-        _unitOfWork.GetRepository<UserDepartment>().DeleteAsync(userDepartment);
+
+        if (departmentRolePermission != null)
+        {
+            _unitOfWork.GetRepository<DepartmentRolePermission>().DeleteAsync(departmentRolePermission);
+        }
+        if (userDepartment != null)
+        {
+            _unitOfWork.GetRepository<UserDepartment>().DeleteAsync(userDepartment);
+        }
         _unitOfWork.GetRepository<Department>().DeleteAsync(department);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;
         DepartmentResponse response = null;
