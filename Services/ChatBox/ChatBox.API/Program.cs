@@ -37,8 +37,9 @@ try
     builder.Services.AddAuthorization();
     builder.Services.AddControllers();
     builder.Services.AddHttpContextAccessor();
+    builder.Services.AddDatabase();
+    builder.Services.AddControllers();
     builder.Services.AddServices(builder.Configuration);
-
     builder.Services.Configure<HostOptions>(hostOptions =>
     {
         hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
@@ -72,6 +73,8 @@ try
     });
 
     app.UseHttpsRedirection();
+
+    app.UseSerilogRequestLogging();
     app.UseAuthentication();
     app.UseAuthorization();
     app.UseSerilogRequestLogging();

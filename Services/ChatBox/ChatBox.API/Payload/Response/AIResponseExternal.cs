@@ -1,6 +1,6 @@
-﻿namespace AI.API.Payload.Response
+﻿namespace ChatBox.API.Payload.Response
 {
-    public class AIResponse
+    public class AIResponseExternal
     {
         public string Answer { get; set; }
         public string ModelUsed { get; set; }

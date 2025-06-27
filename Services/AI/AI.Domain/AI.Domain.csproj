@@ -14,9 +14,12 @@
     <ItemGroup>
       <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.5" />
       <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.5" />
+      <PackageReference Include="Microsoft.KernelMemory.Abstractions" Version="0.98.250508.3" />
+      <PackageReference Include="Microsoft.KernelMemory.Core" Version="0.98.250508.3" />
 		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.5" />
 		<PackageReference Include="OllamaSharp" Version="5.2.2" />
+		<PackageReference Include="Tiktoken" Version="2.2.0" />
 
 
 	</ItemGroup>
