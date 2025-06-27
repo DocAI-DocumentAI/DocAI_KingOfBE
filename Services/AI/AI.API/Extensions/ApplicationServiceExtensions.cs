@@ -1,5 +1,5 @@
 ﻿using AI.API.Services.Implement;
-using AI.API.Services.Interface;
+using Microsoft.KernelMemory.AI;
 
 namespace AI.API.Extensions
 {
@@ -8,11 +8,14 @@ namespace AI.API.Extensions
 
         public static IServiceCollection AddApplicationServices(this IServiceCollection services, IConfiguration configuration)
         {
-            // IConfiguration sẽ được tự động inject vào các service cần dùng.
-            services.AddScoped<IOllamaAIService, OllamaAIService>();
+            // REVIEW POINT: Đăng ký Text Tokenizer của Kernel Memory (Tiktoken)
+            services.AddSingleton<ITextTokenizer, Services.Implement.CL100KTokenizer>();
 
-            // Gọi các extension từ Infrastructure (nếu cần)
-            // AddDatabase và AddUnitOfWork cần IConfiguration
+            // REVIEW POINT: Đăng ký các triển khai của ITextGenerator và ITextEmbeddingGenerator cho Kernel Memory
+            services.AddScoped<ITextGenerator, OllamaTextGeneratorKm>(); // Triển khai ITextGenerator dùng OllamaSharp
+            services.AddScoped<ITextEmbeddingGenerator, OllamaTextEmbeddingGeneratorKm>(); // Triển khai ITextEmbeddingGenerator dùng OllamaSharp
+
+            // Gọi các extension cho Database và Unit of Work của bạn (nếu có)
             services.AddDatabase();
             services.AddUnitOfWork();
 
