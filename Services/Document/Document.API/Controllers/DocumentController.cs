@@ -18,10 +18,24 @@ public class DocumentController : ControllerBase
 
     [HttpPost(ApiEndPointConstant.Document.Upload)]
     [Consumes("multipart/form-data")]
-    public async Task<IActionResult> UploadDocument([FromForm] UploadDocumentRequest uploadDocumentRequest)
+    public async Task<IActionResult> UploadDocument([FromForm] UploadDocumentDraftRequest uploadDocumentRequest)
     {
-        await _documentService.UploadDocumentAsync(uploadDocumentRequest);
-        return Ok(ApiResponse<object>.Success(null, "Document uploaded successfully", 201));
+        var result = await _documentService.UploadDocumentAsync(uploadDocumentRequest);
+        return Ok(ApiResponse<object>.Success(result, "Document uploaded successfully", 201));
+    }
+
+    [HttpPost(ApiEndPointConstant.Document.Submit)]
+    public async Task<IActionResult> SubmitDocument([FromRoute(Name = "id")] string documentId)
+    {
+        await _documentService.SubmitForApprovalAsync(documentId);
+        return Ok(ApiResponse<object>.Success(null, "Document submited successfully", 200));
+    }
+
+    [HttpPost(ApiEndPointConstant.Document.Approve)]
+    public async Task<IActionResult> ApproveOrRejectDocument([FromRoute(Name = "id")] string documentId, [FromBody] ApproveRejectRequest request)
+    {
+        await _documentService.ApproveOrRejectAsync(documentId, request);
+        return Ok(ApiResponse<object>.Success(null, "Document approved successfully", 200));
     }
 
     [HttpGet(ApiEndPointConstant.Document.GetDocument)]

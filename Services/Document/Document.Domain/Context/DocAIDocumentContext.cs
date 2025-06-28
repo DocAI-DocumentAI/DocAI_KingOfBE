@@ -18,21 +18,23 @@ namespace Document.Domain.Context
         }
 
         public DbSet<DocumentFile> DocumentFiles { get; set; }
-        public DbSet<DocumentChunk> DocumentChunks { get; set; }
+        //public DbSet<DocumentChunk> DocumentChunks { get; set; }
         public DbSet<DocumentTag> DocumentTags { get; set; }
         public DbSet<DocumentVersion> DocumentVersions { get; set; }
         public DbSet<Tag> Tags { get; set; }
+        public DbSet<ApprovalLog> ApprovalLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.HasPostgresExtension("vector");
             base.OnModelCreating(modelBuilder);
 
-            // Configure cascade delete for DocumentChunks
-            modelBuilder.Entity<DocumentFile>()
-                .HasMany(d => d.DocumentChunks)
-                .WithOne(c => c.DocumentFile)
-                .HasForeignKey(c => c.DocumentId)
-                .OnDelete(DeleteBehavior.Cascade);
+            //// Configure cascade delete for DocumentChunks
+            //modelBuilder.Entity<DocumentFile>()
+            //    .HasMany(d => d.DocumentChunks)
+            //    .WithOne(c => c.DocumentFile)
+            //    .HasForeignKey(c => c.DocumentId)
+            //    .OnDelete(DeleteBehavior.Cascade);
         }
 
     }

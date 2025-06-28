@@ -1,6 +1,10 @@
 ﻿namespace Document.Domain.Enums;
 
-public class StatusEnum
+public enum StatusEnum
 {
-    
+    Draft, 
+    Pending,
+    Approved, 
+    Rejected, 
+    Archived
 }

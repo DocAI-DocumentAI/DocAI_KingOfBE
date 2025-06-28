@@ -8,8 +8,7 @@ namespace Document.Domain.Models
 {
     public class Tag : BaseEntity
     {
-        public string Name { get; set; } = string.Empty;
-        public string? Description { get; set; }
+        public string Name { get; set; }
         public virtual ICollection<DocumentTag> DocumentTags { get; set; } = new HashSet<DocumentTag>();    
     }
 }

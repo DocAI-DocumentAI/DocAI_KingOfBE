@@ -9,6 +9,8 @@
 
     <ItemGroup>
         <PackageReference Include="AutoMapper" Version="14.0.0" />
+        <PackageReference Include="Azure.Identity" Version="1.14.0" />
+        <PackageReference Include="Azure.Storage.Blobs" Version="12.24.1" />
         <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.4" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.5" />
@@ -16,12 +18,18 @@
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
+        <PackageReference Include="Microsoft.KernelMemory.Abstractions" Version="0.98.250508.3" />
+        <PackageReference Include="Microsoft.KernelMemory.AI.Ollama" Version="0.98.250508.3" />
+        <PackageReference Include="Microsoft.KernelMemory.Core" Version="0.98.250508.3" />
+        <PackageReference Include="Microsoft.KernelMemory.MemoryDb.Postgres" Version="0.98.250508.3" />
         <PackageReference Include="PdfPig" Version="0.1.10" />
         <PackageReference Include="MassTransit" Version="8.4.1" />
         <PackageReference Include="MassTransit.RabbitMQ" Version="8.4.1" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.4"/>
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.4" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.4" />
         <PackageReference Include="NSwag.AspNetCore" Version="14.4.0" />
+        <PackageReference Include="Pgvector" Version="0.3.2" />
+        <PackageReference Include="Pgvector.EntityFrameworkCore" Version="0.2.2" />
         <PackageReference Include="Scalar.AspNetCore" Version="2.2.1" />
         <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
         <PackageReference Include="Serilog.Expressions" Version="5.1.0-dev-02301" />

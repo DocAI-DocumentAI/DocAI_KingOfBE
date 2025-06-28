@@ -5,6 +5,7 @@ using Document.API.Middlewares;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.KernelMemory;
 using NSwag;
 using NSwag.Generation.Processors.Security;
 using Scalar.AspNetCore;
@@ -13,6 +14,7 @@ using Serilog;
 using Serilog.Events;
 using Serilog.Templates;
 using Serilog.Templates.Themes;
+using static OllamaSharp.OllamaApiClient;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -23,7 +25,7 @@ Log.Information("Starting up!");
 try
 {
     var builder = WebApplication.CreateBuilder(args);
-
+    var configuration = builder.Configuration;
     // Use Serilog as the logging provider
     builder.Services.AddSerilog((services, lc) => lc
         .ReadFrom.Configuration(builder.Configuration)
@@ -38,12 +40,14 @@ try
 
     builder.Services.AddDatabase();
     builder.Services.AddUnitOfWork();
-    builder.Services.AddServices(builder.Configuration);
+    builder.Services.AddServices(configuration);
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddControllers();
-    
+    //builder.Services.AddKernelMemory();
+    builder.Services.AddKernelMemoryOllama(configuration);
+
     // Register the NSwag services
     builder.Services.AddOpenApiDocument(options =>
     {

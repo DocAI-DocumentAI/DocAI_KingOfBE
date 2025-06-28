@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
 using System.IO;
 
+
+
 namespace Document.Domain.Context
 {
     public class DocAIDocumentContextFactory : IDesignTimeDbContextFactory<DocAIDocumentContext>
@@ -17,7 +19,7 @@ namespace Document.Domain.Context
             var optionsBuilder = new DbContextOptionsBuilder<DocAIDocumentContext>();
             var connectionString = configuration.GetConnectionString("DefaultConnection");
 
-            optionsBuilder.UseNpgsql(connectionString);
+            optionsBuilder.UseNpgsql(connectionString, o => o.UseVector());
 
             return new DocAIDocumentContext(optionsBuilder.Options);
         }

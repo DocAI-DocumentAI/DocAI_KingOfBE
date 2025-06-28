@@ -4,10 +4,20 @@ using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
 using Document.API.Utils;
+using Document.Domain.Enums;
 using Document.Domain.Model;
 using Document.Domain.Models;
+using Document.Infrastructure.Paginate;
 using Document.Infrastructure.Repository.Interfaces;
+using DocumentFormat.OpenXml.Drawing.Charts;
+using DocumentFormat.OpenXml.Office2010.Word;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.KernelMemory;
+using Microsoft.KernelMemory.AI.Ollama;
+using Shared.DTOs;
 using Shared.Exceptions;
+using System.Linq;
+using System.Text.Json;
 
 namespace Document.API.Services.Implements;
 
@@ -16,294 +26,325 @@ public class DocumentService : IDocumentService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
     private readonly ILogger<DocumentService> _logger;
-    private readonly string _storagePath = "UploadedDocuments";
-    private readonly FileUtil _fileUtils = new FileUtil();
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger)
+    private readonly IAzureStorageService _storageService;
+    private readonly IKernelMemory _memory;
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IAzureStorageService storageService)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
         _logger = logger;
+        _memory = memory;
+        _storageService = storageService;
     }
-    /// <summary>
-    /// Uploads a document file and saves its information to the database, 
-    /// the general information will be saved into DocumentFile table, 
-    /// the file version and path will be saved into DocumentVersion table, 
-    /// the text content will be extracted and saved into DocumentChunk table.
-    /// </summary>
-    /// <param name="request"></param>
-    /// <returns></returns>
-    /// <exception cref="ErrorException"></exception>
-    public async Task UploadDocumentAsync(UploadDocumentRequest request)
+
+
+    public async Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request, string userId)
     {
-        try
-        {
-            //1. saving file to local storage
-            Directory.CreateDirectory(_storagePath);
-            //var filePath = Path.Combine(_storagePath, request.File.FileName);
-            string filePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), request.File.FileName);
-            // Get file extension (.PDF, .DOCX)
-            var fileExt = Path.GetExtension(request.File.FileName);
-
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await request.File.CopyToAsync(stream);
-            }
-            _logger.LogInformation("File saved to ${FilePath}", filePath);
-            //2. save the generel infomation of the file into the DocumentFile table
-
-            // Checking titile duplication
-            var existingDocument = await _unitOfWork.GetRepository<DocumentFile>()
+        //1. Checking title duplication
+        var existingDocument = await _unitOfWork.GetRepository<DocumentFile>()
                 .SingleOrDefaultAsync(predicate: d => d.Title == request.Title);
-            if(existingDocument != null)
-            {
-                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document title already exists");
-            }
-
-            // Creating new document object
-            var documentFile = new DocumentFile
-            {
-                Title = request.Title,
-                DocumentName = request.File.FileName,
-                Description = request.Description,
-                StoragePath = filePath,
-                Status ="Uploaded", // temp
-                CreatedBy = "system", // temp
-                CreatedTime = DateTime.UtcNow,
-            };
-
-            await _unitOfWork.GetRepository<DocumentFile>().InsertAsync(documentFile);
-            _logger.LogInformation("Document file information saved to database");
-
-
-            //3. save the file version and path into the Document version table
-            var documentVersion = new DocumentVersion
-            {
-                DocumentId = documentFile.Id,
-                Version = "1",
-                FilePath = filePath,
-                FileName = request.File.FileName,
-                FileType = fileExt,
-                FileSize = request.File.Length,
-                CreatedBy = "system",
-                CreatedTime = DateTime.UtcNow,
-            };
-            await _unitOfWork.GetRepository<DocumentVersion>().InsertAsync(documentVersion);
-            _logger.LogInformation("Document version information saved to database");
-
-            //4. extract the text from the file 
-            _logger.LogInformation("Extracting text from file: {FilePath}", filePath);
-            var text = _fileUtils.EtractText(filePath);
-
-            //5. Split them into chunks, for search and embeddng purposr
-            _logger.LogInformation("Splitting text into chunks");
-            // min text length = 300, max text length = 500, overlap = 10%
-            var chunks = _fileUtils.SplitTextIntoChunks(text, 300, 500, 0.1);
-
-            //6. save the chunks into the DocumentChunk table
-            int order = 0;
-            foreach (var chunk in chunks)
-            {
-                var documentChunk = new DocumentChunk
-                {
-                    DocumentId = documentFile.Id,
-                    ChunkOrder = order++,
-                    Text = chunk
-                };
-                _logger.LogInformation("Saving chunk {Order} to database", order);
-                await _unitOfWork.GetRepository<DocumentChunk>().InsertAsync(documentChunk);
-            }
-
-            // Save change
-            await _unitOfWork.CommitAsync();
-            _logger.LogInformation("Done. All changes saved to database");
-        }
-        catch (ErrorException)
+        if (existingDocument != null)
         {
-            throw;
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document title already exists");
+        }
+
+        //2. Checking Version Name duplication
+        var existingVersion = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(predicate: v => v.VersionName == request.VersionName && v.DocumentFile.Title == request.Title);
+        if (existingVersion != null)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document version name already exists for this title");
+        }
+
+        //    //3. saving file to local storage
+        //    Directory.CreateDirectory(_storagePath);
+        ////var filePath = Path.Combine(_storagePath, request.File.FileName);
+        //string filePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), request.File.FileName);
+        //// Get file extension (.PDF, .DOCX)
+        //var fileExt = Path.GetExtension(request.File.FileName);
+
+        //using (var stream = new FileStream(filePath, FileMode.Create))
+        //{
+        //    await request.File.CopyToAsync(stream);
+        //}
+
+
+        // Compare Hash to Azure cloud in folder "Approved", "Archieved" and "Pending" Folder
+        // Each check print out the message differently
+
+
+        //3. Save file to Azure Storage
+        var filePath = await _storageService.UploadFileAsync(request.File);
+        _logger.LogInformation("Uploaded file '{FileName}' to Azure Storage. Blob name: {StoragePath}", request.File.FileName, filePath);
+
+        //4. save the generel infomation of the file into the DocumentFile table
+        var documentFile = new DocumentFile
+        {
+            Title = request.Title,
+            Description = request.Description,
+            DepartmentId = request.DepartmentId,
+            OwnerId = userId,
+            CreatedBy = userId,
+        };
+
+        var version = new DocumentVersion
+        {
+            VersionName = request.VersionName,
+            Status = StatusEnum.Draft, // Use the Enum for status
+            Summary = request.Summary, // Placeholder for summary
+            FileName = request.File.FileName,
+            FileType = Path.GetExtension(request.File.FileName),
+            FileSize = request.File.Length,
+            FilePath = filePath,
+            SignedBy = request.SignedBy,
+            EffectiveFrom = request.EffectiveFrom,
+            EffectiveUntil = request.EffectiveUntil,
+            CreatedBy = userId,
+        };
+
+        if (request.Tags != null && request.Tags.Any())
+        {
+            version.DocumentTags = new List<DocumentTag>();
+            foreach (var tagName in request.Tags.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var normalizedTag = tagName.ToLowerInvariant();
+                var existingTag = await _unitOfWork.GetRepository<Tag>().SingleOrDefaultAsync(predicate: t => t.Name == normalizedTag)
+                                  ?? new Tag { Name = normalizedTag }; // If tag doesn't exist, create it
+
+                version.DocumentTags.Add(new DocumentTag { Tag = existingTag });
+            }
+        }
+
+        // 5. Link entities using the correct navigation property name
+        documentFile.DocumentVersions.Add(version);
+        // 5. Save to database
+        await _unitOfWork.GetRepository<DocumentFile>().InsertAsync(documentFile);
+        await _unitOfWork.CommitAsync();
+
+        _logger.LogInformation("Successfully created draft document {DocumentId}", documentFile.Id);
+
+        // 6. Use AutoMapper to map the result to the response DTO
+        var response = _mapper.Map<DocumentDraftResponse>(documentFile);
+
+        return response;
+    }
+
+    public async Task<DocumentDraftResponse> UpdateDraftAsync(string versionId, UpdateDocumentDraftRequest request, string userId)
+    {
+        //1. Retrive draft to update
+        var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
+        .SingleOrDefaultAsync(
+            predicate: v => v.Id == versionId,
+            include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, "The specified document version was not found");
+
+        var documentToUpdate = versionToUpdate.DocumentFile;
+
+        //2. Editor must be the owner. 
+        if (documentToUpdate.OwnerId != userId)
+        {
+            throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to edit this document");
+        }
+
+        //3. Status must be Draft or Rejected. 
+        if (versionToUpdate.Status != StatusEnum.Draft && versionToUpdate.Status != StatusEnum.Rejected)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, $"Cannot edit a document with status '{versionToUpdate.Status}'");
+        }
+
+        //4. Handle file replacement if a new file is provided.
+        if (request.File != null)
+        {
+            _logger.LogInformation("Replacing file for document version {VersionId}.", versionId);
+
+            // Check file title / file name / file hash is duplicate in the Azue blob
+            // 1. Delete the old file from Azure Storage.
+            await _storageService.DeleteFileAsync(versionToUpdate.FilePath);
+
+            // 2. Upload the new file to the same "Draft" folder.
+            var newStoragePath = await _storageService.UploadFileAsync(request.File);
+
+            // 3. Update version properties for the new file.
+            versionToUpdate.FilePath = newStoragePath;
+            versionToUpdate.FileName = request.File.FileName;
+            versionToUpdate.FileType = Path.GetExtension(request.File.FileName);
+            versionToUpdate.FileSize = request.File.Length;
+        }
+
+        // Apply metadata updates from the request DTO.
+        _mapper.Map(request, documentToUpdate);
+        _mapper.Map(request, versionToUpdate);
+
+        documentToUpdate.LastUpdatedBy = userId;
+        documentToUpdate.LastUpdatedTime = DateTime.UtcNow;
+
+        if (versionToUpdate.Status == StatusEnum.Rejected)
+        {
+            versionToUpdate.Status = StatusEnum.Draft;
+        }
+
+        // Save changes to the database.
+        _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(versionToUpdate);
+        await _unitOfWork.CommitAsync();
+
+        _logger.LogInformation("Successfully updated document version {VersionId}", versionId);
+
+        return _mapper.Map<DocumentDraftResponse>(documentToUpdate);
+    }
+
+
+    public async Task<AnalyzeDocumentResponse> AnalyzeDocumentAsync(IFormFile file)
+    {
+        _logger.LogInformation("Starting single-prompt AI analysis for file: {FileName}", file.FileName);
+
+        var response = new AnalyzeDocumentResponse
+        {
+            Summary = "AI analysis could not be completed.",
+            Tags = new List<string>()
+        };
+        string tempFilePath = Path.GetTempFileName();
+
+        try
+        {
+            await using (var fs = new FileStream(tempFilePath, FileMode.Create)) { await file.CopyToAsync(fs); }
+
+            // 1. Build the temporary Kernel Memory instance (same as before)
+            var tempDocId = $"temp-analysis-{Guid.NewGuid()}";
+            await _memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
+
+            // 2. Engineer a single, comprehensive prompt asking for a JSON response
+            const string comprehensivePrompt = @"
+                Analyze the document and extract the following metadata.
+                Response language based on the document language.
+                Respond with ONLY a single, valid JSON object and nothing else.
+                The JSON object must have these keys: ""title"", ""summary"", ""tags"", ""effectiveFrom"", ""effectiveUntil"", ""signedBy"".
+                - 'summary' should be a concise 3-4 sentence overview.
+                - 'tags' should be a JSON array of up to 5 relevant string keywords.
+                - 'effectiveFrom' and 'effectiveUntil' must be in 'yyyy-MM-dd' format if found.
+                - If a value for any key is not found in the document, use null as the value.
+            ";
+
+            // 3. Make a single call to the AI model
+            var answer = await _memory.AskAsync(comprehensivePrompt, "prompt " + tempDocId);
+
+            // 4. Parse the structured JSON response from the AI
+            if (!answer.Result.Contains("INFO NOT FOUND", StringComparison.OrdinalIgnoreCase))
+            {
+                ParseAiJsonResponse(answer.Result, response);
+                _logger.LogInformation("Successfully parsed AI JSON response for file: {FileName}", file.FileName);
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error creating document:", ex.Message);
-            throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR, "Error while uploading document, try again later");
+            _logger.LogError(ex, "An error occurred during single-prompt AI analysis for file: {FileName}", file.FileName);
         }
+        finally
+        {
+            if (File.Exists(tempFilePath)) File.Delete(tempFilePath);
+        }
+
+        return response;
     }
-    /// <summary>
-    /// Gets a document by ID with its information and text content
-    /// </summary>
-    /// <param name="documentId">The ID of the document to retrieve</param>
-    /// <returns>Document information and content</returns>
-    public async Task<DocumentResponse> GetDocumentByIdAsync(string documentId)
+
+    private void ParseAiJsonResponse(string jsonResponse, AnalyzeDocumentResponse response)
     {
         try
         {
-            _logger.LogInformation("Retrieving document with ID: {DocumentId}", documentId);
+            // The AI might sometimes include markdown ```json ... ``` tags, so we clean it.
+            var cleanJson = jsonResponse.Trim().Trim('`').Replace("json", "").Trim();
 
-            // 1. Get the document file information
-            var documentFile = await _unitOfWork.GetRepository<DocumentFile>()
-                .SingleOrDefaultAsync(predicate: d => d.Id == documentId) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Document not found");
+            using var jsonDoc = JsonDocument.Parse(cleanJson);
+            var root = jsonDoc.RootElement;
 
-            // 2. Get the latest document version
-            var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
-                .SingleOrDefaultAsync(
-                    predicate: v => v.DocumentId == documentId,
-                    orderBy: versions => versions.OrderByDescending(v => v.CreatedTime));
+            // Safely get each property from the parsed JSON
+            if (root.TryGetProperty("title", out var title) && title.ValueKind == JsonValueKind.String)
+                response.Title = title.GetString();
 
-            // 3. Get all document chunks and combine them
-            var documentChunks = await _unitOfWork.GetRepository<DocumentChunk>()
-                .GetListAsync(
-                    predicate: c => c.DocumentId == documentId,
-                    orderBy: chunks => chunks.OrderBy(c => c.ChunkOrder));
+            if (root.TryGetProperty("summary", out var summary) && summary.ValueKind == JsonValueKind.String)
+                response.Summary = summary.GetString();
 
-            // 4. Combine all chunk texts into a single document text
-            string fullText = string.Join("\n", documentChunks.Select(c => c.Text));
+            if (root.TryGetProperty("signedBy", out var signedBy) && signedBy.ValueKind == JsonValueKind.String)
+                response.SignedBy = signedBy.GetString();
 
-            //// 5. Map to response object
-            //var response = new DocumentResponse
-            //{
-            //    Id = documentFile.Id,
-            //    Title = documentFile.Title,
-            //    DocumentName = documentFile.DocumentName,
-            //    Description = documentFile.Description,
-            //    Status = documentFile.Status,
-            //    CreatedBy = documentFile.CreatedBy,
-            //    CreatedTime = documentFile.CreatedTime,
-            //    FilePath = documentVersion?.FilePath,
-            //    FileType = documentVersion?.FileType,
-            //    FileSize = documentVersion?.FileSize ?? 0,
-            //    Version = documentVersion?.Version,
-            //    Text = fullText
-            //};
+            if (root.TryGetProperty("effectiveFrom", out var effectiveFrom) && effectiveFrom.ValueKind == JsonValueKind.String)
+                if (DateTime.TryParse(effectiveFrom.GetString(), out var date)) response.EffectiveFrom = date;
 
-            var response = _mapper.Map<DocumentResponse>(documentFile);
+            if (root.TryGetProperty("effectiveUntil", out var effectiveUntil) && effectiveUntil.ValueKind == JsonValueKind.String)
+                if (DateTime.TryParse(effectiveUntil.GetString(), out var date)) response.EffectiveUntil = date;
 
-            if (documentVersion != null)
+            if (root.TryGetProperty("tags", out var tags) && tags.ValueKind == JsonValueKind.Array)
             {
-                response.FilePath = documentVersion.FilePath;
-                response.FileType = documentVersion.FileType;
-                response.FileSize = documentVersion.FileSize;
-                response.Version = documentVersion.Version;
+                response.Tags = tags.EnumerateArray()
+                                    .Select(tag => tag.GetString())
+                                    .Where(t => !string.IsNullOrEmpty(t))
+                                    .ToList();
             }
-
-            response.Text = fullText;
-
-            _logger.LogInformation("Successfully retrieved document with ID: {DocumentId}", documentId);
-            return response;
         }
-        catch (ErrorException)
+        catch (JsonException jex)
         {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving document with ID: {DocumentId}", documentId);
-            throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR,
-                "Error while retrieving document, please try again later");
+            _logger.LogWarning(jex, "Failed to parse JSON response from AI. Response was: {AiResponse}", jsonResponse);
+            // We do not throw; the method will return the default/partially filled response object.
         }
     }
 
-    /// <summary>
-    /// Updates the metadata of a document in the database.
-    /// Interacts with only DocumentFile table.
-    /// </summary>
-    /// <param name="documentId"></param>
-    /// <param name="document"></param>
-    /// <returns></returns>
-    /// <exception cref="NotImplementedException"></exception>
-    public async Task<DocumentFileResponse> UpdateMetaDataDocumentAsync(string documentId, UpdateMetaDataReqest request)
+    public async Task DeleteDraftAsync(string documentId, string versionId, string userId)
     {
-        try
+        // 1. Retrieve the document, ensuring its versions are included for status checking.
+        var documentToDelete = await _unitOfWork.GetRepository<DocumentFile>()
+            .SingleOrDefaultAsync(
+                predicate: d => d.Id.ToString() == documentId,
+                include: q => q.Include(d => d.DocumentVersions)
+            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, "Document not found.");
+
+        // 2. Enforce Business Rules from SRS
+        // BR-116: Check if the current user is the owner.
+        if (documentToDelete.OwnerId != userId)
         {
-            // 1. Retrive document file information
-            var documentFile = await _unitOfWork.GetRepository<DocumentFile>()
-                .SingleOrDefaultAsync(predicate: d => d.Id == documentId) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Document not found");
-
-            // 2. Check for title duplication
-            var existingDocument = await _unitOfWork.GetRepository<DocumentFile>()
-                .SingleOrDefaultAsync(predicate: d => d.Title == request.Title && d.Id != documentId);
-
-            // 3. Map the updated values
-            _mapper.Map(request, documentFile);
-            // 4. Update last modified information
-            documentFile.LastUpdatedBy = "system"; // TEMP
-            documentFile.LastUpdatedTime = DateTime.UtcNow;
-            // 5. Update the document file in the database
-            _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentFile);
-            await _unitOfWork.CommitAsync();
-
-            _logger.LogInformation("Document metadata updated successfully for ID: {DocumentId}", documentId);
-
-            // 6. Return updated document
-            return _mapper.Map<DocumentFileResponse>(documentFile);
+            _logger.LogWarning("User attempted to delete a document they do not own owner");
+            throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to delete this document.");
         }
-        catch (ErrorException)
+
+        // A draft document should only have one version. We get that version to check its status.
+        var versionToDelete = documentToDelete.DocumentVersions.FirstOrDefault();
+
+        // BR-117: Check if the document's status is "Draft".
+        if (versionToDelete == null || versionToDelete.Status != StatusEnum.Draft)
         {
-            throw;
+            var currentStatus = versionToDelete?.Status.ToString() ?? "Unknown";
+            _logger.LogWarning("Attempted to delete a document with status '{Status}', not 'Draft'.", currentStatus);
+            throw new ErrorException(StatusCodes.Status400BadRequest, $"Only documents with a 'Draft' status can be deleted. Current status is '{currentStatus}'.");
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating document with ID: {DocumentId}", documentId);
-            throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR,
-                "Error while updating document, please try again later");
-        }
+
+        // 3. Delete the physical file from Azure Storage.
+        await _storageService.DeleteFileAsync(versionToDelete.FilePath);
+        _logger.LogInformation("Deleted file from Azure Storage at path: {FilePath}", versionToDelete.FilePath);
+
+        // 4. Delete the DocumentFile record from the database.
+        // Due to cascade delete settings, this will also remove the associated DocumentVersion(s) and VersionTag(s).
+        _unitOfWork.GetRepository<DocumentFile>().DeleteAsync(documentToDelete);
+        await _unitOfWork.CommitAsync();
+
+        _logger.LogInformation("User {UserId} successfully deleted draft document {DocumentId}.", userId, documentId);
+
+        // TODO: As per SRS 3.4.3, this action should be recorded in the system audit log.
     }
-    /// <summary>
-    /// Deletes a document and all its related data (versions, chunks, tags) from the database.
-    /// Also deletes the physical files from storage.
-    /// </summary>
-    /// <param name="documentId">The ID of the document to delete</param>
-    /// <exception cref="ErrorException">Thrown when document is not found or other errors occur</exception>
-    public async Task DeleteDocumentAsync(string documentId)
+
+    public Task<IPaginate<DocumentDraftResponse>> GetDraftsAsync(string userId, int pageNumber, int pageSize)
     {
-        try
-        {
-            _logger.LogInformation("Deleting document with ID: {DocumentId}", documentId);
-
-            // 1. Get the document file information
-            var documentFile = await _unitOfWork.GetRepository<DocumentFile>()
-                .SingleOrDefaultAsync(predicate: d => d.Id == documentId) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Document not found");
-
-            // 2. Get all document versions to delete their physical files
-            var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>()
-                .GetListAsync(predicate: v => v.DocumentId == documentId);
-
-            // 3. Delete the physical files from storage
-            foreach (var version in documentVersions)
-            {
-                if (File.Exists(version.FilePath))
-                {
-                    try
-                    {
-                        File.Delete(version.FilePath);
-                        _logger.LogInformation("Deleted physical file: {FilePath}", version.FilePath);
-                    }
-                    catch (Exception ex)
-                    {
-                        // Log but continue with deletion
-                        _logger.LogWarning(ex, "Failed to delete physical file: {FilePath}", version.FilePath);
-                    }
-                }
-            }
-
-            // 4. Delete the document fil
-            _unitOfWork.GetRepository<DocumentFile>().DeleteAsync(documentFile);
-            _logger.LogInformation("Deleting document file and related data through cascade delete");
-
-            // 5. Commit the changes
-            await _unitOfWork.CommitAsync();
-            _logger.LogInformation("Successfully deleted document with ID: {DocumentId}", documentId);
-        }
-        catch (ErrorException)
-        {
-            // Let specific error exceptions propagate
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting document with ID: {DocumentId}", documentId);
-            throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR,
-                "Error while deleting document, please try again later");
-        }
+        throw new NotImplementedException();
     }
 
+    public Task<DocumentDraftResponse> GetDraftByIdAsync(string versionId, string userId)
+    {
+        throw new NotImplementedException();
+    }
 
+    public Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(string userId, int pageNumber, int pageSize)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<DocumentDraftResponse> GetRejectedById(string versionId, string userId)
+    {
+        throw new NotImplementedException();
+    }
 }

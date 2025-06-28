@@ -3,6 +3,7 @@ using System;
 using Document.Domain.Context;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Document.Domain.Migrations
 {
     [DbContext(typeof(DocAIDocumentContext))]
-    partial class DocAIDocumentContextModelSnapshot : ModelSnapshot
+    [Migration("20250617085419_department")]
+    partial class department
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -125,6 +128,10 @@ namespace Document.Domain.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("DocumentFileId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DocumentId")
                         .IsRequired()
                         .HasColumnType("text");
 

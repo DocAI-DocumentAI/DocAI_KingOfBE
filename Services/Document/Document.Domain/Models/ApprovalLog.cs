@@ -1,21 +1,18 @@
-﻿using Document.Domain.Model;
+﻿using Document.Domain.Enums;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace Document.Domain.Models
 {
-    public class DocumentTag
+    public class ApprovalLog : BaseEntity
     {
-        [Key]
-        public string Id { get; set; } = Guid.NewGuid().ToString("N");
+        public ApprovalAction Action { get; set; }
+        public string? Comments { get; set; }
         public string DocumentVersionId { get; set; }
-        public string TagId { get; set; }
         public DocumentVersion DocumentVersion { get; set; }
-        public Tag Tag { get; set; }
-
     }
 }
