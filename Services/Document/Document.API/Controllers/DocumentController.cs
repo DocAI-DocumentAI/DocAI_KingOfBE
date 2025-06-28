@@ -16,46 +16,25 @@ public class DocumentController : ControllerBase
         _documentService = documentService;
     }
 
-    [HttpPost(ApiEndPointConstant.Document.Upload)]
+    [HttpPost(ApiEndPointConstant.Document.UploadDraft)]
     [Consumes("multipart/form-data")]
-    public async Task<IActionResult> UploadDocument([FromForm] UploadDocumentDraftRequest uploadDocumentRequest)
+    public async Task<IActionResult> UploadDocumentDraft([FromForm] CreateDraftRequest request, string userId)
     {
-        var result = await _documentService.UploadDocumentAsync(uploadDocumentRequest);
-        return Ok(ApiResponse<object>.Success(result, "Document uploaded successfully", 201));
+        var result = await _documentService.CreateDraftAsync(request, userId);
+        return Ok(ApiResponse<object>.Success(result, "Document draft uploaded successfully", 201));
     }
 
-    [HttpPost(ApiEndPointConstant.Document.Submit)]
-    public async Task<IActionResult> SubmitDocument([FromRoute(Name = "id")] string documentId)
+    [HttpPut(ApiEndPointConstant.Document.EditDraft)]
+    public async Task<IActionResult> EditDraft([FromRoute(Name = "id")] string documentId, UpdateDocumentDraftRequest request, string userId)
     {
-        await _documentService.SubmitForApprovalAsync(documentId);
-        return Ok(ApiResponse<object>.Success(null, "Document submited successfully", 200));
-    }
-
-    [HttpPost(ApiEndPointConstant.Document.Approve)]
-    public async Task<IActionResult> ApproveOrRejectDocument([FromRoute(Name = "id")] string documentId, [FromBody] ApproveRejectRequest request)
-    {
-        await _documentService.ApproveOrRejectAsync(documentId, request);
-        return Ok(ApiResponse<object>.Success(null, "Document approved successfully", 200));
-    }
-
-    [HttpGet(ApiEndPointConstant.Document.GetDocument)]
-    public async Task<IActionResult> GetDocument([FromRoute(Name = "id")] string documentId)
-    {
-        var result = await _documentService.GetDocumentByIdAsync(documentId);
+        var result = await _documentService.UpdateDraftAsync(documentId, request, userId);
         return Ok(ApiResponse<object>.Success(result));
     }
 
-    [HttpPut(ApiEndPointConstant.Document.UpdateMetaData)]
-    public async Task<IActionResult> UpdateMetaData([FromRoute(Name = "id")] string documentId, UpdateMetaDataReqest request)
+    [HttpDelete(ApiEndPointConstant.Document.DeleteDraft)]
+    public async Task<IActionResult> DeleteDocument([FromRoute(Name = "id")] string documentId, string versionId, string userId)
     {
-        var result = await _documentService.UpdateMetaDataDocumentAsync(documentId, request);
-        return Ok(ApiResponse<object>.Success(result));
-    }
-
-    [HttpDelete(ApiEndPointConstant.Document.Delete)]
-    public async Task<IActionResult> DeleteDocument([FromRoute(Name = "id")] string documentId)
-    {
-        await _documentService.DeleteDocumentAsync(documentId);
+        await _documentService.DeleteDraftAsync(documentId, versionId, userId);
         return Ok(ApiResponse<object>.Success(null, "Document deleted successfully", 200));
     }
 }

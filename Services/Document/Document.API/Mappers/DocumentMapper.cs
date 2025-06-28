@@ -10,15 +10,6 @@ public class DocumentMapper : Profile
 {
     public DocumentMapper()
     {
-        CreateMap<UploadDocumentDraftRequest, DocumentFile>();
-        CreateMap<DocumentFile, DocumentResponse>()
-            .ForMember(dest => dest.FilePath, opt => opt.Ignore())
-            .ForMember(dest => dest.FileType, opt => opt.Ignore())
-            .ForMember(dest => dest.FileSize, opt => opt.Ignore())
-            .ForMember(dest => dest.Version, opt => opt.Ignore());
-            //.ForMember(dest => dest.Text, opt => opt.Ignore());
-        CreateMap<UpdateMetaDataReqest, DocumentFile>();
-        CreateMap<DocumentFile, DocumentFileResponse>();
         CreateMap<DocumentFile, DocumentDraftResponse>()
             .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().Id.ToString()))
             .ForMember(dest => dest.VersionName, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().VersionName))
