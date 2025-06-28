@@ -8,6 +8,7 @@ using Auth.Infrastructure.Filter;
 using Auth.Infrastructure.Paginate;
 using Auth.Infrastructure.Repository.Interfaces;
 using AutoMapper;
+using Microsoft.EntityFrameworkCore;
 
 namespace Auth.API.Services.Implement;
 
@@ -115,22 +116,12 @@ public class DepartmentService : BaseService<DepartmentService>, IDepartmentServ
         );
         if (department == null)
             throw new BadHttpRequestException(MessageConstant.Department.DepartmentNotFound);
-        var userDepartment = await _unitOfWork.GetRepository<UserDepartment>().SingleOrDefaultAsync(
-            predicate: ur => ur.DepartmentId == departmentId
-        );
-        var departmentRolePermission =
-            await _unitOfWork.GetRepository<DepartmentRolePermission>().SingleOrDefaultAsync(
-                predicate: drp => drp.DepartmentId == departmentId
+        var departmentExist = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: s => s.DepartmentId == departmentId,
+            include: s => s.Include(s => s.Department)
             );
-
-        if (departmentRolePermission != null)
-        {
-            _unitOfWork.GetRepository<DepartmentRolePermission>().DeleteAsync(departmentRolePermission);
-        }
-        if (userDepartment != null)
-        {
-            _unitOfWork.GetRepository<UserDepartment>().DeleteAsync(userDepartment);
-        }
+        if(departmentExist != null)
+            throw new BadHttpRequestException(MessageConstant.Department.DeleteFailed);
         _unitOfWork.GetRepository<Department>().DeleteAsync(department);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;
         DepartmentResponse response = null;

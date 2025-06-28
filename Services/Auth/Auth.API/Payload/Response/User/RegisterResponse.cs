@@ -8,15 +8,10 @@ public class RegisterResponse
     public Guid UserId { get; set; }
     public string Username { get; set; }
     public string Email { get; set; }
-    public string FullName { get; set; } // Thêm FullName
-
-    // Tùy chọn: Để hiển thị ở Frontend
-    public List<RoleResponse> Roles { get; set; }
-    public List<DepartmentResponse> Departments { get; set; }
-
-    // THÔNG TIN CHÍNH SẼ ĐƯA VÀO JWT
-    public List<ContextualPermissionClaim> ContextualPermissions { get; set; }
-
+    public string FullName { get; set; }
+    public string Phone { get; set; }
+    public RoleResponse Role { get; set; }
+    public DepartmentResponse Department { get; set; }
     public string Token { get; set; }
     public string RefreshToken { get; set; }
 }

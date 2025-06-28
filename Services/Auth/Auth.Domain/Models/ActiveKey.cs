@@ -1,17 +1,32 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-
-namespace Auth.Domain.Models;
+using Auth.Domain.Models;
 
 public class ActiveKey
 {
     [Key]
     public Guid Id { get; set; }
-    public string ActivationCode  { get; set; }
-    public string RoleName { get; set; }
 
-    // THÊM: Liên kết ActiveKey với một phòng ban
-    public Guid? DepartmentId { get; set; } // Có thể null nếu ActiveKey dành cho roles global (như Admin)
+    public string ActivationCode { get; set; }
+
+    public Guid? UsedByUserId { get; set; }
+    [ForeignKey("UsedByUserId")]
+    public virtual User? UsedByUser { get; set; }
+
+    public Guid CreatedByUserId { get; set; }
+    [ForeignKey("CreatedByUserId")]
+    public virtual User CreatedByUser { get; set; }
+
+    public string Status { get; set; }
+
+    public Guid RoleId { get; set; }
+    [ForeignKey("RoleId")]
+    public virtual Role Role { get; set; }
+
+    public Guid DepartmentId { get; set; }
     [ForeignKey("DepartmentId")]
-    public virtual Department? Department { get; set; } // Navigation property
+    public virtual Department Department { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }

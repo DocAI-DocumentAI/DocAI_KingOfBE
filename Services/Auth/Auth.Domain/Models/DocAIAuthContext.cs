@@ -11,19 +11,21 @@ namespace Auth.Domain.Models
 
         public DbSet<User> Users { get; set; }
         public DbSet<Role> Roles { get; set; }
-        public DbSet<UserRole> UserRoles { get; set; }
         public DbSet<Department> Departments { get; set; }
-        public DbSet<UserDepartment> UserDepartments { get; set; }
         public DbSet<Permission> Permissions { get; set; }
         public DbSet<RolePermission> RolePermissions { get; set; }
         public DbSet<ActiveKey> ActiveKeys { get; set; }
-        public DbSet<DepartmentRolePermission> DepartmentRolePermissions { get; set; }
-        
-       
+
+
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            // Áp dụng tất cả các cấu hình từ assembly hiện tại
             modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+
+            // Hoặc đăng ký cụ thể nếu cần
+            // modelBuilder.ApplyConfiguration(new ActiveKeyConfiguration());
+
             base.OnModelCreating(modelBuilder);
         }
 
@@ -32,7 +34,7 @@ namespace Auth.Domain.Models
             if (!optionsBuilder.IsConfigured)
             {
                 var configuration = new ConfigurationBuilder()
-                    .SetBasePath(Directory.GetCurrentDirectory()) 
+                    .SetBasePath(Directory.GetCurrentDirectory())
                     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
                     .Build();
 

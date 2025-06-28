@@ -115,28 +115,19 @@ public class RoleService : BaseService<Role>, IRoleService
         );
         if (role == null)
             throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
-        var userRole = await _unitOfWork.GetRepository<UserRole>().SingleOrDefaultAsync(
-            predicate: ur => ur.RoleId == roleId
-        );
         var rolePermission = await _unitOfWork.GetRepository<RolePermission>().SingleOrDefaultAsync(
             predicate: rp => rp.RoleId == roleId
             );
-        var departmentRolePermission =
-            await _unitOfWork.GetRepository<DepartmentRolePermission>().SingleOrDefaultAsync(
-                predicate: drp => drp.RoleId == roleId
-            );
-        if (departmentRolePermission != null)
-        {
-            _unitOfWork.GetRepository<DepartmentRolePermission>().DeleteAsync(departmentRolePermission);
-        }
-        if (userRole != null)
-        {
-            _unitOfWork.GetRepository<UserRole>().DeleteAsync(userRole);
-        }
         if (rolePermission != null)
         {
             _unitOfWork.GetRepository<RolePermission>().DeleteAsync(rolePermission);
         }
+        var RoleExist = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: r => r.RoleId == roleId,
+            include: r => r.Include(r => r.Role)
+            );
+        if(RoleExist != null)
+            throw new BadHttpRequestException(MessageConstant.Role.DeleteFailed);
         _unitOfWork.GetRepository<Role>().DeleteAsync(role);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;
         RoleResponse response = null;

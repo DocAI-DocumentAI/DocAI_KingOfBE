@@ -117,14 +117,6 @@ public class PermissionService : BaseService<PermissionService>, IPermissionServ
         var rolePermission = await _unitOfWork.GetRepository<RolePermission>().SingleOrDefaultAsync(
             predicate: ur => ur.PermissionId == permissionId
         );
-        var departmentRolePermission =
-            await _unitOfWork.GetRepository<DepartmentRolePermission>().SingleOrDefaultAsync(
-                predicate: drp => drp.PermissionId == permissionId
-            );
-        if (departmentRolePermission != null)
-        {
-            _unitOfWork.GetRepository<DepartmentRolePermission>().DeleteAsync(departmentRolePermission);
-        }
         if (rolePermission != null)
         {
             _unitOfWork.GetRepository<RolePermission>().DeleteAsync(rolePermission);

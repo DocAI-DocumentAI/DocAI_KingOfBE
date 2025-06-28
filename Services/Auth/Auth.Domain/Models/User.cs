@@ -1,11 +1,17 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using Auth.Domain.Enums;
 
 namespace Auth.Domain.Models;
 
 public class User
 {
+    public User()
+    {
+        ActiveKeys = new HashSet<ActiveKey>();
+    }
+
     [Key]
     public Guid Id { get; set; }
     public string UserName { get; set; }
@@ -13,11 +19,17 @@ public class User
     public string Email { get; set; }
     public string Phone { get; set; }
     public string FullName { get; set; }
+    public Guid RoleId { get; set; }
+    [ForeignKey("RoleId")]
+    public virtual Role Role { get; set; }
+    public Guid DepartmentId { get; set; }
+    [ForeignKey("DepartmentId")]
+    public virtual Department Department { get; set; }
     public DateTime CreatAt { get; set; }
     public DateTime UpdateAt { get; set; }
     public bool TwoFactorEnabled { get; set; }
     public string? TwoFactorMethod { get; set; }
-    public virtual ICollection<UserRole>? UserRoles { get; set; }
-    public virtual ICollection<UserDepartment>? UserDepartments { get; set; }
-    public virtual ICollection<DepartmentRolePermission>? DepartmentRolePermissions { get; set; }
+
+    // Collection navigation property cho ActiveKeys
+    public virtual ICollection<ActiveKey> ActiveKeys { get; set; }
 }

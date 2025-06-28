@@ -68,7 +68,6 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(ActiveKeyResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ActiveKeyResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ActiveKeyResponse), StatusCodes.Status500InternalServerError)]
-    [Authorize(Roles = $"{nameof(RoleEnum.Admin)},{nameof(RoleEnum.Director)},{nameof(RoleEnum.Manager)}")]
     public async Task<IActionResult> CreateActiveKey([FromBody] ActiveKeyRequest request)
     {
         var result = await _userService.CreateActiveKeyAsync(request);

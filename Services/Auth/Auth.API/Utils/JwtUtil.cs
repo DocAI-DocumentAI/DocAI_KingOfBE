@@ -20,12 +20,11 @@ public class JwtUtil
     }
     public static string GenerateJwtToken(
         User user,
-        List<ContextualPermissionClaim> contextualPermissions,
         IConfiguration configuration)
     {
         string secret = configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret is missing in configuration.");
         string issuer = configuration["JWT:Issuer"] ?? throw new InvalidOperationException("JWT:Issuer is missing in configuration.");
-        string audience = configuration["JWT:Audience"] ?? ""; // Lấy Audience từ config
+        string audience = configuration["JWT:Audience"] ?? "";
 
         if (secret.Length < 32)
         {
@@ -35,31 +34,35 @@ public class JwtUtil
         var secretKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
         var credentials = new SigningCredentials(secretKey, SecurityAlgorithms.HmacSha256);
 
+        // Lấy danh sách permissions từ user.Role.RolePermissions
+        var permissions = user.Role.RolePermissions
+            .Select(rp => rp.Permission.Name)
+            .ToList();
+
+        // Chuyển danh sách permissions thành chuỗi phân cách bởi dấu phẩy
+        string permissionsString = string.Join(",", permissions);
+
         var claims = new List<Claim>
         {
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new Claim(JwtRegisteredClaimNames.Sub, user.UserName ?? ""),
             new Claim("userId", user.Id.ToString()),
             new Claim("email", user.Email ?? ""),
-            new Claim("fullName", user.FullName ?? "") // Thêm FullName vào claim
+            new Claim("fullName", user.FullName ?? ""),
+            new Claim("phone", user.Phone ?? ""),
+            new Claim(ClaimTypes.Role, user.Role.RoleName ?? ""),
+            new Claim("departmentId", user.Department.Id.ToString()),
+            new Claim("departmentName", user.Department.Name ?? ""),
+            // Thêm claim chứa danh sách permissions
+            new Claim("permissions", permissionsString)
         };
-
-        // 1. Thêm Contextual Permissions (dưới dạng claim tùy chỉnh "contextualPermissions")
-        if (contextualPermissions != null && contextualPermissions.Any())
-        {
-            claims.Add(new Claim(
-                "contextualPermissions",
-                JsonConvert.SerializeObject(contextualPermissions),
-                JsonClaimValueTypes.JsonArray // Quan trọng để chỉ định đây là JSON array
-            ));
-        }
 
         var token = new JwtSecurityToken(
             issuer: issuer,
             audience: audience,
             claims: claims,
             notBefore: DateTime.UtcNow,
-            expires: DateTime.UtcNow.AddHours(1), // Thời gian hết hạn
+            expires: DateTime.UtcNow.AddHours(1),
             signingCredentials: credentials
         );
 

@@ -19,9 +19,9 @@ public class DepartmentConfiguration : IEntityTypeConfiguration<Department>
             },
             new Department
             {
-                Id = Guid.Parse("86deff8b-cb4b-4daf-88d4-6f366b051836"),
-                Name = "DepartmentB",
-                Description = "DepartmentB",
+                Id = Guid.Parse("d8854d21-8fae-46aa-b51b-0de060b92ee3"),
+                Name = "Company",
+                Description = "Company",
                 CreateAt = DateTime.UtcNow,
                 UpdateAt = DateTime.UtcNow,
             }

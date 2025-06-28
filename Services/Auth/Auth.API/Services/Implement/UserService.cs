@@ -69,73 +69,40 @@ public class UserService : BaseService<UserService>, IUserService
 
     private async Task<User> GetUserWithDetailsAsync(string username)
     {
-        // Lấy IQueryable từ repository, sau đó áp dụng AsNoTracking() và các Include
-        var query = _unitOfWork.GetRepository<User>().GetQuery()
-            .AsNoTracking() // <<< Lỗi này sẽ được giải quyết vì GetQuery() trả về IQueryable
-            .Where(u => u.UserName == username)
-            .Include(u => u.UserRoles)
-            .ThenInclude(ur => ur.Role)
-            .ThenInclude(r => r.RolePermissions)
-            .ThenInclude(rp => rp.Permission)
-            .Include(u => u.UserDepartments)
-            .ThenInclude(ud => ud.Department)
-            .Include(u => u.DepartmentRolePermissions)
-            .ThenInclude(d => d.Department)
-            .Include(u => u.DepartmentRolePermissions)
-            .ThenInclude(r => r.Role)
-            .Include(u => u.DepartmentRolePermissions)
-            .ThenInclude(p => p.Permission);
-
-        return await query.SingleOrDefaultAsync(); // Gọi SingleOrDefaultAsync trên IQueryable
+        var userDetail = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.UserName == username,
+            include: u => u.Include(u => u.Role).ThenInclude(rp => rp.RolePermissions).ThenInclude(p => p.Permission)
+            .Include(u => u.Department)
+            );
+        return userDetail;
     }
 
     private async Task<LoginResponse> CreateLoginResponse(User user)
     {
-        // 1. Lấy Contextual Permissions TRỰC TIẾP từ user.DepartmentRolePermissions
-        // Đảm bảo Distinct để tránh các claim trùng lặp nếu có lỗi dữ liệu hoặc logic.
-        var contextualPermissions = user.DepartmentRolePermissions
-            ?.Select(drp => new ContextualPermissionClaim
-            {
-                DeptId = drp.DepartmentId,
-                DeptName = drp.Department.Name,
-                RoleId = drp.RoleId,
-                RoleName = drp.Role.RoleName,
-                PermissionId = drp.PermissionId,
-                PermissionName = drp.Permission.Name,
-            })
-            .Distinct() // Rất quan trọng để tránh trùng lặp trong JWT
-            .ToList() ?? new List<ContextualPermissionClaim>();
-
         return new LoginResponse
         {
             UserId = user.Id,
             Username = user.UserName,
             Email = user.Email,
-            FullName = user.FullName, // Thêm FullName
-
-            // Dữ liệu hiển thị (có thể giữ lại nếu frontend cần)
-            Roles = user.UserRoles?.Select(ur => new RoleResponse
+            FullName = user.FullName,
+            Phone = user.Phone,
+            Role = new RoleResponse
             {
-                Id = ur.RoleId,
-                RoleName = ur.Role.RoleName,
-                Description = ur.Role.Description,
-                CreateAt = ur.Role.CreateAt,
-                UpdateAt = ur.Role.UpdateAt
-            }).ToList() ?? new List<RoleResponse>(),
-
-            Departments = user.UserDepartments?.Select(ud => new DepartmentResponse
+                Id = user.Role.Id,
+                RoleName = user.Role.RoleName,
+                Description = user.Role.Description,
+                CreateAt = user.Role.CreateAt,
+                UpdateAt = user.Role.UpdateAt
+            },
+            Department = new DepartmentResponse
             {
-                Id = ud.DepartmentId,
-                Name = ud.Department.Name,
-                Description = ud.Department.Description,
-                CreateAt = ud.Department.CreateAt,
-                UpdateAt = ud.Department.UpdateAt
-            }).ToList() ?? new List<DepartmentResponse>(),
-
-            // Dữ liệu chính cho JWT
-            ContextualPermissions = contextualPermissions,
-
-            Token = JwtUtil.GenerateJwtToken(user, contextualPermissions, _configuration),
+                Id = user.Department.Id,
+                Name = user.Department.Name,
+                Description = user.Department.Description,
+                CreateAt = user.Department.CreateAt,
+                UpdateAt = user.Department.UpdateAt
+            },
+            Token = JwtUtil.GenerateJwtToken(user, _configuration),
             RefreshToken = JwtUtil.GenerateRefreshToken()
         };
     }
@@ -182,58 +149,20 @@ public class UserService : BaseService<UserService>, IUserService
         await ValidateOtpAsync(request.Email, request.Otp);
 
         var user = CreateUserEntity(request);
-        var roleName = await GetRoleNameFromActivationCodeAsync(request.ActivationCode, request.DepartmentId);
-        var role = await GetRoleByNameAsync(roleName);
-        var department = await GetDepartmentByIdAsync(request.DepartmentId); // Đổi tên biến để tránh trùng lặp
+        var activeKey = await GetActiveKeyFromActivationCodeAsync(request.ActivationCode);
+        user.RoleId = activeKey.RoleId;
+        user.DepartmentId = activeKey.DepartmentId;
 
-        // Tạo UserDepartment
-        var userDepartment = new UserDepartment()
-        {
-            Id = Guid.NewGuid(),
-            DepartmentId = department.Id,
-            UserId = user.Id,
-        };
-
-        // Tạo UserRole
-        var userRole = new UserRole
-        {
-            Id = Guid.NewGuid(),
-            RoleId = role.Id,
-            UserId = user.Id
-        };
-
-        // Lấy các permissions mà Role này có (từ bảng RolePermission)
-        // và DepartmentRolePermission sẽ được tạo cho user này.
-        var rolePermissions = await _unitOfWork.GetRepository<RolePermission>()
-            .GetListAsync(predicate: rp => rp.RoleId == role.Id);
-
-        // Tạo danh sách DepartmentRolePermission cho user mới
-        var departmentRolePermissions = new List<DepartmentRolePermission>();
-        foreach (var rp in rolePermissions)
-        {
-            departmentRolePermissions.Add(new DepartmentRolePermission
-            {
-                Id = Guid.NewGuid(),
-                UserId = user.Id,
-                DepartmentId = department.Id,
-                RoleId = role.Id,
-                PermissionId = rp.PermissionId,
-                CreatAt = DateTime.UtcNow,
-                UpdateAt = DateTime.UtcNow
-            });
-        }
+        activeKey.UsedByUserId = user.Id;
+        activeKey.Status = "Off";
+        activeKey.UpdatedAt = DateTime.UtcNow;
 
         using (var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled))
         {
             try
             {
                 await _unitOfWork.GetRepository<User>().InsertAsync(user);
-                await _unitOfWork.GetRepository<UserRole>().InsertAsync(userRole);
-                await _unitOfWork.GetRepository<UserDepartment>().InsertAsync(userDepartment);
-
-                // THÊM: Insert các bản ghi DepartmentRolePermission
-                await _unitOfWork.GetRepository<DepartmentRolePermission>().InsertRangeAsync(departmentRolePermissions);
-
+                _unitOfWork.GetRepository<ActiveKey>().UpdateAsync(activeKey);
                 if (!string.IsNullOrWhiteSpace(request.ActivationCode))
                 {
                     var activationCodeExists = await _unitOfWork.GetRepository<ActiveKey>()
@@ -305,7 +234,7 @@ public class UserService : BaseService<UserService>, IUserService
         return user;
     }
 
-    private async Task<string> GetRoleNameFromActivationCodeAsync(string activationCode, Guid departmentId)
+    private async Task<ActiveKey> GetActiveKeyFromActivationCodeAsync(string activationCode)
     {
         if (string.IsNullOrWhiteSpace(activationCode))
             throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
@@ -316,10 +245,13 @@ public class UserService : BaseService<UserService>, IUserService
         if (activation == null)
             throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
 
-        if (activation.DepartmentId != departmentId)
-            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
+        if (activation.Status == "Off")
+            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActiveKeyUsed);
 
-        return activation.RoleName;
+        if (activation.UsedByUserId != null)
+            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActiveKeyUsed);
+
+        return activation;
     }
 
     private async Task<Department> GetDepartmentByIdAsync(Guid departmentId)
@@ -331,62 +263,25 @@ public class UserService : BaseService<UserService>, IUserService
         return deparment;
     }
 
-    private async Task<Role> GetRoleByNameAsync(string roleName)
-    {
-        var role = await _unitOfWork.GetRepository<Role>()
-            .SingleOrDefaultAsync(predicate: r => r.RoleName.ToLowerInvariant() == roleName.ToLowerInvariant());
-
-        if (role == null)
-            throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
-
-        return role;
-    }
 
     private async Task<RegisterResponse> CreateRegisterResponse(User user)
     {
-        // Sử dụng _mapper để ánh xạ các thuộc tính cơ bản từ User sang RegisterResponse
         var response = _mapper.Map<RegisterResponse>(user);
-
-        // 1. Lấy Contextual Permissions từ user.DepartmentRolePermissions
-        // (Đảm bảo user.DepartmentRolePermissions đã được Include đầy đủ trong GetUserWithDetailsAsync của hàm đăng ký nếu cần)
-        var contextualPermissions = user.DepartmentRolePermissions
-            // Sử dụng .Where() để lọc các đối tượng liên quan nếu chúng có thể null
-            ?.Where(drp => drp.Department != null && drp.Role != null && drp.Permission != null)
-            .Select(drp => new ContextualPermissionClaim
-            {
-                DeptId = drp.DepartmentId,
-                DeptName = drp.Department.Name,
-                RoleId = drp.RoleId,
-                RoleName = drp.Role.RoleName,
-                PermissionId = drp.PermissionId,
-                PermissionName = drp.Permission.Name,
-            })
-            .Distinct() // Rất quan trọng để tránh trùng lặp trong JWT
-            .ToList() ?? new List<ContextualPermissionClaim>();
-
-        // Dữ liệu hiển thị (tương tự như LoginResponse)
-        response.Roles = user.UserRoles?.Where(ur => ur.Role != null).Select(ur => new RoleResponse
+        response.Department = new DepartmentResponse
         {
-            RoleName = ur.Role.RoleName,
-            Description = ur.Role.Description,
-            CreateAt = ur.Role.CreateAt,
-            UpdateAt = ur.Role.UpdateAt
-        }).ToList() ?? new List<RoleResponse>();
-
-        response.Departments = user.UserDepartments?.Where(ud => ud.Department != null).Select(ud =>
-            new DepartmentResponse
-            {
-                Name = ud.Department.Name,
-                Description = ud.Department.Description,
-                CreateAt = ud.Department.CreateAt,
-                UpdateAt = ud.Department.UpdateAt
-            }).ToList() ?? new List<DepartmentResponse>();
-
-        // Gán các thông tin mới vào response
-        response.ContextualPermissions = contextualPermissions;
-
-        // 2. Gọi JwtUtil.GenerateJwtToken với các tham số mới
-        response.Token = JwtUtil.GenerateJwtToken(user, contextualPermissions, _configuration);
+            Name = user.Department.Name,
+            Description = user.Department.Description,
+            CreateAt = user.Department.CreateAt,
+            UpdateAt = user.Department.UpdateAt
+        };
+        response.Role = new RoleResponse
+        {
+            RoleName = user.Role.RoleName,
+            Description = user.Role.Description,
+            CreateAt = user.Role.CreateAt,
+            UpdateAt = user.Role.UpdateAt
+        };
+        response.Token = JwtUtil.GenerateJwtToken(user, _configuration);
         response.RefreshToken = JwtUtil.GenerateRefreshToken();
 
         return response;
@@ -394,115 +289,80 @@ public class UserService : BaseService<UserService>, IUserService
 
     public async Task<ActiveKeyResponse> CreateActiveKeyAsync(ActiveKeyRequest request)
     {
-        // 1. Lấy ClaimsPrincipal và thông tin quyền từ JWT của người dùng hiện tại
-        var currentUserClaims = GetCurrentUserClaimsPrincipal();
+        if (request == null)
+            throw new ArgumentNullException(nameof(request), "Request cannot be null");
 
-        // Lấy userId từ JWT (đã được kiểm tra trong GetCurrentUserClaimsPrincipal)
-        // Guid currentUserId = Guid.Parse(currentUserClaims.FindFirst("userId").Value); // Có thể dùng trực tiếp nếu GetCurrentUserClaimsPrincipal đảm bảo có
+        // Lấy thông tin user hiện tại từ token
+        var currentUserId = GetUserIdFromJwt();
+        var currentUser = await _unitOfWork.GetRepository<User>()
+            .SingleOrDefaultAsync(predicate: u => u.Id == currentUserId,
+                                 include: u => u.Include(u => u.Role).Include(u => u.Department));
 
-        // Lấy contextualPermissions từ JWT
-        var contextualPermissionsClaim = currentUserClaims.FindFirst("contextualPermissions")?.Value;
-        if (string.IsNullOrWhiteSpace(contextualPermissionsClaim))
-        {
-            // Nếu không có contextual permissions và user không phải admin, thì không đủ quyền
-            if (!currentUserClaims.IsInRole("Admin"))
-            {
-                throw new UnauthorizedAccessException("Current user has no specific department permissions and is not an Admin.");
-            }
-        }
+        // Lấy thông tin role mục tiêu
+        var targetRole = await _unitOfWork.GetRepository<Role>()
+            .SingleOrDefaultAsync(predicate: r => r.Id == request.RoleId);
 
-        List<ContextualPermissionClaim> currentUserContextualPermissions = new List<ContextualPermissionClaim>();
-        if (!string.IsNullOrWhiteSpace(contextualPermissionsClaim))
-        {
-            try
-            {
-                currentUserContextualPermissions = JsonConvert.DeserializeObject<List<ContextualPermissionClaim>>(contextualPermissionsClaim);
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogError(ex, "Failed to deserialize contextual permissions from JWT.");
-                throw new AuthenticationException("Invalid contextual permissions in JWT.");
-            }
-        }
-
-        // 2. Lấy thông tin về Department và Role mà ActiveKey sẽ gán
-        if (request.DepartmentId == Guid.Empty)
-        {
-            throw new BadHttpRequestException("DepartmentId is required in the request to create an ActiveKey for a specific department.");
-        }
-
-        var targetDepartment = await GetDepartmentByIdAsync(request.DepartmentId);
-        if (targetDepartment == null)
-        {
-            throw new BadHttpRequestException(MessageConstant.Department.DepartmentNotFound);
-        }
-
-        var targetRole = await GetRoleByNameAsync(request.RoleId.ToString()); // request.RoleId là Guid, GetRoleByNameAsync nhận string RoleName
-                                                                              // Cần sửa GetRoleByNameAsync hoặc thêm GetRoleByIdAsync
         if (targetRole == null)
-        {
             throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
-        }
 
-        // 3. Kiểm tra quyền của người dùng hiện tại
-        bool isCurrentUserAdmin = currentUserClaims.IsInRole("Admin");
+        // Lấy thông tin department mục tiêu
+        var targetDepartment = await _unitOfWork.GetRepository<Department>()
+            .SingleOrDefaultAsync(predicate: d => d.Id == request.DepartmentId);
 
-        // Tìm vai trò của người dùng hiện tại trong phòng ban mục tiêu
-        var currentUserRolesInTargetDepartment = currentUserContextualPermissions
-            .Where(cp => cp.DeptId == targetDepartment.Id)
-            .Select(cp => cp.RoleName)
-            .Distinct()
-            .ToList();
+        if (targetDepartment == null)
+            throw new BadHttpRequestException(MessageConstant.Department.DepartmentNotFound);
 
-        if (!isCurrentUserAdmin && !currentUserRolesInTargetDepartment.Any())
-        {
-            throw new UnauthorizedAccessException($"You do not have any role in department '{targetDepartment.Name}' to create an ActiveKey.");
-        }
+        // Kiểm tra quyền dựa trên role hierarchy
+        int currentUserRoleLevel = ParseRole(currentUser.Role.RoleName);
+        int targetRoleLevel = ParseRole(targetRole.RoleName);
 
-        // 4. Kiểm tra phân cấp quyền (Role Hierarchy Check)
-        if (!isCurrentUserAdmin)
-        {
-            var currentUserHighestLevelInDepartment = currentUserRolesInTargetDepartment
-                .Select(ParseRole)
-                .DefaultIfEmpty(0) // Nếu không có role nào, mặc định level là 0
-                .Max();
+        if (currentUserRoleLevel <= targetRoleLevel)
+            throw new UnauthorizedAccessException($"You cannot create an activation code for role '{targetRole.RoleName}' because your role level is not high enough");
 
-            var targetRoleLevel = ParseRole(targetRole.RoleName);
+        // Kiểm tra quyền dựa trên department
+        bool isAdmin = currentUser.Role.RoleName.Equals("Admin", StringComparison.OrdinalIgnoreCase);
 
-            // Logic: Người dùng chỉ có thể tạo ActiveKey cho role có cấp độ THẤP HƠN
-            if (currentUserHighestLevelInDepartment <= targetRoleLevel)
-            {
-                throw new BadHttpRequestException($"Your role level ({currentUserHighestLevelInDepartment}) in department '{targetDepartment.Name}' is not high enough to create an ActiveKey for role '{targetRole.RoleName}' (level {targetRoleLevel}).");
-            }
-        }
+        // Nếu không phải admin, chỉ được tạo ActiveKey cho department của mình
+        if (!isAdmin && currentUser.DepartmentId != request.DepartmentId)
+            throw new UnauthorizedAccessException("You can only create activation codes for your own department");
 
-        // 5. Tạo Activation Code
+        // Tạo activation code
         var code = await GenerateActivationCode();
 
-        // 6. Tạo ActiveKey Entity (bao gồm DepartmentId và RoleName)
+        // Tạo ActiveKey
         var activeKey = new ActiveKey
         {
             Id = Guid.NewGuid(),
             ActivationCode = code,
-            RoleName = targetRole.RoleName, // Tên role sẽ được gán
-            DepartmentId = targetDepartment.Id // ID của phòng ban mà ActiveKey này sẽ dành cho
+            Status = "On",
+            UsedByUserId = null,
+            CreatedByUserId = currentUserId,
+            RoleId = targetRole.Id,
+            DepartmentId = targetDepartment.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
 
-        // 7. Lưu vào database
+        // Lưu vào database
         await _unitOfWork.GetRepository<ActiveKey>().InsertAsync(activeKey);
-        await _unitOfWork.CommitAsync();
+        var isSuccessful = await _unitOfWork.CommitAsync() > 0;
 
-        // 8. Tạo Response
+        if (!isSuccessful)
+            throw new InvalidOperationException("Failed to save activation code");
+
+        // Trả về response
         return new ActiveKeyResponse
         {
-            ActivationCode = code,
-            RoleName = targetRole.RoleName,
-            DepartmentId = targetDepartment.Id,
-            DepartmentName = targetDepartment.Name
+            Id = activeKey.Id,
+            ActivationCode = activeKey.ActivationCode,
+            Status = activeKey.Status,
+            Role = targetRole,
+            Department = targetDepartment,
+            CreatedAt = activeKey.CreatedAt,
+            UpdatedAt = activeKey.UpdatedAt
         };
     }
 
-    // Giữ nguyên các hàm helper khác
     public async Task<string> GenerateActivationCode(int length = 32)
     {
         const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -524,13 +384,11 @@ public class UserService : BaseService<UserService>, IUserService
     {
         return roleName.ToLowerInvariant() switch
         {
-            "admin" => 5,
-            "departmentmanager" => 4,
-            "editor" => 3,
-            "member" => 2,
-            "student" => 1,
-            "guest" => 0,
-            _ => 0, // Mặc định level thấp nhất
+            "admin" => 3,
+            "manager" => 2,
+            "editor" => 1,
+            "member" => 0,
+            _ => 0,
         };
     }
 
