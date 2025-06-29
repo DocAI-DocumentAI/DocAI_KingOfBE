@@ -8,12 +8,14 @@ public class ApiEndPointConstant
     public const string ApiVersion = "/auth";
     public const string ApiEndpoint = RootEndPoint + ApiVersion;
 
-    public class User
+    public static class User
     {
-        public const string Register = ApiEndpoint + "/register";
-        public const string SendOtp = ApiEndpoint + "/otp";
-        public const string Login = ApiEndpoint + "/login";
-        public const string CreateActiveKey = ApiEndpoint + "/create-active-key";
+        public const string Login = "login";
+        public const string Register = "register";
+        public const string CreateActiveKey = "active-key";
+        public const string SendOtp = "send-otp";
+        public const string ChangeRole = "change-role";
+        public const string ChangeDepartment = "change-department";
     }
 
     public class Role
@@ -23,6 +25,7 @@ public class ApiEndPointConstant
         public const string CreateRole = ApiEndpoint + "/create/role";
         public const string UpdateRole = ApiEndpoint + "/update/role";
         public const string DeleteRole = ApiEndpoint + "/delete/role";
+        public const string AddPermissionToRole = ApiEndpoint + "/add-permission-to-role";
     }
 
     public class Department

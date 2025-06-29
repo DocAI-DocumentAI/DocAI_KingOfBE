@@ -7,9 +7,11 @@ using Auth.API.Constants;
 using Auth.API.Payload;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.ActiveKey;
+using Auth.API.Payload.Request.User;
 using Auth.API.Payload.Response;
 using Auth.API.Payload.Response.ActiveKey;
 using Auth.API.Payload.Response.Staff;
+using Auth.API.Payload.Response.User;
 using Microsoft.EntityFrameworkCore;
 using Auth.API.Utils;
 using Auth.Domain.Enums;
@@ -430,6 +432,231 @@ public class UserService : BaseService<UserService>, IUserService
         {
             _logger.LogError($" {MessageConstant.OTP.SaveOtpFailed}: {ex.Message}");
             throw new BadHttpRequestException(MessageConstant.OTP.SendOtpFailed);
+        }
+    }
+
+    public async Task<UserRoleChangeResponse> ChangeUserRoleAsync(string activationCode)
+    {
+        if (string.IsNullOrWhiteSpace(activationCode))
+            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
+
+        // Lấy userId từ JWT token
+        var currentUserId = GetUserIdFromJwt();
+
+        // Lấy thông tin user hiện tại
+        var currentUser = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Id == currentUserId,
+            include: u => u.Include(u => u.Role).Include(u => u.Department)
+        );
+
+        if (currentUser == null)
+            throw new BadHttpRequestException(MessageConstant.User.UserNotFound);
+
+        // Lấy thông tin activeKey từ activation code
+        var activeKey = await _unitOfWork.GetRepository<ActiveKey>().SingleOrDefaultAsync(
+            predicate: a => a.ActivationCode == activationCode,
+            include: a => a.Include(a => a.Role).Include(a => a.Department)
+        );
+
+        if (activeKey == null)
+            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
+
+        // Kiểm tra xem activeKey đã được sử dụng chưa
+        if (activeKey.Status == "Off" || activeKey.UsedByUserId != null)
+            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActiveKeyUsed);
+
+        // Kiểm tra xem department của user và activeKey có giống nhau không
+        if (currentUser.DepartmentId != activeKey.DepartmentId)
+            throw new BadHttpRequestException("You can only use activation codes for your own department");
+
+        // Lưu thông tin role cũ để trả về trong response
+        var oldRole = currentUser.Role;
+
+        // Lấy thông tin role mới từ activeKey
+        var newRole = await _unitOfWork.GetRepository<Role>().SingleOrDefaultAsync(
+            predicate: r => r.Id == activeKey.RoleId
+        );
+
+        if (newRole == null)
+            throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
+
+        // Cập nhật role của user
+        currentUser.RoleId = activeKey.RoleId;
+        currentUser.UpdateAt = DateTime.UtcNow;
+
+        // Cập nhật trạng thái của activeKey
+        activeKey.Status = "Off";
+        activeKey.UsedByUserId = currentUserId;
+        activeKey.UpdatedAt = DateTime.UtcNow;
+
+        // Thực hiện transaction để đảm bảo tính nhất quán
+        using (var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled))
+        {
+            try
+            {
+                // Cập nhật user và activeKey
+                _unitOfWork.GetRepository<User>().UpdateAsync(currentUser);
+                _unitOfWork.GetRepository<ActiveKey>().UpdateAsync(activeKey);
+
+                var isSuccessful = await _unitOfWork.CommitAsync() > 0;
+                if (!isSuccessful)
+                    throw new InvalidOperationException("Failed to update user role");
+
+                transaction.Complete();
+
+                // Tạo response
+                var response = new UserRoleChangeResponse
+                {
+                    UserId = currentUser.Id,
+                    UserName = currentUser.UserName,
+                    OldRole = new RoleResponse
+                    {
+                        Id = oldRole.Id,
+                        RoleName = oldRole.RoleName,
+                        Description = oldRole.Description,
+                        CreateAt = oldRole.CreateAt,
+                        UpdateAt = oldRole.UpdateAt
+                    },
+                    NewRole = new RoleResponse
+                    {
+                        Id = newRole.Id,
+                        RoleName = newRole.RoleName,
+                        Description = newRole.Description,
+                        CreateAt = newRole.CreateAt,
+                        UpdateAt = newRole.UpdateAt
+                    },
+                    Department = new DepartmentResponse
+                    {
+                        Name = currentUser.Department.Name,
+                        Description = currentUser.Department.Description,
+                        CreateAt = currentUser.Department.CreateAt,
+                        UpdateAt = currentUser.Department.UpdateAt
+                    },
+                    ChangeDate = DateTime.UtcNow,
+                    // Tạo token mới với role đã cập nhật
+                    Token = JwtUtil.GenerateJwtToken(currentUser, _configuration)
+                };
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error changing user role: {Message}", ex.Message);
+                throw;
+            }
+        }
+    }
+
+    public async Task<ChangeDepartmentResponse> ChangeDepartmentForUserAsync(ChangeDepartmentRequest request)
+    {
+        if (request == null)
+            throw new ArgumentNullException(nameof(request), "Request cannot be null");
+
+        // Lấy thông tin user hiện tại từ token
+        var currentUserId = GetUserIdFromJwt();
+        var currentUser = await _unitOfWork.GetRepository<User>()
+            .SingleOrDefaultAsync(predicate: u => u.Id == currentUserId,
+                                 include: u => u.Include(u => u.Role).Include(u => u.Department));
+
+        if (currentUser == null)
+            throw new BadHttpRequestException(MessageConstant.User.UserNotFound);
+
+        // Kiểm tra quyền: phải là Admin hoặc Manager của phòng nhân sự
+        bool isAdmin = currentUser.Role.RoleName.Equals("Admin", StringComparison.OrdinalIgnoreCase);
+        bool isHRManager = currentUser.Role.RoleName.Equals("Manager", StringComparison.OrdinalIgnoreCase) &&
+                          currentUser.Department.Name.Equals("Phòng nhân sự", StringComparison.OrdinalIgnoreCase);
+
+        if (!isAdmin && !isHRManager)
+            throw new UnauthorizedAccessException("Chỉ Admin hoặc Manager của Phòng nhân sự mới có quyền thay đổi department của user");
+
+        // Lấy thông tin user cần thay đổi department
+        var targetUser = await _unitOfWork.GetRepository<User>()
+            .SingleOrDefaultAsync(predicate: u => u.Id == request.UserId,
+                                 include: u => u.Include(u => u.Role).Include(u => u.Department));
+
+        if (targetUser == null)
+            throw new BadHttpRequestException(MessageConstant.User.UserNotFound);
+
+        // Lấy thông tin department mới
+        var newDepartment = await _unitOfWork.GetRepository<Department>()
+            .SingleOrDefaultAsync(predicate: d => d.Id == request.DepartmentId);
+
+        if (newDepartment == null)
+            throw new BadHttpRequestException(MessageConstant.Department.DepartmentNotFound);
+
+        // Kiểm tra xem user đã ở department này chưa
+        if (targetUser.DepartmentId == request.DepartmentId)
+            throw new BadHttpRequestException("User đã thuộc department này rồi");
+
+        // Lưu thông tin department cũ để trả về trong response
+        var oldDepartment = targetUser.Department;
+
+        // Cập nhật department của user
+        targetUser.DepartmentId = request.DepartmentId;
+        targetUser.UpdateAt = DateTime.UtcNow;
+
+        // Thực hiện transaction để đảm bảo tính nhất quán
+        using (var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled))
+        {
+            try
+            {
+                // Cập nhật user
+                _unitOfWork.GetRepository<User>().UpdateAsync(targetUser);
+
+                var isSuccessful = await _unitOfWork.CommitAsync() > 0;
+                if (!isSuccessful)
+                    throw new InvalidOperationException("Failed to update user department");
+
+                transaction.Complete();
+
+                // Lấy lại user với thông tin department mới để tạo token
+                var updatedUser = await _unitOfWork.GetRepository<User>()
+                    .SingleOrDefaultAsync(predicate: u => u.Id == request.UserId,
+                                         include: u => u.Include(u => u.Role)
+                                                      .ThenInclude(r => r.RolePermissions!)
+                                                      .ThenInclude(rp => rp.Permission)
+                                                      .Include(u => u.Department));
+
+                // Tạo response
+                var response = new ChangeDepartmentResponse
+                {
+                    UserId = targetUser.Id,
+                    UserName = targetUser.UserName,
+                    FullName = targetUser.FullName,
+                    OldDepartment = new DepartmentResponse
+                    {
+                        Id = oldDepartment.Id,
+                        Name = oldDepartment.Name,
+                        Description = oldDepartment.Description,
+                        CreateAt = oldDepartment.CreateAt,
+                        UpdateAt = oldDepartment.UpdateAt
+                    },
+                    NewDepartment = new DepartmentResponse
+                    {
+                        Id = newDepartment.Id,
+                        Name = newDepartment.Name,
+                        Description = newDepartment.Description,
+                        CreateAt = newDepartment.CreateAt,
+                        UpdateAt = newDepartment.UpdateAt
+                    },
+                    Role = new RoleResponse
+                    {
+                        Id = targetUser.Role.Id,
+                        RoleName = targetUser.Role.RoleName,
+                        Description = targetUser.Role.Description,
+                        CreateAt = targetUser.Role.CreateAt,
+                        UpdateAt = targetUser.Role.UpdateAt
+                    },
+                    ChangeDate = DateTime.UtcNow,
+                };
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error changing user department: {Message}", ex.Message);
+                throw;
+            }
         }
     }
 }
