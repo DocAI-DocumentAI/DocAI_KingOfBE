@@ -126,12 +126,71 @@ public class RoleService : BaseService<Role>, IRoleService
             predicate: r => r.RoleId == roleId,
             include: r => r.Include(r => r.Role)
             );
-        if(RoleExist != null)
+        if (RoleExist != null)
             throw new BadHttpRequestException(MessageConstant.Role.DeleteFailed);
         _unitOfWork.GetRepository<Role>().DeleteAsync(role);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;
         RoleResponse response = null;
         if (isSuccess) response = _mapper.Map<RoleResponse>(role);
+        return response;
+    }
+
+    public async Task<RoleResponse> AddPermissionToRoleAsync(Guid roleId, Guid permissionId)
+    {
+        if (roleId == Guid.Empty)
+            throw new ArgumentException("Role ID cannot be empty", nameof(roleId));
+
+        if (permissionId == Guid.Empty)
+            throw new ArgumentException("Permission ID cannot be empty", nameof(permissionId));
+
+        // Kiểm tra role tồn tại
+        var role = await _unitOfWork.GetRepository<Role>().SingleOrDefaultAsync(
+            predicate: r => r.Id == roleId,
+            include: r => r.Include(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
+        );
+
+        if (role == null)
+            throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
+
+        // Kiểm tra permission tồn tại
+        var permission = await _unitOfWork.GetRepository<Permission>().SingleOrDefaultAsync(
+            predicate: p => p.Id == permissionId
+        );
+
+        if (permission == null)
+            throw new BadHttpRequestException(MessageConstant.Permission.PermissionNotFonnd);
+
+        // Kiểm tra xem permission đã được gán cho role chưa
+        var existingRolePermission = await _unitOfWork.GetRepository<RolePermission>().SingleOrDefaultAsync(
+            predicate: rp => rp.RoleId == roleId && rp.PermissionId == permissionId
+        );
+
+        if (existingRolePermission != null)
+            throw new BadHttpRequestException("Permission is already assigned to this role");
+
+        // Tạo mối quan hệ mới giữa role và permission
+        var rolePermission = new RolePermission
+        {
+            Id = Guid.NewGuid(),
+            RoleId = roleId,
+            PermissionId = permissionId
+        };
+
+        // Thêm vào database
+        await _unitOfWork.GetRepository<RolePermission>().InsertAsync(rolePermission);
+        var isSuccess = await _unitOfWork.CommitAsync() > 0;
+
+        if (!isSuccess)
+            throw new InvalidOperationException("Failed to add permission to role");
+
+        // Lấy lại thông tin role đã cập nhật
+        var updatedRole = await _unitOfWork.GetRepository<Role>().SingleOrDefaultAsync(
+            predicate: r => r.Id == roleId,
+            include: r => r.Include(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
+        );
+
+        // Trả về response
+        var response = _mapper.Map<RoleResponse>(updatedRole);
         return response;
     }
 }

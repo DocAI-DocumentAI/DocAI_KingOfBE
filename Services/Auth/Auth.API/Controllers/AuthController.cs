@@ -66,19 +66,7 @@ public class AuthController : ControllerBase
         return CreatedAtAction(nameof(Register), response);
     }
 
-    [HttpPost(ApiEndPointConstant.User.CreateActiveKey)]
-    [ProducesResponseType(typeof(ActiveKeyResponse), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ActiveKeyResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ActiveKeyResponse), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> CreateActiveKey([FromBody] ActiveKeyRequest request)
-    {
-        var result = await _userService.CreateActiveKeyAsync(request);
-        if (result == null)
-        {
-            return Problem(MessageConstant.ActivationCode.CreateActiveKeyFail);
-        }
-        return CreatedAtAction(nameof(CreateActiveKey), result);
-    }
+
 
     [HttpPost(ApiEndPointConstant.User.SendOtp)]
     [ProducesResponseType(typeof(string), StatusCodes.Status201Created)]
@@ -135,7 +123,7 @@ public class AuthController : ControllerBase
     {
         try
         {
-            var result = await _userService.ChangeUserDepartmentAsync(request);
+            var result = await _userService.ChangeDepartmentForUserAsync(request);
             return Ok(result);
         }
         catch (BadHttpRequestException ex)

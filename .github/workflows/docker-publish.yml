@@ -2,7 +2,7 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: ["main", "master"]
+    branches: ["**"] # Chạy cho tất cả các nhánh
   pull_request:
     branches: ["main", "master"]
 
@@ -14,8 +14,68 @@ env:
   VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
 
 jobs:
+  # Job này chạy cho tất cả các nhánh - chỉ build để kiểm tra
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build AI.API (test only)
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Services/AI/AI.API/Dockerfile
+          push: false # Chỉ build, không push
+          tags: docai-ai-api:test
+
+      - name: Build Auth.API (test only)
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Services/Auth/Auth.API/Dockerfile
+          push: false # Chỉ build, không push
+          tags: docai-auth-api:test
+
+      - name: Build Document.API (test only)
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Services/Document/Document.API/Dockerfile
+          push: false # Chỉ build, không push
+          tags: docai-document-api:test
+
+      - name: Build Notification.API (test only)
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Services/Notification/Notification.API/Dockerfile
+          push: false # Chỉ build, không push
+          tags: docai-notification-api:test
+
+      - name: Build ChatBox.API (test only)
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Services/ChatBox/ChatBox.API/Dockerfile
+          push: false # Chỉ build, không push
+          tags: docai-chatbox-api:test
+
+      - name: Build API Gateway (test only)
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ApiGateway/Dockerfile
+          push: false # Chỉ build, không push
+          tags: docai-gateway:test
+
+  # Job này chỉ chạy khi push vào main - build và push image + deploy
   build-and-push:
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -77,9 +137,11 @@ jobs:
           push: true
           tags: magicflexing/docai-gateway:latest
 
+  # Job này chỉ chạy khi build-and-push thành công (tức là khi push vào main)
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Deploy to VPS
         uses: appleboy/ssh-action@master

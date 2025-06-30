@@ -12,4 +12,5 @@ public interface IRoleService
     public Task<RoleResponse> CreateRoleAsync(CreateRoleRequest request);
     public Task<RoleResponse> UpdateRoleAsync(UpdateRoleRequest request, Guid roleId);
     public Task<RoleResponse> DeleteRoleAsync(Guid roleId);
+    public Task<RoleResponse> AddPermissionToRoleAsync(Guid roleId, Guid permissionId);
 }

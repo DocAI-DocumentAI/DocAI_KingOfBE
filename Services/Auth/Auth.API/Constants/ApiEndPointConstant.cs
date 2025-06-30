@@ -12,7 +12,6 @@ public class ApiEndPointConstant
     {
         public const string Login = "login";
         public const string Register = "register";
-        public const string CreateActiveKey = "active-key";
         public const string SendOtp = "send-otp";
         public const string ChangeRole = "change-role";
         public const string ChangeDepartment = "change-department";
@@ -44,5 +43,15 @@ public class ApiEndPointConstant
         public const string CreatePermission = ApiEndpoint + "/create/permission";
         public const string UpdatePermission = ApiEndpoint + "/update/permission";
         public const string DeletePermission = ApiEndpoint + "/delete/permission";
+    }
+
+    public class ActiveKey
+    {
+        public const string ActiveKeys = ApiEndpoint + "/active-keys";
+        public const string CreateActiveKey = ApiEndpoint + "/create/active-key";
+        public const string GetAllActiveKeys = ApiEndpoint + "/active-keys";
+        public const string GetActiveKeyById = ApiEndpoint + "/active-key";
+        public const string UpdateActiveKey = ApiEndpoint + "/update/active-key";
+        public const string DeleteActiveKey = ApiEndpoint + "/delete/active-key";
     }
 }
