@@ -14,9 +14,6 @@ public class LoginResponse
     public string Phone { get; set; } // Thêm FullName
     public RoleResponse Role { get; set; }
     public DepartmentResponse Department { get; set; }
-
-    public List<string> GeneralRoles { get; set; } // Ví dụ: Admin
-
     public string Token { get; set; }
     public string RefreshToken { get; set; }
 }

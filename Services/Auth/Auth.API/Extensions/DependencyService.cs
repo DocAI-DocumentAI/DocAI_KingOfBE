@@ -74,24 +74,29 @@ public static class DependencyService
         services.AddScoped<IDepartmentService, DepartmentService>();
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<Services.Interface.IAuthorizationService, Services.Implement.AuthorizationService>();
+        services.AddSingleton<IPublishEndpoint, MockPublishEndpoint>();
+
+        // Tạm thời comment phần MassTransit
+        /*
         services.AddMassTransit(x =>
         {
             x.AddConsumer<UserRequestMessageConsumer>();
             x.UsingRabbitMq((context, cfg) =>
             {
-                cfg.Host("rabbitmq://localhost", h =>
+                var host = configuration["RabbitMQ:Host"] ?? "rabbitmq";
+                cfg.Host(host, "/", h =>
                 {
                     h.Username("guest");
                     h.Password("guest");
                 });
-
+                
                 cfg.ReceiveEndpoint("user-request-queue", e =>
                 {
-                    // Chỉ định consumer nào sẽ xử lý message từ queue này
                     e.ConfigureConsumer<UserRequestMessageConsumer>(context);
                 });
             });
         });
+        */
         return services;
     }
 

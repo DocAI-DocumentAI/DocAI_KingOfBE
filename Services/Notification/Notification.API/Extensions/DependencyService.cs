@@ -17,11 +17,11 @@ public static class DependencyService
         // services.AddScoped<IUnitOfWork<DocAIAuthContext>, UnitOfWork<DocAIAuthContext>>();
         return services;
     }
-    
+
     public static IServiceCollection AddDatabase(this IServiceCollection services)
     {
         IConfiguration configuration = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetCurrentDirectory()) 
+            .SetBasePath(Directory.GetCurrentDirectory())
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
             .Build();
 
@@ -35,7 +35,7 @@ public static class DependencyService
 
         return services;
     }
-    
+
     // public static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
     // {
     //     var redisConnectionString = configuration.GetConnectionString("Redis");
@@ -56,25 +56,24 @@ public static class DependencyService
         // services.AddScoped<IUserService, UserService>();
         services.AddMassTransit(x =>
         {
-            x.AddConsumer<UserRequestMessageConsumer>(); 
+            x.AddConsumer<UserRequestMessageConsumer>();
             x.UsingRabbitMq((context, cfg) =>
             {
-                cfg.Host("rabbitmq://localhost", h =>
+                cfg.Host("rabbitmq", h =>
                 {
                     h.Username("guest");
                     h.Password("guest");
                 });
-                
+
                 cfg.ReceiveEndpoint("user-request-queue", e =>
                 {
-                    // Chỉ định consumer nào sẽ xử lý message từ queue này
                     e.ConfigureConsumer<UserRequestMessageConsumer>(context);
                 });
             });
         });
         return services;
     }
-    
+
     public static IServiceCollection AddJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
         string secret = configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret is missing in configuration.");
@@ -124,5 +123,5 @@ public static class DependencyService
 
         return services;
     }
-    
+
 }
