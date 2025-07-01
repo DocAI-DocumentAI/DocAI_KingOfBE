@@ -97,6 +97,7 @@ public static class DependencyService
     {
         services.AddScoped<IAzureStorageService, AzureStorageService>();
         services.AddScoped<IDocumentService, DocumentService>();
+        services.AddScoped<IBookmarkService, BookmarkService>();
         return services;
     }
 }

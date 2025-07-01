@@ -37,4 +37,18 @@ public class DocumentController : ControllerBase
         await _documentService.DeleteDraftAsync(documentId, versionId, userId);
         return Ok(ApiResponse<object>.Success(null, "Document deleted successfully", 200));
     }
+
+    [HttpGet(ApiEndPointConstant.Document.GetOfficialDocument)]
+    public async Task<IActionResult> GetOfficialDocument([FromRoute(Name = "id")] string documentFileId)
+    {
+        var result = await _documentService.GetOfficialDocumentAsync(documentFileId);
+        return Ok(ApiResponse<object>.Success(result));
+    }
+
+    [HttpGet(ApiEndPointConstant.Document.GetAllOfficialDocuments)]
+    public async Task<IActionResult> GetAllOfficialDocuments(int pageNumber = 1, int pageSize = 10)
+    {
+        var result = await _documentService.GetAllOfficialDocumentsAsync(pageNumber, pageSize);
+        return Ok(ApiResponse<object>.Success(result));
+    }
 }
