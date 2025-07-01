@@ -23,6 +23,7 @@ namespace Document.Domain.Models
         public DateTime? EffectiveUntil { get; set; }
         public string? SignedBy { get; set; }
         public StatusEnum Status { get; set; }
+        public bool IsOfficial { get; set; }
         public string DocumentFileId { get; set; }
         public DocumentFile DocumentFile { get; set; }
         public virtual ICollection<DocumentTag> DocumentTags { get; set; }

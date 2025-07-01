@@ -61,7 +61,7 @@ public class DocumentService : IDocumentService
         }
 
         // 3. Upload the file to Azure Storage and get the MD5 hash.
-        var uploadResponse = await _storageService.UploadFileAsync(request.File);
+        var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
         var fileHash = uploadResponse.Md5Hash;
 
         // 4. Check for file duplication using the MD5 hash.
@@ -71,7 +71,7 @@ public class DocumentService : IDocumentService
         if (existingFile != null)
         {
             // If a duplicate is found, delete the file that was just uploaded.
-            await _storageService.DeleteFileAsync(uploadResponse.BlobName);
+            await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
 
             _logger.LogWarning("Duplicate file detected. Hash: {FileHash}. Existing document: {DocumentTitle}, Version: {VersionName}, Status: {Status}",
                 fileHash, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status);
@@ -93,6 +93,7 @@ public class DocumentService : IDocumentService
         {
             VersionName = request.VersionName,
             Status = StatusEnum.Draft, // Use the Enum for status
+            IsOfficial = false, // New drafts are not official
             Summary = request.Summary, // Placeholder for summary
             FileName = request.File.FileName,
             FileType = Path.GetExtension(request.File.FileName),
@@ -160,7 +161,7 @@ public class DocumentService : IDocumentService
             _logger.LogInformation("Replacing file for document version {VersionId}.", versionId);
 
             // Upload the new file to Azure Storage and get the MD5 hash.
-            var uploadResponse = await _storageService.UploadFileAsync(request.File);
+            var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
             var fileHash = uploadResponse.Md5Hash;
 
             // Check for file duplication using the MD5 hash.
@@ -170,7 +171,7 @@ public class DocumentService : IDocumentService
             if (existingFile != null)
             {
                 // If a duplicate is found, delete the file that was just uploaded.
-                await _storageService.DeleteFileAsync(uploadResponse.BlobName);
+                await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
 
                 _logger.LogWarning("Duplicate file detected during update. Hash: {FileHash}. Existing document: {DocumentTitle}, Version: {VersionName}, Status: {Status}",
                     fileHash, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status);
@@ -179,7 +180,7 @@ public class DocumentService : IDocumentService
             }
 
             // 1. Delete the old file from Azure Storage.
-            await _storageService.DeleteFileAsync(versionToUpdate.FilePath);
+            await _storageService.DeleteFileAsync(versionToUpdate.FileName, StorageFolderConstant.Drafts);
 
             // 2. Update version properties for the new file.
             versionToUpdate.FilePath = uploadResponse.BlobName;
@@ -334,7 +335,7 @@ public class DocumentService : IDocumentService
         }
 
         // 3. Delete the physical file from Azure Storage.
-        await _storageService.DeleteFileAsync(versionToDelete.FilePath);
+        await _storageService.DeleteFileAsync(versionToDelete.FileName, StorageFolderConstant.Drafts);
         _logger.LogInformation("Deleted file from Azure Storage at path: {FilePath}", versionToDelete.FilePath);
 
         // 4. Delete the DocumentFile record from the database.
@@ -435,5 +436,50 @@ public class DocumentService : IDocumentService
         }
 
         return _mapper.Map<DocumentDraftResponse>(rejectedDocument);
+    }
+
+    public async Task<DocumentDraftResponse> GetOfficialDocumentAsync(string documentFileId)
+    {
+        var officialDocument = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
+            predicate: v => v.DocumentFileId == documentFileId && v.IsOfficial,
+            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+        );
+
+        if (officialDocument == null)
+        {
+            throw new ErrorException(StatusCodes.Status404NotFound, "Official document not found for the given document file ID.");
+        }
+
+        return _mapper.Map<DocumentDraftResponse>(officialDocument);
+    }
+
+    public async Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize)
+    {
+        var officialDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
+            filter: null,
+            selector: d => new DocumentDraftResponse
+            {
+                DocumentId = d.DocumentFile.Id.ToString(),
+                VersionId = d.Id,
+                VersionName = d.VersionName,
+                Title = d.DocumentFile.Title,
+                Summary = d.Summary,
+                FileName = d.FileName,
+                FileType = d.FileType,
+                FileSize = d.FileSize,
+                FilePath = d.FilePath,
+                Status = d.Status.ToString(),
+                DepartmentId = d.DocumentFile.DepartmentId,
+                OwnerId = d.DocumentFile.OwnerId,
+                CreatedTime = d.DocumentFile.CreatedTime
+            },
+            predicate: v => v.IsOfficial,
+            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
+            page: pageNumber,
+            size: pageSize
+        );
+
+        return _mapper.Map<IPaginate<DocumentDraftResponse>>(officialDocuments);
     }
 }

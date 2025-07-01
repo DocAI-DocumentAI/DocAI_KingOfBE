@@ -36,9 +36,9 @@ namespace Document.API.Services.Implements
             }
 
         }
-        public async Task<AzureUploadResponse> UploadFileAsync(IFormFile file)
+        public async Task<AzureUploadResponse> UploadFileAsync(IFormFile file, string folder)
         {
-            var blobName = file.FileName;
+            var blobName = $"{folder}/{file.FileName}";
             var blobClient = _blobContainerClient.GetBlobClient(blobName);
 
             _logger.LogInformation("Uploading file '{FileName}' to Azure Blob Storage as '{BlobName}'.", file.FileName, blobName);
@@ -55,7 +55,7 @@ namespace Document.API.Services.Implements
                 };
             }
         }
-        public async Task DeleteFileAsync(string filename)
+        public async Task DeleteFileAsync(string filename, string folder)
         {
             if (string.IsNullOrEmpty(filename))
             {
@@ -63,16 +63,44 @@ namespace Document.API.Services.Implements
                 return;
             }
 
-            var blobClient = _blobContainerClient.GetBlobClient(filename);
-            _logger.LogInformation("Deleting blob '{BlobName}' from Azure Storage.", filename);
+            var blobName = $"{folder}/{filename}";
+            var blobClient = _blobContainerClient.GetBlobClient(blobName);
+            _logger.LogInformation("Deleting blob '{BlobName}' from Azure Storage.", blobName);
             await blobClient.DeleteIfExistsAsync();
         }
 
-        public Task<string> DownloadFileAsync(string fileUrl)
+        public async Task MoveFileAsync(string sourceFilename, string sourceFolder, string destinationFolder)
         {
-            throw new NotImplementedException();
+            var sourceBlobName = $"{sourceFolder}/{sourceFilename}";
+            var destinationBlobName = $"{destinationFolder}/{sourceFilename}";
+
+            var sourceBlobClient = _blobContainerClient.GetBlobClient(sourceBlobName);
+            var destinationBlobClient = _blobContainerClient.GetBlobClient(destinationBlobName);
+
+            _logger.LogInformation("Moving blob from '{SourceBlob}' to '{DestinationBlob}'.", sourceBlobName, destinationBlobName);
+
+            // Copy the blob
+            await destinationBlobClient.StartCopyFromUriAsync(sourceBlobClient.Uri);
+
+            // Delete the source blob
+            await sourceBlobClient.DeleteIfExistsAsync();
+        }
+
+        public async Task DownloadFileAsync(string fileUrl)
+        {
+            try
+            {
+                var blobClient = new BlobClient(new Uri(fileUrl));
+                await blobClient.DownloadContentAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error downloading file from {FileUrl}", fileUrl);
+                throw;
+            }
         }
 
     }
 }
+
 

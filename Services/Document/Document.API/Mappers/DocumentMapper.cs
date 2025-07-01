@@ -14,7 +14,7 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().Id.ToString()))
             .ForMember(dest => dest.VersionName, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().VersionName))
             .ForMember(dest => dest.Status, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().Status.ToString()))
-            .ForMember(dest => dest.Sumary, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().Summary))
+            .ForMember(dest => dest.Summary, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().Summary))
             .ForMember(dest => dest.FileName, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().FileName))
             .ForMember(dest => dest.FilePath, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().FilePath))
             .ForMember(dest => dest.FileType, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().FileType))

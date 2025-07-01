@@ -81,7 +81,10 @@ namespace Document.API.Services.Implements
 
                 if (previousApprovedVersion != null)
                 {
-                    // Move to subfolder achiv
+                    // Move to subfolder archive
+                    await _storageService.MoveFileAsync(previousApprovedVersion.FileName, StorageFolderConstant.Approved, StorageFolderConstant.Archived);
+                    previousApprovedVersion.FilePath = $"{StorageFolderConstant.Archived}/{previousApprovedVersion.FileName}";
+
                     // --- MODIFICATION: Update tags in Kernel Memory instead of deleting ---
                     var previousVersionKmId = previousApprovedVersion.Id.ToString();
                     var oldTags = new TagCollection
@@ -96,12 +99,16 @@ namespace Document.API.Services.Implements
                         tags: oldTags);
 
                     previousApprovedVersion.Status = StatusEnum.Archived;
+                    previousApprovedVersion.IsOfficial = false; // Set IsOfficial to false for the previously approved version
                     _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(previousApprovedVersion);
                     _logger.LogInformation("Archived previous version {VersionId} and updated its AI tags.", previousApprovedVersion.Id);
                 }
 
                 // 2. Move the current version's file to the "Approved" folder.
+                await _storageService.MoveFileAsync(versionToReview.FileName, StorageFolderConstant.Pending, StorageFolderConstant.Approved);
+                versionToReview.FilePath = $"{StorageFolderConstant.Approved}/{versionToReview.FileName}";
                 versionToReview.Status = StatusEnum.Approved;
+                versionToReview.IsOfficial = true; // Set IsOfficial to true for the newly approved version
                 logAction = ApprovalAction.Approve;
 
                 // --- MODIFICATION: Add structured tags during import ---
@@ -161,24 +168,19 @@ namespace Document.API.Services.Implements
                 throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, "You are not authorized to submit this document for approval");
             }
             //3. Check if the version status 
-            switch (version.Status)
+            if (version.Status != StatusEnum.Draft)
             {
-                case StatusEnum.Draft:
-                    version.Status = StatusEnum.Pending; // Update status to Pending
-                    version.LastUpdatedBy = "system"; // temp
-                    version.LastUpdatedTime = DateTime.UtcNow; // Update timestamp
-                    break;
-                case StatusEnum.Pending:
-                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document version is already submitted for approval");
-                case StatusEnum.Approved:
-                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document version is already approved");
-                case StatusEnum.Archived:
-                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document version is archived and cannot be submitted for approval");
-                default:
-                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Invalid document version status");
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, $"Document version cannot be submitted for approval. Current status: {version.Status}");
             }
 
+            version.Status = StatusEnum.Pending; // Update status to Pending
+            version.LastUpdatedBy = "system"; // temp
+            version.LastUpdatedTime = DateTime.UtcNow; // Update timestamp
+
             //4. Move the document file to the "Pending" folder in Azure Storage
+            await _storageService.MoveFileAsync(version.FileName, StorageFolderConstant.Drafts, StorageFolderConstant.Pending);
+            version.FilePath = $"{StorageFolderConstant.Pending}/{version.FileName}";
+
             //5. Change the file path to point to the new location
 
             //6. Save changes to the database
