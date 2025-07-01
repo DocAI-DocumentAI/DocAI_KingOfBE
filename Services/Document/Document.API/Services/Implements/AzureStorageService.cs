@@ -1,5 +1,6 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Document.API.Models;
 using Document.API.Services.Interfaces;
 
 namespace Document.API.Services.Implements
@@ -9,7 +10,7 @@ namespace Document.API.Services.Implements
         private readonly IConfiguration _configuration;
         private readonly BlobContainerClient _blobContainerClient;
         private readonly ILogger<AzureStorageService> _logger;
-        public AzureStorageService(IConfiguration configuration, ILogger<AzureStorageService> logger) 
+        public AzureStorageService(IConfiguration configuration, ILogger<AzureStorageService> logger)
         {
             _logger = logger;
             _configuration = configuration;
@@ -35,9 +36,8 @@ namespace Document.API.Services.Implements
             }
 
         }
-        public async Task<string> UploadFileAsync(IFormFile file)
+        public async Task<AzureUploadResponse> UploadFileAsync(IFormFile file)
         {
-            // Using the original filename as the blob name, as requested.
             var blobName = file.FileName;
             var blobClient = _blobContainerClient.GetBlobClient(blobName);
 
@@ -45,10 +45,15 @@ namespace Document.API.Services.Implements
 
             await using (var stream = file.OpenReadStream())
             {
-                await blobClient.UploadAsync(stream, new BlobHttpHeaders { ContentType = file.ContentType });
-            }
+                var response = await blobClient.UploadAsync(stream, new BlobHttpHeaders { ContentType = file.ContentType });
+                var md5Hash = Convert.ToBase64String(response.Value.ContentHash);
 
-            return blobName;
+                return new AzureUploadResponse
+                {
+                    BlobName = blobName,
+                    Md5Hash = md5Hash
+                };
+            }
         }
         public async Task DeleteFileAsync(string filename)
         {
@@ -70,3 +75,4 @@ namespace Document.API.Services.Implements
 
     }
 }
+

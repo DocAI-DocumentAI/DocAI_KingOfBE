@@ -1,8 +1,10 @@
-﻿namespace Document.API.Services.Interfaces
+﻿using Document.API.Models;
+
+namespace Document.API.Services.Interfaces
 {
     public interface IAzureStorageService
     {
-        Task<string> UploadFileAsync(IFormFile file);
+        Task<AzureUploadResponse> UploadFileAsync(IFormFile file);
         Task DeleteFileAsync(string filename);
         Task<string> DownloadFileAsync(string filename);
     }

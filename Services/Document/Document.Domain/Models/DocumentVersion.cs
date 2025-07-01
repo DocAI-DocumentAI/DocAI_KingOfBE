@@ -17,6 +17,7 @@ namespace Document.Domain.Models
         public string FileName { get; set; }
         public string FileType { get; set; }
         public long FileSize { get; set; }
+        public string FileHash { get; set; }
         public int? TotalDownloads { get; set; } = 0;
         public DateTime? EffectiveFrom { get; set; }
         public DateTime? EffectiveUntil { get; set; }

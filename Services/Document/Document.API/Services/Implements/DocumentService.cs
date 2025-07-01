@@ -17,6 +17,8 @@ using Microsoft.KernelMemory.AI.Ollama;
 using Shared.DTOs;
 using Shared.Exceptions;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace Document.API.Services.Implements;
@@ -37,6 +39,8 @@ public class DocumentService : IDocumentService
         _storageService = storageService;
     }
 
+    
+
 
     public async Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request, string userId)
     {
@@ -49,35 +53,33 @@ public class DocumentService : IDocumentService
         }
 
         //2. Checking Version Name duplication
-        var existingVersion = await _unitOfWork.GetRepository<DocumentVersion>()
+        var existingVersionName = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(predicate: v => v.VersionName == request.VersionName && v.DocumentFile.Title == request.Title);
-        if (existingVersion != null)
+        if (existingVersionName != null)
         {
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document version name already exists for this title");
         }
 
-        //    //3. saving file to local storage
-        //    Directory.CreateDirectory(_storagePath);
-        ////var filePath = Path.Combine(_storagePath, request.File.FileName);
-        //string filePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), request.File.FileName);
-        //// Get file extension (.PDF, .DOCX)
-        //var fileExt = Path.GetExtension(request.File.FileName);
+        // 3. Upload the file to Azure Storage and get the MD5 hash.
+        var uploadResponse = await _storageService.UploadFileAsync(request.File);
+        var fileHash = uploadResponse.Md5Hash;
 
-        //using (var stream = new FileStream(filePath, FileMode.Create))
-        //{
-        //    await request.File.CopyToAsync(stream);
-        //}
+        // 4. Check for file duplication using the MD5 hash.
+        var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
+            .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash, include: i => i.Include(v => v.DocumentFile));
 
+        if (existingFile != null)
+        {
+            // If a duplicate is found, delete the file that was just uploaded.
+            await _storageService.DeleteFileAsync(uploadResponse.BlobName);
 
-        // Compare Hash to Azure cloud in folder "Approved", "Archieved" and "Pending" Folder
-        // Each check print out the message differently
+            _logger.LogWarning("Duplicate file detected. Hash: {FileHash}. Existing document: {DocumentTitle}, Version: {VersionName}, Status: {Status}",
+                fileHash, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status);
+            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
+                $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
+        }
 
-
-        //3. Save file to Azure Storage
-        var filePath = await _storageService.UploadFileAsync(request.File);
-        _logger.LogInformation("Uploaded file '{FileName}' to Azure Storage. Blob name: {StoragePath}", request.File.FileName, filePath);
-
-        //4. save the generel infomation of the file into the DocumentFile table
+        //5. save the generel infomation of the file into the DocumentFile table
         var documentFile = new DocumentFile
         {
             Title = request.Title,
@@ -95,7 +97,8 @@ public class DocumentService : IDocumentService
             FileName = request.File.FileName,
             FileType = Path.GetExtension(request.File.FileName),
             FileSize = request.File.Length,
-            FilePath = filePath,
+            FilePath = uploadResponse.BlobName,
+            FileHash = fileHash,
             SignedBy = request.SignedBy,
             EffectiveFrom = request.EffectiveFrom,
             EffectiveUntil = request.EffectiveUntil,
@@ -115,15 +118,15 @@ public class DocumentService : IDocumentService
             }
         }
 
-        // 5. Link entities using the correct navigation property name
+        // 6. Link entities using the correct navigation property name
         documentFile.DocumentVersions.Add(version);
-        // 5. Save to database
+        // 7. Save to database
         await _unitOfWork.GetRepository<DocumentFile>().InsertAsync(documentFile);
         await _unitOfWork.CommitAsync();
 
         _logger.LogInformation("Successfully created draft document {DocumentId}", documentFile.Id);
 
-        // 6. Use AutoMapper to map the result to the response DTO
+        // 8. Use AutoMapper to map the result to the response DTO
         var response = _mapper.Map<DocumentDraftResponse>(documentFile);
 
         return response;
@@ -156,18 +159,34 @@ public class DocumentService : IDocumentService
         {
             _logger.LogInformation("Replacing file for document version {VersionId}.", versionId);
 
-            // Check file title / file name / file hash is duplicate in the Azue blob
+            // Upload the new file to Azure Storage and get the MD5 hash.
+            var uploadResponse = await _storageService.UploadFileAsync(request.File);
+            var fileHash = uploadResponse.Md5Hash;
+
+            // Check for file duplication using the MD5 hash.
+            var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash && v.Id != versionId, include: i => i.Include(v => v.DocumentFile));
+
+            if (existingFile != null)
+            {
+                // If a duplicate is found, delete the file that was just uploaded.
+                await _storageService.DeleteFileAsync(uploadResponse.BlobName);
+
+                _logger.LogWarning("Duplicate file detected during update. Hash: {FileHash}. Existing document: {DocumentTitle}, Version: {VersionName}, Status: {Status}",
+                    fileHash, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status);
+                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
+                    $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
+            }
+
             // 1. Delete the old file from Azure Storage.
             await _storageService.DeleteFileAsync(versionToUpdate.FilePath);
 
-            // 2. Upload the new file to the same "Draft" folder.
-            var newStoragePath = await _storageService.UploadFileAsync(request.File);
-
-            // 3. Update version properties for the new file.
-            versionToUpdate.FilePath = newStoragePath;
+            // 2. Update version properties for the new file.
+            versionToUpdate.FilePath = uploadResponse.BlobName;
             versionToUpdate.FileName = request.File.FileName;
             versionToUpdate.FileType = Path.GetExtension(request.File.FileName);
             versionToUpdate.FileSize = request.File.Length;
+            versionToUpdate.FileHash = fileHash;
         }
 
         // Apply metadata updates from the request DTO.
@@ -328,23 +347,93 @@ public class DocumentService : IDocumentService
         // TODO: As per SRS 3.4.3, this action should be recorded in the system audit log.
     }
 
-    public Task<IPaginate<DocumentDraftResponse>> GetDraftsAsync(string userId, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetDraftsAsync(string userId, int pageNumber, int pageSize)
     {
-        throw new NotImplementedException();
+        var drafts = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
+            filter: null,
+            selector: d => new DocumentDraftResponse
+            {
+                DocumentId = d.DocumentFile.Id.ToString(),
+                VersionId = d.Id,
+                VersionName = d.VersionName,
+                Title = d.DocumentFile.Title,
+                Summary = d.Summary,
+                FileName = d.FileName,
+                FileType = d.FileType,
+                FileSize = d.FileSize,
+                FilePath = d.FilePath,
+                Status = d.Status.ToString(),
+                DepartmentId = d.DocumentFile.DepartmentId,
+                OwnerId = d.DocumentFile.OwnerId,
+                CreatedTime = d.DocumentFile.CreatedTime
+            },
+            predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
+            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
+            page: pageNumber,
+            size: pageSize
+        );
+
+        return _mapper.Map<IPaginate<DocumentDraftResponse>>(drafts);
     }
 
-    public Task<DocumentDraftResponse> GetDraftByIdAsync(string versionId, string userId)
+    public async Task<DocumentDraftResponse> GetDraftByIdAsync(string versionId, string userId)
     {
-        throw new NotImplementedException();
+        var draft = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
+            predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
+            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+        );
+
+        if (draft == null)
+        {
+            throw new ErrorException(StatusCodes.Status404NotFound, "Draft document not found.");
+        }
+
+        return _mapper.Map<DocumentDraftResponse>(draft);
     }
 
-    public Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(string userId, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(string userId, int pageNumber, int pageSize)
     {
-        throw new NotImplementedException();
+        var rejectedDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
+            filter: null,
+            selector : d => new DocumentDraftResponse
+            {
+                DocumentId = d.DocumentFile.Id.ToString(),
+                VersionId = d.Id,
+                VersionName = d.VersionName,
+                Title = d.DocumentFile.Title,
+                Summary = d.Summary,
+                FileName = d.FileName,
+                FileType = d.FileType,
+                FileSize = d.FileSize,
+                FilePath = d.FilePath,
+                Status = d.Status.ToString(),
+                DepartmentId = d.DocumentFile.DepartmentId,
+                OwnerId = d.DocumentFile.OwnerId,
+                CreatedTime = d.DocumentFile.CreatedTime
+            },
+            predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
+            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            orderBy: q => q.OrderByDescending(v => v.DocumentFile.LastUpdatedTime),
+            page: pageNumber,
+            size: pageSize
+        );
+
+        return _mapper.Map<IPaginate<DocumentDraftResponse>>(rejectedDocuments);
     }
 
-    public Task<DocumentDraftResponse> GetRejectedById(string versionId, string userId)
+    public async Task<DocumentDraftResponse> GetRejectedById(string versionId, string userId)
     {
-        throw new NotImplementedException();
+        var rejectedDocument = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
+            predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
+            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+        );
+
+        if (rejectedDocument == null)
+        {
+            throw new ErrorException(StatusCodes.Status404NotFound, "Rejected document not found.");
+        }
+
+        return _mapper.Map<DocumentDraftResponse>(rejectedDocument);
     }
 }
