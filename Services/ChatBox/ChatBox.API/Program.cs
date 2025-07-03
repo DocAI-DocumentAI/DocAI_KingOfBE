@@ -1,6 +1,8 @@
 using System;
 using System.Linq;
+using ChatBox.API.Constants;
 using ChatBox.API.Extensions;
+using ChatBox.API.Middlewares;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -21,7 +23,6 @@ try
 {
     var builder = WebApplication.CreateBuilder(args);
 
-    // Use Serilog as the logging provider
     builder.Services.AddSerilog((services, lc) => lc
         .ReadFrom.Configuration(builder.Configuration)
         .ReadFrom.Services(services)
@@ -31,23 +32,28 @@ try
             "[{@t:HH:mm:ss} {@l:u3}{#if @tr is not null} ({substring(@tr,0,4)}:{substring(@sp,0,4)}){#end}] {@m}\n{@x}",
             theme: TemplateTheme.Code)));
 
-    builder.Services.AddOpenApi();
-    builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
-    builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddAuthorization();
-    builder.Services.AddControllers();
-    builder.Services.AddHttpContextAccessor();
-    builder.Services.AddDatabase();
-    builder.Services.AddControllers();
-    builder.Services.AddServices(builder.Configuration);
-    builder.Services.Configure<HostOptions>(hostOptions =>
+    builder.Services.AddCors(options =>
     {
-        hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
+        options.AddPolicy(CorConstant.PolicyName,
+            policy => policy
+                .AllowAnyOrigin()
+                .AllowAnyHeader()
+                .AllowAnyMethod());
     });
+
+    builder.Services.AddServices(builder.Configuration);
+
+    builder.Services.AddControllers();
+
+    builder.Services.AddHttpContextAccessor();
+
+    builder.Services.AddJwtAuthentication(builder.Configuration);
+
+    builder.Services.AddAuthorization();
 
     builder.Services.AddOpenApiDocument(options =>
     {
-        options.Title = "DocAI ChatBox API";
+        options.Title = "DocAI Auth API";
         options.Version = "v1";
 
         options.AddSecurity("Bearer", new OpenApiSecurityScheme
@@ -62,10 +68,23 @@ try
         options.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("Bearer"));
     });
 
+    builder.Services.AddOpenApi();
+
+    builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+
+    builder.Services.AddEndpointsApiExplorer();
+
+    builder.Services.Configure<HostOptions>(hostOptions =>
+    {
+        hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
+    });
+
+
     var app = builder.Build();
 
     app.MapOpenApi();
     app.UseOpenApi();
+
     app.UseSwaggerUI(options =>
     {
         options.RoutePrefix = "swagger";
@@ -74,10 +93,18 @@ try
 
     app.UseHttpsRedirection();
 
-    app.UseSerilogRequestLogging();
+    app.UseRouting();
+
+    app.UseCors(CorConstant.PolicyName);
+
     app.UseAuthentication();
+
+    app.UseMiddleware<ExceptionHandlingMiddleware>();
+
     app.UseAuthorization();
+
     app.UseSerilogRequestLogging();
+
     app.MapControllers();
 
     app.Run();
