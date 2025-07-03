@@ -76,27 +76,35 @@ public static class DependencyService
         services.AddScoped<Services.Interface.IAuthorizationService, Services.Implement.AuthorizationService>();
         services.AddSingleton<IPublishEndpoint, MockPublishEndpoint>();
 
-        // Tạm thời comment phần MassTransit
-        /*
+        // Bỏ comment phần MassTransit
         services.AddMassTransit(x =>
         {
             x.AddConsumer<UserRequestMessageConsumer>();
+
             x.UsingRabbitMq((context, cfg) =>
             {
-                var host = configuration["RabbitMQ:Host"] ?? "rabbitmq";
+                var host = configuration["RabbitMQ:Host"] ?? "localhost";
+                var username = configuration["RabbitMQ:Username"] ?? "guest";
+                var password = configuration["RabbitMQ:Password"] ?? "guest";
+
                 cfg.Host(host, "/", h =>
                 {
-                    h.Username("guest");
-                    h.Password("guest");
+                    h.Username(username);
+                    h.Password(password);
                 });
-                
+
+                // Đảm bảo endpoint name đúng với endpoint mà bạn publish message đến
                 cfg.ReceiveEndpoint("user-request-queue", e =>
                 {
                     e.ConfigureConsumer<UserRequestMessageConsumer>(context);
+                    // Thêm retry để xử lý lỗi
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    // Thêm log để debug
+                    e.UseInMemoryOutbox();
                 });
+
             });
         });
-        */
         return services;
     }
 

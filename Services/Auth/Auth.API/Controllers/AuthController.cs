@@ -11,6 +11,7 @@ using Auth.API.Payload.Response.User;
 using Auth.API.Services.Interface;
 using Auth.Domain.Enums;
 using AutoMapper.Features;
+using MassTransit;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity.Data;
@@ -142,5 +143,4 @@ public class AuthController : ControllerBase
             return Problem(ex.Message);
         }
     }
-
 }

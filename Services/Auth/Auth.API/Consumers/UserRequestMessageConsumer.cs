@@ -16,9 +16,10 @@ public class UserRequestMessageConsumer : IConsumer<UserRequestMessage>
     {
         // Log ra để xác nhận message đã được nhận và xử lý
         _logger.LogInformation("=====>>> Đã nhận được UserRequestMessage với Id: {UserId}", context.Message.id);
-            
+
         // Tại đây bạn có thể viết logic để xử lý message, ví dụ: gọi một service khác, cập nhật database, v.v.
-            
+
         return Task.CompletedTask;
     }
+
 }
