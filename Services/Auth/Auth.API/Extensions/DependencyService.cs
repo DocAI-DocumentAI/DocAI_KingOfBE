@@ -68,13 +68,13 @@ public static class DependencyService
     public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddScoped<IUserService, UserService>();
-        services.AddScoped<IActiveKeyService, ActiveKeyService>();
+        // services.AddScoped<IActiveKeyService, ActiveKeyService>();
         services.AddScoped<IRedisService, RedisService>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IDepartmentService, DepartmentService>();
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<Services.Interface.IAuthorizationService, Services.Implement.AuthorizationService>();
-        services.AddSingleton<IPublishEndpoint, MockPublishEndpoint>();
+        // services.AddSingleton<IPublishEndpoint, MockPublishEndpoint>();
 
         // Bỏ comment phần MassTransit
         services.AddMassTransit(x =>

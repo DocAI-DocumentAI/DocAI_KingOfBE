@@ -7,11 +7,6 @@ namespace Auth.Domain.Models;
 
 public class User
 {
-    public User()
-    {
-        ActiveKeys = new HashSet<ActiveKey>();
-    }
-
     [Key]
     public Guid Id { get; set; }
     public string UserName { get; set; }
@@ -29,7 +24,4 @@ public class User
     public DateTime UpdateAt { get; set; }
     public bool TwoFactorEnabled { get; set; }
     public string? TwoFactorMethod { get; set; }
-
-    // Collection navigation property cho ActiveKeys
-    public virtual ICollection<ActiveKey> ActiveKeys { get; set; }
 }

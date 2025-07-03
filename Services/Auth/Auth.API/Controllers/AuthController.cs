@@ -90,11 +90,11 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> ChangeUserRole([FromBody] ChangeRoleRequest request)
+    public async Task<IActionResult> ChangeUserRole( Guid roleId)
     {
         try
         {
-            var result = await _userService.ChangeUserRoleAsync(request.ActivationCode);
+            var result = await _userService.ChangeUserRoleAsync(roleId);
             return Ok(result);
         }
         catch (BadHttpRequestException ex)

@@ -14,7 +14,6 @@ namespace Auth.Domain.Models
         public DbSet<Department> Departments { get; set; }
         public DbSet<Permission> Permissions { get; set; }
         public DbSet<RolePermission> RolePermissions { get; set; }
-        public DbSet<ActiveKey> ActiveKeys { get; set; }
 
 
 

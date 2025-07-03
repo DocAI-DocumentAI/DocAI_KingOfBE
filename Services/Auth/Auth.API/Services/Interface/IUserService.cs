@@ -21,7 +21,7 @@ public interface IUserService
 
     public Task<string> GenerateOtpAsync(GenerateEmailOtpRequest request);
 
-    public Task<UserRoleChangeResponse> ChangeUserRoleAsync(string activationCode);
+    public Task<UserRoleChangeResponse> ChangeUserRoleAsync(Guid roleId);
 
     public Task<ChangeDepartmentResponse> ChangeDepartmentForUserAsync(ChangeDepartmentRequest request);
 

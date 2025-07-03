@@ -167,32 +167,20 @@ public class UserService : BaseService<UserService>, IUserService
             throw new ArgumentNullException(nameof(request), "Register request cannot be null");
 
         await ValidateUniqueFieldsAsync(request);
-        await ValidateOtpAsync(request.Email, request.Otp);
+        // await ValidateOtpAsync(request.Email, request.Otp);
 
         var user = CreateUserEntity(request);
-        var activeKey = await GetActiveKeyFromActivationCodeAsync(request.ActivationCode);
-        user.RoleId = activeKey.RoleId;
-        user.DepartmentId = activeKey.DepartmentId;
+        // var activeKey = await GetActiveKeyFromActivationCodeAsync(request.ActivationCode);
 
-        activeKey.UsedByUserId = user.Id;
-        activeKey.Status = "Off";
-        activeKey.UpdatedAt = DateTime.UtcNow;
+        // activeKey.UsedByUserId = user.Id;
+        // activeKey.Status = "Off";
+        // activeKey.UpdatedAt = DateTime.UtcNow;
 
         using (var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled))
         {
             try
             {
                 await _unitOfWork.GetRepository<User>().InsertAsync(user);
-                _unitOfWork.GetRepository<ActiveKey>().UpdateAsync(activeKey);
-                if (!string.IsNullOrWhiteSpace(request.ActivationCode))
-                {
-                    var activationCodeExists = await _unitOfWork.GetRepository<ActiveKey>()
-                        .SingleOrDefaultAsync(predicate: u => u.ActivationCode == request.ActivationCode);
-                    if (activationCodeExists != null)
-                    {
-                        _unitOfWork.GetRepository<ActiveKey>().DeleteAsync(activationCodeExists);
-                    }
-                }
 
                 var isSuccessful = await _unitOfWork.CommitAsync() > 0;
                 if (!isSuccessful)
@@ -255,25 +243,25 @@ public class UserService : BaseService<UserService>, IUserService
         return user;
     }
 
-    private async Task<ActiveKey> GetActiveKeyFromActivationCodeAsync(string activationCode)
-    {
-        if (string.IsNullOrWhiteSpace(activationCode))
-            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
-
-        var activation = await _unitOfWork.GetRepository<ActiveKey>()
-            .SingleOrDefaultAsync(predicate: u => u.ActivationCode == activationCode);
-
-        if (activation == null)
-            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
-
-        if (activation.Status == "Off")
-            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActiveKeyUsed);
-
-        if (activation.UsedByUserId != null)
-            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActiveKeyUsed);
-
-        return activation;
-    }
+    // private async Task<ActiveKey> GetActiveKeyFromActivationCodeAsync(string activationCode)
+    // {
+    //     if (string.IsNullOrWhiteSpace(activationCode))
+    //         throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
+    //
+    //     var activation = await _unitOfWork.GetRepository<ActiveKey>()
+    //         .SingleOrDefaultAsync(predicate: u => u.ActivationCode == activationCode);
+    //
+    //     if (activation == null)
+    //         throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
+    //
+    //     if (activation.Status == "Off")
+    //         throw new BadHttpRequestException(MessageConstant.ActivationCode.ActiveKeyUsed);
+    //
+    //     if (activation.UsedByUserId != null)
+    //         throw new BadHttpRequestException(MessageConstant.ActivationCode.ActiveKeyUsed);
+    //
+    //     return activation;
+    // }
 
     private async Task<Department> GetDepartmentByIdAsync(Guid departmentId)
     {
@@ -351,10 +339,10 @@ public class UserService : BaseService<UserService>, IUserService
         }
     }
 
-    public async Task<UserRoleChangeResponse> ChangeUserRoleAsync(string activationCode)
+    public async Task<UserRoleChangeResponse> ChangeUserRoleAsync(Guid roleId)
     {
-        if (string.IsNullOrWhiteSpace(activationCode))
-            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
+        if (roleId == Guid.Empty)
+            throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
 
         // Lấy userId từ JWT token
         var currentUserId = GetUserIdFromJwt();
@@ -368,51 +356,28 @@ public class UserService : BaseService<UserService>, IUserService
         if (currentUser == null)
             throw new BadHttpRequestException(MessageConstant.User.UserNotFound);
 
-        // Lấy thông tin activeKey từ activation code
-        var activeKey = await _unitOfWork.GetRepository<ActiveKey>().SingleOrDefaultAsync(
-            predicate: a => a.ActivationCode == activationCode,
-            include: a => a.Include(a => a.Role).Include(a => a.Department)
-        );
-
-        if (activeKey == null)
-            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActivationcodeNotFound);
-
-        // Kiểm tra xem activeKey đã được sử dụng chưa
-        if (activeKey.Status == "Off" || activeKey.UsedByUserId != null)
-            throw new BadHttpRequestException(MessageConstant.ActivationCode.ActiveKeyUsed);
-
-        // Kiểm tra xem department của user và activeKey có giống nhau không
-        if (currentUser.DepartmentId != activeKey.DepartmentId)
-            throw new BadHttpRequestException("You can only use activation codes for your own department");
-
         // Lưu thông tin role cũ để trả về trong response
         var oldRole = currentUser.Role;
 
-        // Lấy thông tin role mới từ activeKey
+        // Lấy thông tin role mới
         var newRole = await _unitOfWork.GetRepository<Role>().SingleOrDefaultAsync(
-            predicate: r => r.Id == activeKey.RoleId
+            predicate: r => r.Id == roleId
         );
 
         if (newRole == null)
             throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
 
         // Cập nhật role của user
-        currentUser.RoleId = activeKey.RoleId;
+        currentUser.RoleId = roleId;
         currentUser.UpdateAt = DateTime.UtcNow;
-
-        // Cập nhật trạng thái của activeKey
-        activeKey.Status = "Off";
-        activeKey.UsedByUserId = currentUserId;
-        activeKey.UpdatedAt = DateTime.UtcNow;
 
         // Thực hiện transaction để đảm bảo tính nhất quán
         using (var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled))
         {
             try
             {
-                // Cập nhật user và activeKey
+                // Cập nhật user
                 _unitOfWork.GetRepository<User>().UpdateAsync(currentUser);
-                _unitOfWork.GetRepository<ActiveKey>().UpdateAsync(activeKey);
 
                 var isSuccessful = await _unitOfWork.CommitAsync() > 0;
                 if (!isSuccessful)
@@ -443,6 +408,7 @@ public class UserService : BaseService<UserService>, IUserService
                     },
                     Department = new DepartmentResponse
                     {
+                        Id = currentUser.Department.Id,
                         Name = currentUser.Department.Name,
                         Description = currentUser.Department.Description,
                         CreateAt = currentUser.Department.CreateAt,
@@ -575,5 +541,4 @@ public class UserService : BaseService<UserService>, IUserService
             }
         }
     }
-
 }

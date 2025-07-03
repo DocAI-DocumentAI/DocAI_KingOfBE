@@ -14,8 +14,12 @@ public class RegisterRequest
     public string Phone { get; set; }
     [Required]
     public string FullName { get; set; }
+    // [Required]
+    // public string Otp { get; set; }
     [Required]
-    public string Otp { get; set; }
+    public Guid RoleId { get; set; }
     [Required]
-    public string ActivationCode { get; set; }
+    public Guid DepartmentId { get; set; }
+    // [Required]
+    // public string ActivationCode { get; set; }
 }
