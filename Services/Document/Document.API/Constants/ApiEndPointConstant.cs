@@ -18,6 +18,7 @@ public class ApiEndPointConstant
         public const string DeleteDraft = ApiEndpoint + "/documents/{id}";
         public const string GetOfficialDocument = ApiEndpoint + "/official-documents/{id}";
         public const string GetAllOfficialDocuments = ApiEndpoint + "/official-documents";
+        public const string AnalyzeDocument = ApiEndpoint + "/analyze-document";
     }
 
     public class Approval

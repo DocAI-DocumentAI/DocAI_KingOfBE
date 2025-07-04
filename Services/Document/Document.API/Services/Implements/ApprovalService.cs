@@ -9,6 +9,7 @@ using Document.Infrastructure.Paginate;
 using Document.Infrastructure.Repository.Interfaces;
 using DocumentFormat.OpenXml.ExtendedProperties;
 using DocumentFormat.OpenXml.Office2010.Word;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.KernelMemory;
 using Shared.Exceptions;
 
@@ -42,7 +43,7 @@ namespace Document.API.Services.Implements
                     Title = v.DocumentFile.Title,
                     CreatedBy = v.CreatedBy,
                     CreatedAt = v.CreatedTime,
-                    Status = v.Status.ToString(), // Convert Enum to string
+                    Status = v.Status, // Convert Enum to string
                     DepartmentId = v.DocumentFile.DepartmentId,
                 },
                 filter: null,
@@ -51,14 +52,16 @@ namespace Document.API.Services.Implements
                 page: pageNumber,
                 size: pageSize);
 
-            return (IPaginate<PendingDocumentResponse>)pendingDocuments;
+            var response = _mapper.Map<IPaginate<PendingDocumentResponse>>(pendingDocuments);
+            return response;
         }
 
         public async Task ReviewDocument(string versionId, ReviewDocumentRequest request, string userId)
         {
             var versionToReview = await _unitOfWork.GetRepository<DocumentVersion>()
             .SingleOrDefaultAsync(
-                predicate: v => v.Id == versionId
+                predicate: v => v.Id == versionId,
+                include: i => i.Include(v => v.DocumentFile)
             ) ?? throw new ErrorException(StatusCodes.Status404NotFound, "The specified document version was not found.");
             var documentFile = versionToReview.DocumentFile;
 
@@ -73,60 +76,91 @@ namespace Document.API.Services.Implements
 
             if (request.IsApproved)
             {
-                // --- APPROVAL LOGIC (REFACTORED) ---
-
-                // 1. Archive the previously approved version, if one exists.
                 var previousApprovedVersion = await _unitOfWork.GetRepository<DocumentVersion>()
                     .SingleOrDefaultAsync(predicate: v => v.DocumentFileId == documentFile.Id && v.Status == StatusEnum.Approved);
 
-                if (previousApprovedVersion != null)
+                try
                 {
-                    // Move to subfolder archive
-                    await _storageService.MoveFileAsync(previousApprovedVersion.FileName, StorageFolderConstant.Approved, StorageFolderConstant.Archived);
-                    previousApprovedVersion.FilePath = $"{StorageFolderConstant.Archived}/{previousApprovedVersion.FileName}";
+                    if (previousApprovedVersion != null)
+                    {
+                        await _storageService.MoveFileAsync(previousApprovedVersion.FileName, StorageFolderConstant.Approved, StorageFolderConstant.Archived);
+                        previousApprovedVersion.FilePath = $"{StorageFolderConstant.Archived}/{previousApprovedVersion.FileName}";
+                    }
 
-                    // --- MODIFICATION: Update tags in Kernel Memory instead of deleting ---
-                    var previousVersionKmId = previousApprovedVersion.Id.ToString();
-                    var oldTags = new TagCollection
+                    await _storageService.MoveFileAsync(versionToReview.FileName, StorageFolderConstant.Pending, StorageFolderConstant.Approved);
+                    versionToReview.FilePath = $"{StorageFolderConstant.Approved}/{versionToReview.FileName}";
+
+                    var fileExists = false;
+                    var retryCount = 0;
+                    while (!fileExists && retryCount < 5)
+                    {
+                        fileExists = await _storageService.FileExistsAsync(versionToReview.FilePath);
+                        if (!fileExists)
                         {
-                        { "status", "archived" },
+                            await Task.Delay(500);
+                            retryCount++;
+                        }
+                    }
+
+                    if (!fileExists)
+                    {
+                        throw new ErrorException(StatusCodes.Status500InternalServerError, "File not available in approved folder after moving.");
+                    }
+
+                    if (previousApprovedVersion != null)
+                    {
+                        var previousVersionKmId = previousApprovedVersion.Id.ToString();
+                        var oldTags = new TagCollection
+                        {
+                            { "status", "archived" },
+                            { "departmentId", documentFile.DepartmentId },
+                            { "documentId", documentFile.Id.ToString() },
+                            { "versionName", previousApprovedVersion.VersionName },
+                            { "approvalDate", previousApprovedVersion.CreatedTime.ToString("yyyy-MM-dd") }
+                        };
+                        using (var fileStream = await _storageService.DownloadFileAsync(previousApprovedVersion.FilePath))
+                        {
+                            await _memory.ImportDocumentAsync(fileStream, previousApprovedVersion.FileName, documentId: previousVersionKmId, tags: oldTags);
+                        }
+
+                        previousApprovedVersion.Status = StatusEnum.Archived;
+                        previousApprovedVersion.IsOfficial = false;
+                        await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(previousApprovedVersion);
+                        _logger.LogInformation("Archived previous version {VersionId} and updated its AI tags.", previousApprovedVersion.Id);
+                    }
+
+                    versionToReview.Status = StatusEnum.Approved;
+                    versionToReview.IsOfficial = true;
+                    logAction = ApprovalAction.Approve;
+
+                    var tags = new TagCollection
+                    {
+                        { "status", "approved" },
                         { "departmentId", documentFile.DepartmentId },
                         { "documentId", documentFile.Id.ToString() },
-                        { "versionName", previousApprovedVersion.VersionName },
-                        { "approvalDate", previousApprovedVersion.CreatedTime.ToString("yyyy-MM-dd") }
+                        { "versionName", versionToReview.VersionName },
+                        { "approvalDate", DateTime.UtcNow.ToString("yyyy-MM-dd") }
                     };
-                    await _memory.ImportDocumentAsync(previousApprovedVersion.FilePath, documentId: previousVersionKmId,
-                        tags: oldTags);
 
-                    previousApprovedVersion.Status = StatusEnum.Archived;
-                    previousApprovedVersion.IsOfficial = false; // Set IsOfficial to false for the previously approved version
-                    _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(previousApprovedVersion);
-                    _logger.LogInformation("Archived previous version {VersionId} and updated its AI tags.", previousApprovedVersion.Id);
+                    var versionKmId = versionToReview.Id.ToString();
+                    using (var fileStream = await _storageService.DownloadFileAsync(versionToReview.FilePath))
+                    {
+                        await _memory.ImportDocumentAsync(fileStream, versionToReview.FileName, documentId: versionKmId, tags: tags);
+                    }
+                    _logger.LogInformation("Indexed approved version {VersionId} in Kernel Memory with structured tags.", versionId);
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "An error occurred during the approval process for version {VersionId}. Reverting storage changes.", versionId);
 
-                // 2. Move the current version's file to the "Approved" folder.
-                await _storageService.MoveFileAsync(versionToReview.FileName, StorageFolderConstant.Pending, StorageFolderConstant.Approved);
-                versionToReview.FilePath = $"{StorageFolderConstant.Approved}/{versionToReview.FileName}";
-                versionToReview.Status = StatusEnum.Approved;
-                versionToReview.IsOfficial = true; // Set IsOfficial to true for the newly approved version
-                logAction = ApprovalAction.Approve;
+                    if (previousApprovedVersion != null)
+                    {
+                        await _storageService.MoveFileAsync(previousApprovedVersion.FileName, StorageFolderConstant.Archived, StorageFolderConstant.Approved);
+                    }
+                    await _storageService.MoveFileAsync(versionToReview.FileName, StorageFolderConstant.Approved, StorageFolderConstant.Pending);
 
-                // --- MODIFICATION: Add structured tags during import ---
-                // 3. Create a collection of tags to apply to the new approved version.
-                var tags = new TagCollection
-            {
-                { "status", "approved" },
-                { "departmentId", documentFile.DepartmentId },
-                { "documentId", documentFile.Id.ToString() },
-                { "versionName", versionToReview.VersionName },
-                { "approvalDate", DateTime.UtcNow.ToString("yyyy-MM-dd") }
-            };
-
-                // 4. Index the newly approved document in Kernel Memory with the new tags.
-                var versionKmId = versionToReview.Id.ToString();
-                await _memory.ImportDocumentAsync(versionToReview.FilePath, documentId: versionKmId, tags: tags);
-                _logger.LogInformation("Indexed approved version {VersionId} in Kernel Memory with structured tags.", versionId);
-
+                    throw;
+                }
             }
             else
             {
@@ -140,7 +174,7 @@ namespace Document.API.Services.Implements
             // --- Finalize and Log ---
             documentFile.LastUpdatedBy = userId;
             documentFile.LastUpdatedTime = DateTime.UtcNow;
-            _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(versionToReview);
+            await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(versionToReview);
 
             var approvalLog = new ApprovalLog
             {
@@ -161,8 +195,11 @@ namespace Document.API.Services.Implements
         {
             //1. Get the document
             var version = await _unitOfWork.GetRepository<DocumentVersion>()
-                .SingleOrDefaultAsync(predicate: v => v.Id == versionId) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Document version not found");
-            //2. Check owner ID
+                .SingleOrDefaultAsync(
+                predicate: v => v.Id == versionId,
+                include: i => i.Include(v =>v.DocumentFile)
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Document version not found");
+            //2.Check owner ID
             if (version.DocumentFile.OwnerId != userId)
             {
                 throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, "You are not authorized to submit this document for approval");

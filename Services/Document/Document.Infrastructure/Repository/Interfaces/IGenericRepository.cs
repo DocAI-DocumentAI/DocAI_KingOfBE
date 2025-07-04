@@ -82,9 +82,10 @@ public abstract class IGenericRepository<T> : IDisposable where T : class
 
     public abstract Task InsertAsync(T entity);
     public abstract Task InsertRangeAsync(IEnumerable<T> entities);
-    public abstract void UpdateAsync(T entity);
+    public abstract Task UpdateAsync(T entity);
     public abstract void UpdateRange(IEnumerable<T> entities);
     public abstract void DeleteAsync(T entity);
     public abstract void DeleteRangeAsync(IEnumerable<T> entities);
+    public abstract Task<int> CountAsync(Expression<Func<T, bool>> predicate = default(Expression<Func<T, bool>>));
     public abstract void Dispose();
 }

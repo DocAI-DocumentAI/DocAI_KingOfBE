@@ -23,6 +23,12 @@ public class DocumentController : ControllerBase
         var result = await _documentService.CreateDraftAsync(request, userId);
         return Ok(ApiResponse<object>.Success(result, "Document draft uploaded successfully", 201));
     }
+    [HttpPost(ApiEndPointConstant.Document.AnalyzeDocument)]
+    public async Task<IActionResult> AnayzeDocumentDraft(IFormFile file)
+    {
+        var result = await _documentService.AnalyzeDocumentAsync(file);
+        return Ok(ApiResponse<object>.Success(result, "Analyze result", 200));
+    }
 
     [HttpPut(ApiEndPointConstant.Document.EditDraft)]
     public async Task<IActionResult> EditDraft([FromRoute(Name = "id")] string documentId, UpdateDocumentDraftRequest request, string userId)

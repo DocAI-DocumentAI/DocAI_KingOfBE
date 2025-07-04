@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -142,10 +142,11 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
 		#endregion
 
 		#region Update
-		public override void UpdateAsync(T entity)
+		public override Task UpdateAsync(T entity)
 		{
 			_dbSet.Update(entity);
-		}
+			return Task.CompletedTask;
+    }
 
 		public override void UpdateRange(IEnumerable<T> entities)
 		{
@@ -160,6 +161,12 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
 		public override void DeleteRangeAsync(IEnumerable<T> entities)
 		{
 			_dbSet.RemoveRange(entities);
+		}
+
+		public override async Task<int> CountAsync(Expression<Func<T, bool>> predicate = null)
+		{
+			if (predicate == null) return await _dbSet.CountAsync();
+			return await _dbSet.CountAsync(predicate);
 		}
 
 		#endregion

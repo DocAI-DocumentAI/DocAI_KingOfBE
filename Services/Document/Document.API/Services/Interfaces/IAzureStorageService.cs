@@ -7,6 +7,7 @@ namespace Document.API.Services.Interfaces
         Task<AzureUploadResponse> UploadFileAsync(IFormFile file, string folder);
         Task DeleteFileAsync(string filename, string folder);
         Task MoveFileAsync(string sourceFilename, string sourceFolder, string destinationFolder);
-        Task DownloadFileAsync(string filename);
+        Task<Stream> DownloadFileAsync(string filename);
+        Task<bool> FileExistsAsync(string filePath);
     }
 }

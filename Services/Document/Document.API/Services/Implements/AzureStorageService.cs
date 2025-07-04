@@ -86,20 +86,28 @@ namespace Document.API.Services.Implements
             await sourceBlobClient.DeleteIfExistsAsync();
         }
 
-        public async Task DownloadFileAsync(string fileUrl)
+        public async Task<Stream> DownloadFileAsync(string filename)
         {
             try
             {
-                var blobClient = new BlobClient(new Uri(fileUrl));
-                await blobClient.DownloadContentAsync();
+                var blobClient = _blobContainerClient.GetBlobClient(filename);
+                var memoryStream = new MemoryStream();
+                await blobClient.DownloadToAsync(memoryStream);
+                memoryStream.Position = 0;
+                return memoryStream;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error downloading file from {FileUrl}", fileUrl);
+                _logger.LogError(ex, "Error downloading file from {filename}", filename);
                 throw;
             }
         }
 
+        public async Task<bool> FileExistsAsync(string filePath)
+        {
+            var blobClient = _blobContainerClient.GetBlobClient(filePath);
+            return await blobClient.ExistsAsync();
+        }
     }
 }
 

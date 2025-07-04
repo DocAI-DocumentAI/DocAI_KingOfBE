@@ -44,7 +44,15 @@ public class DocumentService : IDocumentService
 
     public async Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request, string userId)
     {
-        //1. Checking title duplication
+        //1. Check draft limit
+        var draftCount = await _unitOfWork.GetRepository<DocumentVersion>()
+            .CountAsync(predicate: v => v.CreatedBy == userId && v.Status == StatusEnum.Draft);
+        if (draftCount >= PolicyConstant.MaxDraftsPerUser)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, $"You have reached the maximum limit of {PolicyConstant.MaxDraftsPerUser} draft documents.");
+        }
+
+        //2. Checking title duplication
         var existingDocument = await _unitOfWork.GetRepository<DocumentFile>()
                 .SingleOrDefaultAsync(predicate: d => d.Title == request.Title);
         if (existingDocument != null)
@@ -52,7 +60,7 @@ public class DocumentService : IDocumentService
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document title already exists");
         }
 
-        //2. Checking Version Name duplication
+        //3. Checking Version Name duplication
         var existingVersionName = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(predicate: v => v.VersionName == request.VersionName && v.DocumentFile.Title == request.Title);
         if (existingVersionName != null)
@@ -60,26 +68,45 @@ public class DocumentService : IDocumentService
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document version name already exists for this title");
         }
 
-        // 3. Upload the file to Azure Storage and get the MD5 hash.
+        // 4. Upload the file to Azure Storage and get the MD5 hash.
         var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
         var fileHash = uploadResponse.Md5Hash;
 
-        // 4. Check for file duplication using the MD5 hash.
+        // 5. Check for file duplication using the MD5 hash.
         var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
             .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash, include: i => i.Include(v => v.DocumentFile));
 
         if (existingFile != null)
         {
-            // If a duplicate is found, delete the file that was just uploaded.
             await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
 
-            _logger.LogWarning("Duplicate file detected. Hash: {FileHash}. Existing document: {DocumentTitle}, Version: {VersionName}, Status: {Status}",
-                fileHash, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status);
-            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
-                $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
+            switch (existingFile.Status)
+            {
+                case StatusEnum.Pending:
+                case StatusEnum.Approved:
+                case StatusEnum.Archived:
+                    throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
+
+                case StatusEnum.Rejected:
+                    if (existingFile.DocumentFile.OwnerId == userId)
+                    {
+                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "You have a rejected document with the same file. Please resubmit or delete the existing one.");
+                    }
+                    else
+                    {
+                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "Another user has a rejected document with the same file.");
+                    }
+
+                case StatusEnum.Draft:
+                    if (existingFile.DocumentFile.OwnerId == userId)
+                    {
+                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "You already have a draft with the same file.");
+                    }
+                    break;
+            }
         }
 
-        //5. save the generel infomation of the file into the DocumentFile table
+        //6. save the generel infomation of the file into the DocumentFile table
         var documentFile = new DocumentFile
         {
             Title = request.Title,
@@ -91,6 +118,9 @@ public class DocumentService : IDocumentService
 
         var version = new DocumentVersion
         {
+            DocumentFileId = documentFile.Id,
+            DocumentFile = documentFile,
+            Title = request.Title,
             VersionName = request.VersionName,
             Status = StatusEnum.Draft, // Use the Enum for status
             IsOfficial = false, // New drafts are not official
@@ -109,11 +139,27 @@ public class DocumentService : IDocumentService
         if (request.Tags != null && request.Tags.Any())
         {
             version.DocumentTags = new List<DocumentTag>();
+
+            var tagRepository = _unitOfWork.GetRepository<Tag>();
+
             foreach (var tagName in request.Tags.Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 var normalizedTag = tagName.ToLowerInvariant();
-                var existingTag = await _unitOfWork.GetRepository<Tag>().SingleOrDefaultAsync(predicate: t => t.Name == normalizedTag)
-                                  ?? new Tag { Name = normalizedTag }; // If tag doesn't exist, create it
+
+                // Tìm tag theo tên
+                var existingTag = await tagRepository.SingleOrDefaultAsync(predicate: t => t.Name == normalizedTag);
+
+                // Nếu chưa tồn tại, insert vào DB để sinh Id
+                if (existingTag == null)
+                {
+                    existingTag = new Tag
+                    {
+                        Name = normalizedTag,
+                        CreatedBy = userId
+                    };
+
+                    await tagRepository.InsertAsync(existingTag);
+                }
 
                 version.DocumentTags.Add(new DocumentTag { Tag = existingTag });
             }
@@ -166,7 +212,7 @@ public class DocumentService : IDocumentService
 
             // Check for file duplication using the MD5 hash.
             var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
-                .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash && v.Id != versionId, include: i => i.Include(v => v.DocumentFile));
+                .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash && v.Id != versionId && v.Status != StatusEnum.Rejected, include: i => i.Include(v => v.DocumentFile));
 
             if (existingFile != null)
             {
@@ -221,7 +267,7 @@ public class DocumentService : IDocumentService
             Summary = "AI analysis could not be completed.",
             Tags = new List<string>()
         };
-        string tempFilePath = Path.GetTempFileName();
+        string tempFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + Path.GetExtension(file.FileName));
 
         try
         {
@@ -244,7 +290,28 @@ public class DocumentService : IDocumentService
             ";
 
             // 3. Make a single call to the AI model
-            var answer = await _memory.AskAsync(comprehensivePrompt, "prompt " + tempDocId);
+            var filter = new MemoryFilter().ByDocument(tempDocId);
+
+            MemoryAnswer answer = null;
+            const int maxRetries = 3;
+            const int delayBetweenRetriesMs = 1500;
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                answer = await _memory.AskAsync(comprehensivePrompt, filter: filter);
+
+                if (answer != null && answer.RelevantSources.Any() && !answer.Result.Contains("INFO NOT FOUND", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation("Successfully received valid AI response on attempt {AttemptNumber}.", attempt);
+                    break;
+                }
+
+                _logger.LogWarning("AI analysis attempt {AttemptNumber} of {MaxRetries} failed or returned no relevant sources. Retrying...", attempt, maxRetries);
+
+                if (attempt < maxRetries)
+                {
+                    await Task.Delay(delayBetweenRetriesMs);
+                }
+            }
 
             // 4. Parse the structured JSON response from the AI
             if (!answer.Result.Contains("INFO NOT FOUND", StringComparison.OrdinalIgnoreCase))
