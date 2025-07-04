@@ -19,6 +19,7 @@
 		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.5" />
 		<PackageReference Include="OllamaSharp" Version="5.2.2" />
+		<PackageReference Include="Polly" Version="8.6.1" />
 		<PackageReference Include="Tiktoken" Version="2.2.0" />
 
 
