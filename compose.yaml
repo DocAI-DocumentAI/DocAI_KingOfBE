@@ -1,87 +1,252 @@
 ﻿services:
-  ai.api:
-    build:
-      context: .
-      dockerfile: Services/AI/AI.API/Dockerfile
+ # PostgreSQL Database
+ postgres:
+   image: postgres:15-alpine
+   container_name: docai_postgres
+   environment:
+     POSTGRES_DB: AuthDocAi
+     POSTGRES_USER: postgres
+     POSTGRES_PASSWORD: Phuc0847911068
+   ports:
+     - "5432:5432"
+   volumes:
+     - postgres_data:/var/lib/postgresql/data
+     - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+   networks:
+     - docai_network
+   restart: always
+
+ # Redis Cache
+ redis:
+   image: redis:7-alpine
+   container_name: docai_redis
+   ports:
+     - "6379:6379"
+   volumes:
+     - redis_data:/data
+   networks:
+     - docai_network
+   restart: always
+
+ ai.api.1:
+   build:
+     context: .
+     dockerfile: Services/AI/AI.API/Dockerfile
 #    image: magicflexing/docai-ai-api:latest
-    ports:
-      - "5003:5003"
-    restart: always
-    networks:
-      - docai_network
+   ports:
+     - "5003:5003"
+   environment:
+     - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=DocsAI;Username=postgres;Password=Phuc0847911068
+   depends_on:
+     - postgres
+   restart: always
+   networks:
+     - docai_network
 
-  auth.api:
-    build:
-      context: .
-      dockerfile: Services/Auth/Auth.API/Dockerfile
+ ai.api.2:
+   build:
+     context: .
+     dockerfile: Services/AI/AI.API/Dockerfile
+#    image: magicflexing/docai-ai-api:latest
+   ports:
+     - "5103:5003"
+   environment:
+     - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=DocsAI;Username=postgres;Password=Phuc0847911068
+   depends_on:
+     - postgres
+   restart: always
+   networks:
+     - docai_network
+
+ auth.api.1:
+   build:
+     context: .
+     dockerfile: Services/Auth/Auth.API/Dockerfile
 #    image: magicflexing/docai-auth-api:latest
-    ports:
-      - "5001:5001"
-    restart: always
-    networks:
-      - docai_network
+   ports:
+     - "5001:5001"
+   environment:
+     - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=AuthDocAi;Username=postgres;Password=Phuc0847911068
+     - ConnectionStrings__Redis=redis:6379,abortConnect=false
+   depends_on:
+     - postgres
+     - redis
+   restart: always
+   networks:
+     - docai_network
 
-  apigateway1:
-    build:
-      context: .
-      dockerfile: ApiGateway/Dockerfile
+ auth.api.2:
+   build:
+     context: .
+     dockerfile: Services/Auth/Auth.API/Dockerfile
+#    image: magicflexing/docai-auth-api:latest
+   ports:
+     - "5101:5001"
+   environment:
+     - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=AuthDocAi;Username=postgres;Password=Phuc0847911068
+     - ConnectionStrings__Redis=redis:6379,abortConnect=false
+   depends_on:
+     - postgres
+     - redis
+   restart: always
+   networks:
+     - docai_network
+ apigateway1:
+   build:
+     context: .
+     dockerfile: ApiGateway/Dockerfile
 #    image: magicflexing/docai-gateway:latest
-    ports:
-      - "5000:5000"
-    restart: always
-    depends_on:
-      - auth.api
-      - document.api
-      - ai.api
-      - notification.api
-    networks:
-      - docai_network
+   ports:
+     - "5000:5000"
+   restart: always
+   depends_on:
+     - auth.api.1
+     - auth.api.2
+     - document.api.1
+     - document.api.2
+     - ai.api.1
+     - ai.api.2
+     - notification.api.1
+     - notification.api.2
+     - chatbox.api.1
+     - chatbox.api.2
+   networks:
+     - docai_network
 
-  apigateway2:
-    build:
-      context: .
-      dockerfile: ApiGateway/Dockerfile
+ apigateway2:
+   build:
+     context: .
+     dockerfile: ApiGateway/Dockerfile
 #    image: magicflexing/docai-gateway:latest
-    ports:
-      - "5005:5000"
-    restart: always
-    depends_on:
-      - auth.api
-      - document.api
-      - ai.api
-      - notification.api
-    networks:
-      - docai_network
+   ports:
+     - "5100:5000"
+   restart: always
+   depends_on:
+     - auth.api.1
+     - auth.api.2
+     - document.api.1
+     - document.api.2
+     - ai.api.1
+     - ai.api.2
+     - notification.api.1
+     - notification.api.2
+     - chatbox.api.1
+     - chatbox.api.2
+   networks:
+     - docai_network
 
-  document.api:
-    build:
-      context: .
-      dockerfile: Services/Document/Document.API/Dockerfile
+ document.api.1:
+   build:
+     context: .
+     dockerfile: Services/Document/Document.API/Dockerfile
 #    image: magicflexing/docai-document-api:latest
-    ports:
-      - "5002:5002"
-    restart: always
-    networks:
-      - docai_network
+   ports:
+     - "5002:5002"
+   environment:
+     - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=DocsAI;Username=postgres;Password=Phuc0847911068
+   depends_on:
+     - postgres
+   restart: always
+   networks:
+     - docai_network
 
-  notification.api:
-    build:
-      context: .
-      dockerfile: Services/Notification/Notification.API/Dockerfile
+ document.api.2:
+   build:
+     context: .
+     dockerfile: Services/Document/Document.API/Dockerfile
+#    image: magicflexing/docai-document-api:latest
+   ports:
+     - "5102:5002"
+   environment:
+     - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=DocsAI;Username=postgres;Password=Phuc0847911068
+   depends_on:
+     - postgres
+   restart: always
+   networks:
+     - docai_network
+
+ notification.api.1:
+   build:
+     context: .
+     dockerfile: Services/Notification/Notification.API/Dockerfile
 #    image: magicflexing/docai-notification-api:latest
+   ports:
+     - "5004:5004"
+   environment:
+     - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=DocsAI;Username=postgres;Password=Phuc0847911068
+   depends_on:
+     - postgres
+   restart: always
+   networks:
+     - docai_network
+
+ notification.api.2:
+   build:
+     context: .
+     dockerfile: Services/Notification/Notification.API/Dockerfile
+#    image: magicflexing/docai-notification-api:latest
+   ports:
+     - "5104:5004"
+   environment:
+     - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=DocsAI;Username=postgres;Password=Phuc0847911068
+   depends_on:
+     - postgres
+   restart: always
+   networks:
+     - docai_network
+
+ chatbox.api.1:
+   build:
+     context: .
+     dockerfile: Services/ChatBox/ChatBox.API/Dockerfile
+   #    image: magicflexing/docai-notification-api:latest
+   ports:
+     - "5006:5006"
+   environment:
+     - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=DocsAI;Username=postgres;Password=Phuc0847911068
+   depends_on:
+     - postgres
+   restart: always
+   networks:
+     - docai_network
+
+ chatbox.api.2:
+   build:
+     context: .
+     dockerfile: Services/ChatBox/ChatBox.API/Dockerfile
+   #    image: magicflexing/docai-notification-api:latest
+   ports:
+     - "5106:5006"
+   environment:
+     - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=DocsAI;Username=postgres;Password=Phuc0847911068
+   depends_on:
+     - postgres
+   restart: always
+   networks:
+     - docai_network
+
+ rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq
     ports:
-      - "5004:5004"
-    restart: always
-    networks:
-      - docai_network
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASSWORD: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
 
 networks:
-  docai_network:
-    driver: bridge
+ docai_network:
+   driver: bridge
 
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
 
-#  apphost:
-#    image: magicflexing/docai-apphost:latest
-#    ports:
-#      - "5005:8080"
 

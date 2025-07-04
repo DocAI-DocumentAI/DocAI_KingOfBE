@@ -11,6 +11,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <Folder Include="Extensions\" />
       <Folder Include="FIlter\" />
       <Folder Include="Paginate\" />
     </ItemGroup>

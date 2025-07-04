@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using AI.API.Extensions;
 using AI.API.Services.Implement;
-using AI.API.Services.Interface;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;

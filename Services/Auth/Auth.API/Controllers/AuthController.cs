@@ -3,10 +3,15 @@ using System.Reflection.Metadata.Ecma335;
 using System.Threading.Tasks;
 using Auth.API.Constants;
 using Auth.API.Payload.Request;
+using Auth.API.Payload.Request.ActiveKey;
+using Auth.API.Payload.Request.User;
 using Auth.API.Payload.Response;
+using Auth.API.Payload.Response.ActiveKey;
+using Auth.API.Payload.Response.User;
 using Auth.API.Services.Interface;
 using Auth.Domain.Enums;
 using AutoMapper.Features;
+using MassTransit;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity.Data;
@@ -45,27 +50,29 @@ public class AuthController : ControllerBase
         _logger.LogInformation($"Login succeeded with {request.Username}");
         return Ok(response);
     }
-    
-    // [HttpPost(ApiEndPointConstant.User.Register)]
-    // [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
-    // [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status400BadRequest)]
-    // [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status500InternalServerError)]
-    // public async Task<IActionResult> Register([FromBody] RegisterRequest request)
-    // {
-    //     var response = await _userService.RegisterAsync(request);
-    //     if (response == null)
-    //     {
-    //         _logger.LogError($"Register failed with {request.Username}");
-    //         return Problem(MessageConstant.User.RegisterFail);
-    //     }
-    //     _logger.LogInformation($"Register successful with {request.Username}");
-    //     return CreatedAtAction(nameof(Register), response);
-    // }
-    
+
+    [HttpPost(ApiEndPointConstant.User.Register)]
+    [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+    {
+        var response = await _userService.RegisterAsync(request);
+        if (response == null)
+        {
+            _logger.LogError($"Register failed with {request.Username}");
+            return Problem(MessageConstant.User.RegisterFail);
+        }
+        _logger.LogInformation($"Register successful with {request.Username}");
+        return CreatedAtAction(nameof(Register), response);
+    }
+
+
+
     [HttpPost(ApiEndPointConstant.User.SendOtp)]
     [ProducesResponseType(typeof(string), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
-    [Authorize(Roles = $"{nameof(RoleEnum.Admin)},{nameof(RoleEnum.Manager)}")]
+    // [Authorize(Roles = $"{nameof(RoleEnum.Admin)},{nameof(RoleEnum.Manager)}")]
     public async Task<IActionResult> SendOtp([FromBody] GenerateEmailOtpRequest request)
     {
         var result = await _userService.GenerateOtpAsync(request);
@@ -73,8 +80,67 @@ public class AuthController : ControllerBase
         {
             return Problem(MessageConstant.OTP.SendOtpFailed);
         }
-    
+
         return CreatedAtAction(nameof(SendOtp), result);
     }
-    
+
+    [HttpPost(ApiEndPointConstant.User.ChangeRole)]
+    [Authorize]
+    [ProducesResponseType(typeof(UserRoleChangeResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ChangeUserRole( Guid roleId)
+    {
+        try
+        {
+            var result = await _userService.ChangeUserRoleAsync(roleId);
+            return Ok(result);
+        }
+        catch (BadHttpRequestException ex)
+        {
+            _logger.LogError($"Failed to change user role: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogError($"Unauthorized access when changing role: {ex.Message}");
+            return Unauthorized(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error changing user role: {ex.Message}");
+            return Problem(ex.Message);
+        }
+    }
+
+    [HttpPost(ApiEndPointConstant.User.ChangeDepartment)]
+    [Authorize]
+    [ProducesResponseType(typeof(ChangeDepartmentResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ChangeDepartmentForUser([FromBody] ChangeDepartmentRequest request)
+    {
+        try
+        {
+            var result = await _userService.ChangeDepartmentForUserAsync(request);
+            return Ok(result);
+        }
+        catch (BadHttpRequestException ex)
+        {
+            _logger.LogError($"Failed to change user department: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogError($"Unauthorized access when changing department: {ex.Message}");
+            return Unauthorized(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error changing user department: {ex.Message}");
+            return Problem(ex.Message);
+        }
+    }
 }

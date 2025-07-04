@@ -20,6 +20,7 @@
     <ProjectReference Include="..\ApiGateway\ApiGateway.csproj" />
     <ProjectReference Include="..\Services\AI\AI.API\AI.API.csproj" />
     <ProjectReference Include="..\Services\Auth\Auth.API\Auth.API.csproj" />
+    <ProjectReference Include="..\Services\ChatBox\ChatBox.API\ChatBox.API.csproj" />
     <ProjectReference Include="..\Services\Document\Document.API\Document.API.csproj" />
     <ProjectReference Include="..\Services\Notification\Notification.API\Notification.API.csproj" />
   </ItemGroup>

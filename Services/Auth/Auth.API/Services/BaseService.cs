@@ -22,7 +22,7 @@ public class BaseService<T> where T : class
     protected IMapper _mapper;
     protected IHttpContextAccessor _httpContextAccessor;
     protected IConfiguration _configuration;
-    
+
     public BaseService(IUnitOfWork<DocAIAuthContext> unitOfWork, ILogger<T> logger, IMapper mapper,
         IHttpContextAccessor httpContextAccessor, IConfiguration configuration)
     {
@@ -36,10 +36,10 @@ public class BaseService<T> where T : class
     {
         string roleString = _httpContextAccessor?.HttpContext?.User.FindFirstValue(ClaimTypes.Role);
         if (string.IsNullOrEmpty(roleString)) return RoleEnum.None;
-        
+
         Enum.TryParse<RoleEnum>(roleString, out RoleEnum role);
         return role;
-        
+
     }
 
     protected Guid GetUserIdFromJwt()

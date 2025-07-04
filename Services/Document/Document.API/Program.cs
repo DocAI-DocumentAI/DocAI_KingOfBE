@@ -65,6 +65,7 @@ try
 
         options.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("Bearer"));
     });
+    
 
     var app = builder.Build();
 
@@ -92,6 +93,8 @@ try
     // }
 
     app.UseHttpsRedirection();
+    
+    app.UseSerilogRequestLogging();
     
     app.UseSerilogRequestLogging();
 

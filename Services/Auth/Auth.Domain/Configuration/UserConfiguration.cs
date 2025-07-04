@@ -45,19 +45,8 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
                 Email = "admin@gmail.com",
                 Phone = "0847911068",
                 FullName = "Admin",
-                CreatAt = DateTime.UtcNow,
-                UpdateAt = DateTime.UtcNow,
-                TwoFactorEnabled = false,
-                TwoFactorMethod = "Email"
-            },
-            new User
-            {
-                Id = Guid.Parse("a9df371e-9249-47b8-83ce-8cd940140b9b"),
-                UserName = "director",
-                Password = HashPassword("director"),
-                Email = "director@gmail.com",
-                Phone = "0123456789",
-                FullName = "Director",
+                RoleId = Guid.Parse("a996692c-1f5e-4458-8dcf-c2494a47b6d6"), //Admin
+                DepartmentId = Guid.Parse("d8854d21-8fae-46aa-b51b-0de060b92ee3"), // Company
                 CreatAt = DateTime.UtcNow,
                 UpdateAt = DateTime.UtcNow,
                 TwoFactorEnabled = false,
@@ -71,6 +60,8 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
                 Email = "manager@gmail.com",
                 Phone = "0123456789",
                 FullName = "Manager",
+                RoleId = Guid.Parse("a5ddf431-aae9-4d9f-8d61-1a37776bb4bb"), //Manager
+                DepartmentId = Guid.Parse("8bf13891-1ce9-405c-add9-0ada93308671"), //DepartmentA
                 CreatAt = DateTime.UtcNow,
                 UpdateAt = DateTime.UtcNow,
                 TwoFactorEnabled = false,
@@ -84,6 +75,8 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
                 Email = "member@gmail.com",
                 Phone = "0123456789",
                 FullName = "Member",
+                RoleId = Guid.Parse("4e29a870-9131-4cc2-97ca-eaa748b5f17f"), //Member
+                DepartmentId = Guid.Parse("8bf13891-1ce9-405c-add9-0ada93308671"), //DepartmentA
                 CreatAt = DateTime.UtcNow,
                 UpdateAt = DateTime.UtcNow,
                 TwoFactorEnabled = false,
@@ -96,7 +89,9 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
                 Password = HashPassword("editor"),
                 Email = "editor@gmail.com",
                 Phone = "0123456789",
-                FullName = "Member1",
+                FullName = "Editor",
+                RoleId = Guid.Parse("8e7d55e4-67d3-4b73-9995-21b163493136"), //Editor
+                DepartmentId = Guid.Parse("8bf13891-1ce9-405c-add9-0ada93308671"), //DepartmentA
                 CreatAt = DateTime.UtcNow,
                 UpdateAt = DateTime.UtcNow,
                 TwoFactorEnabled = false,

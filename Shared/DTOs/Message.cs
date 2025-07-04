@@ -1,6 +1,5 @@
 ﻿namespace Shared.DTOs;
 
-public class Message
-{
-    
-}
+public record UserRequestMessage(Guid id);
+
+public record UserResponseMessage(Guid id);

@@ -1,3 +1,6 @@
+
+﻿using Document.API.Consumers;
+using MassTransit;
 ﻿using Document.API.Services.Implements;
 using Document.API.Services.Interfaces;
 using Document.Domain.Context;
@@ -13,6 +16,34 @@ namespace Document.API.Extensions;
 
 public static class DependencyService
 {
+
+    public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddMassTransit(x =>
+        {
+            x.AddConsumer<UserRequestMessageConsumer>(); 
+            x.UsingRabbitMq((context, cfg) =>
+            {
+                cfg.Host("rabbitmq://localhost", h =>
+                {
+                    h.Username("guest");
+                    h.Password("guest");
+                });
+                
+                cfg.ReceiveEndpoint("user-request-queue", e =>
+                {
+                    // Chỉ định consumer nào sẽ xử lý message từ queue này
+                    e.ConfigureConsumer<UserRequestMessageConsumer>(context);
+                });
+            });
+        });
+        services.AddScoped<IAzureStorageService, AzureStorageService>();
+        services.AddScoped<IDocumentService, DocumentService>();
+        services.AddScoped<IBookmarkService, BookmarkService>();
+        services.AddScoped<IApprovalService, ApprovalService>();
+        return services;
+    } 
+
     public static IServiceCollection AddUnitOfWork(this IServiceCollection services)
     {
         
@@ -93,12 +124,5 @@ public static class DependencyService
     //    return services;
     //}
 
-    public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
-    {
-        services.AddScoped<IAzureStorageService, AzureStorageService>();
-        services.AddScoped<IDocumentService, DocumentService>();
-        services.AddScoped<IBookmarkService, BookmarkService>();
-        services.AddScoped<IApprovalService, ApprovalService>();
-        return services;
-    }
+
 }

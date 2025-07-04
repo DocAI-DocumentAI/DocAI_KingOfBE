@@ -15,6 +15,11 @@ public abstract class IGenericRepository<T> : IDisposable where T : class
 {
     protected readonly DbSet<T> _dbSet;
 
+    public virtual IQueryable<T> GetQuery()
+    {
+        return _dbSet.AsQueryable();
+    }
+    
     public abstract Task<T> SingleOrDefaultAsync(Expression<Func<T, bool>> predicate = default(Expression<Func<T, bool>>),
         Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = default(Func<IQueryable<T>, IOrderedQueryable<T>>),
         Func<IQueryable<T>, IIncludableQueryable<T, object>> include =

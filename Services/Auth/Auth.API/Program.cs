@@ -50,20 +50,20 @@ try
 
     // Tải file .env
     DotNetEnv.Env.Load();
-    
+
     builder.Services.AddOpenApi();
     builder.Services.AddDatabase();
     builder.Services.AddRedis(builder.Configuration);
     builder.Services.AddUnitOfWork();
     builder.Services.AddServices(builder.Configuration);
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
-    builder.Services.AddEndpointsApiExplorer(); 
+    builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddAuthorization();
     builder.Services.AddControllers();
     builder.Services.AddJwtAuthentication(builder.Configuration);
     // builder.Services.AddSwaggerGen();
     builder.Services.AddHttpContextAccessor();
-    
+
     builder.Services.Configure<HostOptions>(hostOptions =>
     {
         hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
@@ -94,8 +94,8 @@ try
     app.UseOpenApi();
     app.UseSwaggerUI(options =>
     {
-        options.RoutePrefix = "swagger"; 
-        options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1"); 
+        options.RoutePrefix = "swagger";
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
     });
     // app.UseReDoc(options =>
     // {
@@ -103,20 +103,23 @@ try
     // });
     // app.MapScalarApiReference();
     // }
-    
-    app.UseCors(CorConstant.PolicyName); 
+
+    app.UseCors(CorConstant.PolicyName);
     // app.UseHttpsRedirection();
     app.UseAuthentication();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseAuthorization();
     app.UseSerilogRequestLogging();
     app.MapControllers();
-    
+
+    // Thêm endpoint health check
+    app.MapGet("/health", () => Results.Ok("Healthy"));
+
     app.Run();
 
     Log.Information("Stopped cleanly");
-    
-    
+
+
 
     return 0;
 }

@@ -5,6 +5,7 @@
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+		<NoWarn>$(NoWarn);KMEXP00</NoWarn>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -19,12 +20,16 @@
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.5" />
+
+		<PackageReference Include="NSwag.AspNetCore" Version="14.4.0" />
+
 		<PackageReference Include="Microsoft.KernelMemory.Abstractions" Version="0.98.250508.3" />
 		<PackageReference Include="Microsoft.KernelMemory.AI.Ollama" Version="0.98.250508.3" />
 		<PackageReference Include="Microsoft.KernelMemory.Chunkers" Version="0.98.250508.3" />
 		<PackageReference Include="Microsoft.KernelMemory.Core" Version="0.98.250508.3" />
 		<PackageReference Include="Npgsql" Version="9.0.3" />
 		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+
 		<PackageReference Include="Scalar.AspNetCore" Version="2.2.1" />
 		<PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
 		<PackageReference Include="Serilog.Expressions" Version="5.1.0-dev-02301" />
@@ -46,6 +51,7 @@
 		<Folder Include="logs\" />
 		<Folder Include="Mappers\" />
 		<Folder Include="Middlewares\" />
+		<Folder Include="Services\Interface\" />
 		<Folder Include="Validators\" />
 		<Folder Include="Utils\" />
 	</ItemGroup>

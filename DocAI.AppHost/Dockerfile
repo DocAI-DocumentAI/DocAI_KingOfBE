@@ -18,6 +18,9 @@ COPY ["Services/Auth/Auth.Domain/Auth.Domain.csproj", "Services/Auth/Auth.Domain
 COPY ["Services/AI/AI.API/AI.API.csproj", "Services/AI/AI.API/"]
 COPY ["Services/AI/AI.Infrastructure/AI.Infrastructure.csproj", "Services/AI/AI.Infrastructure/"]
 COPY ["Services/AI/AI.Domain/AI.Domain.csproj", "Services/AI/AI.Domain/"]
+COPY ["Services/AI/ChatBox.API/ChatBox.API.csproj", "Services/ChatBox/ChatBox.API/"]
+COPY ["Services/AI/ChatBox.Infrastructure/ChatBox.Infrastructure.csproj", "Services/ChatBox/ChatBox.Infrastructure/"]
+COPY ["Services/AI/ChatBox.Domain/ChatBox.Domain.csproj", "Services/ChatBox/ChatBox.Domain/"]
 COPY ["ApiGateway/ApiGateway.csproj", "ApiGateway/"]
 
 RUN dotnet restore "DocAI.AppHost/DocAI.AppHost.csproj"

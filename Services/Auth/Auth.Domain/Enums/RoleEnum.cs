@@ -3,7 +3,6 @@
 public enum RoleEnum
 {
     Admin,
-    Director,
     Manager,
     Editor,
     Member,

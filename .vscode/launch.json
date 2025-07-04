@@ -1,0 +1,117 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        
+        {
+            "name": "Debug ApiGateway",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-apigateway",
+            "program": "${workspaceFolder}/ApiGateway/bin/Debug/net9.0/ApiGateway.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/ApiGateway",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        },
+        {
+            "name": "Debug DocAI.AppHost",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-apphost",
+            "program": "${workspaceFolder}/DocAI.AppHost/bin/Debug/net9.0/DocAI.AppHost.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/DocAI.AppHost",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        },
+        {
+            "name": "Debug AI.API",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-ai-api",
+            "program": "${workspaceFolder}/Services/AI/AI.API/bin/Debug/net9.0/AI.API.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/Services/AI/AI.API",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        },
+        {
+            "name": "Debug Auth.API",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-auth-api",
+            "program": "${workspaceFolder}/Services/Auth/Auth.API/bin/Debug/net9.0/Auth.API.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/Services/Auth/Auth.API",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        },
+        {
+            "name": "Debug Document.API",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-document-api",
+            "program": "${workspaceFolder}/Services/Document/Document.API/bin/Debug/net9.0/Document.API.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/Services/Document/Document.API",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        },
+        {
+            "name": "Debug Notification.API",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-notification-api",
+            "program": "${workspaceFolder}/Services/Notification/Notification.API/bin/Debug/net9.0/Notification.API.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/Services/Notification/Notification.API",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        },
+        {
+            "name": "Debug ChatBox.API",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-chatbox-api",
+            "program": "${workspaceFolder}/Services/ChatBox/ChatBox.API/bin/Debug/net9.0/ChatBox.API.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/Services/ChatBox/ChatBox.API",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Debug All Services",
+            "configurations": [
+                "Debug ApiGateway",
+                "Debug AI.API",
+                "Debug Auth.API",
+                "Debug Document.API",
+                "Debug Notification.API",
+                "Debug ChatBox.API"
+            ]
+        }
+    ]
+}

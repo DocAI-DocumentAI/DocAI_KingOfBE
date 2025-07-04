@@ -1,7 +1,9 @@
 ﻿using System.Text;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Notification.API.Consumers;
 using Notification.Infrastructure.Repository.Implement;
 using Notification.Infrastructure.Repository.Interfaces;
 using Serilog;
@@ -15,11 +17,11 @@ public static class DependencyService
         // services.AddScoped<IUnitOfWork<DocAIAuthContext>, UnitOfWork<DocAIAuthContext>>();
         return services;
     }
-    
+
     public static IServiceCollection AddDatabase(this IServiceCollection services)
     {
         IConfiguration configuration = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetCurrentDirectory()) 
+            .SetBasePath(Directory.GetCurrentDirectory())
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
             .Build();
 
@@ -33,7 +35,7 @@ public static class DependencyService
 
         return services;
     }
-    
+
     // public static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
     // {
     //     var redisConnectionString = configuration.GetConnectionString("Redis");
@@ -52,20 +54,26 @@ public static class DependencyService
     public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
     {
         // services.AddScoped<IUserService, UserService>();
-        // services.AddMassTransit(x =>
-        // {
-        //     x.UsingRabbitMq((context, cfg) =>
-        //     {
-        //         cfg.Host("rabbitmq://localhost", h =>
-        //         {
-        //             h.Username("guest");
-        //             h.Password("guest");
-        //         });
-        //     });
-        // });
+        services.AddMassTransit(x =>
+        {
+            x.AddConsumer<UserRequestMessageConsumer>();
+            x.UsingRabbitMq((context, cfg) =>
+            {
+                cfg.Host("rabbitmq", h =>
+                {
+                    h.Username("guest");
+                    h.Password("guest");
+                });
+
+                cfg.ReceiveEndpoint("user-request-queue", e =>
+                {
+                    e.ConfigureConsumer<UserRequestMessageConsumer>(context);
+                });
+            });
+        });
         return services;
     }
-    
+
     public static IServiceCollection AddJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
         string secret = configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret is missing in configuration.");
@@ -115,5 +123,5 @@ public static class DependencyService
 
         return services;
     }
-    
+
 }

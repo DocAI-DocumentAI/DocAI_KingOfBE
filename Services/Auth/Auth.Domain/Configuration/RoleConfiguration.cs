@@ -41,14 +41,6 @@ public class RoleConfiguration : IEntityTypeConfiguration<Role>
                 Description = "Editor",
                 CreateAt = DateTime.UtcNow,
                 UpdateAt = DateTime.UtcNow,
-            },
-            new Role
-            {
-                Id = Guid.Parse("9ede53c4-e407-492c-8dfe-d87185575cf0"),
-                RoleName = "Director",
-                Description = "Director",
-                CreateAt = DateTime.UtcNow,
-                UpdateAt = DateTime.UtcNow,
             }
         );
     }

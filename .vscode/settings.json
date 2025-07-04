@@ -1,0 +1,18 @@
+{
+    "dotnet.defaultSolution": "DocAI_KingOfBE.sln",
+    "omnisharp.enableEditorConfigSupport": true,
+    "omnisharp.enableRoslynAnalyzers": true,
+    "files.exclude": {
+        "**/bin": true,
+        "**/obj": true
+    },
+    "search.exclude": {
+        "**/bin": true,
+        "**/obj": true
+    },
+    "files.watcherExclude": {
+        "**/bin/**": true,
+        "**/obj/**": true
+    },
+    "dotnet.completion.showCompletionItemsFromUnimportedNamespaces": true
+}
