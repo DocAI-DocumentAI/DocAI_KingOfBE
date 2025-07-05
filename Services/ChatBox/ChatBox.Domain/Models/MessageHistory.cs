@@ -10,22 +10,21 @@ namespace ChatBox.Domain.Models
 {
     public class MessageHistory : BaseEntity
     {
-        // Id, CreateAt, UpdateAt được kế thừa từ BaseEntity
 
         [Required]
-        public string ConversationId { get; set; } // Foreign Key tới Conversation
+        public string ConversationId { get; set; } 
 
         [ForeignKey("ConversationId")]
-        public virtual Conversation Conversation { get; set; } = null!; // Navigation property
+        public virtual Conversation Conversation { get; set; } = null!;
 
         [Required]
-        [MaxLength(50)] // Ví dụ: "user", "assistant", "system" - đủ dài cho vai trò
-        public string SenderRole { get; set; } // Vai trò của người gửi tin nhắn
+        [MaxLength(50)]
+        public string SenderRole { get; set; } 
 
         [Required]
-        public string Content { get; set; } // Nội dung của tin nhắn
+        public string Content { get; set; } 
 
-        public int Order { get; set; } // Thứ tự tin nhắn trong cuộc hội thoại để duy trì trật tự
+        public int Order { get; set; } 
 
     }
 }
