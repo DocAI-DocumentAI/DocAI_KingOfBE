@@ -130,22 +130,14 @@ public class UserService : BaseService<UserService>, IUserService
 
     private async Task UpdateLastLoginAsync(User user)
     {
-        // Bước 1: Lấy lại user từ DB bằng một truy vấn MỚI.
-        // Điều này đảm bảo rằng đối tượng 'userToUpdate' này được theo dõi bởi DbContext hiện tại
-        // và sẽ không có xung đột với các đối tượng 'NoTracking' từ GetUserWithDetailsAsync.
         var userToUpdate = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
             predicate: u => u.Id == user.Id // Chỉ cần ID của user để lấy lại
         );
 
-        // Bước 2: Kiểm tra nếu user được tìm thấy để cập nhật
         if (userToUpdate != null)
         {
-            // Bước 3: Thực hiện thay đổi trên đối tượng đã được theo dõi
-            userToUpdate.UpdateAt = DateTime.UtcNow; // Cập nhật thời gian cuối cùng đăng nhập
-            // userToUpdate.LastLogin = DateTime.UtcNow; // Nếu bạn có trường LastLogin riêng biệt
+            userToUpdate.UpdateAt = DateTime.UtcNow;
 
-            // Bước 4: Gọi UpdateAsync trên đối tượng đã được theo dõi
-            // Phương thức UpdateAsync của bạn sẽ hoạt động đúng ở đây vì userToUpdate đã được theo dõi
             _unitOfWork.GetRepository<User>().UpdateAsync(userToUpdate);
             var success = await _unitOfWork.CommitAsync() > 0;
 
