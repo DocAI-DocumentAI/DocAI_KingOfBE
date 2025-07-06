@@ -1,5 +1,6 @@
 ﻿using Document.API.Payload.Request;
 using Document.API.Payload.Response;
+using Document.Infrastructure.Filter;
 using Document.Infrastructure.Paginate;
 using Microsoft.AspNetCore.Mvc.TagHelpers.Cache;
 
@@ -17,4 +18,8 @@ public interface IDocumentService
     Task<AnalyzeDocumentResponse> AnalyzeDocumentAsync(IFormFile file);
     Task<DocumentDraftResponse> GetOfficialDocumentAsync(string documentFileId);
     Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize);
+    Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(string userId, DocumentFilter filter, int pageNumber, int pageSize);
+    Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateDraftRequest request, string userId);
+    Task<List<DocumentVersionResponse>> GetDocumentVersionsAsync(string documentId);
+    Task<DocumentVersionResponse> GetDocumentVersionAsync(string documentId, string versionId);
 }

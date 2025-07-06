@@ -1,6 +1,7 @@
 ﻿using Document.API.Constants;
 using Document.API.Payload.Request;
 using Document.API.Services.Interfaces;
+using Document.Infrastructure.Filter;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Document.API.Controllers;
@@ -55,6 +56,20 @@ public class DocumentController : ControllerBase
     public async Task<IActionResult> GetAllOfficialDocuments(int pageNumber = 1, int pageSize = 10)
     {
         var result = await _documentService.GetAllOfficialDocumentsAsync(pageNumber, pageSize);
+        return Ok(ApiResponse<object>.Success(result));
+    }
+
+    [HttpGet(ApiEndPointConstant.Document.GetMyDocuments)]
+    public async Task<IActionResult> GetMyDocuments(string userId, DocumentFilter filter, int pageNumber = 1, int pageSize = 10)
+    {
+        var result = await _documentService.GetMyDocumentsAsync(userId, filter, pageNumber, pageSize);
+        return Ok(ApiResponse<object>.Success(result));
+    }
+
+    [HttpPost(ApiEndPointConstant.Document.CreateNewVersion)]
+    public async Task<IActionResult> CreateNewVersion([FromRoute(Name = "id")] string documentId, [FromForm] CreateDraftRequest request, string userId)
+    {
+        var result = await _documentService.CreateNewVersionAsync(documentId, request, userId);
         return Ok(ApiResponse<object>.Success(result));
     }
 }

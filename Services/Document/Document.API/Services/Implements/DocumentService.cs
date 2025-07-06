@@ -7,6 +7,7 @@ using Document.API.Utils;
 using Document.Domain.Enums;
 using Document.Domain.Model;
 using Document.Domain.Models;
+using Document.Infrastructure.Filter;
 using Document.Infrastructure.Paginate;
 using Document.Infrastructure.Repository.Interfaces;
 using DocumentFormat.OpenXml.Drawing.Charts;
@@ -548,5 +549,126 @@ public class DocumentService : IDocumentService
         );
 
         return _mapper.Map<IPaginate<DocumentDraftResponse>>(officialDocuments);
+    }
+
+    public async Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(string userId, DocumentFilter filter, int pageNumber, int pageSize)
+    {
+
+        var myDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
+            selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
+            filter: filter,
+            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
+            page: pageNumber,
+            size: pageSize
+        );
+
+        return myDocuments;
+    }
+
+    public async Task<DocumentVersionResponse> GetDocumentVersionAsync(string documentId, string versionId)
+    {
+        var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
+            predicate: dv => dv.DocumentFileId == documentId && dv.Id.ToString() == versionId
+        );
+
+        return _mapper.Map<DocumentVersionResponse>(documentVersion);
+    }
+
+    public async Task<List<DocumentVersionResponse>> GetDocumentVersionsAsync(string documentId)
+    {
+        var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
+            predicate: dv => dv.DocumentFileId == documentId
+        );
+
+        return _mapper.Map<List<DocumentVersionResponse>>(documentVersions);
+    }
+
+    public async Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateDraftRequest request, string userId)
+    {
+        var documentToUpdate = await _unitOfWork.GetRepository<DocumentFile>().SingleOrDefaultAsync(
+            predicate: d => d.Id.ToString() == documentId,
+            include: i => i.Include(d => d.DocumentVersions)
+        ) ?? throw new ErrorException(StatusCodes.Status404NotFound, "Document not found.");
+
+        if (documentToUpdate.OwnerId != userId)
+        {
+            throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to create a new version of this document.");
+        }
+
+        var latestVersion = documentToUpdate.DocumentVersions.OrderByDescending(v => v.CreatedTime).FirstOrDefault();
+
+        if (latestVersion.Status != StatusEnum.Approved)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, "You can only create a new version of an approved document.");
+        }
+
+        var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
+        var fileHash = uploadResponse.Md5Hash;
+
+        var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
+            .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash, include: i => i.Include(v => v.DocumentFile));
+
+        if (existingFile != null)
+        {
+            await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+
+            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
+        }
+
+        var newVersion = new DocumentVersion
+        {
+            DocumentFileId = documentToUpdate.Id,
+            DocumentFile = documentToUpdate,
+            Title = request.Title,
+            VersionName = request.VersionName,
+            Status = StatusEnum.Draft,
+            IsOfficial = false,
+            Summary = request.Summary,
+            FileName = request.File.FileName,
+            FileType = Path.GetExtension(request.File.FileName),
+            FileSize = request.File.Length,
+            FilePath = uploadResponse.BlobName,
+            FileHash = fileHash,
+            SignedBy = request.SignedBy,
+            EffectiveFrom = request.EffectiveFrom,
+            EffectiveUntil = request.EffectiveUntil,
+            CreatedBy = userId,
+        };
+
+        if (request.Tags != null && request.Tags.Any())
+        {
+            newVersion.DocumentTags = new List<DocumentTag>();
+
+            var tagRepository = _unitOfWork.GetRepository<Tag>();
+
+            foreach (var tagName in request.Tags.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var normalizedTag = tagName.ToLowerInvariant();
+
+                var existingTag = await tagRepository.SingleOrDefaultAsync(predicate: t => t.Name == normalizedTag);
+
+                if (existingTag == null)
+                {
+                    existingTag = new Tag
+                    {
+                        Name = normalizedTag,
+                        CreatedBy = userId
+                    };
+
+                    await tagRepository.InsertAsync(existingTag);
+                }
+
+                newVersion.DocumentTags.Add(new DocumentTag { Tag = existingTag });
+            }
+        }
+
+        documentToUpdate.DocumentVersions.Add(newVersion);
+        await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentToUpdate);
+        await _unitOfWork.CommitAsync();
+
+        _logger.LogInformation("Successfully created new version for document {DocumentId}", documentToUpdate.Id);
+
+        return _mapper.Map<DocumentDraftResponse>(newVersion);
     }
 }
