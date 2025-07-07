@@ -671,4 +671,49 @@ public class DocumentService : IDocumentService
 
         return _mapper.Map<DocumentDraftResponse>(newVersion);
     }
+
+    public async Task<IPaginate<DocumentResponse>> SemanticSearch(SemanticSearchRequest request, DocumentFilter filter, string userId, int pageNumber, int pageSize)
+    {
+        var memoryFilter = new MemoryFilter();
+
+        if (filter.IsPublic.HasValue)
+        {
+            memoryFilter.Add("isPublic", filter.IsPublic.Value.ToString().ToLower());
+        }
+        if (filter.DepartmentId.HasValue)
+        {
+            memoryFilter.Add("departmentId", filter.DepartmentId.Value.ToString());
+        }
+
+        var searchResult = await _memory.SearchAsync(request.Query, limit: pageSize, filter: memoryFilter);
+
+        var documentResponses = new List<DocumentResponse>();
+
+        foreach (var item in searchResult.Results)
+        {
+            foreach (var partition in item.Partitions)
+            {
+                // Assuming DocumentId is stored as a tag in Kernel Memory
+                if (partition.Tags.TryGetValue("documentId", out var documentIds) && documentIds.Any())
+                {
+                    var documentId = documentIds.First();
+                    var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
+                        predicate: dv => dv.DocumentFile.Id.ToString() == documentId && dv.Status == StatusEnum.Approved && filter.ToExpression().Compile().Invoke(dv),
+                        include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                    );
+
+                    if (documentVersion != null)
+                    {
+                        documentResponses.Add(_mapper.Map<DocumentResponse>(documentVersion));
+                    }
+                }
+            }
+        }
+
+        // Manually create IPaginate from the list
+        var totalCount = searchResult.Results.Count; // This is not the true total count, but KM doesn't provide it directly
+        var paginateResult = new Paginate<DocumentResponse>(documentResponses, pageNumber, pageSize, totalCount);
+
+        return paginateResult;
+    }
 }

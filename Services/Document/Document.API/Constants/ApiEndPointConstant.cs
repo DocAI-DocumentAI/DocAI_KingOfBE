@@ -21,6 +21,7 @@ public class ApiEndPointConstant
         public const string GetMyDocuments = ApiEndpoint + "/my-documents";
         public const string CreateNewVersion = ApiEndpoint + "/documents/{id}/versions";
         public const string AnalyzeDocument = ApiEndpoint + "/analyze-document";
+        public const string SemanticSearch = ApiEndpoint + "/semantic-search";
     }
 
     public class Approval

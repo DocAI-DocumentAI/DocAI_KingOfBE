@@ -22,4 +22,5 @@ public interface IDocumentService
     Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateDraftRequest request, string userId);
     Task<List<DocumentVersionResponse>> GetDocumentVersionsAsync(string documentId);
     Task<DocumentVersionResponse> GetDocumentVersionAsync(string documentId, string versionId);
+    Task<IPaginate<DocumentResponse>> SemanticSearch(SemanticSearchRequest request, DocumentFilter filter, string userId, int pageNumber, int pageSize);
 }
