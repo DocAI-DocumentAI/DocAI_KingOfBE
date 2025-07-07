@@ -1,6 +1,6 @@
 ﻿using Auth.Domain.Models;
 
-namespace Auth.API.Payload.Response.Staff;
+namespace Auth.API.Payload.Response.Role;
 
 public class RoleResponse
 {

@@ -1,5 +1,6 @@
 ﻿using Auth.API.Payload.Request.Department;
 using Auth.API.Payload.Response;
+using Auth.API.Payload.Response.Department;
 using Auth.Infrastructure.Filter;
 using Auth.Infrastructure.Paginate;
 

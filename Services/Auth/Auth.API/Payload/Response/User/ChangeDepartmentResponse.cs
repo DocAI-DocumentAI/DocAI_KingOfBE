@@ -1,4 +1,5 @@
-using Auth.API.Payload.Response.Staff;
+using Auth.API.Payload.Response.Department;
+using Auth.API.Payload.Response.Role;
 
 namespace Auth.API.Payload.Response.User
 {

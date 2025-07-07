@@ -1,5 +1,5 @@
 ﻿using Auth.API.Payload.Request;
-using Auth.API.Payload.Request.Member;
+using Auth.API.Payload.Request.Permission;
 using Auth.API.Payload.Response;
 using Auth.API.Payload.Response.Permission;
 using Auth.Infrastructure.Filter;

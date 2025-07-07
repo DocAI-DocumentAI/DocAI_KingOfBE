@@ -1,8 +1,8 @@
 ﻿using Auth.API.Constants;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.Department;
-using Auth.API.Payload.Request.Member;
 using Auth.API.Payload.Response;
+using Auth.API.Payload.Response.Department;
 using Auth.API.Services.Interface;
 using Auth.Domain.Enums;
 using Auth.Infrastructure.Filter;

@@ -6,7 +6,6 @@ using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.ActiveKey;
 using Auth.API.Payload.Request.User;
 using Auth.API.Payload.Response;
-using Auth.API.Payload.Response.ActiveKey;
 using Auth.API.Payload.Response.User;
 using Auth.API.Services.Interface;
 using Auth.Domain.Enums;
@@ -90,7 +89,7 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> ChangeUserRole( Guid roleId)
+    public async Task<IActionResult> ChangeUserRole(Guid roleId)
     {
         try
         {

@@ -3,7 +3,6 @@ using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.ActiveKey;
 using Auth.API.Payload.Request.User;
 using Auth.API.Payload.Response;
-using Auth.API.Payload.Response.ActiveKey;
 using Auth.API.Payload.Response.User;
 using MassTransit;
 using Microsoft.AspNetCore.Identity.Data;
@@ -24,5 +23,7 @@ public interface IUserService
     public Task<UserRoleChangeResponse> ChangeUserRoleAsync(Guid roleId);
 
     public Task<ChangeDepartmentResponse> ChangeDepartmentForUserAsync(ChangeDepartmentRequest request);
+
+    public Task<GetUserByDeparAndRoleResponse> GetUserByDeparAndRoleAsync(GetUserByDeparAndRole request);
 
 }

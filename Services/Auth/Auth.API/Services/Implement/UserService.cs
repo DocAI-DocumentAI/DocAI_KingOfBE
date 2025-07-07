@@ -9,8 +9,6 @@ using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.ActiveKey;
 using Auth.API.Payload.Request.User;
 using Auth.API.Payload.Response;
-using Auth.API.Payload.Response.ActiveKey;
-using Auth.API.Payload.Response.Staff;
 using Auth.API.Payload.Response.User;
 using Microsoft.EntityFrameworkCore;
 using Auth.API.Utils;
@@ -24,6 +22,8 @@ using RegisterRequest = Auth.API.Payload.Request.RegisterRequest;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using Shared.DTOs;
+using Auth.API.Payload.Response.Role;
+using Auth.API.Payload.Response.Department;
 
 namespace Auth.API.Services.Interface;
 
@@ -33,15 +33,17 @@ public class UserService : BaseService<UserService>, IUserService
     private IConfiguration _configuration;
     private IPublishEndpoint _publishEndpoint;
     private readonly IBus _bus;
+    private readonly ISendEndpointProvider _sendEndpointProvider;
 
     public UserService(IUnitOfWork<DocAIAuthContext> unitOfWork, ILogger<UserService> logger,
         IHttpContextAccessor httpContextAccessor, IConfiguration configuration, IMapper mapper,
-        IRedisService redisService, IPublishEndpoint publishEndpoint, IBus bus) : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
+        IRedisService redisService, IPublishEndpoint publishEndpoint, IBus bus, ISendEndpointProvider sendEndpointProvider) : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
     {
         _configuration = configuration;
         _redisService = redisService;
         _publishEndpoint = publishEndpoint;
         _bus = bus;
+        _sendEndpointProvider = sendEndpointProvider;
     }
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request)
@@ -64,19 +66,25 @@ public class UserService : BaseService<UserService>, IUserService
             user.Id, DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff"));
         try
         {
-            // Đảm bảo message được publish đến đúng exchange và routing key
+            // Thử cả hai cách
             await _publishEndpoint.Publish(new UserRequestMessage(user.Id));
-            _logger.LogInformation("Successfully published UserRequestMessage for user: {UserId}", user.Id);
+            _logger.LogInformation("✅ Successfully published message to exchange");
+
+            // // Thử gửi trực tiếp đến queue
+            // var endpoint = await _sendEndpointProvider.GetSendEndpoint(new Uri("queue:user-request-queue"));
+            // await endpoint.Send(new UserRequestMessage(user.Id));
+            // _logger.LogInformation("✅ Successfully sent message directly to queue");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to publish UserRequestMessage for user: {UserId}", user.Id);
+            _logger.LogError(ex, "❌ Error publishing message: {Message}", ex.Message);
+            // Không throw exception để không ảnh hưởng đến login flow
         }
 
         // Thử publish trực tiếp đến queue cụ thể
-        var sendEndpoint = await _bus.GetSendEndpoint(new Uri($"queue:user-request-queue"));
-        await sendEndpoint.Send(new UserRequestMessage(user.Id));
-        _logger.LogInformation("Sent message directly to user-request-queue for user: {UserId}", user.Id);
+        // var sendEndpoint = await _bus.GetSendEndpoint(new Uri($"queue:user-request-queue"));
+        // await sendEndpoint.Send(new UserRequestMessage(user.Id));
+        // _logger.LogInformation("Sent message directly to user-request-queue for user: {UserId}", user.Id);
 
         return await response;
     }
@@ -532,5 +540,10 @@ public class UserService : BaseService<UserService>, IUserService
                 throw;
             }
         }
+    }
+
+    public Task<GetUserByDeparAndRoleResponse> GetUserByDeparAndRoleAsync(GetUserByDeparAndRole request)
+    {
+        throw new NotImplementedException();
     }
 }

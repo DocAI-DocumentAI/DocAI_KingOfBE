@@ -83,7 +83,7 @@ public static class DependencyService
 
             x.UsingRabbitMq((context, cfg) =>
             {
-                var host = configuration["RabbitMQ:Host"] ?? "localhost";
+                var host = configuration["RabbitMQ:Host"] ?? "rabbitmq";
                 var username = configuration["RabbitMQ:Username"] ?? "guest";
                 var password = configuration["RabbitMQ:Password"] ?? "guest";
 
@@ -93,16 +93,15 @@ public static class DependencyService
                     h.Password(password);
                 });
 
-                // Đảm bảo endpoint name đúng với endpoint mà bạn publish message đến
+                // Thêm logging để debug
+                cfg.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+
                 cfg.ReceiveEndpoint("user-request-queue", e =>
                 {
                     e.ConfigureConsumer<UserRequestMessageConsumer>(context);
-                    // Thêm retry để xử lý lỗi
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
-                    // Thêm log để debug
                     e.UseInMemoryOutbox();
                 });
-
             });
         });
         return services;

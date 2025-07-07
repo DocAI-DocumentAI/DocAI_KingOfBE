@@ -2,7 +2,7 @@
 
 using Auth.Domain.Models;
 
-namespace Auth.API.Payload.Response;
+namespace Auth.API.Payload.Response.Department;
 
 public class DepartmentResponse
 {

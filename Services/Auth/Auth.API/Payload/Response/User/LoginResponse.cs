@@ -1,5 +1,6 @@
 ﻿using System;
-using Auth.API.Payload.Response.Staff;
+using Auth.API.Payload.Response.Department;
+using Auth.API.Payload.Response.Role;
 using Auth.Domain.Enums;
 using Auth.Domain.Models;
 
