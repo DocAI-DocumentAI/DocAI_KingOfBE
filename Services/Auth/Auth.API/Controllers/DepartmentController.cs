@@ -26,7 +26,6 @@ public class DepartmentController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Department.Departments)]
-    [Authorize]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status500InternalServerError)]
