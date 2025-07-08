@@ -32,18 +32,14 @@ public class UserService : BaseService<UserService>, IUserService
     private readonly IRedisService _redisService;
     private IConfiguration _configuration;
     private IPublishEndpoint _publishEndpoint;
-    private readonly IBus _bus;
-    private readonly ISendEndpointProvider _sendEndpointProvider;
 
     public UserService(IUnitOfWork<DocAIAuthContext> unitOfWork, ILogger<UserService> logger,
         IHttpContextAccessor httpContextAccessor, IConfiguration configuration, IMapper mapper,
-        IRedisService redisService, IPublishEndpoint publishEndpoint, IBus bus, ISendEndpointProvider sendEndpointProvider) : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
+        IRedisService redisService, IPublishEndpoint publishEndpoint) : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
     {
         _configuration = configuration;
         _redisService = redisService;
         _publishEndpoint = publishEndpoint;
-        _bus = bus;
-        _sendEndpointProvider = sendEndpointProvider;
     }
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request)
@@ -66,25 +62,13 @@ public class UserService : BaseService<UserService>, IUserService
             user.Id, DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff"));
         try
         {
-            // Thử cả hai cách
             await _publishEndpoint.Publish(new UserRequestMessage(user.Id));
             _logger.LogInformation("✅ Successfully published message to exchange");
-
-            // // Thử gửi trực tiếp đến queue
-            // var endpoint = await _sendEndpointProvider.GetSendEndpoint(new Uri("queue:user-request-queue"));
-            // await endpoint.Send(new UserRequestMessage(user.Id));
-            // _logger.LogInformation("✅ Successfully sent message directly to queue");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "❌ Error publishing message: {Message}", ex.Message);
-            // Không throw exception để không ảnh hưởng đến login flow
         }
-
-        // Thử publish trực tiếp đến queue cụ thể
-        // var sendEndpoint = await _bus.GetSendEndpoint(new Uri($"queue:user-request-queue"));
-        // await sendEndpoint.Send(new UserRequestMessage(user.Id));
-        // _logger.LogInformation("Sent message directly to user-request-queue for user: {UserId}", user.Id);
 
         return await response;
     }
