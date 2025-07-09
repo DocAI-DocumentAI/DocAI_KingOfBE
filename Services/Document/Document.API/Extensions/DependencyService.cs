@@ -41,6 +41,7 @@ public static class DependencyService
         services.AddScoped<IDocumentService, DocumentService>();
         services.AddScoped<IBookmarkService, BookmarkService>();
         services.AddScoped<IApprovalService, ApprovalService>();
+        services.AddScoped<ITagService, TagService>();
         services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
         return services;
     } 

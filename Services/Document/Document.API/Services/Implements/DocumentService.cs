@@ -546,12 +546,13 @@ public class DocumentService : IDocumentService
         return _mapper.Map<IPaginate<DocumentDraftResponse>>(officialDocuments);
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(string userId, DocumentFilter filter, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(string userId, MyDocumentsFilter filter, int pageNumber, int pageSize)
     {
 
         var myDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
             filter: filter,
+            predicate: d => d.DocumentFile.OwnerId == userId,
             include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,

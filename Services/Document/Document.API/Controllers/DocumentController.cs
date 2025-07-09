@@ -60,7 +60,7 @@ public class DocumentController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Document.GetMyDocuments)]
-    public async Task<IActionResult> GetMyDocuments(string userId, DocumentFilter filter, int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> GetMyDocuments(string userId, [FromQuery] MyDocumentsFilter filter, int pageNumber = 1, int pageSize = 10)
     {
         var result = await _documentService.GetMyDocumentsAsync(userId, filter, pageNumber, pageSize);
         return Ok(ApiResponse<object>.Success(result));

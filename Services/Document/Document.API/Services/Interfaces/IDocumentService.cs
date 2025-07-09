@@ -18,7 +18,7 @@ public interface IDocumentService
     Task<AnalyzeDocumentResponse> AnalyzeDocumentAsync(IFormFile file);
     Task<DocumentDraftResponse> GetOfficialDocumentAsync(string documentFileId);
     Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize);
-    Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(string userId, DocumentFilter filter, int pageNumber, int pageSize);
+    Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(string userId, MyDocumentsFilter filter, int pageNumber, int pageSize);
     Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateDraftRequest request, string userId);
     Task<List<DocumentVersionResponse>> GetDocumentVersionsAsync(string documentId);
     Task<DocumentVersionResponse> GetDocumentVersionAsync(string documentId, string versionId);
