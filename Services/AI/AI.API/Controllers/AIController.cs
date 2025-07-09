@@ -2,6 +2,7 @@
 using AI.API.Constants;
 using AI.API.Payload.Request;
 using AI.API.Payload.Response;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.KernelMemory.AI;
 
@@ -9,6 +10,7 @@ namespace AI.API.Controllers
 {
     [ApiController]
     [Route(ApiEndPointConstant.ApiEndpoint)]
+    [Authorize] 
     public class AIController : ControllerBase
     {
         private readonly ITextGenerator _textGenerator; // REVIEW POINT: Inject ITextGenerator của KM
