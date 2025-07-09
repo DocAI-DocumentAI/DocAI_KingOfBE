@@ -13,8 +13,8 @@ public class RoleConfiguration : IEntityTypeConfiguration<Role>
             new Role
             {
                 Id = Guid.Parse("4e29a870-9131-4cc2-97ca-eaa748b5f17f"),
-                RoleName = "Member",
-                Description = "Member",
+                RoleName = "Employee",
+                Description = "Employee",
                 CreateAt = DateTime.UtcNow,
                 UpdateAt = DateTime.UtcNow,
             },

@@ -31,6 +31,7 @@ public class UserMapper : Profile
                 Description = src.Department.Description,
                 CreateAt = src.Department.CreateAt,
                 UpdateAt = src.Department.UpdateAt
-            }));
+            }))
+            .ForMember(dest => dest.UserSetting, opt => opt.Ignore());
     }
 }

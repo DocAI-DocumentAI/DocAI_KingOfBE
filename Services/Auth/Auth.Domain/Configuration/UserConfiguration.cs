@@ -49,8 +49,6 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
                 DepartmentId = Guid.Parse("d8854d21-8fae-46aa-b51b-0de060b92ee3"), // Company
                 CreatAt = DateTime.UtcNow,
                 UpdateAt = DateTime.UtcNow,
-                TwoFactorEnabled = false,
-                TwoFactorMethod = "Email"
             },
             new User
             {
@@ -63,24 +61,20 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
                 RoleId = Guid.Parse("a5ddf431-aae9-4d9f-8d61-1a37776bb4bb"), //Manager
                 DepartmentId = Guid.Parse("8bf13891-1ce9-405c-add9-0ada93308671"), //DepartmentA
                 CreatAt = DateTime.UtcNow,
-                UpdateAt = DateTime.UtcNow,
-                TwoFactorEnabled = false,
-                TwoFactorMethod = "Email"
+                UpdateAt = DateTime.UtcNow
             },
             new User
             {
                 Id = Guid.Parse("fd05266c-baf5-49bb-a846-554461bcc411"),
-                UserName = "member",
-                Password = HashPassword("member"),
-                Email = "member@gmail.com",
+                UserName = "employee",
+                Password = HashPassword("employee"),
+                Email = "employee@gmail.com",
                 Phone = "0123456789",
-                FullName = "Member",
-                RoleId = Guid.Parse("4e29a870-9131-4cc2-97ca-eaa748b5f17f"), //Member
+                FullName = "Employee",
+                RoleId = Guid.Parse("4e29a870-9131-4cc2-97ca-eaa748b5f17f"), //Employee
                 DepartmentId = Guid.Parse("8bf13891-1ce9-405c-add9-0ada93308671"), //DepartmentA
                 CreatAt = DateTime.UtcNow,
                 UpdateAt = DateTime.UtcNow,
-                TwoFactorEnabled = false,
-                TwoFactorMethod = "Email"
             },
             new User
             {
@@ -94,8 +88,6 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
                 DepartmentId = Guid.Parse("8bf13891-1ce9-405c-add9-0ada93308671"), //DepartmentA
                 CreatAt = DateTime.UtcNow,
                 UpdateAt = DateTime.UtcNow,
-                TwoFactorEnabled = false,
-                TwoFactorMethod = "Email"
             }
         );
     }

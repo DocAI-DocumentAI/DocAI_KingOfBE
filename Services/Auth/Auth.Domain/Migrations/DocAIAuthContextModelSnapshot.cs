@@ -50,18 +50,18 @@ namespace Auth.Domain.Migrations
                         new
                         {
                             Id = new Guid("8bf13891-1ce9-405c-add9-0ada93308671"),
-                            CreateAt = new DateTime(2025, 7, 3, 10, 3, 36, 648, DateTimeKind.Utc).AddTicks(8576),
+                            CreateAt = new DateTime(2025, 7, 9, 6, 48, 28, 468, DateTimeKind.Utc).AddTicks(4958),
                             Description = "DepartentA",
                             Name = "DepartentA",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 648, DateTimeKind.Utc).AddTicks(8683)
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 468, DateTimeKind.Utc).AddTicks(5081)
                         },
                         new
                         {
                             Id = new Guid("d8854d21-8fae-46aa-b51b-0de060b92ee3"),
-                            CreateAt = new DateTime(2025, 7, 3, 10, 3, 36, 648, DateTimeKind.Utc).AddTicks(8765),
+                            CreateAt = new DateTime(2025, 7, 9, 6, 48, 28, 468, DateTimeKind.Utc).AddTicks(5208),
                             Description = "Company",
                             Name = "Company",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 648, DateTimeKind.Utc).AddTicks(8766)
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 468, DateTimeKind.Utc).AddTicks(5208)
                         });
                 });
 
@@ -93,26 +93,26 @@ namespace Auth.Domain.Migrations
                         new
                         {
                             Id = new Guid("3796cdb0-7c0a-4cc6-a757-883fe1865fb6"),
-                            CreateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(6550),
+                            CreateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(2061),
                             Description = "Quyền xem mọi tài liệu trong hệ thống ",
                             Name = "VIEW_ANY_DOCUMENT",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(6650)
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(2173)
                         },
                         new
                         {
                             Id = new Guid("e72214a0-24bc-471a-aca5-d897f4da0aad"),
-                            CreateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(6727),
+                            CreateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(2343),
                             Description = "Quyền xem tài liệu thuộc phòng ban của mình.",
                             Name = "VIEW_OWN_DEPARTMENT_DOCUMENT",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(6728)
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(2344)
                         },
                         new
                         {
                             Id = new Guid("febebe25-dd94-4ba1-bdbd-810e4503bccd"),
-                            CreateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(6730),
+                            CreateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(2346),
                             Description = "Quyền xem tài liệu của mình.",
                             Name = "VIEW_DEPARTMENT_DOCUMENT",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(6730)
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(2346)
                         });
                 });
 
@@ -144,34 +144,34 @@ namespace Auth.Domain.Migrations
                         new
                         {
                             Id = new Guid("4e29a870-9131-4cc2-97ca-eaa748b5f17f"),
-                            CreateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(9090),
-                            Description = "Member",
-                            RoleName = "Member",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(9179)
+                            CreateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(4793),
+                            Description = "Employee",
+                            RoleName = "Employee",
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(4892)
                         },
                         new
                         {
                             Id = new Guid("a996692c-1f5e-4458-8dcf-c2494a47b6d6"),
-                            CreateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(9253),
+                            CreateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(5018),
                             Description = "Admin",
                             RoleName = "Admin",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(9253)
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(5019)
                         },
                         new
                         {
                             Id = new Guid("a5ddf431-aae9-4d9f-8d61-1a37776bb4bb"),
-                            CreateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(9255),
+                            CreateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(5021),
                             Description = "Manager",
                             RoleName = "Manager",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(9255)
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(5021)
                         },
                         new
                         {
                             Id = new Guid("8e7d55e4-67d3-4b73-9995-21b163493136"),
-                            CreateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(9257),
+                            CreateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(5023),
                             Description = "Editor",
                             RoleName = "Editor",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 649, DateTimeKind.Utc).AddTicks(9257)
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 469, DateTimeKind.Utc).AddTicks(5023)
                         });
                 });
 
@@ -198,31 +198,31 @@ namespace Auth.Domain.Migrations
                     b.HasData(
                         new
                         {
-                            Id = new Guid("e929753e-7b49-4896-88a6-6bcc70d05427"),
+                            Id = new Guid("1014f444-b3de-4db8-9410-9c362a38f2db"),
                             PermissionId = new Guid("3796cdb0-7c0a-4cc6-a757-883fe1865fb6"),
                             RoleId = new Guid("a996692c-1f5e-4458-8dcf-c2494a47b6d6")
                         },
                         new
                         {
-                            Id = new Guid("c58d11aa-99ef-4154-bf8c-ef68bc76af63"),
+                            Id = new Guid("d4a7f8e1-5571-46e5-b3b2-2ee79d408f2a"),
                             PermissionId = new Guid("e72214a0-24bc-471a-aca5-d897f4da0aad"),
                             RoleId = new Guid("a5ddf431-aae9-4d9f-8d61-1a37776bb4bb")
                         },
                         new
                         {
-                            Id = new Guid("8160062d-42a6-496f-ac39-facbdf2c414b"),
+                            Id = new Guid("17566104-3004-4663-a242-a1770d65d5c6"),
                             PermissionId = new Guid("febebe25-dd94-4ba1-bdbd-810e4503bccd"),
                             RoleId = new Guid("4e29a870-9131-4cc2-97ca-eaa748b5f17f")
                         },
                         new
                         {
-                            Id = new Guid("2e29a4df-916e-4ce7-ac3b-ea5cf1655f7a"),
+                            Id = new Guid("33bb5518-3383-46fb-91a5-01f95d3793c6"),
                             PermissionId = new Guid("febebe25-dd94-4ba1-bdbd-810e4503bccd"),
                             RoleId = new Guid("8e7d55e4-67d3-4b73-9995-21b163493136")
                         },
                         new
                         {
-                            Id = new Guid("466b8527-2b48-4213-804b-d4b8703e2912"),
+                            Id = new Guid("0843307d-cf05-414b-84ab-394f884f4b45"),
                             PermissionId = new Guid("febebe25-dd94-4ba1-bdbd-810e4503bccd"),
                             RoleId = new Guid("a5ddf431-aae9-4d9f-8d61-1a37776bb4bb")
                         });
@@ -233,6 +233,9 @@ namespace Auth.Domain.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("CreatAt")
                         .HasColumnType("timestamp with time zone");
@@ -259,12 +262,6 @@ namespace Auth.Domain.Migrations
                     b.Property<Guid>("RoleId")
                         .HasColumnType("uuid");
 
-                    b.Property<bool>("TwoFactorEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("TwoFactorMethod")
-                        .HasColumnType("text");
-
                     b.Property<DateTime>("UpdateAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -284,62 +281,124 @@ namespace Auth.Domain.Migrations
                         new
                         {
                             Id = new Guid("13d466ed-8a2d-414d-88c0-9c7adcac2616"),
-                            CreatAt = new DateTime(2025, 7, 3, 10, 3, 36, 674, DateTimeKind.Utc).AddTicks(6407),
+                            Active = false,
+                            CreatAt = new DateTime(2025, 7, 9, 6, 48, 28, 495, DateTimeKind.Utc).AddTicks(9028),
                             DepartmentId = new Guid("d8854d21-8fae-46aa-b51b-0de060b92ee3"),
                             Email = "admin@gmail.com",
                             FullName = "Admin",
-                            Password = "eYT2WXQtT+wDZ0LZuMxAnMeLPWVKJrQiTtQ3hX6sNR0tNAsWIK2iTJ6MVGrI4o0L",
+                            Password = "zbr+GIjiZexQYo70lTjQuXndqIJ+tu3g1V4z2TE91VgXJ/u0fFqN1VGmxZgd5aUU",
                             Phone = "0847911068",
                             RoleId = new Guid("a996692c-1f5e-4458-8dcf-c2494a47b6d6"),
-                            TwoFactorEnabled = false,
-                            TwoFactorMethod = "Email",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 674, DateTimeKind.Utc).AddTicks(6614),
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 495, DateTimeKind.Utc).AddTicks(9144),
                             UserName = "admin"
                         },
                         new
                         {
                             Id = new Guid("595dd357-aaec-455e-9fa7-4fc88d4b819c"),
-                            CreatAt = new DateTime(2025, 7, 3, 10, 3, 36, 694, DateTimeKind.Utc).AddTicks(8096),
+                            Active = false,
+                            CreatAt = new DateTime(2025, 7, 9, 6, 48, 28, 516, DateTimeKind.Utc).AddTicks(4714),
                             DepartmentId = new Guid("8bf13891-1ce9-405c-add9-0ada93308671"),
                             Email = "manager@gmail.com",
                             FullName = "Manager",
-                            Password = "lnSxJu92BNFXEnzlPb+57IiLUEKgcHWSXjIwTk/gY1oslwYAmIfYWS7lNbvS6zrz",
+                            Password = "sh4ehkewlS3cFVYuqkKrFMLj+fN000U9OFusoTdINQFY8XBUrUC5Uv5NEv2EQphV",
                             Phone = "0123456789",
                             RoleId = new Guid("a5ddf431-aae9-4d9f-8d61-1a37776bb4bb"),
-                            TwoFactorEnabled = false,
-                            TwoFactorMethod = "Email",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 694, DateTimeKind.Utc).AddTicks(8103),
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 516, DateTimeKind.Utc).AddTicks(4719),
                             UserName = "manager"
                         },
                         new
                         {
                             Id = new Guid("fd05266c-baf5-49bb-a846-554461bcc411"),
-                            CreatAt = new DateTime(2025, 7, 3, 10, 3, 36, 713, DateTimeKind.Utc).AddTicks(6018),
+                            Active = false,
+                            CreatAt = new DateTime(2025, 7, 9, 6, 48, 28, 536, DateTimeKind.Utc).AddTicks(6481),
                             DepartmentId = new Guid("8bf13891-1ce9-405c-add9-0ada93308671"),
-                            Email = "member@gmail.com",
-                            FullName = "Member",
-                            Password = "87yKBhE8FyCr/WEaJZsx0zyPXayCnk3uBiSVyFd+vnVJpXVTu8wDiad/WaoE8Bax",
+                            Email = "employee@gmail.com",
+                            FullName = "Employee",
+                            Password = "XwnHf6qw79crCIIBreZro5bRr0EHlndsBYrpBowqLoBfQdUHxwZRLkwulIbobrXi",
                             Phone = "0123456789",
                             RoleId = new Guid("4e29a870-9131-4cc2-97ca-eaa748b5f17f"),
-                            TwoFactorEnabled = false,
-                            TwoFactorMethod = "Email",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 713, DateTimeKind.Utc).AddTicks(6026),
-                            UserName = "member"
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 536, DateTimeKind.Utc).AddTicks(6486),
+                            UserName = "employee"
                         },
                         new
                         {
                             Id = new Guid("5c49c1cb-719e-42eb-8028-f2eb3eaea4cd"),
-                            CreatAt = new DateTime(2025, 7, 3, 10, 3, 36, 732, DateTimeKind.Utc).AddTicks(4177),
+                            Active = false,
+                            CreatAt = new DateTime(2025, 7, 9, 6, 48, 28, 556, DateTimeKind.Utc).AddTicks(8304),
                             DepartmentId = new Guid("8bf13891-1ce9-405c-add9-0ada93308671"),
                             Email = "editor@gmail.com",
                             FullName = "Editor",
-                            Password = "g8MNPYv3YpsR7rBvesb9XMVEhpO5eluy5eW4zP1GGdzV9p0UYGg0HVbVYfGZayrp",
+                            Password = "ZWsFN7GneikIvlo6nENDWv0HN2klxOgnXjQ6bVsMwnSOoEIC8n4GPXY2RqyPlaPK",
                             Phone = "0123456789",
                             RoleId = new Guid("8e7d55e4-67d3-4b73-9995-21b163493136"),
-                            TwoFactorEnabled = false,
-                            TwoFactorMethod = "Email",
-                            UpdateAt = new DateTime(2025, 7, 3, 10, 3, 36, 732, DateTimeKind.Utc).AddTicks(4185),
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 556, DateTimeKind.Utc).AddTicks(8310),
                             UserName = "editor"
+                        });
+                });
+
+            modelBuilder.Entity("Auth.Domain.Models.UserSetting", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("NotificationsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("TwoFactorMethod")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdateAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("UserSettings");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("ddfcbea3-56e9-4187-97f6-521ca24c2412"),
+                            NotificationsEnabled = true,
+                            TwoFactorEnabled = false,
+                            TwoFactorMethod = "email",
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 557, DateTimeKind.Utc).AddTicks(3524),
+                            UserId = new Guid("13d466ed-8a2d-414d-88c0-9c7adcac2616")
+                        },
+                        new
+                        {
+                            Id = new Guid("dd9105eb-4df0-4c32-bc55-fd0169e386fc"),
+                            NotificationsEnabled = true,
+                            TwoFactorEnabled = false,
+                            TwoFactorMethod = "email",
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 557, DateTimeKind.Utc).AddTicks(3791),
+                            UserId = new Guid("595dd357-aaec-455e-9fa7-4fc88d4b819c")
+                        },
+                        new
+                        {
+                            Id = new Guid("86254802-1d1e-4734-a25b-ef22ff39cefc"),
+                            NotificationsEnabled = true,
+                            TwoFactorEnabled = false,
+                            TwoFactorMethod = "email",
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 557, DateTimeKind.Utc).AddTicks(3794),
+                            UserId = new Guid("fd05266c-baf5-49bb-a846-554461bcc411")
+                        },
+                        new
+                        {
+                            Id = new Guid("4e8bff21-b470-4b9e-92da-400d21992f96"),
+                            NotificationsEnabled = true,
+                            TwoFactorEnabled = false,
+                            TwoFactorMethod = "email",
+                            UpdateAt = new DateTime(2025, 7, 9, 6, 48, 28, 557, DateTimeKind.Utc).AddTicks(3796),
+                            UserId = new Guid("5c49c1cb-719e-42eb-8028-f2eb3eaea4cd")
                         });
                 });
 
@@ -379,6 +438,17 @@ namespace Auth.Domain.Migrations
                     b.Navigation("Department");
 
                     b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("Auth.Domain.Models.UserSetting", b =>
+                {
+                    b.HasOne("Auth.Domain.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Auth.Domain.Models.Role", b =>

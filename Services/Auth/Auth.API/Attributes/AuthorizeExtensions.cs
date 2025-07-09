@@ -34,12 +34,12 @@ namespace Auth.API.Attributes
         /// </summary>
         public static CustomAuthorizeAttribute RequireAll(string[]? roles = null, string[]? departments = null, string[]? permissions = null)
         {
-            return new CustomAuthorizeAttribute 
-            { 
-                Roles = roles, 
-                Departments = departments, 
-                Permissions = permissions, 
-                RequireAll = true 
+            return new CustomAuthorizeAttribute
+            {
+                Roles = roles,
+                Departments = departments,
+                Permissions = permissions,
+                RequireAll = true
             };
         }
 
@@ -48,12 +48,12 @@ namespace Auth.API.Attributes
         /// </summary>
         public static CustomAuthorizeAttribute RequireAny(string[]? roles = null, string[]? departments = null, string[]? permissions = null)
         {
-            return new CustomAuthorizeAttribute 
-            { 
-                Roles = roles, 
-                Departments = departments, 
-                Permissions = permissions, 
-                RequireAll = false 
+            return new CustomAuthorizeAttribute
+            {
+                Roles = roles,
+                Departments = departments,
+                Permissions = permissions,
+                RequireAll = false
             };
         }
     }

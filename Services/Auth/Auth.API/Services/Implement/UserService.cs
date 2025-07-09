@@ -24,6 +24,7 @@ using Newtonsoft.Json;
 using Shared.DTOs;
 using Auth.API.Payload.Response.Role;
 using Auth.API.Payload.Response.Department;
+using Auth.API.Payload.Response.UserSetting;
 using Auth.Infrastructure.Paginate;
 using Auth.Infrastructure.Filter;
 
@@ -56,45 +57,13 @@ public class UserService : BaseService<UserService>, IUserService
             throw new BadHttpRequestException(MessageConstant.User.UsernameOrPasswork);
         }
 
-        var response = CreateLoginResponse(user);
-        await UpdateLastLoginAsync(user);
+        // Lấy UserSetting của user
+        var userSetting = await _unitOfWork.GetRepository<UserSetting>().SingleOrDefaultAsync(
+            predicate: us => us.UserId == user.Id
+        );
 
-        // Thêm logging chi tiết về endpoint và exchange
-        _logger.LogInformation("Publishing UserRequestMessage for user: {UserId} to default exchange with timestamp {Timestamp}",
-            user.Id, DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff"));
-        try
-        {
-            await _publishEndpoint.Publish(new UserRequestMessage(user.Id));
-            _logger.LogInformation("✅ Successfully published message to exchange");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "❌ Error publishing message: {Message}", ex.Message);
-        }
-
-        return await response;
-    }
-
-    private void ValidateLoginRequest(LoginRequest request)
-    {
-        if (request == null || string.IsNullOrWhiteSpace(request.Username) ||
-            string.IsNullOrWhiteSpace(request.Password))
-            throw new BadHttpRequestException(MessageConstant.User.LoginRequestNoNull);
-    }
-
-    private async Task<User> GetUserWithDetailsAsync(string username)
-    {
-        var userDetail = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
-            predicate: u => u.UserName == username,
-            include: u => u.Include(u => u.Role).ThenInclude(rp => rp.RolePermissions).ThenInclude(p => p.Permission)
-            .Include(u => u.Department)
-            );
-        return userDetail;
-    }
-
-    private async Task<LoginResponse> CreateLoginResponse(User user)
-    {
-        return new LoginResponse
+        // Tạo response trước khi cập nhật last login
+        var response = new LoginResponse
         {
             UserId = user.Id,
             Username = user.UserName,
@@ -117,10 +86,55 @@ public class UserService : BaseService<UserService>, IUserService
                 CreateAt = user.Department.CreateAt,
                 UpdateAt = user.Department.UpdateAt
             },
+            UserSetting = userSetting != null ? new UserSettingResponse
+            {
+                Id = userSetting.Id,
+                TwoFactorEnabled = userSetting.TwoFactorEnabled,
+                TwoFactorMethod = userSetting.TwoFactorMethod,
+                NotificationsEnabled = userSetting.NotificationsEnabled,
+                UpdateAt = userSetting.UpdateAt
+            } : null,
             Token = JwtUtil.GenerateJwtToken(user, _configuration),
             RefreshToken = JwtUtil.GenerateRefreshToken()
         };
+
+        // Cập nhật last login sau khi đã tạo response
+        await UpdateLastLoginAsync(user);
+
+        // Publish message sau khi đã hoàn thành các thao tác với database
+        _logger.LogInformation("Publishing UserRequestMessage for user: {UserId} to default exchange with timestamp {Timestamp}",
+            user.Id, DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+        try
+        {
+            await _publishEndpoint.Publish(new UserRequestMessage(user.Id));
+            _logger.LogInformation("✅ Successfully published message to exchange");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error publishing message: {Message}", ex.Message);
+        }
+
+        return response;
     }
+
+    private void ValidateLoginRequest(LoginRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Username) ||
+            string.IsNullOrWhiteSpace(request.Password))
+            throw new BadHttpRequestException(MessageConstant.User.LoginRequestNoNull);
+    }
+
+    private async Task<User> GetUserWithDetailsAsync(string username)
+    {
+        var userDetail = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.UserName == username,
+            include: u => u.Include(u => u.Role).ThenInclude(rp => rp.RolePermissions).ThenInclude(p => p.Permission)
+            .Include(u => u.Department)
+            );
+        return userDetail;
+    }
+
+    // CreateLoginResponse đã bị xóa vì đã tích hợp vào LoginAsync
 
     private async Task UpdateLastLoginAsync(User user)
     {
@@ -156,6 +170,7 @@ public class UserService : BaseService<UserService>, IUserService
         // await ValidateOtpAsync(request.Email, request.Otp);
 
         var user = CreateUserEntity(request);
+        var userSetting = CreateUserSettingEntity(user);
         // var activeKey = await GetActiveKeyFromActivationCodeAsync(request.ActivationCode);
 
         // activeKey.UsedByUserId = user.Id;
@@ -167,6 +182,7 @@ public class UserService : BaseService<UserService>, IUserService
             try
             {
                 await _unitOfWork.GetRepository<User>().InsertAsync(user);
+                await _unitOfWork.GetRepository<UserSetting>().InsertAsync(userSetting);
 
                 var isSuccessful = await _unitOfWork.CommitAsync() > 0;
                 if (!isSuccessful)
@@ -174,7 +190,7 @@ public class UserService : BaseService<UserService>, IUserService
 
                 transaction.Complete();
 
-                return await CreateRegisterResponse(user);
+                return await CreateRegisterResponse(user, userSetting);
             }
             catch (DbUpdateException ex)
             {
@@ -222,11 +238,21 @@ public class UserService : BaseService<UserService>, IUserService
         var user = _mapper.Map<User>(request);
         user.Id = Guid.NewGuid();
         user.Password = PasswordUtil.HashPassword(request.Password);
-        user.TwoFactorEnabled = false;
-        user.TwoFactorMethod = "Email";
         user.CreatAt = DateTime.UtcNow;
         user.UpdateAt = DateTime.UtcNow;
         return user;
+    }
+
+    private UserSetting CreateUserSettingEntity(User user)
+    {
+        UserSetting userSetting = null;
+        userSetting.Id = Guid.NewGuid();
+        userSetting.TwoFactorEnabled = false;
+        userSetting.TwoFactorMethod = "Email";
+        userSetting.NotificationsEnabled = true;
+        userSetting.UpdateAt = DateTime.UtcNow;
+        userSetting.UserId = user.Id;
+        return userSetting;
     }
 
     // private async Task<ActiveKey> GetActiveKeyFromActivationCodeAsync(string activationCode)
@@ -259,7 +285,7 @@ public class UserService : BaseService<UserService>, IUserService
     }
 
 
-    private async Task<RegisterResponse> CreateRegisterResponse(User user)
+    private async Task<RegisterResponse> CreateRegisterResponse(User user, UserSetting userSetting)
     {
         var response = _mapper.Map<RegisterResponse>(user);
         response.Department = new DepartmentResponse
@@ -275,6 +301,13 @@ public class UserService : BaseService<UserService>, IUserService
             Description = user.Role.Description,
             CreateAt = user.Role.CreateAt,
             UpdateAt = user.Role.UpdateAt
+        };
+        response.UserSetting = new UserSettingResponse()
+        {
+            TwoFactorEnabled = userSetting.TwoFactorEnabled,
+            TwoFactorMethod = userSetting.TwoFactorMethod,
+            NotificationsEnabled = userSetting.NotificationsEnabled,
+            UpdateAt = user.UpdateAt
         };
         response.Token = JwtUtil.GenerateJwtToken(user, _configuration);
         response.RefreshToken = JwtUtil.GenerateRefreshToken();
@@ -608,19 +641,40 @@ public class UserService : BaseService<UserService>, IUserService
                 DepartmentId = s.DepartmentId,
                 Department = s.Department,
                 CreatAt = s.CreatAt,
-                UpdateAt = s.UpdateAt,
-                TwoFactorEnabled = s.TwoFactorEnabled,
-                TwoFactorMethod = s.TwoFactorMethod
+                UpdateAt = s.UpdateAt
             },
             page: page,
             size: size,
             filter: filter,
             sortBy: sortBy,
             isAsc: isAsc,
-            include: s => s.Include(u => u.Role).Include(u => u.Department)
+            include: s => s.Include(u => u.Role)
+                           .Include(u => u.Department)
         );
 
+        var userIds = users.Items.Select(u => u.Id).ToList();
+        var userSettings = await _unitOfWork.GetRepository<UserSetting>()
+            .GetListAsync(predicate: us => userIds.Contains(us.UserId));
+
         var response = _mapper.Map<IPaginate<UserResponse>>(users);
+
+        // Gán UserSetting cho từng UserResponse
+        foreach (var userResponse in response.Items)
+        {
+            var userSetting = userSettings.FirstOrDefault(us => us.UserId == userResponse.Id);
+            if (userSetting != null)
+            {
+                userResponse.UserSetting = new UserSettingResponse
+                {
+                    Id = userSetting.Id,
+                    TwoFactorEnabled = userSetting.TwoFactorEnabled,
+                    TwoFactorMethod = userSetting.TwoFactorMethod,
+                    NotificationsEnabled = userSetting.NotificationsEnabled,
+                    UpdateAt = userSetting.UpdateAt
+                };
+            }
+        }
+
         return response;
     }
 }
