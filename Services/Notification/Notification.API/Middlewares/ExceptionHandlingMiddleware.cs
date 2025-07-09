@@ -27,29 +27,32 @@ public class ExceptionHandlingMiddleware
         }
     }
 
-    private async Task HandleExceptionAsync(HttpContext context, Exception ex)
+    private async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
         context.Response.ContentType = "application/json";
-        context.Response.StatusCode = ex switch
-        {
-            BadHttpRequestException => (int)HttpStatusCode.BadRequest,
-            UnauthorizedAccessException => (int)HttpStatusCode.Unauthorized,
-            _ => (int)HttpStatusCode.InternalServerError
-        };
-
-        _logger.LogError(ex, "An unhandled exception occurred: {Message}", ex.Message);
+        var response = context.Response;
 
         var errorResponse = new ErrorResponse
         {
-            StatusCode = context.Response.StatusCode,
-            Error = ex.Message,
-            Path = context.Request.Path,
-            TraceId = context.TraceIdentifier,
-            TimeStamp = DateTime.UtcNow
+            TraceId = context.TraceIdentifier
         };
 
-        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-        var result = JsonSerializer.Serialize(errorResponse, options);
+        switch (exception)
+        {
+            case BadHttpRequestException ex:
+                response.StatusCode = (int)HttpStatusCode.BadRequest;
+                errorResponse.Message = ex.Message;
+                break;
+            default:
+                response.StatusCode = (int)HttpStatusCode.InternalServerError;
+                errorResponse.Message = "An unexpected internal server error has occurred.";
+                errorResponse.Details = exception.Message; // Chỉ nên hiển thị chi tiết lỗi trong môi trường Development
+                break;
+        }
+
+        _logger.LogError(exception, "An error occurred: {Message}", exception.Message);
+
+        var result = JsonSerializer.Serialize(errorResponse, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
         await context.Response.WriteAsync(result);
     }
 }

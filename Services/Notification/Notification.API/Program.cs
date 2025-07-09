@@ -1,5 +1,10 @@
-using Auth.API.Extensions;
+﻿using Auth.API.Extensions;
+using MassTransit;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc.Authorization;
 using Notification.API.Constants;
+using Notification.API.Consumers;
+using Notification.API.Hubs;
 using Notification.API.Middlewares;
 using NSwag;
 using NSwag.Generation.Processors.Security;
@@ -37,17 +42,24 @@ try
     });
 
     builder.Services.AddOpenApi();
-    builder.Services.AddDatabase();
-    // builder.Services.AddRedis(builder.Configuration);
-    builder.Services.AddUnitOfWork();
-    builder.Services.AddServices(builder.Configuration);
+
+    builder.Services.AddUnitOfWork()
+                    .AddDatabase()
+                    .AddServices(builder.Configuration)
+                    .AddApiClients(builder.Configuration)
+                    .AddJwtAuthentication(builder.Configuration)
+                    .AddQuartzJobs(builder.Configuration)
+                    .AddMassTransit(builder.Configuration);
+
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
-    builder.Services.AddEndpointsApiExplorer();
+
+    builder.Services.AddAuthentication();
     builder.Services.AddAuthorization();
+
     builder.Services.AddControllers();
-    // builder.Services.AddJwtAuthentication(builder.Configuration);
-    // builder.Services.AddSwaggerGen();
+    builder.Services.AddSignalR();
     builder.Services.AddHttpContextAccessor();
+    builder.Services.AddEndpointsApiExplorer();
 
     builder.Services.Configure<HostOptions>(hostOptions =>
     {
@@ -84,12 +96,14 @@ try
 
     app.UseSerilogRequestLogging();
     app.UseCors(CorConstant.PolicyName);
-    // app.UseHttpsRedirection();
-    app.UseAuthentication();
+    app.UseHttpsRedirection();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
+    app.UseAuthentication();
     app.UseAuthorization();
-    app.UseSerilogRequestLogging();
     app.MapControllers();
+
+    app.MapHub<NotificationHub>("/notificationHub");
+
 
     app.Run();
 

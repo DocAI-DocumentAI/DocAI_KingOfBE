@@ -79,6 +79,7 @@ public abstract class IGenericRepository<T> : IDisposable where T : class
             query.Expression, Expression.Quote(lambda));
         return query.Provider.CreateQuery<T>(resultExpression);
     }
+    public abstract Task<bool> AnyAsync(Expression<Func<T, bool>> predicate = null);
 
     public abstract Task InsertAsync(T entity);
     public abstract Task InsertRangeAsync(IEnumerable<T> entities);

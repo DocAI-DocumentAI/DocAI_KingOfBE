@@ -1,23 +1,36 @@
-﻿using System.Text.Json.Serialization;
+﻿using System.ComponentModel.DataAnnotations;
 using Notification.Domain.Enums;
 
-namespace Notification.API.Payload.Response;
+namespace Notification.Domain.Models;
 
-public class NotificationResponse
+public class NotificationLog : BaseEntity
 {
-
-    public Guid Id { get; set; }
+    [Required]
     public Guid DocumentId { get; set; }
+
     public string? DocumentVersion { get; set; }
+
+    [Required]
     public NotificationType NotificationType { get; set; }
+
+    [Required]
     public RecipientType RecipientType { get; set; }
+
+    [MaxLength(255)]
     public string? RecipientAddress { get; set; }
+
+    [Required]
     public string Subject { get; set; } = null!;
+
+    [Required]
+    public string Message { get; set; } = null!;
+
     public bool IsSent { get; set; }
     public DateTime? SentAt { get; set; }
     public string? ErrorMessage { get; set; }
-    public bool IsDismissed { get; set; }
+    public bool IsDismissed { get; set; } = false; 
     public DateTime? DismissedAt { get; set; }
     public Guid? DismissedByUserId { get; set; }
-    public DateTime CreateAt { get; set; }
+    public Guid? DismissToken { get; set; }
+
 }
