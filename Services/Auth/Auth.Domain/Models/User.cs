@@ -14,6 +14,7 @@ public class User
     public string Email { get; set; }
     public string Phone { get; set; }
     public string FullName { get; set; }
+    public bool Active { get; set; }
     public Guid RoleId { get; set; }
     [ForeignKey("RoleId")]
     public virtual Role Role { get; set; }
@@ -22,6 +23,4 @@ public class User
     public virtual Department Department { get; set; }
     public DateTime CreatAt { get; set; }
     public DateTime UpdateAt { get; set; }
-    public bool TwoFactorEnabled { get; set; }
-    public string? TwoFactorMethod { get; set; }
 }

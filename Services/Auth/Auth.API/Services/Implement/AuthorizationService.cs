@@ -38,8 +38,8 @@ namespace Auth.API.Services.Implement
         public string[] GetCurrentUserPermissions()
         {
             var permissionsString = GetCurrentUser().FindFirst("permissions")?.Value;
-            return string.IsNullOrEmpty(permissionsString) 
-                ? Array.Empty<string>() 
+            return string.IsNullOrEmpty(permissionsString)
+                ? Array.Empty<string>()
                 : permissionsString.Split(',', StringSplitOptions.RemoveEmptyEntries);
         }
 
@@ -59,7 +59,7 @@ namespace Auth.API.Services.Implement
         {
             var userRole = GetCurrentUserRole();
             if (string.IsNullOrEmpty(userRole)) return false;
-            
+
             // Một user chỉ có thể có một role, nên chỉ có thể HasAllRoles nếu chỉ có 1 role được yêu cầu
             return roles.Length == 1 && roles[0].Equals(userRole, StringComparison.OrdinalIgnoreCase);
         }
@@ -120,8 +120,8 @@ namespace Auth.API.Services.Implement
                     hasAccess |= HasAnyPermission(permissions);
 
                 // Nếu không có điều kiện nào được set, cho phép truy cập (chỉ cần authenticated)
-                if ((roles == null || roles.Length == 0) && 
-                    (departments == null || departments.Length == 0) && 
+                if ((roles == null || roles.Length == 0) &&
+                    (departments == null || departments.Length == 0) &&
                     (permissions == null || permissions.Length == 0))
                 {
                     return true;

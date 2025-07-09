@@ -4,8 +4,18 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Notification.API.Consumers;
+using Notification.API.Jobs;
+using Notification.API.Services.Implement;
+using Notification.API.Services.Interfaces;
+using Notification.API.Utils;
+using Notification.Domain.Models;
 using Notification.Infrastructure.Repository.Implement;
 using Notification.Infrastructure.Repository.Interfaces;
+using Polly;
+using Polly.CircuitBreaker;
+using Polly.Extensions.Http;
+using Polly.Retry;
+using Quartz;
 using Serilog;
 
 namespace Auth.API.Extensions;
@@ -14,10 +24,9 @@ public static class DependencyService
 {
     public static IServiceCollection AddUnitOfWork(this IServiceCollection services)
     {
-        // services.AddScoped<IUnitOfWork<DocAIAuthContext>, UnitOfWork<DocAIAuthContext>>();
+         services.AddScoped<IUnitOfWork<NotificationDbContext>, UnitOfWork<NotificationDbContext>>();
         return services;
     }
-
     public static IServiceCollection AddDatabase(this IServiceCollection services)
     {
         IConfiguration configuration = new ConfigurationBuilder()
@@ -27,53 +36,57 @@ public static class DependencyService
 
         var connectionString = configuration.GetConnectionString("DefaultConnection");
 
-        // services.AddDbContext<DocAIAuthContext>(options =>
-        //     options.UseNpgsql(connectionString, b => b.MigrationsAssembly("Notification.API")));
+         services.AddDbContext<NotificationDbContext>(options =>
+             options.UseNpgsql(connectionString, b => b.MigrationsAssembly("Notification.API")));
 
         services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
         // services.AddScoped<DbContext, DocAIAuthContext>();
 
         return services;
     }
-
-    // public static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
-    // {
-    //     var redisConnectionString = configuration.GetConnectionString("Redis");
-    //
-    //     if (string.IsNullOrEmpty(redisConnectionString))
-    //     {
-    //         throw new InvalidOperationException(" Connection string cho Redis không được cấu hình.");
-    //     }
-    //
-    //     services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(redisConnectionString));
-    //     services.AddScoped<IRedisService, RedisService>();
-    //
-    //     return services;
-    // }
-
     public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
     {
-        // services.AddScoped<IUserService, UserService>();
-        services.AddMassTransit(x =>
-        {
-            x.AddConsumer<UserRequestMessageConsumer>();
-            x.UsingRabbitMq((context, cfg) =>
-            {
-                cfg.Host("rabbitmq", h =>
-                {
-                    h.Username("guest");
-                    h.Password("guest");
-                });
+        services.AddScoped<IEmailService, EmailService>();
+        services.AddScoped<IEmailTemplateService, EmailTemplateService>();
+        services.AddScoped<INotificationConfigService, NotificationConfigService>();
+        services.AddScoped<INotificationLogService, NotificationLogService>();
+        services.AddScoped<INotificationSchedulerService, NotificationSchedulerService>();
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<IDocumentScanService, DocumentScanService>();
 
-                cfg.ReceiveEndpoint("user-request-queue", e =>
-                {
-                    e.ConfigureConsumer<UserRequestMessageConsumer>(context);
-                });
-            });
-        });
+        services.AddSingleton<TemplateRendererUtil>();
+        services.AddMemoryCache(); 
+
         return services;
     }
+    public static IServiceCollection AddApiClients(this IServiceCollection services, IConfiguration configuration)
+    {
+        var retryPolicy = HttpPolicyExtensions
+            .HandleTransientHttpError()
+            .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
 
+        var circuitBreakerPolicy = HttpPolicyExtensions
+            .HandleTransientHttpError()
+            .CircuitBreakerAsync(5, TimeSpan.FromSeconds(30));
+
+        // Client cho Auth Microservice
+        services.AddHttpClient<IAuthClient, AuthClient>(client =>
+            client.BaseAddress = new Uri(configuration["MicroserviceUrls:Auth"]!))
+            .AddPolicyHandler(retryPolicy)
+            .AddPolicyHandler(circuitBreakerPolicy);
+
+                    // Client cho Document Microservice (sử dụng Mock trong môi trường DEBUG)
+            #if DEBUG
+                    services.AddScoped<IDocumentClient, MockDocumentClient>();
+            #else
+                        services.AddHttpClient<IDocumentClient, DocumentClient>(client => 
+                            client.BaseAddress = new Uri(configuration["MicroserviceUrls:Document"]!))
+                            .AddPolicyHandler(retryPolicy)
+                            .AddPolicyHandler(circuitBreakerPolicy);
+            #endif
+
+        return services;
+    }
     public static IServiceCollection AddJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
         string secret = configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret is missing in configuration.");
@@ -105,7 +118,12 @@ public static class DependencyService
                 {
                     OnMessageReceived = context =>
                     {
-                        Log.Information("Token received: {Token}", context.Token);
+                        var accessToken = context.Request.Query["access_token"];
+                        if (!string.IsNullOrEmpty(accessToken) &&
+                            context.Request.Path.StartsWithSegments("/notificationHub"))
+                        {
+                            context.Token = accessToken;
+                        }
                         return Task.CompletedTask;
                     },
                     OnAuthenticationFailed = context =>
@@ -121,6 +139,53 @@ public static class DependencyService
                 };
             });
 
+        return services;
+    }
+    public static IServiceCollection AddQuartzJobs(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddQuartz(q =>
+        {
+            q.UseMicrosoftDependencyInjectionJobFactory();
+
+            // NotificationScanJob
+            var scanJobKey = new JobKey("NotificationScanJob");
+            q.AddJob<NotificationScanJob>(opts => opts.WithIdentity(scanJobKey));
+            q.AddTrigger(opts => opts
+                .ForJob(scanJobKey)
+                .WithIdentity("NotificationScanTrigger")
+                .WithCronSchedule(configuration["Quartz:ScanCronExpression"] ?? "0 0 7 * * ?")); // 7:00 AM daily
+
+            // CleanUpOldLogsJob
+            var cleanupJobKey = new JobKey("CleanUpOldLogsJob");
+            q.AddJob<CleanUpOldLogsJob>(opts => opts.WithIdentity(cleanupJobKey));
+            q.AddTrigger(opts => opts
+                .ForJob(cleanupJobKey)
+                .WithIdentity("CleanUpOldLogsTrigger")
+                .WithCronSchedule(configuration["Quartz:CleanupCronExpression"] ?? "0 0 0 ? * SUN")); // Sunday midnight
+        });
+
+        services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
+        return services;
+    }
+    public static IServiceCollection AddMassTransit(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddMassTransit(busConfig =>
+        {
+            busConfig.AddConsumer<ProcessDocumentExpirationConsumer>(); // Sẽ được tích hợp sâu hơn ở bước sau
+            busConfig.AddConsumer<GeneralNotificationConsumer>();
+            busConfig.UsingRabbitMq((context, mqConfig) =>
+            {
+                mqConfig.Host("rabbitmq", h =>
+                {
+                    h.Username("guest");
+                    h.Password("guest");
+                });
+                mqConfig.ReceiveEndpoint("user-request-queue", e =>
+                {
+                    e.ConfigureConsumer<ProcessDocumentExpirationConsumer>(context);
+                });
+            });
+        });
         return services;
     }
 

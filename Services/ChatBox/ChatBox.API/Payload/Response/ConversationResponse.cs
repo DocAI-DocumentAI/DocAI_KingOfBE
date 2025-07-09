@@ -6,6 +6,6 @@
         public string UserId { get; set; }
         public string? Title { get; set; }
         public DateTime LastActive { get; set; }
-        public List<MessageResponse> Messages { get; set; } = new List<MessageResponse>();
+        public List<MessageResponse> Messages { get; set; } = new List<MessageResponse>(); // Thuộc tính này đã có
     }
 }

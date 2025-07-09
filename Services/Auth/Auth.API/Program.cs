@@ -88,8 +88,6 @@ try
 
     var app = builder.Build();
 
-    // if (app.Environment.IsDevelopment())
-    // {
     app.MapOpenApi();
     app.UseOpenApi();
     app.UseSwaggerUI(options =>
@@ -97,12 +95,6 @@ try
         options.RoutePrefix = "swagger";
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
     });
-    // app.UseReDoc(options =>
-    // {
-    //     options.SpecUrl = "/openapi/v1.json";
-    // });
-    // app.MapScalarApiReference();
-    // }
 
     app.UseCors(CorConstant.PolicyName);
     // app.UseHttpsRedirection();
@@ -111,9 +103,6 @@ try
     app.UseAuthorization();
     app.UseSerilogRequestLogging();
     app.MapControllers();
-
-    // Thêm endpoint health check
-    app.MapGet("/health", () => Results.Ok("Healthy"));
 
     app.Run();
 

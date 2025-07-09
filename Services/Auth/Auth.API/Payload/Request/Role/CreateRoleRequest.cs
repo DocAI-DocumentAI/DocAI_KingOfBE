@@ -1,4 +1,4 @@
-﻿namespace Auth.API.Payload.Request.Staff;
+﻿namespace Auth.API.Payload.Request.Role;
 
 public class CreateRoleRequest
 {

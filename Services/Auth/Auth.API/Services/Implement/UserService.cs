@@ -9,8 +9,6 @@ using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.ActiveKey;
 using Auth.API.Payload.Request.User;
 using Auth.API.Payload.Response;
-using Auth.API.Payload.Response.ActiveKey;
-using Auth.API.Payload.Response.Staff;
 using Auth.API.Payload.Response.User;
 using Microsoft.EntityFrameworkCore;
 using Auth.API.Utils;
@@ -24,6 +22,11 @@ using RegisterRequest = Auth.API.Payload.Request.RegisterRequest;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using Shared.DTOs;
+using Auth.API.Payload.Response.Role;
+using Auth.API.Payload.Response.Department;
+using Auth.API.Payload.Response.UserSetting;
+using Auth.Infrastructure.Paginate;
+using Auth.Infrastructure.Filter;
 
 namespace Auth.API.Services.Interface;
 
@@ -32,16 +35,14 @@ public class UserService : BaseService<UserService>, IUserService
     private readonly IRedisService _redisService;
     private IConfiguration _configuration;
     private IPublishEndpoint _publishEndpoint;
-    private readonly IBus _bus;
 
     public UserService(IUnitOfWork<DocAIAuthContext> unitOfWork, ILogger<UserService> logger,
         IHttpContextAccessor httpContextAccessor, IConfiguration configuration, IMapper mapper,
-        IRedisService redisService, IPublishEndpoint publishEndpoint, IBus bus) : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
+        IRedisService redisService, IPublishEndpoint publishEndpoint) : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
     {
         _configuration = configuration;
         _redisService = redisService;
         _publishEndpoint = publishEndpoint;
-        _bus = bus;
     }
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request)
@@ -56,51 +57,13 @@ public class UserService : BaseService<UserService>, IUserService
             throw new BadHttpRequestException(MessageConstant.User.UsernameOrPasswork);
         }
 
-        var response = CreateLoginResponse(user);
-        await UpdateLastLoginAsync(user);
+        // Lấy UserSetting của user
+        var userSetting = await _unitOfWork.GetRepository<UserSetting>().SingleOrDefaultAsync(
+            predicate: us => us.UserId == user.Id
+        );
 
-        // Thêm logging chi tiết về endpoint và exchange
-        _logger.LogInformation("Publishing UserRequestMessage for user: {UserId} to default exchange with timestamp {Timestamp}",
-            user.Id, DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff"));
-        try
-        {
-            // Đảm bảo message được publish đến đúng exchange và routing key
-            await _publishEndpoint.Publish(new UserRequestMessage(user.Id));
-            _logger.LogInformation("Successfully published UserRequestMessage for user: {UserId}", user.Id);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to publish UserRequestMessage for user: {UserId}", user.Id);
-        }
-
-        // Thử publish trực tiếp đến queue cụ thể
-        var sendEndpoint = await _bus.GetSendEndpoint(new Uri($"queue:user-request-queue"));
-        await sendEndpoint.Send(new UserRequestMessage(user.Id));
-        _logger.LogInformation("Sent message directly to user-request-queue for user: {UserId}", user.Id);
-
-        return await response;
-    }
-
-    private void ValidateLoginRequest(LoginRequest request)
-    {
-        if (request == null || string.IsNullOrWhiteSpace(request.Username) ||
-            string.IsNullOrWhiteSpace(request.Password))
-            throw new BadHttpRequestException(MessageConstant.User.LoginRequestNoNull);
-    }
-
-    private async Task<User> GetUserWithDetailsAsync(string username)
-    {
-        var userDetail = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
-            predicate: u => u.UserName == username,
-            include: u => u.Include(u => u.Role).ThenInclude(rp => rp.RolePermissions).ThenInclude(p => p.Permission)
-            .Include(u => u.Department)
-            );
-        return userDetail;
-    }
-
-    private async Task<LoginResponse> CreateLoginResponse(User user)
-    {
-        return new LoginResponse
+        // Tạo response trước khi cập nhật last login
+        var response = new LoginResponse
         {
             UserId = user.Id,
             Username = user.UserName,
@@ -123,29 +86,66 @@ public class UserService : BaseService<UserService>, IUserService
                 CreateAt = user.Department.CreateAt,
                 UpdateAt = user.Department.UpdateAt
             },
+            UserSetting = userSetting != null ? new UserSettingResponse
+            {
+                Id = userSetting.Id,
+                TwoFactorEnabled = userSetting.TwoFactorEnabled,
+                TwoFactorMethod = userSetting.TwoFactorMethod,
+                NotificationsEnabled = userSetting.NotificationsEnabled,
+                UpdateAt = userSetting.UpdateAt
+            } : null,
             Token = JwtUtil.GenerateJwtToken(user, _configuration),
             RefreshToken = JwtUtil.GenerateRefreshToken()
         };
+
+        // Cập nhật last login sau khi đã tạo response
+        await UpdateLastLoginAsync(user);
+
+        // Publish message sau khi đã hoàn thành các thao tác với database
+        _logger.LogInformation("Publishing UserRequestMessage for user: {UserId} to default exchange with timestamp {Timestamp}",
+            user.Id, DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+        try
+        {
+            await _publishEndpoint.Publish(new UserRequestMessage(user.Id));
+            _logger.LogInformation("✅ Successfully published message to exchange");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error publishing message: {Message}", ex.Message);
+        }
+
+        return response;
     }
+
+    private void ValidateLoginRequest(LoginRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Username) ||
+            string.IsNullOrWhiteSpace(request.Password))
+            throw new BadHttpRequestException(MessageConstant.User.LoginRequestNoNull);
+    }
+
+    private async Task<User> GetUserWithDetailsAsync(string username)
+    {
+        var userDetail = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.UserName == username,
+            include: u => u.Include(u => u.Role).ThenInclude(rp => rp.RolePermissions).ThenInclude(p => p.Permission)
+            .Include(u => u.Department)
+            );
+        return userDetail;
+    }
+
+    // CreateLoginResponse đã bị xóa vì đã tích hợp vào LoginAsync
 
     private async Task UpdateLastLoginAsync(User user)
     {
-        // Bước 1: Lấy lại user từ DB bằng một truy vấn MỚI.
-        // Điều này đảm bảo rằng đối tượng 'userToUpdate' này được theo dõi bởi DbContext hiện tại
-        // và sẽ không có xung đột với các đối tượng 'NoTracking' từ GetUserWithDetailsAsync.
         var userToUpdate = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
             predicate: u => u.Id == user.Id // Chỉ cần ID của user để lấy lại
         );
 
-        // Bước 2: Kiểm tra nếu user được tìm thấy để cập nhật
         if (userToUpdate != null)
         {
-            // Bước 3: Thực hiện thay đổi trên đối tượng đã được theo dõi
-            userToUpdate.UpdateAt = DateTime.UtcNow; // Cập nhật thời gian cuối cùng đăng nhập
-            // userToUpdate.LastLogin = DateTime.UtcNow; // Nếu bạn có trường LastLogin riêng biệt
+            userToUpdate.UpdateAt = DateTime.UtcNow;
 
-            // Bước 4: Gọi UpdateAsync trên đối tượng đã được theo dõi
-            // Phương thức UpdateAsync của bạn sẽ hoạt động đúng ở đây vì userToUpdate đã được theo dõi
             _unitOfWork.GetRepository<User>().UpdateAsync(userToUpdate);
             var success = await _unitOfWork.CommitAsync() > 0;
 
@@ -170,6 +170,7 @@ public class UserService : BaseService<UserService>, IUserService
         // await ValidateOtpAsync(request.Email, request.Otp);
 
         var user = CreateUserEntity(request);
+        var userSetting = CreateUserSettingEntity(user);
         // var activeKey = await GetActiveKeyFromActivationCodeAsync(request.ActivationCode);
 
         // activeKey.UsedByUserId = user.Id;
@@ -181,6 +182,7 @@ public class UserService : BaseService<UserService>, IUserService
             try
             {
                 await _unitOfWork.GetRepository<User>().InsertAsync(user);
+                await _unitOfWork.GetRepository<UserSetting>().InsertAsync(userSetting);
 
                 var isSuccessful = await _unitOfWork.CommitAsync() > 0;
                 if (!isSuccessful)
@@ -188,7 +190,7 @@ public class UserService : BaseService<UserService>, IUserService
 
                 transaction.Complete();
 
-                return await CreateRegisterResponse(user);
+                return await CreateRegisterResponse(user, userSetting);
             }
             catch (DbUpdateException ex)
             {
@@ -236,11 +238,21 @@ public class UserService : BaseService<UserService>, IUserService
         var user = _mapper.Map<User>(request);
         user.Id = Guid.NewGuid();
         user.Password = PasswordUtil.HashPassword(request.Password);
-        user.TwoFactorEnabled = false;
-        user.TwoFactorMethod = "Email";
         user.CreatAt = DateTime.UtcNow;
         user.UpdateAt = DateTime.UtcNow;
         return user;
+    }
+
+    private UserSetting CreateUserSettingEntity(User user)
+    {
+        UserSetting userSetting = null;
+        userSetting.Id = Guid.NewGuid();
+        userSetting.TwoFactorEnabled = false;
+        userSetting.TwoFactorMethod = "Email";
+        userSetting.NotificationsEnabled = true;
+        userSetting.UpdateAt = DateTime.UtcNow;
+        userSetting.UserId = user.Id;
+        return userSetting;
     }
 
     // private async Task<ActiveKey> GetActiveKeyFromActivationCodeAsync(string activationCode)
@@ -273,7 +285,7 @@ public class UserService : BaseService<UserService>, IUserService
     }
 
 
-    private async Task<RegisterResponse> CreateRegisterResponse(User user)
+    private async Task<RegisterResponse> CreateRegisterResponse(User user, UserSetting userSetting)
     {
         var response = _mapper.Map<RegisterResponse>(user);
         response.Department = new DepartmentResponse
@@ -289,6 +301,13 @@ public class UserService : BaseService<UserService>, IUserService
             Description = user.Role.Description,
             CreateAt = user.Role.CreateAt,
             UpdateAt = user.Role.UpdateAt
+        };
+        response.UserSetting = new UserSettingResponse()
+        {
+            TwoFactorEnabled = userSetting.TwoFactorEnabled,
+            TwoFactorMethod = userSetting.TwoFactorMethod,
+            NotificationsEnabled = userSetting.NotificationsEnabled,
+            UpdateAt = user.UpdateAt
         };
         response.Token = JwtUtil.GenerateJwtToken(user, _configuration);
         response.RefreshToken = JwtUtil.GenerateRefreshToken();
@@ -540,5 +559,122 @@ public class UserService : BaseService<UserService>, IUserService
                 throw;
             }
         }
+    }
+
+    public async Task<List<GetUserByDeparAndRoleResponse>> GetUserByDeparAndRoleAsync(GetUserByDeparAndRole request)
+    {
+        if (request == null)
+            throw new ArgumentNullException(nameof(request), "Request cannot be null");
+
+        if (request.DepartmentId == Guid.Empty)
+            throw new BadHttpRequestException(MessageConstant.Department.DepartmentNotFound);
+
+        if (request.RoleId == Guid.Empty)
+            throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
+
+        // Kiểm tra department tồn tại
+        var department = await _unitOfWork.GetRepository<Department>()
+            .SingleOrDefaultAsync(predicate: d => d.Id == request.DepartmentId);
+
+        if (department == null)
+            throw new BadHttpRequestException(MessageConstant.Department.DepartmentNotFound);
+
+        // Kiểm tra role tồn tại
+        var role = await _unitOfWork.GetRepository<Role>()
+            .SingleOrDefaultAsync(predicate: r => r.Id == request.RoleId);
+
+        if (role == null)
+            throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
+
+        // Lấy danh sách user theo department và role với phân trang
+        var users = await _unitOfWork.GetRepository<User>().GetPagingListAsync(
+            selector: u => u,
+            filter: null,
+            predicate: u => u.DepartmentId == request.DepartmentId && u.RoleId == request.RoleId,
+            include: u => u.Include(u => u.Role).Include(u => u.Department),
+            page: request.PageIndex,
+            size: request.PageSize,
+            orderBy: u => u.OrderBy(x => x.FullName)
+        );
+
+        // Tạo danh sách response
+        var responseList = users.Items.Select(user => new GetUserByDeparAndRoleResponse
+        {
+            UserId = user.Id,
+            UserName = user.UserName,
+            FullName = user.FullName,
+            Email = user.Email,
+            Phone = user.Phone,
+            Role = user.Role != null ? new RoleResponse
+            {
+                Id = user.Role.Id,
+                RoleName = user.Role.RoleName,
+                Description = user.Role.Description,
+                CreateAt = user.Role.CreateAt,
+                UpdateAt = user.Role.UpdateAt
+            } : null,
+            Department = user.Department != null ? new DepartmentResponse
+            {
+                Id = user.Department.Id,
+                Name = user.Department.Name,
+                Description = user.Department.Description,
+                CreateAt = user.Department.CreateAt,
+                UpdateAt = user.Department.UpdateAt
+            } : null
+        }).ToList();
+
+        return responseList;
+    }
+
+    public async Task<IPaginate<UserResponse>> GetAllUsersAsync(int page, int size, UserFilter? filter, string? sortBy, bool isAsc)
+    {
+        var users = await _unitOfWork.GetRepository<User>().GetPagingListAsync(
+            selector: s => new User()
+            {
+                Id = s.Id,
+                UserName = s.UserName,
+                Email = s.Email,
+                Phone = s.Phone,
+                FullName = s.FullName,
+                RoleId = s.RoleId,
+                Role = s.Role,
+                DepartmentId = s.DepartmentId,
+                Department = s.Department,
+                CreatAt = s.CreatAt,
+                UpdateAt = s.UpdateAt
+            },
+            page: page,
+            size: size,
+            filter: filter,
+            sortBy: sortBy,
+            isAsc: isAsc,
+            include: s => s.Include(u => u.Role)
+                           .Include(u => u.Department)
+        );
+
+        var userIds = users.Items.Select(u => u.Id).ToList();
+        var userSettings = await _unitOfWork.GetRepository<UserSetting>()
+            .GetListAsync(predicate: us => userIds.Contains(us.UserId));
+
+        var response = _mapper.Map<IPaginate<UserResponse>>(users);
+
+        // Gán UserSetting cho từng UserResponse
+        foreach (var userResponse in response.Items)
+        {
+            var userSetting = userSettings.FirstOrDefault(us => us.UserId == userResponse.Id);
+            if (userSetting != null)
+            {
+                userResponse.UserSetting = new UserSettingResponse
+                {
+                    Id = userSetting.Id,
+                    TwoFactorEnabled = userSetting.TwoFactorEnabled,
+                    TwoFactorMethod = userSetting.TwoFactorMethod,
+                    NotificationsEnabled = userSetting.NotificationsEnabled,
+                    UpdateAt = userSetting.UpdateAt
+                };
+            }
+        }
+
+        return response;
     }
 }

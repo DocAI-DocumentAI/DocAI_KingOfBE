@@ -1,5 +1,4 @@
-﻿using Auth.API.Payload.Request.Staff;
-using Auth.API.Payload.Response.Staff;
+﻿using Auth.API.Payload.Response.Role;
 using Auth.Domain.Models;
 using AutoMapper;
 
@@ -9,6 +8,6 @@ public class RoleMapper : Profile
 {
     public RoleMapper()
     {
-        CreateMap<Role,RoleResponse>();
+        CreateMap<Role, RoleResponse>();
     }
 }

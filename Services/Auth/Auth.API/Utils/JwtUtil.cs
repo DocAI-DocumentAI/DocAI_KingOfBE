@@ -51,9 +51,7 @@ public class JwtUtil
             new Claim("fullName", user.FullName ?? ""),
             new Claim("phone", user.Phone ?? ""),
             new Claim(ClaimTypes.Role, user.Role.RoleName ?? ""),
-            new Claim("departmentId", user.Department.Id.ToString()),
             new Claim("departmentName", user.Department.Name ?? ""),
-            // Thêm claim chứa danh sách permissions
             new Claim("permissions", permissionsString)
         };
 

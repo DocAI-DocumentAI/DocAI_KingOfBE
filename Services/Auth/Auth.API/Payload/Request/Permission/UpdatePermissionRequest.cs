@@ -1,4 +1,4 @@
-﻿namespace Auth.API.Payload.Request.Member;
+﻿namespace Auth.API.Payload.Request.Permission;
 
 public class UpdatePermissionRequest
 {

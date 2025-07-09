@@ -2,6 +2,7 @@
 using Auth.API.Constants;
 using Auth.API.Payload.Request.Department;
 using Auth.API.Payload.Response;
+using Auth.API.Payload.Response.Department;
 using Auth.API.Services.Interface;
 using Auth.Domain.Models;
 using Auth.Infrastructure.Filter;
@@ -120,7 +121,7 @@ public class DepartmentService : BaseService<DepartmentService>, IDepartmentServ
             predicate: s => s.DepartmentId == departmentId,
             include: s => s.Include(s => s.Department)
             );
-        if(departmentExist != null)
+        if (departmentExist != null)
             throw new BadHttpRequestException(MessageConstant.Department.DeleteFailed);
         _unitOfWork.GetRepository<Department>().DeleteAsync(department);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;

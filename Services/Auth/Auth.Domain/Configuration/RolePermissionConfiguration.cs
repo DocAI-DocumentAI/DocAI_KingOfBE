@@ -25,7 +25,7 @@ public class RolePermissionConfiguration : IEntityTypeConfiguration<RolePermissi
             {
                 Id = Guid.NewGuid(),
                 PermissionId = Guid.Parse("febebe25-dd94-4ba1-bdbd-810e4503bccd"), // VIEW_DEPARTMENT_DOCUMENT
-                RoleId = Guid.Parse("4e29a870-9131-4cc2-97ca-eaa748b5f17f"), // Member
+                RoleId = Guid.Parse("4e29a870-9131-4cc2-97ca-eaa748b5f17f"), // Employee
             },
             new RolePermission
             {

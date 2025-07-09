@@ -1,7 +1,7 @@
 ﻿using System.Security.Authentication;
 using Auth.API.Constants;
-using Auth.API.Payload.Request.Staff;
-using Auth.API.Payload.Response.Staff;
+using Auth.API.Payload.Request.Role;
+using Auth.API.Payload.Response.Role;
 using Auth.API.Services.Interface;
 using Auth.Domain.Models;
 using Auth.Infrastructure.Filter;
@@ -12,11 +12,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Auth.API.Services.Implement;
 
-public class RoleService : BaseService<Role>, IRoleService
+public class RoleService : BaseService<RoleService>, IRoleService
 {
     private readonly IConfiguration _configuration;
 
-    public RoleService(IUnitOfWork<DocAIAuthContext> unitOfWork, ILogger<Role> logger, IMapper mapper,
+    public RoleService(IUnitOfWork<DocAIAuthContext> unitOfWork, ILogger<RoleService> logger, IMapper mapper,
         IHttpContextAccessor httpContextAccessor, IConfiguration configuration) : base(unitOfWork, logger, mapper,
         httpContextAccessor, configuration)
     {

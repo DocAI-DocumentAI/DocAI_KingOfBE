@@ -6,10 +6,11 @@ using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.ActiveKey;
 using Auth.API.Payload.Request.User;
 using Auth.API.Payload.Response;
-using Auth.API.Payload.Response.ActiveKey;
 using Auth.API.Payload.Response.User;
 using Auth.API.Services.Interface;
 using Auth.Domain.Enums;
+using Auth.Infrastructure.Filter;
+using Auth.Infrastructure.Paginate;
 using AutoMapper.Features;
 using MassTransit;
 using Microsoft.AspNetCore.Authorization;
@@ -90,7 +91,7 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> ChangeUserRole( Guid roleId)
+    public async Task<IActionResult> ChangeUserRole(Guid roleId)
     {
         try
         {
@@ -141,6 +142,56 @@ public class AuthController : ControllerBase
         {
             _logger.LogError($"Error changing user department: {ex.Message}");
             return Problem(ex.Message);
+        }
+    }
+
+    [HttpPost(ApiEndPointConstant.User.GetUsersByDepartmentAndRole)]
+    [Authorize]
+    [ProducesResponseType(typeof(List<GetUserByDeparAndRoleResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetUsersByDepartmentAndRole([FromBody] GetUserByDeparAndRole request)
+    {
+        try
+        {
+            var result = await _userService.GetUserByDeparAndRoleAsync(request);
+            return Ok(result);
+        }
+        catch (BadHttpRequestException ex)
+        {
+            _logger.LogError($"Failed to get users by department and role: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error getting users by department and role: {ex.Message}");
+            return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
+        }
+    }
+
+    [HttpGet(ApiEndPointConstant.User.Users)]
+    [ProducesResponseType(typeof(IPaginate<UserResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetAllUsersAsync(int page = 1, int size = 30,
+        [FromQuery] UserFilter? filter = null, string? sortBy = null, bool isAsc = true)
+    {
+        try
+        {
+            var response = await _userService.GetAllUsersAsync(page, size, filter, sortBy, isAsc);
+            return Ok(response);
+        }
+        catch (BadHttpRequestException ex)
+        {
+            _logger.LogError($"Failed to get users: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error getting users: {ex.Message}");
+            return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
         }
     }
 }
