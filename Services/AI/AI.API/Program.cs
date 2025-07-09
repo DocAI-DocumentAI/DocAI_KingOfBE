@@ -48,7 +48,7 @@ try
     // Register the NSwag services
     builder.Services.AddOpenApiDocument(options =>
     {
-        options.Title = "DocAI Auth API";
+        options.Title = "DocAI AI API";
         options.Version = "v1";
 
         options.AddSecurity("Bearer", new OpenApiSecurityScheme
