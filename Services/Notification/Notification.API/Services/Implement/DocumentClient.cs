@@ -4,16 +4,31 @@ using Notification.API.Services.Interfaces;
 
 namespace Notification.API.Services.Implement
 {
-    public class DocumentClient /*: IDocumentClient*/
+    public class DocumentClient : IDocumentClient
     {
-        //private readonly HttpClient _httpClient;
-        //private readonly ILogger<DocumentClient> _logger;
+        private readonly HttpClient _httpClient;
+        private readonly ILogger<DocumentClient> _logger;
 
-        //public DocumentClient(HttpClient httpClient, ILogger<DocumentClient> logger)
-        //{
-        //    _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-        //    _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        //}
+        public DocumentClient(HttpClient httpClient, ILogger<DocumentClient> logger)
+        {
+            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
+        public Task<bool> DeactivateDocumentWarningsAsync(Guid documentId, string version)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<List<DocumentDetailResponseExternal>> GetDocumentsForExpirationCheckAsync(DateTime warningDate)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<bool> UpdateDocumentStatusAsync(Guid documentId, string version, string newStatus)
+        {
+            throw new NotImplementedException();
+        }
 
         //public async Task<DocumentDetailResponseExternal?> GetDocumentDetailsAsync(string documentId, string documentVersion)
         //{
