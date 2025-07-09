@@ -105,7 +105,7 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
 			return await query.AsNoTracking().Select(selector).ToPaginateAsync(page, size, 1);
       
 		}
-		private IQueryable<T> ApplySort(IQueryable<T> query, string sortBy, bool isAsc)
+    private IQueryable<T> ApplySort(IQueryable<T> query, string sortBy, bool isAsc)
 		{
 			var parameter = Expression.Parameter(typeof(T), "x");
 			var property = typeof(T).GetProperty(sortBy, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
@@ -124,11 +124,20 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
 			return query.Provider.CreateQuery<T>(resultExpression);
 		}
 
-		#endregion
+    #endregion
+    #region Check Existence
+    public override async Task<bool> AnyAsync(Expression<Func<T, bool>> predicate = null)
+    {
+        if (predicate != null)
+        {
+            return await _dbSet.AnyAsync(predicate);
+        }
+        return await _dbSet.AnyAsync();
+    }
+    #endregion
+    #region Insert
 
-		#region Insert
-
-		public override async Task InsertAsync(T entity)
+    public override async Task InsertAsync(T entity)
 		{
 			if (entity == null) return;
 			await _dbSet.AddAsync(entity);
