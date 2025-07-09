@@ -18,7 +18,7 @@ namespace Document.API.Constants
             ErrorDetail = new ErrorDetail
             {
                 ErrorCode = errorCode,
-                ErrorMessage = message
+                Message = message
             };
         }
     }
@@ -26,6 +26,6 @@ namespace Document.API.Constants
     {
         [JsonPropertyName("errorCode")] public string ErrorCode { get; set; }
 
-        [JsonPropertyName("errorMessage")] public object ErrorMessage { get; set; }
+        [JsonPropertyName("message")] public object Message { get; set; }
     }
 }

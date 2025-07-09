@@ -15,6 +15,7 @@
         public string VersionName { get; set; }
         public string DepartmentId { get; set; }
         public string OwnerId { get; set; }
+        public List<string> Tags { get; set; }
         public DateTime CreatedTime { get; set; }
     }
 }

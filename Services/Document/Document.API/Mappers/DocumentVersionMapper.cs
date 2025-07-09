@@ -8,7 +8,8 @@ namespace Document.API.Mappers
     {
         public DocumentVersionMapper()
         {
-            CreateMap<DocumentVersion, DocumentVersionResponse>();
+            CreateMap<DocumentVersion, DocumentVersionResponse>()
+                .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentTags.Select(dt => dt.Tag.Name).ToList()));
         }
     }
 }

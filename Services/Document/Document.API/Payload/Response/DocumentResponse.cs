@@ -16,4 +16,5 @@ public class DocumentResponse
     public string? FileType { get; set; }
     public long FileSize { get; set; }
     public string? Version { get; set; }
+    public List<string> Tags { get; set; }
 }

@@ -10,6 +10,10 @@ namespace Document.Domain.Models
 {
     public class DocumentVersion : BaseEntity
     {
+        public DocumentVersion()
+        {
+            DocumentTags = new HashSet<DocumentTag>();
+        }
         public string VersionName { get; set; }
         public string Title { get; set; }
         public string? Summary { get; set; }

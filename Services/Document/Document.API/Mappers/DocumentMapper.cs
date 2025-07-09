@@ -19,7 +19,8 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.FilePath, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().FilePath))
             .ForMember(dest => dest.FileType, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().FileType))
             .ForMember(dest => dest.FileSize, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().FileSize.ToString()))
-            .ForMember(dest => dest.CreatedTime, opt => opt.MapFrom(src => src.CreatedTime));
+            .ForMember(dest => dest.CreatedTime, opt => opt.MapFrom(src => src.CreatedTime))
+            .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().DocumentTags.Select(dt => dt.Tag.Name).ToList()));
 
         CreateMap<DocumentVersion, PendingDocumentResponse>()
             .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => src.Id.ToString()));
@@ -38,6 +39,7 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.FilePath, opt => opt.MapFrom(src => src.FilePath))
             .ForMember(dest => dest.FileType, opt => opt.MapFrom(src => src.FileType))
             .ForMember(dest => dest.FileSize, opt => opt.MapFrom(src => src.FileSize))
-            .ForMember(dest => dest.Version, opt => opt.MapFrom(src => src.VersionName));
+            .ForMember(dest => dest.Version, opt => opt.MapFrom(src => src.VersionName))
+            .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentTags.Select(dt => dt.Tag.Name).ToList()));
     }
 }

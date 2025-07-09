@@ -74,7 +74,6 @@ public class DocumentController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Document.SemanticSearch)]
-    [HttpGet(ApiEndPointConstant.Document.SemanticSearch)]
     public async Task<IActionResult> SemanticSearch([FromQuery] SemanticSearchRequest request, [FromQuery] DocumentFilter filter, string userId, int pageNumber = 1, int pageSize = 10)
     {
         var result = await _documentService.SemanticSearch(request, filter, userId, pageNumber, pageSize);

@@ -7,5 +7,6 @@ namespace Document.API.Payload.Response
         public string DocumentId { get; set; }
         public DateTime CreatedAt { get; set; }
         public string Status { get; set; }
+        public List<string> Tags { get; set; }
     }
 }

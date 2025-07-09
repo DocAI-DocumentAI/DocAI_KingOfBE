@@ -41,7 +41,13 @@ public class ExceptionHandlingMiddleware
     {
         context.Response.ContentType = "application/json";
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        var result = System.Text.Json.JsonSerializer.Serialize(new { error = ex.Message });
+        //var result = System.Text.Json.JsonSerializer.Serialize(new { error = ex.Message });
+        var errorDetail = new ErrorDetail
+        {
+            ErrorCode = "INTERNAL_SERVER_ERROR",
+            Message = "An unexpected error occurred on the server."
+        };
+        var result = System.Text.Json.JsonSerializer.Serialize(errorDetail);
         return context.Response.WriteAsync(result);
     }
 }

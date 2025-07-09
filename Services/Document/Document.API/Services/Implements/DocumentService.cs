@@ -137,34 +137,7 @@ public class DocumentService : IDocumentService
             CreatedBy = userId,
         };
 
-        if (request.Tags != null && request.Tags.Any())
-        {
-            version.DocumentTags = new List<DocumentTag>();
-
-            var tagRepository = _unitOfWork.GetRepository<Tag>();
-
-            foreach (var tagName in request.Tags.Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                var normalizedTag = tagName.ToLowerInvariant();
-
-                // Tìm tag theo tên
-                var existingTag = await tagRepository.SingleOrDefaultAsync(predicate: t => t.Name == normalizedTag);
-
-                // Nếu chưa tồn tại, insert vào DB để sinh Id
-                if (existingTag == null)
-                {
-                    existingTag = new Tag
-                    {
-                        Name = normalizedTag,
-                        CreatedBy = userId
-                    };
-
-                    await tagRepository.InsertAsync(existingTag);
-                }
-
-                version.DocumentTags.Add(new DocumentTag { Tag = existingTag });
-            }
-        }
+        await ProcessTagsAsync(version, request.Tags, userId);
 
         // 6. Link entities using the correct navigation property name
         documentFile.DocumentVersions.Add(version);
@@ -241,6 +214,8 @@ public class DocumentService : IDocumentService
         _mapper.Map(request, documentToUpdate);
         _mapper.Map(request, versionToUpdate);
 
+        await ProcessTagsAsync(versionToUpdate, request.Tags, userId);
+
         documentToUpdate.LastUpdatedBy = userId;
         documentToUpdate.LastUpdatedTime = DateTime.UtcNow;
 
@@ -268,14 +243,15 @@ public class DocumentService : IDocumentService
             Summary = "AI analysis could not be completed.",
             Tags = new List<string>()
         };
-        string tempFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + Path.GetExtension(file.FileName));
-
+        string tempFilePath = null;
+        string tempDocId = null;
         try
         {
+            tempDocId = $"temp-analysis-{Guid.NewGuid()}";
+            tempFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + Path.GetExtension(file.FileName));
             await using (var fs = new FileStream(tempFilePath, FileMode.Create)) { await file.CopyToAsync(fs); }
 
             // 1. Build the temporary Kernel Memory instance (same as before)
-            var tempDocId = $"temp-analysis-{Guid.NewGuid()}";
             await _memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
 
             // 2. Engineer a single, comprehensive prompt asking for a JSON response
@@ -327,7 +303,15 @@ public class DocumentService : IDocumentService
         }
         finally
         {
-            if (File.Exists(tempFilePath)) File.Delete(tempFilePath);
+            if (File.Exists(tempFilePath))
+            {
+                File.Delete(tempFilePath);
+            }
+            // Clean up the temporary document from Kernel Memory
+            if(tempDocId != null)
+            {
+                await _memory.DeleteDocumentAsync(tempDocId);
+            }
         }
 
         return response;
@@ -376,38 +360,49 @@ public class DocumentService : IDocumentService
 
     public async Task DeleteDraftAsync(string documentId, string versionId, string userId)
     {
+        _logger.LogInformation("Attempting to delete document {DocumentId} by user {UserId}", documentId, userId);
+
         // 1. Retrieve the document, ensuring its versions are included for status checking.
         var documentToDelete = await _unitOfWork.GetRepository<DocumentFile>()
             .SingleOrDefaultAsync(
-                predicate: d => d.Id.ToString() == documentId,
+                predicate: d => d.Id == documentId,
                 include: q => q.Include(d => d.DocumentVersions)
             ) ?? throw new ErrorException(StatusCodes.Status404NotFound, "Document not found.");
+
+        _logger.LogInformation("Document found: {Title}", documentToDelete.Title);
 
         // 2. Enforce Business Rules from SRS
         // BR-116: Check if the current user is the owner.
         if (documentToDelete.OwnerId != userId)
         {
-            _logger.LogWarning("User attempted to delete a document they do not own owner");
+            _logger.LogWarning("User {UserId} attempted to delete a document they do not own.", userId);
             throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to delete this document.");
         }
 
+        _logger.LogInformation("User {UserId} is the owner of the document", userId);
+
         // A draft document should only have one version. We get that version to check its status.
-        var versionToDelete = documentToDelete.DocumentVersions.FirstOrDefault();
+        var versionToDelete = documentToDelete.DocumentVersions.FirstOrDefault(v => v.Id == versionId);
 
         // BR-117: Check if the document's status is "Draft".
         if (versionToDelete == null || versionToDelete.Status != StatusEnum.Draft)
         {
             var currentStatus = versionToDelete?.Status.ToString() ?? "Unknown";
+            var message = $"Only documents with a 'Draft' status can be deleted. The status of this document is '{currentStatus}'.";
             _logger.LogWarning("Attempted to delete a document with status '{Status}', not 'Draft'.", currentStatus);
-            throw new ErrorException(StatusCodes.Status400BadRequest, $"Only documents with a 'Draft' status can be deleted. Current status is '{currentStatus}'.");
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, message);
         }
 
+        _logger.LogInformation("Version to delete: {VersionName}, Status: {Status}", versionToDelete.VersionName, versionToDelete.Status);
+
         // 3. Delete the physical file from Azure Storage.
+        _logger.LogInformation("Deleting file from Azure Storage: {FileName}", versionToDelete.FileName);
         await _storageService.DeleteFileAsync(versionToDelete.FileName, StorageFolderConstant.Drafts);
         _logger.LogInformation("Deleted file from Azure Storage at path: {FilePath}", versionToDelete.FilePath);
 
         // 4. Delete the DocumentFile record from the database.
         // Due to cascade delete settings, this will also remove the associated DocumentVersion(s) and VersionTag(s).
+        _logger.LogInformation("Deleting document from database: {DocumentId}", documentId);
         _unitOfWork.GetRepository<DocumentFile>().DeleteAsync(documentToDelete);
         await _unitOfWork.CommitAsync();
 
@@ -569,7 +564,8 @@ public class DocumentService : IDocumentService
     public async Task<DocumentVersionResponse> GetDocumentVersionAsync(string documentId, string versionId)
     {
         var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
-            predicate: dv => dv.DocumentFileId == documentId && dv.Id.ToString() == versionId
+            predicate: dv => dv.DocumentFileId == documentId && dv.Id.ToString() == versionId,
+            include: i => i.Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         return _mapper.Map<DocumentVersionResponse>(documentVersion);
@@ -578,7 +574,8 @@ public class DocumentService : IDocumentService
     public async Task<List<DocumentVersionResponse>> GetDocumentVersionsAsync(string documentId)
     {
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
-            predicate: dv => dv.DocumentFileId == documentId
+            predicate: dv => dv.DocumentFileId == documentId,
+            include: i => i.Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         return _mapper.Map<List<DocumentVersionResponse>>(documentVersions);
@@ -636,32 +633,7 @@ public class DocumentService : IDocumentService
             CreatedBy = userId,
         };
 
-        if (request.Tags != null && request.Tags.Any())
-        {
-            newVersion.DocumentTags = new List<DocumentTag>();
-
-            var tagRepository = _unitOfWork.GetRepository<Tag>();
-
-            foreach (var tagName in request.Tags.Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                var normalizedTag = tagName.ToLowerInvariant();
-
-                var existingTag = await tagRepository.SingleOrDefaultAsync(predicate: t => t.Name == normalizedTag);
-
-                if (existingTag == null)
-                {
-                    existingTag = new Tag
-                    {
-                        Name = normalizedTag,
-                        CreatedBy = userId
-                    };
-
-                    await tagRepository.InsertAsync(existingTag);
-                }
-
-                newVersion.DocumentTags.Add(new DocumentTag { Tag = existingTag });
-            }
-        }
+        await ProcessTagsAsync(newVersion, request.Tags, userId);
 
         documentToUpdate.DocumentVersions.Add(newVersion);
         await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentToUpdate);
@@ -671,6 +643,64 @@ public class DocumentService : IDocumentService
 
         return _mapper.Map<DocumentDraftResponse>(newVersion);
     }
+
+    private async Task ProcessTagsAsync(DocumentVersion version, IEnumerable<string> tagNames, string userId)
+    {
+        if (tagNames != null && tagNames.Count() == 1 && tagNames.First().Contains(','))
+        {
+            tagNames = tagNames.First().Split(',').Select(t => t.Trim()).ToList();
+        }
+
+        // Clear existing tags for the version
+        var existingDocumentTags = await _unitOfWork.GetRepository<DocumentTag>()
+            .GetListWithTrackingAsync(predicate: dt => dt.DocumentVersionId == version.Id);
+        if (existingDocumentTags.Any())
+        {
+            _unitOfWork.GetRepository<DocumentTag>().DeleteRangeAsync(existingDocumentTags);
+        }
+
+        if (tagNames == null || !tagNames.Any())
+        {
+            return;
+        }
+
+        var distinctTagNames = tagNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        _logger.LogInformation("Processing tags: {Tags}", JsonSerializer.Serialize(tagNames));
+        _logger.LogInformation("Distinct tags: {Tags}", JsonSerializer.Serialize(distinctTagNames));
+        
+        // Find which tags already exist in the database
+        var existingTags = await _unitOfWork.GetRepository<Tag>()
+            .GetListWithTrackingAsync(predicate: t => distinctTagNames.Contains(t.Name));
+
+        var existingTagNames = existingTags.Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _logger.LogInformation("Existing tags: {Tags}", JsonSerializer.Serialize(existingTags.Select(t => t.Name)));
+
+        // Create a list of the new tags that need to be inserted
+        var newTagsToInsert = new List<Tag>();
+        foreach (var tagName in distinctTagNames)
+        {
+            if (!existingTagNames.Contains(tagName))
+            {
+                newTagsToInsert.Add(new Tag { Name = tagName.ToLowerInvariant(), CreatedBy = userId });
+            }
+        }
+
+        // Add the new tags to the change tracker
+        if (newTagsToInsert.Any())
+        {
+            await _unitOfWork.GetRepository<Tag>().InsertRangeAsync(newTagsToInsert);
+        }
+
+        // Combine the existing tags and the new tags
+        var allTagsForDocument = existingTags.Concat(newTagsToInsert).ToList();
+
+        // Create the links between the document version and the tags
+        foreach (var tag in allTagsForDocument)
+        {
+            version.DocumentTags.Add(new DocumentTag { Tag = tag });
+        }
+    }
+    
 
     public async Task<IPaginate<DocumentResponse>> SemanticSearch(SemanticSearchRequest request, DocumentFilter filter, string userId, int pageNumber, int pageSize)
     {
