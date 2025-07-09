@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -66,6 +66,19 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
 			if (orderBy != null) return await orderBy(query).AsNoTracking().ToListAsync();
 
 			return await query.AsNoTracking().ToListAsync();
+		}
+
+		public override async Task<ICollection<T>> GetListWithTrackingAsync(Expression<Func<T, bool>> predicate = null, Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = null, Func<IQueryable<T>, IIncludableQueryable<T, object>> include = null)
+		{
+			IQueryable<T> query = _dbSet;
+
+			if (include != null) query = include(query);
+
+			if (predicate != null) query = query.Where(predicate);
+
+			if (orderBy != null) return await orderBy(query).ToListAsync();
+
+			return await query.ToListAsync();
 		}
 
 		public override async Task<ICollection<TResult>> GetListAsync<TResult>(Expression<Func<T, TResult>> selector, Expression<Func<T, bool>> predicate = null, Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = null, Func<IQueryable<T>, IIncludableQueryable<T, object>> include = null)
@@ -142,10 +155,11 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
 		#endregion
 
 		#region Update
-		public override void UpdateAsync(T entity)
+		public override Task UpdateAsync(T entity)
 		{
 			_dbSet.Update(entity);
-		}
+			return Task.CompletedTask;
+    }
 
 		public override void UpdateRange(IEnumerable<T> entities)
 		{
@@ -160,6 +174,12 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
 		public override void DeleteRangeAsync(IEnumerable<T> entities)
 		{
 			_dbSet.RemoveRange(entities);
+		}
+
+		public override async Task<int> CountAsync(Expression<Func<T, bool>> predicate = null)
+		{
+			if (predicate == null) return await _dbSet.CountAsync();
+			return await _dbSet.CountAsync(predicate);
 		}
 
 		#endregion

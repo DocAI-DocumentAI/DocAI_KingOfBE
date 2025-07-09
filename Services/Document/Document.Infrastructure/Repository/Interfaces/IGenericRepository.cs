@@ -31,6 +31,11 @@ public abstract class IGenericRepository<T> : IDisposable where T : class
         Func<IQueryable<T>, IIncludableQueryable<T, object>> include =
             default(Func<IQueryable<T>, IIncludableQueryable<T, object>>));
 
+    public abstract Task<ICollection<T>> GetListWithTrackingAsync(Expression<Func<T, bool>> predicate = default(Expression<Func<T, bool>>),
+        Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = default(Func<IQueryable<T>, IOrderedQueryable<T>>),
+        Func<IQueryable<T>, IIncludableQueryable<T, object>> include =
+            default(Func<IQueryable<T>, IIncludableQueryable<T, object>>));
+
     public abstract Task<ICollection<TResult>> GetListAsync<TResult>(Expression<Func<T, TResult>> selector,
         Expression<Func<T, bool>> predicate = default(Expression<Func<T, bool>>),
         Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = default(Func<IQueryable<T>, IOrderedQueryable<T>>),
@@ -82,9 +87,10 @@ public abstract class IGenericRepository<T> : IDisposable where T : class
 
     public abstract Task InsertAsync(T entity);
     public abstract Task InsertRangeAsync(IEnumerable<T> entities);
-    public abstract void UpdateAsync(T entity);
+    public abstract Task UpdateAsync(T entity);
     public abstract void UpdateRange(IEnumerable<T> entities);
     public abstract void DeleteAsync(T entity);
     public abstract void DeleteRangeAsync(IEnumerable<T> entities);
+    public abstract Task<int> CountAsync(Expression<Func<T, bool>> predicate = default(Expression<Func<T, bool>>));
     public abstract void Dispose();
 }

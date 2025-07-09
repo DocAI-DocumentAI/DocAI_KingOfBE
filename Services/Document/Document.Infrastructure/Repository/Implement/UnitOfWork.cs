@@ -3,19 +3,20 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Threading.Tasks;
+using Document.Domain.Context;
 using Document.Infrastructure.Repository.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Document.Infrastructure.Repository.Implement;
 
-public class UnitOfWork<TContext> : IUnitOfWork<TContext> where TContext : DbContext
+public class UnitOfWork : IUnitOfWork
 {
-    public TContext Context { get; }
+    private readonly DocAIDocumentContext _context;
     private Dictionary<Type, object> _repositories;
 
-    public UnitOfWork(TContext context)
+    public UnitOfWork(DocAIDocumentContext context)
     {
-        Context = context;
+        _context = context;
     }
 
     public IGenericRepository<TEntity> GetRepository<TEntity>() where TEntity : class
@@ -26,31 +27,31 @@ public class UnitOfWork<TContext> : IUnitOfWork<TContext> where TContext : DbCon
             return (IGenericRepository<TEntity>)repository;
         }
 
-        repository = new GenericRepository<TEntity>(Context);
+        repository = new GenericRepository<TEntity>(_context);
         _repositories.Add(typeof(TEntity), repository);
         return (IGenericRepository<TEntity>)repository;
     }
 
     public void Dispose()
     {
-        Context?.Dispose();
+        _context?.Dispose();
     }
 
     public int Commit()
     {
         TrackChanges();
-        return Context.SaveChanges();
+        return _context.SaveChanges();
     }
 
     public async Task<int> CommitAsync()
     {
         TrackChanges();
-        return await Context.SaveChangesAsync();
+        return await _context.SaveChangesAsync();
     }
 
     private void TrackChanges()
     {
-        var validationErrors = Context.ChangeTracker.Entries<IValidatableObject>()
+        var validationErrors = _context.ChangeTracker.Entries<IValidatableObject>()
             .SelectMany(e => e.Entity.Validate(null))
             .Where(e => e != ValidationResult.Success)
             .ToArray();
