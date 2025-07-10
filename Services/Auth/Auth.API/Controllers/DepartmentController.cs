@@ -32,9 +32,6 @@ public class DepartmentController : ControllerBase
     public async Task<IActionResult> GetAllDepartmentsAsync(int page = 1, int size = 30,
         [FromQuery] DepartmentFilter? filter = null, string? sortBy = null, bool isAsc = true)
     {
-        var hostname = Environment.GetEnvironmentVariable("HOSTNAME") ?? "unknown";
-        Response.Headers.Add("X-Instance", hostname);
-
         var response = await _DepartmentService.GetAllDepartmentsAsync(page, size, filter, sortBy, isAsc);
         return Ok(response);
     }
