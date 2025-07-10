@@ -20,4 +20,4 @@ RUN dotnet publish "./ChatBox.API.csproj" -c $BUILD_CONFIGURATION -o /app/publis
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "ChatBox.API.dll","--urls", "http://0.0.0.0:5006"]
+ENTRYPOINT ["dotnet", "ChatBox.API.dll","--urls", "http://0.0.0.0:5005"]
