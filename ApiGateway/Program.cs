@@ -151,9 +151,6 @@ app.UseMiddleware<ApiGateway.Middlewares.TokenForwardingMiddleware>();
 app.UseMiddleware<ApiGateway.Middlewares.ExceptionHandlingMiddleware>();
 
 
-// Thêm endpoint health check
-app.MapGet("/health", () => Results.Ok("Healthy"));
-
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {

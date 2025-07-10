@@ -6,17 +6,19 @@ namespace Auth.API.Controllers;
 [Route("[controller]")]
 public class HealthController : ControllerBase
 {
-    private readonly ILogger<HealthController> _logger;
-
-    public HealthController(ILogger<HealthController> logger)
-    {
-        _logger = logger;
-    }
-
     [HttpGet]
     public IActionResult Get()
     {
-        _logger.LogInformation("Health check called at {Time}", DateTime.UtcNow);
-        return Ok(new { Status = "Healthy", Service = "Auth.API", Timestamp = DateTime.UtcNow });
+        var hostname = Environment.GetEnvironmentVariable("HOSTNAME") ?? "unknown";
+        return Ok(new
+        {
+            status = "healthy",
+            service = "Auth API",
+            instance = hostname,
+            timestamp = DateTime.UtcNow
+        });
     }
 }
+
+
+
