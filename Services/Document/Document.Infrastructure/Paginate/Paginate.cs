@@ -15,4 +15,13 @@ public class Paginate<TResult> : IPaginate<TResult>
     {
         Items = Array.Empty<TResult>();
     }
+
+    public Paginate(IEnumerable<TResult> items, int page, int size, int total)
+    {
+        Page = page;
+        Size = size;
+        Total = total;
+        TotalPages = (int)Math.Ceiling(total / (double)size);
+        Items = new List<TResult>(items);
+    }
 }
