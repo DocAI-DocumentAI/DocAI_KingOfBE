@@ -165,7 +165,7 @@ namespace Document.API.Services.Implements
             else
             {
                 // --- REJECTION LOGIC---
-                if (string.IsNullOrWhiteSpace(request.Comments))
+                if (string.IsNullOrWhiteSpace(request.Comments) || request.Comments.Length < 10)
                     throw new ErrorException(StatusCodes.Status400BadRequest, MessageConstant.CommentsRequiredForRejection);
                 versionToReview.Status = StatusEnum.Rejected;
                 logAction = ApprovalAction.Reject;

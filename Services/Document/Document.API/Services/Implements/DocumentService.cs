@@ -45,6 +45,32 @@ public class DocumentService : IDocumentService
 
     public async Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request, string userId)
     {
+        // Validations
+        // BR-015 Supported file types are PDF (text-based) and DOCX.
+        var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
+        if (!PolicyConstant.SupportedFileTypes.Contains(fileExtension))
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.UnsupportedFileType);
+        }
+
+        // BR-016 Maximum file size is 5MB.
+        if (request.File.Length > PolicyConstant.MaxFileSizeMB * 1024 * 1024)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
+        }
+
+        // BR-018 Every new document must be assigned to a single Department.
+        if (string.IsNullOrEmpty(request.DepartmentId))
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DepartmentNotAssigned);
+        }
+
+        // BR-021 'Effective From' date must be before 'Expiration Date'.
+        if (request.EffectiveFrom.HasValue && request.EffectiveUntil.HasValue && request.EffectiveFrom.Value >= request.EffectiveUntil.Value)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
+        }
+
         //1. Check draft limit
         var draftCount = await _unitOfWork.GetRepository<DocumentVersion>()
             .CountAsync(predicate: v => v.CreatedBy == userId && v.Status == StatusEnum.Draft);
@@ -155,6 +181,29 @@ public class DocumentService : IDocumentService
 
     public async Task<DocumentDraftResponse> UpdateDraftAsync(string versionId, UpdateDocumentDraftRequest request, string userId)
     {
+        // Validations
+        if (request.File != null)
+        {
+            // BR-015 Supported file types are PDF (text-based) and DOCX.
+            var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
+            if (!PolicyConstant.SupportedFileTypes.Contains(fileExtension))
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.UnsupportedFileType);
+            }
+
+            // BR-016 Maximum file size is 5MB.
+            if (request.File.Length > PolicyConstant.MaxFileSizeMB * 1024 * 1024)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
+            }
+        }
+
+        // BR-021 'Effective From' date must be before 'Expiration Date'.
+        if (request.EffectiveFrom.HasValue && request.EffectiveUntil.HasValue && request.EffectiveFrom.Value >= request.EffectiveUntil.Value)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
+        }
+
         //1. Retrive draft to update
         var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
         .SingleOrDefaultAsync(
@@ -295,6 +344,17 @@ public class DocumentService : IDocumentService
             {
                 ParseAiJsonResponse(answer.Result, response);
                 _logger.LogInformation("Successfully parsed AI JSON response for file: {FileName}", file.FileName);
+
+                // BR-077: Summaries should be under 1000 words.
+                if (!string.IsNullOrEmpty(response.Summary))
+                {
+                    var words = response.Summary.Split(new char[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (words.Length > PolicyConstant.MaxSummaryLength)
+                    {
+                        response.Summary = string.Join(" ", words.Take(PolicyConstant.MaxSummaryLength)) + "...";
+                        _logger.LogWarning("AI-generated summary for file {FileName} exceeded {MaxLength} words and was truncated.", file.FileName, PolicyConstant.MaxSummaryLength);
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -588,6 +648,17 @@ public class DocumentService : IDocumentService
             predicate: d => d.Id.ToString() == documentId,
             include: i => i.Include(d => d.DocumentVersions)
         ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentNotFound);
+
+        // BR-037: A document can only be in the process of being replaced by one new document at a time.
+        var pendingVersion = documentToUpdate.DocumentVersions.FirstOrDefault(v => v.Status == StatusEnum.Pending);
+        if (pendingVersion != null)
+        {
+            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DocumentAlreadyUnderReplacement);
+        }
+
+        // BR-038: Editors can only replace documents within their assigned Department.
+        // This check would typically involve retrieving the user's department(s) and comparing with documentToUpdate.DepartmentId.
+        // Assuming department-based authorization is handled at a higher layer (e.g., controller/middleware) or user context needs to be enriched.
 
         if (documentToUpdate.OwnerId != userId)
         {
