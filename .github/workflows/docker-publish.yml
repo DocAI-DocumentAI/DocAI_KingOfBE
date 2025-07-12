@@ -8,9 +8,9 @@ on:
 
 env:
   DOCKER_HUB_USERNAME: nguyenhuyphc@gmail.com
-  # VPS_HOST: ${{ secrets.VPS_HOST }}
-  # VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
-  # VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+  VPS_HOST: ${{ secrets.VPS_HOST }}
+  VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
+  VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
 
 jobs:
   # Job này chạy cho tất cả các nhánh - chỉ build để kiểm tra
@@ -139,17 +139,6 @@ jobs:
           file: ApiGateway/Dockerfile
           push: true
           tags: magicflexing/docai-gateway:latest
-          
-      # # Build and push App Host
-      # - name: Build and push App Host
-      #   uses: docker/build-push-action@v4
-      #   with:
-      #     context: .
-      #     file: DocAI.AppHost/Dockerfile
-      #     push: true
-      #     tags: magicflexing/docai-gateway:latest
-
-  # Job này chỉ chạy khi build-and-push thành công (tức là khi push vào main)
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
