@@ -30,7 +30,7 @@ namespace Document.API.Services.Implements
 
             if (existingTag != null)
             {
-                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "Tag with this name already exists.");
+                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.TagWithNameExists);
             }
 
             var tag = new Tag
@@ -49,7 +49,7 @@ namespace Document.API.Services.Implements
         {
             var tag = await _unitOfWork.GetRepository<Tag>()
                 .SingleOrDefaultAsync(predicate: t => t.Id == tagId)
-                ?? throw new ErrorException(StatusCodes.Status404NotFound, "Tag not found.");
+                ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.TagNotFound);
 
             return _mapper.Map<TagResponse>(tag);
         }
@@ -71,7 +71,7 @@ namespace Document.API.Services.Implements
         {
             var tagToUpdate = await _unitOfWork.GetRepository<Tag>()
                 .SingleOrDefaultAsync(predicate: t => t.Id == tagId)
-                ?? throw new ErrorException(StatusCodes.Status404NotFound, "Tag not found.");
+                ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.TagNotFound);
 
             var normalizedTagName = request.Name.ToLowerInvariant();
             if (tagToUpdate.Name != normalizedTagName)
@@ -80,7 +80,7 @@ namespace Document.API.Services.Implements
                     .SingleOrDefaultAsync(predicate: t => t.Name == normalizedTagName);
                 if (existingTag != null)
                 {
-                    throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "Tag with this name already exists.");
+                    throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.TagWithNameExists);
                 }
             }
 
@@ -98,7 +98,7 @@ namespace Document.API.Services.Implements
         {
             var tagToDelete = await _unitOfWork.GetRepository<Tag>()
                 .SingleOrDefaultAsync(predicate: t => t.Id == tagId)
-                ?? throw new ErrorException(StatusCodes.Status404NotFound, "Tag not found.");
+                ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.TagNotFound);
 
             // Check if the tag is associated with any documents
             var isTagUsed = await _unitOfWork.GetRepository<DocumentTag>()
@@ -106,7 +106,7 @@ namespace Document.API.Services.Implements
 
             if (isTagUsed)
             {
-                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Cannot delete tag because it is currently in use by one or more documents.");
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.CannotDeleteUsedTag);
             }
 
             _unitOfWork.GetRepository<Tag>().DeleteAsync(tagToDelete);

@@ -2,5 +2,36 @@
 
 public class MessageConstant
 {
-    
+    public const string ValidationError = "Properties {0} Error: {1}";
+    public const string DocumentVersionNotFound = "The specified document version was not found.";
+    public const string NotPendingApproval = "This document version is not awaiting approval. Its current status is '{0}'.";
+    public const string FileNotAvailableInApprovedFolder = "File not available in approved folder after moving.";
+    public const string CommentsRequiredForRejection = "Comments are required to reject a document.";
+    public const string DocumentVersionNotFoundDetailed = "Document version not found";
+    public const string UnauthorizedToSubmit = "You are not authorized to submit this document for approval";
+    public const string CannotSubmitForApproval = "Document version cannot be submitted for approval. Current status: {0}";
+    public const string AzureStorageNotConfigured = "Azure Storage is not configured";
+    public const string OfficialDocumentVersionNotFound = "Official document version not found.";
+    public const string DocumentAlreadyBookmarked = "Document already bookmarked by this user.";
+    public const string BookmarkNotFound = "Bookmark not found.";
+    public const string MaxDraftsReached = "You have reached the maximum limit of {0} draft documents.";
+    public const string DocumentTitleExists = "Document title already exists";
+    public const string DocumentVersionNameExists = "Document version name already exists for this title";
+    public const string FileAlreadyExists = "This file already exists in the system as '{0}' (Version: {1}, Status: {2}).";
+    public const string RejectedFileExists = "You have a rejected document with the same file. Please resubmit or delete the existing one.";
+    public const string AnotherUserRejectedFileExists = "Another user has a rejected document with the same file.";
+    public const string DraftFileExists = "You already have a draft with the same file.";
+    public const string UnauthorizedToEdit = "You do not have permission to edit this document";
+    public const string CannotEditWithStatus = "Cannot edit a document with status '{0}'";
+    public const string DocumentNotFound = "Document not found.";
+    public const string UnauthorizedToDelete = "You do not have permission to delete this document.";
+    public const string CanOnlyDeleteDrafts = "Only documents with a 'Draft' status can be deleted. The status of this document is '{0}'.";
+    public const string DraftDocumentNotFound = "Draft document not found.";
+    public const string RejectedDocumentNotFound = "Rejected document not found.";
+    public const string OfficialDocumentNotFoundForId = "Official document not found for the given document file ID.";
+    public const string UnauthorizedToCreateNewVersion = "You do not have permission to create a new version of this document.";
+    public const string CanOnlyCreateNewVersionOfApproved = "You can only create a new version of an approved document.";
+    public const string TagWithNameExists = "Tag with this name already exists.";
+    public const string TagNotFound = "Tag not found.";
+    public const string CannotDeleteUsedTag = "Cannot delete tag because it is currently in use by one or more documents.";
 }

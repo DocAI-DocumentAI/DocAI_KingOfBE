@@ -62,7 +62,7 @@ namespace Document.API.Services.Implements
             .SingleOrDefaultAsync(
                 predicate: v => v.Id == versionId,
                 include: i => i.Include(v => v.DocumentFile)
-            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, "The specified document version was not found.");
+            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentVersionNotFound);
             var documentFile = versionToReview.DocumentFile;
 
             //// --- Permission and State Validation ---
@@ -70,7 +70,7 @@ namespace Document.API.Services.Implements
             //    throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to review documents for this department.");
 
             if (versionToReview.Status != StatusEnum.Pending)
-                throw new ErrorException(StatusCodes.Status400BadRequest, $"This document version is not awaiting approval. Its current status is '{versionToReview.Status}'.");
+                throw new ErrorException(StatusCodes.Status400BadRequest, string.Format(MessageConstant.NotPendingApproval, versionToReview.Status));
 
             ApprovalAction logAction;
 
@@ -104,7 +104,7 @@ namespace Document.API.Services.Implements
 
                     if (!fileExists)
                     {
-                        throw new ErrorException(StatusCodes.Status500InternalServerError, "File not available in approved folder after moving.");
+                        throw new ErrorException(StatusCodes.Status500InternalServerError, MessageConstant.FileNotAvailableInApprovedFolder);
                     }
 
                     if (previousApprovedVersion != null)
@@ -166,7 +166,7 @@ namespace Document.API.Services.Implements
             {
                 // --- REJECTION LOGIC---
                 if (string.IsNullOrWhiteSpace(request.Comments))
-                    throw new ErrorException(StatusCodes.Status400BadRequest, "Comments are required to reject a document.");
+                    throw new ErrorException(StatusCodes.Status400BadRequest, MessageConstant.CommentsRequiredForRejection);
                 versionToReview.Status = StatusEnum.Rejected;
                 logAction = ApprovalAction.Reject;
             }
@@ -198,16 +198,16 @@ namespace Document.API.Services.Implements
                 .SingleOrDefaultAsync(
                 predicate: v => v.Id == versionId,
                 include: i => i.Include(v =>v.DocumentFile)
-                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Document version not found");
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFoundDetailed);
             //2.Check owner ID
             if (version.DocumentFile.OwnerId != userId)
             {
-                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, "You are not authorized to submit this document for approval");
+                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToSubmit);
             }
             //3. Check if the version status 
             if (version.Status != StatusEnum.Draft)
             {
-                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, $"Document version cannot be submitted for approval. Current status: {version.Status}");
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.CannotSubmitForApproval, version.Status));
             }
 
             version.Status = StatusEnum.Pending; // Update status to Pending

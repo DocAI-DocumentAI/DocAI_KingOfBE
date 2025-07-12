@@ -32,7 +32,7 @@ namespace Document.API.Services.Implements
                 .SingleOrDefaultAsync(
                     predicate: dv => dv.Id == documentVersionId && dv.IsOfficial,
                     include: i => i.Include(dv => dv.DocumentFile)
-                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Official document version not found.");
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.OfficialDocumentVersionNotFound);
 
             // 2. Check if the bookmark already exists for this user and document version
             var existingBookmark = await _unitOfWork.GetRepository<Bookmark>()
@@ -42,7 +42,7 @@ namespace Document.API.Services.Implements
 
             if (existingBookmark != null)
             {
-                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "Document already bookmarked by this user.");
+                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DocumentAlreadyBookmarked);
             }
 
             // 3. Create and save the new bookmark
@@ -65,7 +65,7 @@ namespace Document.API.Services.Implements
             var bookmarkToRemove = await _unitOfWork.GetRepository<Bookmark>()
                 .SingleOrDefaultAsync(
                     predicate: b => b.UserId == userId && b.DocumentVersionId == documentVersionId
-                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Bookmark not found.");
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.BookmarkNotFound);
 
             // 2. Delete the bookmark
             _unitOfWork.GetRepository<Bookmark>().DeleteAsync(bookmarkToRemove);

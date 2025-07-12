@@ -50,7 +50,7 @@ public class DocumentService : IDocumentService
             .CountAsync(predicate: v => v.CreatedBy == userId && v.Status == StatusEnum.Draft);
         if (draftCount >= PolicyConstant.MaxDraftsPerUser)
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, $"You have reached the maximum limit of {PolicyConstant.MaxDraftsPerUser} draft documents.");
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.MaxDraftsReached, PolicyConstant.MaxDraftsPerUser));
         }
 
         //2. Checking title duplication
@@ -58,7 +58,7 @@ public class DocumentService : IDocumentService
                 .SingleOrDefaultAsync(predicate: d => d.Title == request.Title);
         if (existingDocument != null)
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document title already exists");
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentTitleExists);
         }
 
         //3. Checking Version Name duplication
@@ -66,7 +66,7 @@ public class DocumentService : IDocumentService
                 .SingleOrDefaultAsync(predicate: v => v.VersionName == request.VersionName && v.DocumentFile.Title == request.Title);
         if (existingVersionName != null)
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document version name already exists for this title");
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentVersionNameExists);
         }
 
         // 4. Upload the file to Azure Storage and get the MD5 hash.
@@ -86,22 +86,22 @@ public class DocumentService : IDocumentService
                 case StatusEnum.Pending:
                 case StatusEnum.Approved:
                 case StatusEnum.Archived:
-                    throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
+                    throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
 
                 case StatusEnum.Rejected:
                     if (existingFile.DocumentFile.OwnerId == userId)
                     {
-                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "You have a rejected document with the same file. Please resubmit or delete the existing one.");
+                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.RejectedFileExists);
                     }
                     else
                     {
-                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "Another user has a rejected document with the same file.");
+                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.AnotherUserRejectedFileExists);
                     }
 
                 case StatusEnum.Draft:
                     if (existingFile.DocumentFile.OwnerId == userId)
                     {
-                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "You already have a draft with the same file.");
+                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DraftFileExists);
                     }
                     break;
             }
@@ -159,20 +159,20 @@ public class DocumentService : IDocumentService
         var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
         .SingleOrDefaultAsync(
             predicate: v => v.Id == versionId,
-            include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, "The specified document version was not found");
+            include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentVersionNotFound);
 
         var documentToUpdate = versionToUpdate.DocumentFile;
 
         //2. Editor must be the owner. 
         if (documentToUpdate.OwnerId != userId)
         {
-            throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to edit this document");
+            throw new ErrorException(StatusCodes.Status403Forbidden, MessageConstant.UnauthorizedToEdit);
         }
 
         //3. Status must be Draft or Rejected. 
         if (versionToUpdate.Status != StatusEnum.Draft && versionToUpdate.Status != StatusEnum.Rejected)
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, $"Cannot edit a document with status '{versionToUpdate.Status}'");
+            throw new ErrorException(StatusCodes.Status400BadRequest, string.Format(MessageConstant.CannotEditWithStatus, versionToUpdate.Status));
         }
 
         //4. Handle file replacement if a new file is provided.
@@ -196,7 +196,7 @@ public class DocumentService : IDocumentService
                 _logger.LogWarning("Duplicate file detected during update. Hash: {FileHash}. Existing document: {DocumentTitle}, Version: {VersionName}, Status: {Status}",
                     fileHash, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status);
                 throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
-                    $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
+                    string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
             }
 
             // 1. Delete the old file from Azure Storage.
@@ -367,7 +367,7 @@ public class DocumentService : IDocumentService
             .SingleOrDefaultAsync(
                 predicate: d => d.Id == documentId,
                 include: q => q.Include(d => d.DocumentVersions)
-            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, "Document not found.");
+            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentNotFound);
 
         _logger.LogInformation("Document found: {Title}", documentToDelete.Title);
 
@@ -376,7 +376,7 @@ public class DocumentService : IDocumentService
         if (documentToDelete.OwnerId != userId)
         {
             _logger.LogWarning("User {UserId} attempted to delete a document they do not own.", userId);
-            throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to delete this document.");
+            throw new ErrorException(StatusCodes.Status403Forbidden, MessageConstant.UnauthorizedToDelete);
         }
 
         _logger.LogInformation("User {UserId} is the owner of the document", userId);
@@ -388,7 +388,7 @@ public class DocumentService : IDocumentService
         if (versionToDelete == null || versionToDelete.Status != StatusEnum.Draft)
         {
             var currentStatus = versionToDelete?.Status.ToString() ?? "Unknown";
-            var message = $"Only documents with a 'Draft' status can be deleted. The status of this document is '{currentStatus}'.";
+            var message = string.Format(MessageConstant.CanOnlyDeleteDrafts, currentStatus);
             _logger.LogWarning("Attempted to delete a document with status '{Status}', not 'Draft'.", currentStatus);
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, message);
         }
@@ -450,7 +450,7 @@ public class DocumentService : IDocumentService
 
         if (draft == null)
         {
-            throw new ErrorException(StatusCodes.Status404NotFound, "Draft document not found.");
+            throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DraftDocumentNotFound);
         }
 
         return _mapper.Map<DocumentDraftResponse>(draft);
@@ -495,7 +495,7 @@ public class DocumentService : IDocumentService
 
         if (rejectedDocument == null)
         {
-            throw new ErrorException(StatusCodes.Status404NotFound, "Rejected document not found.");
+            throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.RejectedDocumentNotFound);
         }
 
         return _mapper.Map<DocumentDraftResponse>(rejectedDocument);
@@ -510,7 +510,7 @@ public class DocumentService : IDocumentService
 
         if (officialDocument == null)
         {
-            throw new ErrorException(StatusCodes.Status404NotFound, "Official document not found for the given document file ID.");
+            throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.OfficialDocumentNotFoundForId);
         }
 
         return _mapper.Map<DocumentDraftResponse>(officialDocument);
@@ -587,18 +587,18 @@ public class DocumentService : IDocumentService
         var documentToUpdate = await _unitOfWork.GetRepository<DocumentFile>().SingleOrDefaultAsync(
             predicate: d => d.Id.ToString() == documentId,
             include: i => i.Include(d => d.DocumentVersions)
-        ) ?? throw new ErrorException(StatusCodes.Status404NotFound, "Document not found.");
+        ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentNotFound);
 
         if (documentToUpdate.OwnerId != userId)
         {
-            throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to create a new version of this document.");
+            throw new ErrorException(StatusCodes.Status403Forbidden, MessageConstant.UnauthorizedToCreateNewVersion);
         }
 
         var latestVersion = documentToUpdate.DocumentVersions.OrderByDescending(v => v.CreatedTime).FirstOrDefault();
 
         if (latestVersion.Status != StatusEnum.Approved)
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, "You can only create a new version of an approved document.");
+            throw new ErrorException(StatusCodes.Status400BadRequest, MessageConstant.CanOnlyCreateNewVersionOfApproved);
         }
 
         var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
