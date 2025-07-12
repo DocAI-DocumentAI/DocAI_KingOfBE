@@ -5,10 +5,8 @@ public class MessageConstant
     public class User
     {
         public const string RegisterFail = "Đăng ký thất bại";
-        public const string UserNameExisted = "Tên đăng nhập đã tồn tại";
         public const string PhoneNumberExisted = "Số điện thoại đã tồn tại";
         public const string LoginFailed = "Đăng nhập thất bại";
-        public const string UsernameOrPasswork = "Tài khoản hoặc mật khẩu không chính xác";
         public const string LoginRequestNoNull = "Tài khoản hoặc mật khẩu không để trống";
         public const string UserNotFound = "User không tồn tại";
         public const string EmailExisted = "Email đã tồn tại";

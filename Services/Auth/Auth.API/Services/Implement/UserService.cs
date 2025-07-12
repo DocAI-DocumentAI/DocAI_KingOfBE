@@ -49,12 +49,12 @@ public class UserService : BaseService<UserService>, IUserService
     {
         ValidateLoginRequest(request);
 
-        var user = await GetUserWithDetailsAsync(request.Username);
+        var user = await GetUserWithDetailsAsync(request.Email);
 
         if (user == null || !PasswordUtil.VerifyPassword(request.Password, user.Password))
         {
-            _logger.LogWarning("Login failed for username: {UserName}", request.Username);
-            throw new BadHttpRequestException(MessageConstant.User.UsernameOrPasswork);
+            _logger.LogWarning("Login failed for email: {Email}", request.Email);
+            throw new BadHttpRequestException(MessageConstant.User.EmailExisted);
         }
 
         // Lấy UserSetting của user
@@ -66,7 +66,6 @@ public class UserService : BaseService<UserService>, IUserService
         var response = new LoginResponse
         {
             UserId = user.Id,
-            Username = user.UserName,
             Email = user.Email,
             FullName = user.FullName,
             Phone = user.Phone,
@@ -119,15 +118,15 @@ public class UserService : BaseService<UserService>, IUserService
 
     private void ValidateLoginRequest(LoginRequest request)
     {
-        if (request == null || string.IsNullOrWhiteSpace(request.Username) ||
+        if (request == null || string.IsNullOrWhiteSpace(request.Email) ||
             string.IsNullOrWhiteSpace(request.Password))
             throw new BadHttpRequestException(MessageConstant.User.LoginRequestNoNull);
     }
 
-    private async Task<User> GetUserWithDetailsAsync(string username)
+    private async Task<User> GetUserWithDetailsAsync(string email)
     {
         var userDetail = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
-            predicate: u => u.UserName == username,
+            predicate: u => u.Email == email,
             include: u => u.Include(u => u.Role).ThenInclude(rp => rp.RolePermissions).ThenInclude(p => p.Permission)
             .Include(u => u.Department)
             );
@@ -151,7 +150,7 @@ public class UserService : BaseService<UserService>, IUserService
 
             if (!success)
             {
-                _logger.LogWarning("Login succeeded but failed to update user: {UserName}", user.UserName);
+                _logger.LogWarning("Login succeeded but failed to update user: {Email}", user.Email);
             }
         }
         else
@@ -210,10 +209,6 @@ public class UserService : BaseService<UserService>, IUserService
     private async Task ValidateUniqueFieldsAsync(RegisterRequest request)
     {
         var repo = _unitOfWork.GetRepository<User>();
-
-        if (await repo.SingleOrDefaultAsync(predicate: u => u.UserName == request.Username) != null)
-            throw new BadHttpRequestException(MessageConstant.User.UserNameExisted);
-
         if (await repo.SingleOrDefaultAsync(predicate: u => u.Phone == request.Phone) != null)
             throw new BadHttpRequestException(MessageConstant.User.PhoneNumberExisted);
 
@@ -408,7 +403,6 @@ public class UserService : BaseService<UserService>, IUserService
                 var response = new UserRoleChangeResponse
                 {
                     UserId = currentUser.Id,
-                    UserName = currentUser.UserName,
                     OldRole = new RoleResponse
                     {
                         Id = oldRole.Id,
@@ -522,7 +516,6 @@ public class UserService : BaseService<UserService>, IUserService
                 var response = new ChangeDepartmentResponse
                 {
                     UserId = targetUser.Id,
-                    UserName = targetUser.UserName,
                     FullName = targetUser.FullName,
                     OldDepartment = new DepartmentResponse
                     {
@@ -601,7 +594,6 @@ public class UserService : BaseService<UserService>, IUserService
         var responseList = users.Items.Select(user => new GetUserByDeparAndRoleResponse
         {
             UserId = user.Id,
-            UserName = user.UserName,
             FullName = user.FullName,
             Email = user.Email,
             Phone = user.Phone,
@@ -632,7 +624,6 @@ public class UserService : BaseService<UserService>, IUserService
             selector: s => new User()
             {
                 Id = s.Id,
-                UserName = s.UserName,
                 Email = s.Email,
                 Phone = s.Phone,
                 FullName = s.FullName,

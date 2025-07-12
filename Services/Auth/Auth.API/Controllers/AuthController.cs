@@ -45,10 +45,10 @@ public class AuthController : ControllerBase
         var response = await _userService.LoginAsync(request);
         if (response == null)
         {
-            _logger.LogError($"Login failed with {request.Username}");
+            _logger.LogError($"Login failed with {request.Email}");
             return Problem(MessageConstant.User.LoginFailed);
         }
-        _logger.LogInformation($"Login succeeded with {request.Username}");
+        _logger.LogInformation($"Login succeeded with {request.Email}");
         return Ok(response);
     }
 
@@ -61,10 +61,10 @@ public class AuthController : ControllerBase
         var response = await _userService.RegisterAsync(request);
         if (response == null)
         {
-            _logger.LogError($"Register failed with {request.Username}");
+            _logger.LogError($"Register failed with {request.Email}");
             return Problem(MessageConstant.User.RegisterFail);
         }
-        _logger.LogInformation($"Register successful with {request.Username}");
+        _logger.LogInformation($"Register successful with {request.Email}");
         return CreatedAtAction(nameof(Register), response);
     }
 

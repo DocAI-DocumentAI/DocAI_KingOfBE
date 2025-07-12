@@ -40,7 +40,6 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             new User
             {
                 Id = Guid.Parse("13d466ed-8a2d-414d-88c0-9c7adcac2616"),
-                UserName = "admin",
                 Password = HashPassword("admin"),
                 Email = "admin@gmail.com",
                 Phone = "0847911068",
@@ -53,7 +52,6 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             new User
             {
                 Id = Guid.Parse("595dd357-aaec-455e-9fa7-4fc88d4b819c"),
-                UserName = "manager",
                 Password = HashPassword("manager"),
                 Email = "manager@gmail.com",
                 Phone = "0123456789",
@@ -66,7 +64,6 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             new User
             {
                 Id = Guid.Parse("fd05266c-baf5-49bb-a846-554461bcc411"),
-                UserName = "employee",
                 Password = HashPassword("employee"),
                 Email = "employee@gmail.com",
                 Phone = "0123456789",
@@ -79,7 +76,6 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             new User
             {
                 Id = Guid.Parse("5c49c1cb-719e-42eb-8028-f2eb3eaea4cd"),
-                UserName = "editor",
                 Password = HashPassword("editor"),
                 Email = "editor@gmail.com",
                 Phone = "0123456789",
