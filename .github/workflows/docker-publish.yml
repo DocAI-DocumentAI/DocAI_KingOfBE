@@ -165,7 +165,6 @@ jobs:
             export LANG=C.UTF-8
             export LC_ALL=C.UTF-8
             cd ~/DocAI || { echo "Failed to change directory" > deploy.log; exit 1; }
-            echo "${{ env.DOCKER_HUB_ACCESS_TOKEN }}" | docker login -u "${{ env.DOCKER_HUB_USERNAME }}" --password-stdin >> deploy.log 2>&1 || { echo "Docker login failed" >> deploy.log; exit 1; }
             docker-compose down --rmi all --volumes --remove-orphans >> deploy.log 2>&1 || { echo "Docker-compose down failed" >> deploy.log; exit 1; }
             docker system prune -a -f >> deploy.log 2>&1 || { echo "Docker prune failed" >> deploy.log; exit 1; }
             docker-compose pull >> deploy.log 2>&1 || { echo "Docker-compose pull failed" >> deploy.log; exit 1; }
