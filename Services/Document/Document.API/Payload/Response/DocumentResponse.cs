@@ -17,4 +17,6 @@ public class DocumentResponse
     public long FileSize { get; set; }
     public string? Version { get; set; }
     public List<string> Tags { get; set; }
+    public string? ReplacementId { get; set; }
+    public bool IsReplaced { get; set; }
 }

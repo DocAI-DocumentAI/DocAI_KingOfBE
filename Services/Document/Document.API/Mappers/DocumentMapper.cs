@@ -20,7 +20,11 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.FileType, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().FileType))
             .ForMember(dest => dest.FileSize, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().FileSize.ToString()))
             .ForMember(dest => dest.CreatedTime, opt => opt.MapFrom(src => src.CreatedTime))
-            .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().DocumentTags.Select(dt => dt.Tag.Name).ToList()));
+            .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().DocumentTags.Select(dt => dt.Tag.Name).ToList()))
+            .ForMember(dest => dest.ReplacementId, opt => opt.MapFrom(src => src.ReplacementId))
+            .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.IsReplaced))
+            .ForMember(dest => dest.LastSubmitted, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().LastSubmitted))
+            .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().SubmittedBy));
 
         CreateMap<DocumentVersion, PendingDocumentResponse>()
             .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => src.Id.ToString()));
@@ -40,7 +44,9 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.FileType, opt => opt.MapFrom(src => src.FileType))
             .ForMember(dest => dest.FileSize, opt => opt.MapFrom(src => src.FileSize))
             .ForMember(dest => dest.Version, opt => opt.MapFrom(src => src.VersionName))
-            .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentTags.Select(dt => dt.Tag.Name).ToList()));
+            .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentTags.Select(dt => dt.Tag.Name).ToList()))
+            .ForMember(dest => dest.ReplacementId, opt => opt.MapFrom(src => src.DocumentFile.ReplacementId))
+            .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.DocumentFile.IsReplaced));
 
         CreateMap<DocumentVersion, DocumentDraftResponse>()
             .ForMember(dest => dest.DocumentId, opt => opt.MapFrom(src => src.DocumentFile.Id.ToString()))
@@ -57,7 +63,11 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.DepartmentId, opt => opt.MapFrom(src => src.DocumentFile.DepartmentId))
             .ForMember(dest => dest.OwnerId, opt => opt.MapFrom(src => src.DocumentFile.OwnerId))
             .ForMember(dest => dest.CreatedTime, opt => opt.MapFrom(src => src.DocumentFile.CreatedTime))
-            .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentTags.Select(dt => dt.Tag.Name).ToList()));
+            .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentTags.Select(dt => dt.Tag.Name).ToList()))
+            .ForMember(dest => dest.ReplacementId, opt => opt.MapFrom(src => src.DocumentFile.ReplacementId))
+            .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.DocumentFile.IsReplaced))
+            .ForMember(dest => dest.LastSubmitted, opt => opt.MapFrom(src => src.LastSubmitted))
+            .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.SubmittedBy));
 
         CreateMap<Tag, TagResponse>();
     }

@@ -37,5 +37,19 @@ namespace Document.API.Controllers
             await _approvalService.GetApprovalQueueAsync(departmentId, pageNumber, pageSize);
             return Ok(ApiResponse<object>.Success(null, "Document approved successfully", 200));
         }
+
+        [HttpPost(ApiEndPointConstant.Approval.Claim)]
+        public async Task<IActionResult> ClaimDocument([FromRoute(Name = "id")] string documentId, string userId)
+        {
+            await _approvalService.ClaimDocumentForReviewAsync(documentId, userId);
+            return Ok(ApiResponse<object>.Success(null, "Document claimed successfully", 200));
+        }
+
+        [HttpPost(ApiEndPointConstant.Approval.ReleaseClaim)]
+        public async Task<IActionResult> ReleaseClaim([FromRoute(Name = "id")] string documentId, string userId)
+        {
+            await _approvalService.ReleaseClaimAsync(documentId, userId);
+            return Ok(ApiResponse<object>.Success(null, "Document claim released successfully", 200));
+        }
     }
 }

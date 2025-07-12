@@ -16,5 +16,6 @@ namespace Document.API.Payload.Request
         public List<string>? Tags { get; set; }
         public string DepartmentId { get; set; }
         public IFormFile File { get; set; }
+        public string? ReplacementDocumentId { get; set; }
     }
 }

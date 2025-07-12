@@ -14,6 +14,8 @@ namespace Document.Domain.Model
         public string? Description { get; set; }
         public string DepartmentId { get; set; }
         public string OwnerId { get; set; }
+        public string? ReplacementId { get; set; }
+        public bool IsReplaced { get; set; } = false;
         public ICollection<DocumentVersion> DocumentVersions { get; set; } = new List<DocumentVersion>();
     }
 }

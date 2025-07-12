@@ -56,6 +56,67 @@ namespace Document.API.Services.Implements
             return response;
         }
 
+        public async Task ClaimDocumentForReviewAsync(string versionId, string userId)
+        {
+            var versionToClaim = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(
+                    predicate: v => v.Id == versionId,
+                    include: i => i.Include(v => v.DocumentFile)
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentVersionNotFound);
+
+            if (versionToClaim.Status != StatusEnum.Pending)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, string.Format(MessageConstant.NotPendingApproval, versionToClaim.Status));
+            }
+
+            var existingClaim = await _unitOfWork.GetRepository<ApprovalClaim>()
+                .SingleOrDefaultAsync(predicate: ac => ac.DocumentVersionId == versionId && ac.IsActive);
+
+            if (existingClaim != null)
+            {
+                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, string.Format(MessageConstant.DocumentAlreadyClaimed, existingClaim.ClaimedBy));
+            }
+
+            var newClaim = new ApprovalClaim
+            {
+                DocumentVersionId = versionId,
+                ClaimedBy = userId,
+                ClaimedAt = DateTime.UtcNow,
+                IsActive = true,
+                CreatedBy = userId
+            };
+
+            await _unitOfWork.GetRepository<ApprovalClaim>().InsertAsync(newClaim);
+            await _unitOfWork.CommitAsync();
+
+            _logger.LogInformation("Document version {VersionId} claimed for review by user {UserId}", versionId, userId);
+        }
+
+        public async Task ReleaseClaimAsync(string versionId, string userId)
+        {
+            var existingClaim = await _unitOfWork.GetRepository<ApprovalClaim>()
+                .SingleOrDefaultAsync(predicate: ac => ac.DocumentVersionId == versionId && ac.IsActive);
+
+            if (existingClaim == null)
+            {
+                throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.ClaimNotFound);
+            }
+
+            if (existingClaim.ClaimedBy != userId)
+            {
+                throw new ErrorException(StatusCodes.Status403Forbidden, MessageConstant.UnauthorizedToReleaseClaim);
+            }
+
+            existingClaim.IsActive = false;
+            existingClaim.LastUpdatedBy = userId;
+            existingClaim.LastUpdatedTime = DateTime.UtcNow;
+
+            _unitOfWork.GetRepository<ApprovalClaim>().UpdateAsync(existingClaim);
+            await _unitOfWork.CommitAsync();
+
+            _logger.LogInformation("Document version {VersionId} claim released by user {UserId}", versionId, userId);
+        }
+
         public async Task ReviewDocument(string versionId, ReviewDocumentRequest request, string userId)
         {
             var versionToReview = await _unitOfWork.GetRepository<DocumentVersion>()
@@ -184,6 +245,17 @@ namespace Document.API.Services.Implements
                 DocumentVersionId = versionToReview.Id,
             };
             await _unitOfWork.GetRepository<ApprovalLog>().InsertAsync(approvalLog);
+
+            var activeClaim = await _unitOfWork.GetRepository<ApprovalClaim>()
+                .SingleOrDefaultAsync(predicate: ac => ac.DocumentVersionId == versionToReview.Id && ac.IsActive);
+            if (activeClaim != null)
+            {
+                activeClaim.IsActive = false;
+                activeClaim.LastUpdatedBy = userId;
+                activeClaim.LastUpdatedTime = DateTime.UtcNow;
+                _unitOfWork.GetRepository<ApprovalClaim>().UpdateAsync(activeClaim);
+            }
+
             await _unitOfWork.CommitAsync();
 
             _logger.LogInformation("Manager {UserId} has {Action} document version {VersionId}", userId, logAction, versionId);

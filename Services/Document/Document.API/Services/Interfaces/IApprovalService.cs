@@ -9,5 +9,7 @@ namespace Document.API.Services.Interfaces
         Task SubmitForApprovalAsync(string versionId, string userId);
         Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueAsync(string departmentId, int pageNumber, int pageSize);
         Task ReviewDocument(string versionId, ReviewDocumentRequest reviewDocumentRequest, string userId);
+        Task ClaimDocumentForReviewAsync(string versionId, string userId);
+        Task ReleaseClaimAsync(string versionId, string userId);
     }
 }

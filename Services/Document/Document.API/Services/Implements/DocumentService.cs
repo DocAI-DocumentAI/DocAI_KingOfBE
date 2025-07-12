@@ -79,20 +79,55 @@ public class DocumentService : IDocumentService
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.MaxDraftsReached, PolicyConstant.MaxDraftsPerUser));
         }
 
-        //2. Checking title duplication
-        var existingDocument = await _unitOfWork.GetRepository<DocumentFile>()
-                .SingleOrDefaultAsync(predicate: d => d.Title == request.Title);
-        if (existingDocument != null)
+        //2. Handle replacement logic if ReplacementDocumentId is provided
+        DocumentFile? documentToReplace = null;
+        if (!string.IsNullOrEmpty(request.ReplacementDocumentId))
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentTitleExists);
-        }
+            documentToReplace = await _unitOfWork.GetRepository<DocumentFile>()
+                .SingleOrDefaultAsync(
+                    predicate: d => d.Id.ToString() == request.ReplacementDocumentId,
+                    include: i => i.Include(d => d.DocumentVersions)
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentNotFound);
 
-        //3. Checking Version Name duplication
-        var existingVersionName = await _unitOfWork.GetRepository<DocumentVersion>()
-                .SingleOrDefaultAsync(predicate: v => v.VersionName == request.VersionName && v.DocumentFile.Title == request.Title);
-        if (existingVersionName != null)
+            // BR-035: Only documents with status 'Approved' can be selected for replacement.
+            var latestApprovedVersion = documentToReplace.DocumentVersions.OrderByDescending(v => v.CreatedTime).FirstOrDefault(v => v.Status == StatusEnum.Approved);
+            if (latestApprovedVersion == null)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.CanOnlyReplaceApprovedDocument);
+            }
+
+            // BR-037: A document can only be in the process of being replaced by one new document at a time.
+            if (documentToReplace.IsReplaced)
+            {
+                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DocumentAlreadyUnderReplacement);
+            }
+
+            // BR-038: Editors can only replace documents within their assigned Department.
+            if (documentToReplace.DepartmentId != request.DepartmentId) // Assuming user's department is tied to the request's department
+            {
+                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToReplaceDocumentInOtherDepartment);
+            }
+
+            // BR-036: The replacement file cannot be identical to the original (checked by hash, title, number).
+            // This check will be done after file upload.
+        }
+        else
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentVersionNameExists);
+            // If not a replacement, check for title duplication for new documents
+            var existingDocument = await _unitOfWork.GetRepository<DocumentFile>()
+                    .SingleOrDefaultAsync(predicate: d => d.Title == request.Title);
+            if (existingDocument != null)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentTitleExists);
+            }
+
+            // Checking Version Name duplication for new documents
+            var existingVersionName = await _unitOfWork.GetRepository<DocumentVersion>()
+                    .SingleOrDefaultAsync(predicate: v => v.VersionName == request.VersionName && v.DocumentFile.Title == request.Title);
+            if (existingVersionName != null)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentVersionNameExists);
+            }
         }
 
         // 4. Upload the file to Azure Storage and get the MD5 hash.
@@ -141,6 +176,8 @@ public class DocumentService : IDocumentService
             DepartmentId = request.DepartmentId,
             OwnerId = userId,
             CreatedBy = userId,
+            ReplacementId = request.ReplacementDocumentId,
+            IsReplaced = !string.IsNullOrEmpty(request.ReplacementDocumentId)
         };
 
         var version = new DocumentVersion
@@ -161,6 +198,8 @@ public class DocumentService : IDocumentService
             EffectiveFrom = request.EffectiveFrom,
             EffectiveUntil = request.EffectiveUntil,
             CreatedBy = userId,
+            LastSubmitted = DateTime.UtcNow,
+            SubmittedBy = userId,
         };
 
         await ProcessTagsAsync(version, request.Tags, userId);
@@ -170,6 +209,16 @@ public class DocumentService : IDocumentService
         // 7. Save to database
         await _unitOfWork.GetRepository<DocumentFile>().InsertAsync(documentFile);
         await _unitOfWork.CommitAsync();
+
+        if (documentToReplace != null)
+        {
+            documentToReplace.IsReplaced = true;
+            documentToReplace.LastUpdatedBy = userId;
+            documentToReplace.LastUpdatedTime = DateTime.UtcNow;
+            _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentToReplace);
+            await _unitOfWork.CommitAsync();
+            _logger.LogInformation("Marked document {OriginalDocumentId} as replaced by new document {NewDocumentId}", documentToReplace.Id, documentFile.Id);
+        }
 
         _logger.LogInformation("Successfully created draft document {DocumentId}", documentFile.Id);
 
