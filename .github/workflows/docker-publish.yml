@@ -7,11 +7,11 @@ on:
     branches: ["main", "master"]
 
 env:
-  DOCKER_HUB_USERNAME: nguyenhuyphc@gmail.com
+  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+  DOCKER_HUB_ACCESS_TOKEN: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
   VPS_HOST: ${{ secrets.VPS_HOST }}
   VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
-  VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-
+  VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
 jobs:
   # Job này chạy cho tất cả các nhánh - chỉ build để kiểm tra
   build:
@@ -85,9 +85,8 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v2
         with:
-          username: nguyenhuyphc@gmail.com
-          password: Phuc0847911068
-
+          username: ${{ env.DOCKER_HUB_USERNAME }}
+          password: ${{ env.DOCKER_HUB_ACCESS_TOKEN }}
       # Build and push AI.API
       - name: Build and push AI.API
         uses: docker/build-push-action@v4
@@ -139,6 +138,8 @@ jobs:
           file: ApiGateway/Dockerfile
           push: true
           tags: magicflexing/docai-gateway:latest
+
+  # Job này chỉ chạy khi build-and-push thành công (tức là khi push vào main)
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
@@ -154,6 +155,7 @@ jobs:
             export LANG=C.UTF-8
             export LC_ALL=C.UTF-8
             cd ~/DocAI || { echo "Failed to change directory" > deploy.log; exit 1; }
+            echo "${{ env.DOCKER_HUB_ACCESS_TOKEN }}" | docker login -u "${{ env.DOCKER_HUB_USERNAME }}" --password-stdin >> deploy.log 2>&1 || { echo "Docker login failed" >> deploy.log; exit 1; }
             docker-compose down --rmi all --volumes --remove-orphans >> deploy.log 2>&1 || { echo "Docker-compose down failed" >> deploy.log; exit 1; }
             docker system prune -a -f >> deploy.log 2>&1 || { echo "Docker prune failed" >> deploy.log; exit 1; }
             docker-compose pull >> deploy.log 2>&1 || { echo "Docker-compose pull failed" >> deploy.log; exit 1; }
