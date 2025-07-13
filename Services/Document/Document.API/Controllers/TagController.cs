@@ -2,6 +2,7 @@ using Document.API.Constants;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
+using Document.Infrastructure.Paginate;
 using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
 
@@ -19,6 +20,9 @@ namespace Document.API.Controllers
         }
 
         [HttpPost(ApiEndPointConstant.Tag.CreateTag)]
+        [ProducesResponseType(typeof(ApiResponse<TagResponse>), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> CreateTag([FromBody] CreateTagRequest request, string userId)
         {
             var response = await _tagService.CreateTagAsync(request, userId);
@@ -26,6 +30,10 @@ namespace Document.API.Controllers
         }
 
         [HttpGet(ApiEndPointConstant.Tag.GetTagById)]
+        [ProducesResponseType(typeof(ApiResponse<TagResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetTagById([FromRoute(Name = "id")] string tagId)
         {
             var response = await _tagService.GetTagByIdAsync(tagId);
@@ -33,6 +41,9 @@ namespace Document.API.Controllers
         }
 
         [HttpGet(ApiEndPointConstant.Tag.GetAllTags)]
+        [ProducesResponseType(typeof(ApiResponse<IPaginate<TagResponse>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetAllTags(int pageNumber = 1, int pageSize = 10)
         {
             var response = await _tagService.GetAllTagsAsync(pageNumber, pageSize);
@@ -40,6 +51,10 @@ namespace Document.API.Controllers
         }
 
         [HttpPut(ApiEndPointConstant.Tag.UpdateTag)]
+        [ProducesResponseType(typeof(ApiResponse<TagResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> UpdateTag([FromRoute(Name = "id")] string tagId, [FromBody] UpdateTagRequest request, string userId)
         {
             var response = await _tagService.UpdateTagAsync(tagId, request, userId);
@@ -47,6 +62,10 @@ namespace Document.API.Controllers
         }
 
         [HttpDelete(ApiEndPointConstant.Tag.DeleteTag)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> DeleteTag([FromRoute(Name = "id")] string tagId)
         {
             await _tagService.DeleteTagAsync(tagId);

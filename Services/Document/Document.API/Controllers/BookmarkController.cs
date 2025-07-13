@@ -1,5 +1,7 @@
 using Document.API.Constants;
+using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
+using Document.Infrastructure.Paginate;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Document.API.Controllers
@@ -16,6 +18,10 @@ namespace Document.API.Controllers
         }
 
         [HttpPost(ApiEndPointConstant.Bookmark.AddBookmark)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> AddBookmark([FromRoute(Name = "documentVersionId")] string documentVersionId, string userId)
         {
             await _bookmarkService.AddBookmarkAsync(documentVersionId, userId);
@@ -23,6 +29,10 @@ namespace Document.API.Controllers
         }
 
         [HttpDelete(ApiEndPointConstant.Bookmark.RemoveBookmark)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> RemoveBookmark([FromRoute(Name = "documentVersionId")] string documentVersionId, string userId)
         {
             await _bookmarkService.RemoveBookmarkAsync(documentVersionId, userId);
@@ -30,6 +40,9 @@ namespace Document.API.Controllers
         }
 
         [HttpGet(ApiEndPointConstant.Bookmark.GetBookmarks)]
+        [ProducesResponseType(typeof(ApiResponse<IPaginate<BookmarkResponse>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetBookmarks(string userId, int pageNumber = 1, int pageSize = 10)
         {
             var result = await _bookmarkService.GetBookmarksAsync(userId, pageNumber, pageSize);
