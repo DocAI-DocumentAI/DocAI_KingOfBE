@@ -25,53 +25,52 @@ namespace Document.API.Services.Implements
             _logger = logger;
         }
 
-        public async Task AddBookmarkAsync(string documentVersionId, string userId)
+        public async Task AddBookmarkAsync(string documentId, string userId)
         {
             // 1. Check if the document version exists and is official
-            var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
+            var document = await _unitOfWork.GetRepository<DocumentFile>()
                 .SingleOrDefaultAsync(
-                    predicate: dv => dv.Id == documentVersionId && dv.IsOfficial,
-                    include: i => i.Include(dv => dv.DocumentFile)
-                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Official document version not found.");
+                    predicate: d => d.Id == documentId
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
 
             // 2. Check if the bookmark already exists for this user and document version
             var existingBookmark = await _unitOfWork.GetRepository<Bookmark>()
                 .SingleOrDefaultAsync(
-                    predicate: b => b.UserId == userId && b.DocumentVersionId == documentVersionId
+                    predicate: b => b.UserId == userId && b.DocumentId == documentId
                 );
 
             if (existingBookmark != null)
             {
-                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "Document already bookmarked by this user.");
+                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DocumentAlreadyBookmarked);
             }
 
             // 3. Create and save the new bookmark
             var bookmark = new Bookmark
             {
                 UserId = userId,
-                DocumentVersionId = documentVersionId,
+                DocumentId = documentId,
                 CreatedBy = userId
             };
 
             await _unitOfWork.GetRepository<Bookmark>().InsertAsync(bookmark);
             await _unitOfWork.CommitAsync();
 
-            _logger.LogInformation("User {UserId} bookmarked document version {DocumentVersionId}", userId, documentVersionId);
+            _logger.LogInformation("User {UserId} bookmarked document version {documentId}", userId, documentId);
         }
 
-        public async Task RemoveBookmarkAsync(string documentVersionId, string userId)
+        public async Task RemoveBookmarkAsync(string documentId, string userId)
         {
             // 1. Find the bookmark to remove
             var bookmarkToRemove = await _unitOfWork.GetRepository<Bookmark>()
                 .SingleOrDefaultAsync(
-                    predicate: b => b.UserId == userId && b.DocumentVersionId == documentVersionId
-                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Bookmark not found.");
+                    predicate: b => b.UserId == userId && b.DocumentId == documentId
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.BookmarkNotFound);
 
             // 2. Delete the bookmark
             _unitOfWork.GetRepository<Bookmark>().DeleteAsync(bookmarkToRemove);
             await _unitOfWork.CommitAsync();
 
-            _logger.LogInformation("User {UserId} removed bookmark for document version {DocumentVersionId}", userId, documentVersionId);
+            _logger.LogInformation("User {UserId} removed bookmark for document version {documentId}", userId, documentId);
         }
 
         public async Task<IPaginate<BookmarkResponse>> GetBookmarksAsync(string userId, int pageNumber, int pageSize)
@@ -80,19 +79,16 @@ namespace Document.API.Services.Implements
                 selector: b => new BookmarkResponse
                 {
                     Id = b.Id,
-                    DocumentVersionId = b.DocumentVersion.Id,
-                    Title = b.DocumentVersion.Title,
-                    VersionName = b.DocumentVersion.VersionName,
-                    FilePath = b.DocumentVersion.FilePath,
-                    FileName = b.DocumentVersion.FileName,
-                    FileSize = b.DocumentVersion.FileSize,
-                    FileType = b.DocumentVersion.FileType,
+                    DocumentId = b.Document.Id,
+                    Title = b.Document.Title,
+                    Description = b.Document.Description,
+                    OwnerId = b.Document.OwnerId,
                     CreatedTime = b.CreatedTime
                 },
                 filter: null,
                 predicate: b => b.UserId == userId,
                 orderBy: q => q.OrderByDescending(b => b.CreatedTime),
-                include: i => i.Include(b => b.DocumentVersion),
+                include: i => i.Include(b => b.Document),
                 page: pageNumber,
                 size: pageSize
             );

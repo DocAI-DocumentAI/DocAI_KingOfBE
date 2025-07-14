@@ -1,5 +1,6 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Document.API.Constants;
 using Document.API.Models;
 using Document.API.Services.Interfaces;
 
@@ -20,7 +21,7 @@ namespace Document.API.Services.Implements
             if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(containerName))
             {
                 _logger.LogCritical("Azure Storage configuration is missing");
-                throw new InvalidOperationException("Azure Storage is not configured");
+                throw new InvalidOperationException(MessageConstant.AzureStorageNotConfigured);
             }
 
             try

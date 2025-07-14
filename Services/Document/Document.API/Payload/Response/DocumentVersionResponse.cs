@@ -8,5 +8,7 @@ namespace Document.API.Payload.Response
         public DateTime CreatedAt { get; set; }
         public string Status { get; set; }
         public List<string> Tags { get; set; }
+        public DateTime? LastSubmitted { get; set; }
+        public string? SubmittedBy { get; set; }
     }
 }

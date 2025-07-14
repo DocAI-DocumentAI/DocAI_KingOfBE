@@ -29,6 +29,8 @@ namespace Document.Domain.Models
         public StatusEnum Status { get; set; }
         public bool IsOfficial { get; set; }
         public bool IsPublic { get; set; }
+        public DateTime? LastSubmitted { get; set; }
+        public string? SubmittedBy { get; set; }
         public string DocumentFileId { get; set; }
         public DocumentFile DocumentFile { get; set; }
         public virtual ICollection<DocumentTag> DocumentTags { get; set; }

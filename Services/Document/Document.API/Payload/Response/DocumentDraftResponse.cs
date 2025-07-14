@@ -17,5 +17,9 @@
         public string OwnerId { get; set; }
         public List<string> Tags { get; set; }
         public DateTime CreatedTime { get; set; }
+        public string? ReplacementId { get; set; }
+        public bool IsReplaced { get; set; }
+        public DateTime? LastSubmitted { get; set; }
+        public string? SubmittedBy { get; set; }
     }
 }

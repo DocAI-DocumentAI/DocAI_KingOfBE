@@ -190,8 +190,21 @@
       - docai_network
     restart: always
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - docai_network
+    restart: always
+
 volumes:
   rabbitmq_data:
+    driver: local
+  ollama_data:
     driver: local
 
 networks:

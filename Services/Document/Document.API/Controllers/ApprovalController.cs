@@ -1,7 +1,9 @@
 ﻿using Document.API.Constants;
 using Document.API.Payload.Request;
+using Document.API.Payload.Response;
 using Document.API.Services.Implements;
 using Document.API.Services.Interfaces;
+using Document.Infrastructure.Paginate;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Document.API.Controllers
@@ -18,6 +20,10 @@ namespace Document.API.Controllers
         }
 
         [HttpPost(ApiEndPointConstant.Approval.Submit)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> SubmitDocument([FromRoute(Name = "id")] string documentId, string userId)
         {
             await _approvalService.SubmitForApprovalAsync(documentId, userId);
@@ -25,6 +31,10 @@ namespace Document.API.Controllers
         }
 
         [HttpPost(ApiEndPointConstant.Approval.ApproveOrReject)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> ApproveOrRejectDocument([FromRoute(Name = "id")] string documentId, [FromBody] ReviewDocumentRequest request, string userId)
         {
             await _approvalService.ReviewDocument(documentId, request, userId);
@@ -32,10 +42,35 @@ namespace Document.API.Controllers
         }
 
         [HttpGet(ApiEndPointConstant.Approval.GetApprovalQueue)]
+        [ProducesResponseType(typeof(ApiResponse<IPaginate<PendingDocumentResponse>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetApprovalQueue(string departmentId, int pageNumber = 1, int pageSize = 10)
         {
-            await _approvalService.GetApprovalQueueAsync(departmentId, pageNumber, pageSize);
-            return Ok(ApiResponse<object>.Success(null, "Document approved successfully", 200));
+            var result = await _approvalService.GetApprovalQueueAsync(departmentId, pageNumber, pageSize);
+            return Ok(ApiResponse<object>.Success(result, "Approval queue retrieved successfully", 200));
+        }
+
+        [HttpPost(ApiEndPointConstant.Approval.Claim)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> ClaimDocument([FromRoute(Name = "id")] string documentId, string userId)
+        {
+            await _approvalService.ClaimDocumentForReviewAsync(documentId, userId);
+            return Ok(ApiResponse<object>.Success(null, "Document claimed successfully", 200));
+        }
+
+        [HttpPost(ApiEndPointConstant.Approval.ReleaseClaim)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> ReleaseClaimDocument([FromRoute(Name = "id")] string documentId, string userId)
+        {
+            await _approvalService.ReleaseClaimAsync(documentId, userId);
+            return Ok(ApiResponse<object>.Success(null, "Document claim released successfully", 200));
         }
     }
 }

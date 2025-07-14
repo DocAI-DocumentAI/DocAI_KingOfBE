@@ -1,0 +1,155 @@
+{
+  features [
+    {
+      name Document Management,
+      functions [
+        {
+          id upload_document_as_draft,
+          description Allows an Editor to upload a new document, creating a master record and an initial draft version.,
+          actors [Editor],
+          business_rules [
+            BR-015 Supported file types are PDF (text-based) and DOCX.,
+            BR-016 Maximum file size is 5MB.,
+            BR-017 System must check for duplicate files using MD5 hash across 'Pending', 'Approved', and 'Archived' states.,
+            BR-018 Every new document must be assigned to a single Department.,
+            BR-019 The uploader is the initial 'editor' of the document.,
+            BR-020 AI must attempt to auto-generate Title, Version, Summary, and Dates. If AI fails, manual input is mandatory.,
+            BR-021 'Effective From' date must be before 'Expiration Date'.,
+            BR-029 System must prevent upload if a file's hash matches a document in 'Pending', 'Approved', or 'Achieved' status.,
+            BR-031 A file matching a 'Rejected' document can only be re-uploaded by the original submitter.,
+            BR-033 A user is limited to a maximum of 20 drafts.,
+            BR-034 Document content must be eligible (e.g., Laws, Decrees, Regulations); transactional formsinvoices will be warned against.
+          ]
+        },
+        {
+          id upload_document_replacement_draft,
+          description Allows an Editor to formally replace an existing 'Approved' document with a new one, making the original document obsolete.,
+          actors [Editor],
+          business_rules [
+            BR-035 Only documents with status 'Approved' can be selected for replacement.,
+            BR-036 The replacement file cannot be identical to the original (checked by hash, title, number).,
+            BR-037 A document can only be in the process of being replaced by one new document at a time.,
+            BR-038 Editors can only replace documents within their assigned Department.,
+            BR-041 Replacing a document archives the original; it is not deleted.
+          ]
+        },
+        {
+          id edit_document_draft,
+          description Allows an Editor to modify the metadata or replace the file of a 'Draft' or 'Rejected' document.,
+          actors [Editor],
+          business_rules [
+            BR-043 An Editor can only edit documents they own with a status of 'Draft' or 'Rejected'.,
+            BR-044 For 'Rejected' documents, the 'Save as Draft' option is hidden; the only action is 'Submit for Approval'.,
+            BR-045 If a new file is uploaded, AI analysis for tagging and summary must be re-run.,
+            BR-049 AI regeneration for summarytags is limited to 5 retries per editing session.
+          ]
+        },
+        {
+          id delete_document_draft,
+          description Permanently removes a document draft that is no longer needed.,
+          actors [Editor],
+          business_rules [
+            BR-050 Only the owner of a 'Draft' document can delete it.,
+            BR-051 Deletion requires user confirmation and removes both the file and database records.,
+            BR-052 'Rejected' documents cannot be deleted, only edited and resubmitted.
+          ]
+        },
+        {
+          id ai_power_document_search,
+          description Enables users to find documents using natural language queries and filters.,
+          actors [Admin, Editor, Manager, Member],
+          business_rules [
+            BR-067 For 'Member' role, search results must prioritize the latest 'Approved' version of a document.,
+            BR-068 A blocklist of inappropriate keywords must be enforced to prevent certain searches.,
+            BR-070 A single user is limited to 10 AI searches per minute.
+          ]
+        },
+        {
+          id automatic_tagging,
+          description System function to automatically generate relevant tags for a document using AI.,
+          actors [System],
+          business_rules [
+            BR-071 AI-generated tags must be stored in a normalized form (e.g., lowercase).,
+            BR-072 Only 'Editor' and 'Admin' roles can edit or remove generated tags.,
+            BR-075 Tags must be structured into three tiers Categories, Topics, and Keywords.,
+            BR-076 The system must check for and reuse existing tags to avoid duplication.
+          ]
+        },
+        {
+          id ai_document_summary,
+          description System function to automatically generate a concise summary for a document using AI.,
+          actors [System],
+          business_rules [
+            BR-077 Summaries should be under 1000 words.,
+            BR-078 The summary is stored with the specific document version.,
+            BR-081 The summary must follow a structured format with sections and bullet points.,
+            BR-082 EditorsApprovers can regenerate a summary up to 5 times per hour.,
+            BR-083 EditorsApprovers can manually edit the AI-generated summary.
+          ]
+        },
+        {
+          id share_document,
+          description Allows a Manager to share a document with other users or departments with 'Viewer' or 'Editor' permissions.,
+          actors [Manager],
+          business_rules [
+            BR-088 A document can only be shared by its owner or a user with 'Manager' permissions.,
+            BR-089 Shared permissions are additive and do not override department-level access.,
+            BR-090 The document owner cannot be removed via the sharing interface.,
+            BR-245 Document visibility can be set to 'Public', 'Private' (department only), or 'Share' (specific usersdepartments).
+          ]
+        }
+      ]
+    },
+    {
+      name Approval & Versioning,
+      functions [
+        {
+          id submit_document_for_approval,
+          description Formally submits a 'Draft' or 'Rejected' document for review, changing its status to 'Pending Approval'.,
+          actors [Editor],
+          business_rules [
+            BR-212 A document can only be submitted if its status is 'Draft' or 'Rejected'.,
+            BR-213 Once submitted, the document is locked and cannot be edited by the Editor.,
+            BR-214 If not acted upon within 7 days, the submission is automatically rejected.,
+            BR-215 Editors must receive notifications for all status updates (Approved, Rejected, Timeout).
+          ]
+        },
+        {
+          id view_approval_queue,
+          description Allows a Manager to see a list of all documents from their department(s) that are awaiting review.,
+          actors [Manager],
+          business_rules [
+            BR-216 A Manager can only see documents in the queue that belong to departments they manage.,
+            BR-217 Once a document is actioned, it must be removed from the queue for all other managers.,
+            BR-218 The queue must be sorted by the oldest submission date first by default.,
+            BR-219 The queue must show if a document is currently being reviewed by another manager to prevent overlap.
+          ]
+        },
+        {
+          id approve_document,
+          description Allows a Manager to approve a submitted document version, making it official and visible.,
+          actors [Manager],
+          business_rules [
+            BR-220 Once approved, a document becomes searchable and viewable by all members of its assigned department.,
+            BR-221 When a Manager opens a document for review, it is temporarily 'locked' to prevent other managers from acting on it.,
+            BR-222 When a new version is approved, the previous 'Approved' version's status changes to 'Archived'.,
+            BR-224 Upon approval, a notification must be sent to the submitting Editor and all users with viewing permissions.,
+            BR-225 All approval actions must be recorded in an approval log with user ID, timestamp, and version.
+          ]
+        },
+        {
+          id reject_document,
+          description Allows a Manager to reject a submitted document and send it back to the creator for revision.,
+          actors [Manager],
+          business_rules [
+            BR-226 Comments are mandatory when a document is rejected.,
+            BR-229 A notification with the rejection comments must be sent to the submitting Editor.,
+            BR-230 A rejected document will be deleted if no action is taken by the Editor within 7 days.,
+            BR-232 Rejection comments must be at least 10 characters long.,
+            BR-233 Editors can resubmit a rejected document after editing, but cannot delete it.
+          ]
+        }
+      ]
+    }
+  ]
+}

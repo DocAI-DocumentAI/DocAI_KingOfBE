@@ -24,6 +24,7 @@ namespace Document.Domain.Context
         public DbSet<Tag> Tags { get; set; }
         public DbSet<ApprovalLog> ApprovalLogs { get; set; }
         public DbSet<Bookmark> Bookmarks { get; set; }
+        public DbSet<ApprovalClaim> ApprovalClaims { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

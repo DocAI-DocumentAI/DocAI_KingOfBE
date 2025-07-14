@@ -3,6 +3,7 @@ using System;
 using Document.Domain.Context;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Document.Domain.Migrations
 {
     [DbContext(typeof(DocAIDocumentContext))]
-    partial class DocAIDocumentContextModelSnapshot : ModelSnapshot
+    [Migration("20250712085644_AddReplacementAndApprovalClaim")]
+    partial class AddReplacementAndApprovalClaim
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -41,7 +44,7 @@ namespace Document.Domain.Migrations
                     b.Property<DateTime?>("DeletedTime")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("DocumentId")
+                    b.Property<string>("DocumentVersionId")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -57,7 +60,7 @@ namespace Document.Domain.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DocumentId");
+                    b.HasIndex("DocumentVersionId");
 
                     b.ToTable("Bookmarks");
                 });
@@ -347,13 +350,13 @@ namespace Document.Domain.Migrations
 
             modelBuilder.Entity("Document.Domain.Model.Bookmark", b =>
                 {
-                    b.HasOne("Document.Domain.Model.DocumentFile", "Document")
+                    b.HasOne("Document.Domain.Models.DocumentVersion", "DocumentVersion")
                         .WithMany()
-                        .HasForeignKey("DocumentId")
+                        .HasForeignKey("DocumentVersionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("Document");
+                    b.Navigation("DocumentVersion");
                 });
 
             modelBuilder.Entity("Document.Domain.Models.ApprovalClaim", b =>

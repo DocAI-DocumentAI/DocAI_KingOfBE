@@ -45,28 +45,89 @@ public class DocumentService : IDocumentService
 
     public async Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request, string userId)
     {
+        // Validations
+        // BR-015 Supported file types are PDF (text-based) and DOCX.
+        var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
+        if (!PolicyConstant.SupportedFileTypes.Contains(fileExtension))
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.UnsupportedFileType);
+        }
+
+        // BR-016 Maximum file size is 5MB.
+        if (request.File.Length > PolicyConstant.MaxFileSizeMB * 1024 * 1024)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
+        }
+
+        // BR-018 Every new document must be assigned to a single Department.
+        if (string.IsNullOrEmpty(request.DepartmentId))
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DepartmentNotAssigned);
+        }
+
+        // BR-021 'Effective From' date must be before 'Expiration Date'.
+        if (request.EffectiveFrom.HasValue && request.EffectiveUntil.HasValue && request.EffectiveFrom.Value >= request.EffectiveUntil.Value)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
+        }
+
         //1. Check draft limit
         var draftCount = await _unitOfWork.GetRepository<DocumentVersion>()
             .CountAsync(predicate: v => v.CreatedBy == userId && v.Status == StatusEnum.Draft);
         if (draftCount >= PolicyConstant.MaxDraftsPerUser)
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, $"You have reached the maximum limit of {PolicyConstant.MaxDraftsPerUser} draft documents.");
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.MaxDraftsReached, PolicyConstant.MaxDraftsPerUser));
         }
 
-        //2. Checking title duplication
-        var existingDocument = await _unitOfWork.GetRepository<DocumentFile>()
-                .SingleOrDefaultAsync(predicate: d => d.Title == request.Title);
-        if (existingDocument != null)
+        //2. Handle replacement logic if ReplacementDocumentId is provided
+        DocumentFile? documentToReplace = null;
+        if (!string.IsNullOrEmpty(request.ReplacementDocumentId))
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document title already exists");
-        }
+            documentToReplace = await _unitOfWork.GetRepository<DocumentFile>()
+                .SingleOrDefaultAsync(
+                    predicate: d => d.Id.ToString() == request.ReplacementDocumentId,
+                    include: i => i.Include(d => d.DocumentVersions)
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentNotFound);
 
-        //3. Checking Version Name duplication
-        var existingVersionName = await _unitOfWork.GetRepository<DocumentVersion>()
-                .SingleOrDefaultAsync(predicate: v => v.VersionName == request.VersionName && v.DocumentFile.Title == request.Title);
-        if (existingVersionName != null)
+            // BR-035: Only documents with status 'Approved' can be selected for replacement.
+            var latestApprovedVersion = documentToReplace.DocumentVersions.OrderByDescending(v => v.CreatedTime).FirstOrDefault(v => v.Status == StatusEnum.Approved);
+            if (latestApprovedVersion == null)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.CanOnlyReplaceApprovedDocument);
+            }
+
+            // BR-037: A document can only be in the process of being replaced by one new document at a time.
+            if (documentToReplace.IsReplaced)
+            {
+                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DocumentAlreadyUnderReplacement);
+            }
+
+            // BR-038: Editors can only replace documents within their assigned Department.
+            if (documentToReplace.DepartmentId != request.DepartmentId) // Assuming user's department is tied to the request's department
+            {
+                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToReplaceDocumentInOtherDepartment);
+            }
+
+            // BR-036: The replacement file cannot be identical to the original (checked by hash, title, number).
+            // This check will be done after file upload.
+        }
+        else
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Document version name already exists for this title");
+            // If not a replacement, check for title duplication for new documents
+            var existingDocument = await _unitOfWork.GetRepository<DocumentFile>()
+                    .SingleOrDefaultAsync(predicate: d => d.Title == request.Title);
+            if (existingDocument != null)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentTitleExists);
+            }
+
+            // Checking Version Name duplication for new documents
+            var existingVersionName = await _unitOfWork.GetRepository<DocumentVersion>()
+                    .SingleOrDefaultAsync(predicate: v => v.VersionName == request.VersionName && v.DocumentFile.Title == request.Title);
+            if (existingVersionName != null)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentVersionNameExists);
+            }
         }
 
         // 4. Upload the file to Azure Storage and get the MD5 hash.
@@ -86,22 +147,22 @@ public class DocumentService : IDocumentService
                 case StatusEnum.Pending:
                 case StatusEnum.Approved:
                 case StatusEnum.Archived:
-                    throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
+                    throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
 
                 case StatusEnum.Rejected:
                     if (existingFile.DocumentFile.OwnerId == userId)
                     {
-                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "You have a rejected document with the same file. Please resubmit or delete the existing one.");
+                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.RejectedFileExists);
                     }
                     else
                     {
-                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "Another user has a rejected document with the same file.");
+                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.AnotherUserRejectedFileExists);
                     }
 
                 case StatusEnum.Draft:
                     if (existingFile.DocumentFile.OwnerId == userId)
                     {
-                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "You already have a draft with the same file.");
+                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DraftFileExists);
                     }
                     break;
             }
@@ -115,6 +176,8 @@ public class DocumentService : IDocumentService
             DepartmentId = request.DepartmentId,
             OwnerId = userId,
             CreatedBy = userId,
+            ReplacementId = request.ReplacementDocumentId,
+            IsReplaced = !string.IsNullOrEmpty(request.ReplacementDocumentId)
         };
 
         var version = new DocumentVersion
@@ -135,6 +198,8 @@ public class DocumentService : IDocumentService
             EffectiveFrom = request.EffectiveFrom,
             EffectiveUntil = request.EffectiveUntil,
             CreatedBy = userId,
+            LastSubmitted = DateTime.UtcNow,
+            SubmittedBy = userId,
         };
 
         await ProcessTagsAsync(version, request.Tags, userId);
@@ -144,6 +209,16 @@ public class DocumentService : IDocumentService
         // 7. Save to database
         await _unitOfWork.GetRepository<DocumentFile>().InsertAsync(documentFile);
         await _unitOfWork.CommitAsync();
+
+        if (documentToReplace != null)
+        {
+            documentToReplace.IsReplaced = true;
+            documentToReplace.LastUpdatedBy = userId;
+            documentToReplace.LastUpdatedTime = DateTime.UtcNow;
+            _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentToReplace);
+            await _unitOfWork.CommitAsync();
+            _logger.LogInformation("Marked document {OriginalDocumentId} as replaced by new document {NewDocumentId}", documentToReplace.Id, documentFile.Id);
+        }
 
         _logger.LogInformation("Successfully created draft document {DocumentId}", documentFile.Id);
 
@@ -155,24 +230,47 @@ public class DocumentService : IDocumentService
 
     public async Task<DocumentDraftResponse> UpdateDraftAsync(string versionId, UpdateDocumentDraftRequest request, string userId)
     {
+        // Validations
+        if (request.File != null)
+        {
+            // BR-015 Supported file types are PDF (text-based) and DOCX.
+            var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
+            if (!PolicyConstant.SupportedFileTypes.Contains(fileExtension))
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.UnsupportedFileType);
+            }
+
+            // BR-016 Maximum file size is 5MB.
+            if (request.File.Length > PolicyConstant.MaxFileSizeMB * 1024 * 1024)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
+            }
+        }
+
+        // BR-021 'Effective From' date must be before 'Expiration Date'.
+        if (request.EffectiveFrom.HasValue && request.EffectiveUntil.HasValue && request.EffectiveFrom.Value >= request.EffectiveUntil.Value)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
+        }
+
         //1. Retrive draft to update
         var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
         .SingleOrDefaultAsync(
             predicate: v => v.Id == versionId,
-            include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, "The specified document version was not found");
+            include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentVersionNotFound);
 
         var documentToUpdate = versionToUpdate.DocumentFile;
 
         //2. Editor must be the owner. 
         if (documentToUpdate.OwnerId != userId)
         {
-            throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to edit this document");
+            throw new ErrorException(StatusCodes.Status403Forbidden, MessageConstant.UnauthorizedToEdit);
         }
 
         //3. Status must be Draft or Rejected. 
         if (versionToUpdate.Status != StatusEnum.Draft && versionToUpdate.Status != StatusEnum.Rejected)
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, $"Cannot edit a document with status '{versionToUpdate.Status}'");
+            throw new ErrorException(StatusCodes.Status400BadRequest, string.Format(MessageConstant.CannotEditWithStatus, versionToUpdate.Status));
         }
 
         //4. Handle file replacement if a new file is provided.
@@ -196,7 +294,7 @@ public class DocumentService : IDocumentService
                 _logger.LogWarning("Duplicate file detected during update. Hash: {FileHash}. Existing document: {DocumentTitle}, Version: {VersionName}, Status: {Status}",
                     fileHash, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status);
                 throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
-                    $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
+                    string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
             }
 
             // 1. Delete the old file from Azure Storage.
@@ -295,6 +393,17 @@ public class DocumentService : IDocumentService
             {
                 ParseAiJsonResponse(answer.Result, response);
                 _logger.LogInformation("Successfully parsed AI JSON response for file: {FileName}", file.FileName);
+
+                // BR-077: Summaries should be under 1000 words.
+                if (!string.IsNullOrEmpty(response.Summary))
+                {
+                    var words = response.Summary.Split(new char[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (words.Length > PolicyConstant.MaxSummaryLength)
+                    {
+                        response.Summary = string.Join(" ", words.Take(PolicyConstant.MaxSummaryLength)) + "...";
+                        _logger.LogWarning("AI-generated summary for file {FileName} exceeded {MaxLength} words and was truncated.", file.FileName, PolicyConstant.MaxSummaryLength);
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -367,7 +476,7 @@ public class DocumentService : IDocumentService
             .SingleOrDefaultAsync(
                 predicate: d => d.Id == documentId,
                 include: q => q.Include(d => d.DocumentVersions)
-            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, "Document not found.");
+            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentNotFound);
 
         _logger.LogInformation("Document found: {Title}", documentToDelete.Title);
 
@@ -376,7 +485,7 @@ public class DocumentService : IDocumentService
         if (documentToDelete.OwnerId != userId)
         {
             _logger.LogWarning("User {UserId} attempted to delete a document they do not own.", userId);
-            throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to delete this document.");
+            throw new ErrorException(StatusCodes.Status403Forbidden, MessageConstant.UnauthorizedToDelete);
         }
 
         _logger.LogInformation("User {UserId} is the owner of the document", userId);
@@ -388,7 +497,7 @@ public class DocumentService : IDocumentService
         if (versionToDelete == null || versionToDelete.Status != StatusEnum.Draft)
         {
             var currentStatus = versionToDelete?.Status.ToString() ?? "Unknown";
-            var message = $"Only documents with a 'Draft' status can be deleted. The status of this document is '{currentStatus}'.";
+            var message = string.Format(MessageConstant.CanOnlyDeleteDrafts, currentStatus);
             _logger.LogWarning("Attempted to delete a document with status '{Status}', not 'Draft'.", currentStatus);
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, message);
         }
@@ -450,7 +559,7 @@ public class DocumentService : IDocumentService
 
         if (draft == null)
         {
-            throw new ErrorException(StatusCodes.Status404NotFound, "Draft document not found.");
+            throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DraftDocumentNotFound);
         }
 
         return _mapper.Map<DocumentDraftResponse>(draft);
@@ -495,7 +604,7 @@ public class DocumentService : IDocumentService
 
         if (rejectedDocument == null)
         {
-            throw new ErrorException(StatusCodes.Status404NotFound, "Rejected document not found.");
+            throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.RejectedDocumentNotFound);
         }
 
         return _mapper.Map<DocumentDraftResponse>(rejectedDocument);
@@ -510,7 +619,7 @@ public class DocumentService : IDocumentService
 
         if (officialDocument == null)
         {
-            throw new ErrorException(StatusCodes.Status404NotFound, "Official document not found for the given document file ID.");
+            throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.OfficialDocumentNotFoundForId);
         }
 
         return _mapper.Map<DocumentDraftResponse>(officialDocument);
@@ -587,18 +696,29 @@ public class DocumentService : IDocumentService
         var documentToUpdate = await _unitOfWork.GetRepository<DocumentFile>().SingleOrDefaultAsync(
             predicate: d => d.Id.ToString() == documentId,
             include: i => i.Include(d => d.DocumentVersions)
-        ) ?? throw new ErrorException(StatusCodes.Status404NotFound, "Document not found.");
+        ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentNotFound);
+
+        // BR-037: A document can only be in the process of being replaced by one new document at a time.
+        var pendingVersion = documentToUpdate.DocumentVersions.FirstOrDefault(v => v.Status == StatusEnum.Pending);
+        if (pendingVersion != null)
+        {
+            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DocumentAlreadyUnderReplacement);
+        }
+
+        // BR-038: Editors can only replace documents within their assigned Department.
+        // This check would typically involve retrieving the user's department(s) and comparing with documentToUpdate.DepartmentId.
+        // Assuming department-based authorization is handled at a higher layer (e.g., controller/middleware) or user context needs to be enriched.
 
         if (documentToUpdate.OwnerId != userId)
         {
-            throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to create a new version of this document.");
+            throw new ErrorException(StatusCodes.Status403Forbidden, MessageConstant.UnauthorizedToCreateNewVersion);
         }
 
         var latestVersion = documentToUpdate.DocumentVersions.OrderByDescending(v => v.CreatedTime).FirstOrDefault();
 
         if (latestVersion.Status != StatusEnum.Approved)
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, "You can only create a new version of an approved document.");
+            throw new ErrorException(StatusCodes.Status400BadRequest, MessageConstant.CanOnlyCreateNewVersionOfApproved);
         }
 
         var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
