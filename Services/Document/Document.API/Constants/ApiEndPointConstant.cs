@@ -34,8 +34,8 @@ public class ApiEndPointConstant
 
     public class Bookmark
     {
-        public const string AddBookmark = ApiEndpoint + "/bookmarks/{documentVersionId}";
-        public const string RemoveBookmark = ApiEndpoint + "/bookmarks/{documentVersionId}";
+        public const string AddBookmark = ApiEndpoint + "/bookmarks/{documentId}";
+        public const string RemoveBookmark = ApiEndpoint + "/bookmarks/{documentId}";
         public const string GetBookmarks = ApiEndpoint + "/bookmarks";
     }
 
