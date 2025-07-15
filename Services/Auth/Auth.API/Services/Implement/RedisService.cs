@@ -49,4 +49,33 @@ public class RedisService : IRedisService
     {
         return _db.ListRangeAsync(key).ContinueWith(t => t.Result.Select(x => x.ToString()).ToList());
     }
+
+    public async Task BlacklistJwtAsync(string jti, TimeSpan expiration)
+    {
+        var key = $"blacklist:jwt:{jti}";
+        await SetStringAsync(key, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), expiration);
+    }
+
+    public async Task<bool> IsJwtBlacklistedAsync(string jti)
+    {
+        var key = $"blacklist:jwt:{jti}";
+        var result = await GetStringAsync(key);
+        return !string.IsNullOrEmpty(result);
+    }
+
+    public async Task<bool> CheckRateLimitAsync(string key, int limit, TimeSpan window)
+    {
+        var current = await GetStringAsync(key);
+        var count = string.IsNullOrEmpty(current) ? 0 : int.Parse(current);
+
+        if (count >= limit)
+            return false;
+
+        if (count == 0)
+            await SetStringAsync(key, "1", window);
+        else
+            await _db.StringIncrementAsync(key);
+
+        return true;
+    }
 }

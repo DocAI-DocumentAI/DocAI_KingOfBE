@@ -29,4 +29,6 @@ public interface IUserService
     public Task<List<GetUserByDeparAndRoleResponse>> GetUserByDeparAndRoleAsync(GetUserByDeparAndRole request);
 
     public Task<IPaginate<UserResponse>> GetAllUsersAsync(int page, int size, UserFilter? filter, string? sortBy, bool isAsc);
+
+    public Task<bool> LogoutAsync();
 }

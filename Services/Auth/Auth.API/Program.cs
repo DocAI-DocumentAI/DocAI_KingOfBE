@@ -98,7 +98,15 @@ try
 
     app.UseCors(CorConstant.PolicyName);
     // app.UseHttpsRedirection();
+
+    // Thêm Rate Limiting Middleware trước Authentication
+    app.UseMiddleware<RateLimitingMiddleware>();
+
     app.UseAuthentication();
+
+    // Thêm JWT Blacklist Middleware sau Authentication
+    app.UseMiddleware<JwtBlacklistMiddleware>();
+
     app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseAuthorization();
     app.UseSerilogRequestLogging();

@@ -27,6 +27,7 @@ using Auth.API.Payload.Response.Department;
 using Auth.API.Payload.Response.UserSetting;
 using Auth.Infrastructure.Paginate;
 using Auth.Infrastructure.Filter;
+using System.IdentityModel.Tokens.Jwt;
 
 namespace Auth.API.Services.Interface;
 
@@ -54,7 +55,7 @@ public class UserService : BaseService<UserService>, IUserService
         if (user == null || !PasswordUtil.VerifyPassword(request.Password, user.Password))
         {
             _logger.LogWarning("Login failed for email: {Email}", request.Email);
-            throw new BadHttpRequestException(MessageConstant.User.EmailExisted);
+            throw new BadHttpRequestException(MessageConstant.User.UserNotFound);
         }
 
         // Lấy UserSetting của user
@@ -667,5 +668,44 @@ public class UserService : BaseService<UserService>, IUserService
         }
 
         return response;
+    }
+
+    public async Task<bool> LogoutAsync()
+    {
+        try
+        {
+            var authHeader = _httpContextAccessor.HttpContext?.Request.Headers["Authorization"].FirstOrDefault();
+            if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
+            {
+                throw new UnauthorizedAccessException("No valid token found");
+            }
+
+            var token = authHeader.Substring("Bearer ".Length).Trim();
+            var handler = new JwtSecurityTokenHandler();
+            var jsonToken = handler.ReadJwtToken(token);
+
+            var jti = jsonToken.Claims.FirstOrDefault(x => x.Type == JwtRegisteredClaimNames.Jti)?.Value;
+            var exp = jsonToken.Claims.FirstOrDefault(x => x.Type == JwtRegisteredClaimNames.Exp)?.Value;
+
+            if (!string.IsNullOrEmpty(jti) && !string.IsNullOrEmpty(exp))
+            {
+                // Tính thời gian còn lại của token
+                var expiration = DateTimeOffset.FromUnixTimeSeconds(long.Parse(exp));
+                var timeRemaining = expiration - DateTimeOffset.UtcNow;
+
+                if (timeRemaining > TimeSpan.Zero)
+                {
+                    await _redisService.BlacklistJwtAsync(jti, timeRemaining);
+                    _logger.LogInformation("JWT token blacklisted successfully: {Jti}", jti);
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during logout");
+            throw new BadHttpRequestException("Logout failed");
+        }
     }
 }
