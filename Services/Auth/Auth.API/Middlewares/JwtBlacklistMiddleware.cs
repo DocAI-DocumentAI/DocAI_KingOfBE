@@ -57,6 +57,11 @@ namespace Auth.API.Middlewares
 
         private async Task WriteUnauthorizedResponse(HttpContext context, string message)
         {
+            // Thêm CORS headers
+            context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+            context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+            context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
             context.Response.StatusCode = 401;
             context.Response.ContentType = "application/json";
 
