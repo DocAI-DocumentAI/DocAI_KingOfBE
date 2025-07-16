@@ -14,7 +14,7 @@ using Serilog;
 using Serilog.Events;
 using Serilog.Templates;
 using Serilog.Templates.Themes;
-using static OllamaSharp.OllamaApiClient;
+
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -46,7 +46,7 @@ try
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddControllers();
     //builder.Services.AddKernelMemory();
-    builder.Services.AddKernelMemoryOllama(configuration);
+    builder.Services.AddKernelMemory(configuration);
 
     // Register the NSwag services
     builder.Services.AddOpenApiDocument(options =>

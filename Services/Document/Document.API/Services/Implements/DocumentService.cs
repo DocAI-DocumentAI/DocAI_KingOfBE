@@ -14,7 +14,7 @@ using DocumentFormat.OpenXml.Drawing.Charts;
 using DocumentFormat.OpenXml.Office2010.Word;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.KernelMemory;
-using Microsoft.KernelMemory.AI.Ollama;
+
 using Shared.DTOs;
 using Shared.Exceptions;
 using System.Linq;
@@ -354,8 +354,8 @@ public class DocumentService : IDocumentService
 
             // 2. Engineer a single, comprehensive prompt asking for a JSON response
             const string comprehensivePrompt = @"
+                Response language based on the document language (eg. Vietnamese, English).
                 Analyze the document and extract the following metadata.
-                Response language based on the document language.
                 Respond with ONLY a single, valid JSON object and nothing else.
                 The JSON object must have these keys: ""title"", ""summary"", ""tags"", ""effectiveFrom"", ""effectiveUntil"", ""signedBy"".
                 - 'summary' should be a concise 3-4 sentence overview.
@@ -391,6 +391,7 @@ public class DocumentService : IDocumentService
             // 4. Parse the structured JSON response from the AI
             if (!answer.Result.Contains("INFO NOT FOUND", StringComparison.OrdinalIgnoreCase))
             {
+                _logger.LogInformation("Raw AI response for file {FileName}: {AiResponse}", file.FileName, answer.Result);
                 ParseAiJsonResponse(answer.Result, response);
                 _logger.LogInformation("Successfully parsed AI JSON response for file: {FileName}", file.FileName);
 
