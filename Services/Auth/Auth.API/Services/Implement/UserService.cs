@@ -359,146 +359,146 @@ public class UserService : BaseService<UserService>, IUserService
     private string GenerateOtpEmailTemplate(string otp)
     {
         return $@"
-<!DOCTYPE html>
-<html lang='vi'>
-<head>
-    <meta charset='UTF-8'>
-    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-    <title>Mã OTP Xác Thực</title>
-    <style>
-        body {{
-            margin: 0;
-            padding: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f5f5f5;
-            line-height: 1.6;
-        }}
-        .container {{
-            max-width: 600px;
-            margin: 0 auto;
-            background-color: #ffffff;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }}
-        .header {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }}
-        .header h1 {{
-            margin: 0;
-            font-size: 28px;
-            font-weight: 600;
-        }}
-        .content {{
-            padding: 40px 30px;
-            text-align: center;
-        }}
-        .otp-box {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 12px;
-            margin: 30px 0;
-            display: inline-block;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-        }}
-        .otp-code {{
-            font-size: 36px;
-            font-weight: bold;
-            letter-spacing: 8px;
-            margin: 0;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-        }}
-        .message {{
-            font-size: 16px;
-            color: #333;
-            margin: 20px 0;
-        }}
-        .warning {{
-            background-color: #fff3cd;
-            border: 1px solid #ffeaa7;
-            color: #856404;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
-            font-size: 14px;
-        }}
-        .footer {{
-            background-color: #f8f9fa;
-            padding: 20px;
-            text-align: center;
-            border-top: 1px solid #e9ecef;
-        }}
-        .footer p {{
-            margin: 0;
-            font-size: 14px;
-            color: #6c757d;
-        }}
-        .icon {{
-            font-size: 48px;
-            margin-bottom: 20px;
-        }}
-        .btn {{
-            display: inline-block;
-            padding: 12px 30px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            text-decoration: none;
-            border-radius: 25px;
-            font-weight: 600;
-            margin-top: 20px;
-            transition: transform 0.2s;
-        }}
-        .btn:hover {{
-            transform: translateY(-2px);
-        }}
-        @media (max-width: 600px) {{
-            .container {{
-                margin: 0 10px;
-            }}
-            .header, .content {{
-                padding: 20px;
-            }}
-            .otp-code {{
-                font-size: 28px;
-                letter-spacing: 4px;
-            }}
-        }}
-    </style>
-</head>
-<body>
-    <div class='container'>
-        <div class='header'>
-            <div class='icon'>🔐</div>
-            <h1>Mã OTP Xác Thực</h1>
-        </div>
-        
-        <div class='content'>
-            <p class='message'>Chào bạn,</p>
-            <p class='message'>Bạn đã yêu cầu mã OTP để xác thực tài khoản. Vui lòng sử dụng mã dưới đây:</p>
-            
-            <div class='otp-box'>
-                <p class='otp-code'>{otp}</p>
-            </div>
-            
-            <div class='warning'>
-                <strong>⚠️ Lưu ý quan trọng:</strong><br>
-                • Mã OTP này có hiệu lực trong <strong>2 phút</strong><br>
-                • Không chia sẻ mã này với bất kỳ ai<br>
-                • Nếu bạn không yêu cầu mã này, vui lòng bỏ qua email
-            </div>
-            
-            <p class='message'>Cảm ơn bạn đã sử dụng dịch vụ của chúng tôi!</p>
-        </div>
-        
-        <div class='footer'>
-            <p>© 2025 Công ty DocAI. Mọi quyền được bảo lưu.</p>
-            <p>Email này được gửi tự động, vui lòng không reply.</p>
-        </div>
-    </div>
-</body>
-</html>";
+            <!DOCTYPE html>
+            <html lang='vi'>
+            <head>
+                <meta charset='UTF-8'>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+                <title>Mã OTP Xác Thực</title>
+                <style>
+                    body {{
+                        margin: 0;
+                        padding: 0;
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        background-color: #f5f5f5;
+                        line-height: 1.6;
+                    }}
+                    .container {{
+                        max-width: 600px;
+                        margin: 0 auto;
+                        background-color: #ffffff;
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                    }}
+                    .header {{
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        padding: 30px;
+                        text-align: center;
+                    }}
+                    .header h1 {{
+                        margin: 0;
+                        font-size: 28px;
+                        font-weight: 600;
+                    }}
+                    .content {{
+                        padding: 40px 30px;
+                        text-align: center;
+                    }}
+                    .otp-box {{
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        padding: 20px;
+                        border-radius: 12px;
+                        margin: 30px 0;
+                        display: inline-block;
+                        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+                    }}
+                    .otp-code {{
+                        font-size: 36px;
+                        font-weight: bold;
+                        letter-spacing: 8px;
+                        margin: 0;
+                        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+                    }}
+                    .message {{
+                        font-size: 16px;
+                        color: #333;
+                        margin: 20px 0;
+                    }}
+                    .warning {{
+                        background-color: #fff3cd;
+                        border: 1px solid #ffeaa7;
+                        color: #856404;
+                        padding: 15px;
+                        border-radius: 8px;
+                        margin: 20px 0;
+                        font-size: 14px;
+                    }}
+                    .footer {{
+                        background-color: #f8f9fa;
+                        padding: 20px;
+                        text-align: center;
+                        border-top: 1px solid #e9ecef;
+                    }}
+                    .footer p {{
+                        margin: 0;
+                        font-size: 14px;
+                        color: #6c757d;
+                    }}
+                    .icon {{
+                        font-size: 48px;
+                        margin-bottom: 20px;
+                    }}
+                    .btn {{
+                        display: inline-block;
+                        padding: 12px 30px;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        text-decoration: none;
+                        border-radius: 25px;
+                        font-weight: 600;
+                        margin-top: 20px;
+                        transition: transform 0.2s;
+                    }}
+                    .btn:hover {{
+                        transform: translateY(-2px);
+                    }}
+                    @media (max-width: 600px) {{
+                        .container {{
+                            margin: 0 10px;
+                        }}
+                        .header, .content {{
+                            padding: 20px;
+                        }}
+                        .otp-code {{
+                            font-size: 28px;
+                            letter-spacing: 4px;
+                        }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class='container'>
+                    <div class='header'>
+                        <div class='icon'>🔐</div>
+                        <h1>Mã OTP Xác Thực</h1>
+                    </div>
+                    
+                    <div class='content'>
+                        <p class='message'>Chào bạn,</p>
+                        <p class='message'>Bạn đã yêu cầu mã OTP để xác thực tài khoản. Vui lòng sử dụng mã dưới đây:</p>
+                        
+                        <div class='otp-box'>
+                            <p class='otp-code'>{otp}</p>
+                        </div>
+                        
+                        <div class='warning'>
+                            <strong>⚠️ Lưu ý quan trọng:</strong><br>
+                            • Mã OTP này có hiệu lực trong <strong>2 phút</strong><br>
+                            • Không chia sẻ mã này với bất kỳ ai<br>
+                            • Nếu bạn không yêu cầu mã này, vui lòng bỏ qua email
+                        </div>
+                        
+                        <p class='message'>Cảm ơn bạn đã sử dụng dịch vụ của chúng tôi!</p>
+                    </div>
+                    
+                    <div class='footer'>
+                        <p>© 2025 Công ty DocAI. Mọi quyền được bảo lưu.</p>
+                        <p>Email này được gửi tự động, vui lòng không reply.</p>
+                    </div>
+                </div>
+            </body>
+            </html>";
     }
 
     public async Task<UserRoleChangeResponse> ChangeUserRoleAsync(Guid roleId)
