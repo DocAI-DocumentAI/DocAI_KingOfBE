@@ -28,7 +28,6 @@ namespace Auth.API.Middlewares
                 if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
                 {
                     var token = authHeader.Substring("Bearer ".Length).Trim();
-
                     try
                     {
                         var handler = new JwtSecurityTokenHandler();

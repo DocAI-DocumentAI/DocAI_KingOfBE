@@ -53,7 +53,6 @@ namespace Auth.API.Middlewares
         {
             context.Response.StatusCode = 429;
             context.Response.ContentType = "application/json";
-
             var response = new
             {
                 StatusCode = 429,

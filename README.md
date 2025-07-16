@@ -5,17 +5,18 @@
 [![CI/CD Pipeline](https://github.com/DocAI-DocumentAI/DocAI_KingOfBE/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/DocAI-DocumentAI/DocAI_KingOfBE/actions)
 [![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=DocAI&metric=security_rating)](https://sonarcloud.io/dashboard?id=DocAI)
 [![Coverage](https://codecov.io/gh/DocAI-DocumentAI/DocAI_KingOfBE/branch/main/graph/badge.svg)](https://codecov.io/gh/DocAI-DocumentAI/DocAI_KingOfBE)
-[![Performance](https://img.shields.io/badge/Performance-99.9%25_uptime-green)](https://status.docai.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 
 _Transform your document chaos into intelligent, searchable knowledge_
 
-[🎯 Why DocAI](#-why-docai) • [🏗️ Architecture](#️-architecture) • [⚡ Performance](#-performance) • [🚀 Quick Start](#-quick-start)
+[📋 Features](#-features) • [🏗️ Architecture](#️-architecture) • [🚀 Installation](#-installation) • [📘 Usage](#-usage) • [👨‍💻 Contributing](#-contributing)
 
 </div>
 
 ---
 
-## 🎯 Why DocAI?
+## 📋 Features
 
 ### The Problem
 
@@ -23,7 +24,7 @@ Enterprise documents are scattered across systems, unsearchable, and locked in s
 
 ### Our Solution
 
-DocAI transforms document management with AI-first approach:
+DocAI transforms document management with an AI-first approach:
 
 | Traditional Systems   | DocAI                        |
 | --------------------- | ---------------------------- |
@@ -32,12 +33,13 @@ DocAI transforms document management with AI-first approach:
 | Static documents      | Interactive chat interface   |
 | Siloed access         | Department-aware permissions |
 
-### Competitive Advantage
+### Key Capabilities
 
-- **10x faster** document retrieval vs SharePoint
-- **Native AI integration** (not bolt-on)
-- **Zero-trust security** with granular RBAC
-- **Microservices architecture** for enterprise scale
+- **🔍 Intelligent Search**: Find documents using natural language queries
+- **🤖 AI Analysis**: Automatic document classification and information extraction
+- **🔐 Enterprise Security**: Role-based access control with department isolation
+- **💬 Document Chat**: Ask questions about your documents and get instant answers
+- **📱 Multi-platform**: Web, mobile, and API access to your document intelligence
 
 ---
 
@@ -99,25 +101,148 @@ graph TB
     Notify --> Cache
 ```
 
-### Design Decisions
+### Tech Stack
 
-**Why Microservices?**
+- **Backend**: .NET 9, C#, ASP.NET Core
+- **Databases**: PostgreSQL, Qdrant (Vector DB), Redis (Cache)
+- **AI Models**: DeepSeek-R1:1.5b, nomic-embed-text
+- **Infrastructure**: Docker, Kubernetes, Azure Blob Storage
+- **Authentication**: JWT, Custom RBAC/ABAC system
+- **API Gateway**: Custom built on ASP.NET Core
 
-- Independent scaling (AI service needs more resources)
-- Technology diversity (Python for ML, C# for business logic)
-- Team autonomy and faster deployment cycles
+---
 
-**Why Ollama over OpenAI?**
+## 🚀 Installation
 
-- Data sovereignty (no external API calls)
-- Cost predictability (no per-token pricing)
-- Customizable models for domain-specific tasks
+### Prerequisites
 
-**Why PostgreSQL over MongoDB?**
+```bash
+# Development Environment
+.NET 9 SDK, Docker Desktop, Git
+PostgreSQL 15+, Redis 7+
 
-- ACID compliance for document versioning
-- Complex queries for permission filtering
-- Mature ecosystem and operational knowledge
+# Production Environment
+Kubernetes 1.28+, Helm 3.0+
+```
+
+### Local Development Setup
+
+```bash
+# Clone repository
+git clone https://github.com/DocAI-DocumentAI/DocAI_KingOfBE.git
+cd DocAI_KingOfBE
+
+# Setup environment
+cp .env.example .env
+# Edit .env with your configuration
+
+# Start dependencies
+docker-compose up -d postgres redis ollama
+
+# Run services
+dotnet run --project ApiGateway
+```
+
+### Production Deployment
+
+```bash
+# Deploy with Helm
+helm repo add docai https://charts.docai.com
+helm install docai docai/docai-platform \
+  --set global.domain=your-domain.com \
+  --set auth.jwt.secret=your-secret
+
+# Verify deployment
+kubectl get pods -n docai
+curl https://your-domain.com/health
+```
+
+---
+
+## 📘 Usage
+
+### Authentication
+
+```bash
+# Register a new user
+POST /api/auth/register
+{
+  "email": "user@example.com",
+  "password": "SecurePass123!",
+  "role": "Member",
+  "department": "HR"
+}
+
+# Login and get JWT token
+POST /api/auth/login
+{
+  "email": "user@example.com",
+  "password": "SecurePass123!"
+}
+```
+
+### Document Management
+
+```bash
+# Upload a document
+POST /api/documents
+Form-Data: file=@document.pdf
+
+# Search documents
+GET /api/documents/search?query=financial+report+2023
+
+# Get document by ID
+GET /api/documents/{id}
+```
+
+### AI Features
+
+```bash
+# Analyze a document
+POST /api/ai/analyze
+{
+  "documentId": "doc-123",
+  "analysisType": "classification"
+}
+
+# Chat with documents
+POST /api/chatbox/query
+{
+  "message": "Summarize the Q3 financial report",
+  "documentContext": ["doc-123", "doc-456"]
+}
+```
+
+### Authorization Examples
+
+```csharp
+// Role-based access
+[CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
+
+// Department-based access
+[CustomAuthorize(Departments = new[] { Departments.PhongNhanSu })]
+
+// Permission-based access
+[CustomAuthorize(Permissions = new[] { Permissions.ViewAnyDocument })]
+```
+
+---
+
+## 🔐 Security & Compliance
+
+### Security Features
+
+- **Zero-trust architecture**: Every request authenticated & authorized
+- **End-to-end encryption**: TLS 1.3, AES-256 at rest
+- **Audit logging**: All actions tracked with immutable logs
+- **RBAC + ABAC**: Role and attribute-based access control
+- **Security scanning**: SAST/DAST in CI/CD pipeline
+
+### Compliance
+
+- **SOC 2 Type II** ready architecture
+- **GDPR compliant** data handling
+- **OWASP Top 10** mitigations implemented
 
 ---
 
@@ -143,129 +268,9 @@ _Tested on: 4-core CPU, 16GB RAM, SSD storage_
 
 ---
 
-## 🔐 Security & Compliance
+## 👨‍💻 Contributing
 
-### Security Architecture
-
-```mermaid
-graph LR
-    Client --> WAF[Web Application Firewall]
-    WAF --> Gateway[API Gateway<br/>Rate Limiting]
-    Gateway --> Auth[Auth Service<br/>JWT Validation]
-    Auth --> Service[Protected Services]
-    Service --> DB[(Encrypted Database)]
-```
-
-### Security Features
-
-- **Zero-trust architecture**: Every request authenticated & authorized
-- **End-to-end encryption**: TLS 1.3, AES-256 at rest
-- **Audit logging**: All actions tracked with immutable logs
-- **RBAC + ABAC**: Role and attribute-based access control
-- **Security scanning**: SAST/DAST in CI/CD pipeline
-
-### Compliance
-
-- **SOC 2 Type II** ready architecture
-- **GDPR compliant** data handling
-- **OWASP Top 10** mitigations implemented
-
----
-
-## � Quick Start
-
-### Prerequisites
-
-```bash
-# Development Environment
-.NET 9 SDK, Docker Desktop, Git
-PostgreSQL 15+, Redis 7+
-
-# Production Environment
-Kubernetes 1.28+, Helm 3.0+
-```
-
-### 1️⃣ Local Development
-
-```bash
-# Clone repository
-git clone https://github.com/DocAI-DocumentAI/DocAI_KingOfBE.git
-cd DocAI_KingOfBE
-
-# Setup environment
-cp .env.example .env
-# Edit .env with your configuration
-
-# Start dependencies
-docker-compose up -d postgres redis ollama
-
-# Run services
-dotnet run --project ApiGateway
-```
-
-### 2️⃣ Production Deployment
-
-```bash
-# Deploy with Helm
-helm repo add docai https://charts.docai.com
-helm install docai docai/docai-platform \
-  --set global.domain=your-domain.com \
-  --set auth.jwt.secret=your-secret
-
-# Verify deployment
-kubectl get pods -n docai
-curl https://your-domain.com/health
-```
-
----
-
-## 📊 Monitoring & Observability
-
-### Metrics Dashboard
-
-- **Business metrics**: Documents processed, search queries, user engagement
-- **Technical metrics**: Response times, error rates, resource utilization
-- **AI metrics**: Model accuracy, inference time, embedding quality
-
-### Alerting Rules
-
-```yaml
-# Example Prometheus alerts
-- alert: HighErrorRate
-  expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
-
-- alert: SlowAIProcessing
-  expr: histogram_quantile(0.95, ai_processing_duration_seconds) > 30
-```
-
-### Logging Strategy
-
-- **Structured logging**: JSON format with correlation IDs
-- **Log levels**: DEBUG (dev), INFO (prod), ERROR (always)
-- **Retention**: 30 days hot, 1 year cold storage
-
----
-
-## 🧪 Testing Strategy
-
-### Test Pyramid
-
-```
-    /\     E2E Tests (10%)
-   /  \    Integration Tests (20%)
-  /____\   Unit Tests (70%)
-```
-
-### Quality Gates
-
-- **Unit test coverage**: > 80%
-- **Integration tests**: All API endpoints
-- **Performance tests**: Load testing in CI
-- **Security tests**: OWASP ZAP scanning
-
----
-
-## 🤝 Contributing
+We welcome contributions to DocAI! Here's how you can help:
 
 ### Development Workflow
 
@@ -281,33 +286,36 @@ curl https://your-domain.com/health
 - **Database**: Migration-based schema changes
 - **Security**: OWASP secure coding practices
 
+### Getting Started
+
+```bash
+# Fork and clone the repository
+git clone https://github.com/YOUR-USERNAME/DocAI_KingOfBE.git
+
+# Create a branch
+git checkout -b feature/amazing-feature
+
+# Make your changes and commit
+git commit -m "feat: add amazing feature"
+
+# Push and create a PR
+git push origin feature/amazing-feature
+```
+
 ---
 
-## 📈 Roadmap
+## 📞 Contact & Support
 
-### Q1 2024
-
-- [ ] Advanced AI models (GPT-4 integration)
-- [ ] Mobile applications (iOS/Android)
-- [ ] Advanced analytics dashboard
-
-### Q2 2024
-
-- [ ] Multi-language support
-- [ ] Advanced workflow automation
-- [ ] Enterprise SSO integration
+- **Project Lead**: King Of BE Team
+- **Email**: support@docai.com
+- **Discord**: [DocAI Community](https://discord.gg/docai)
+- **Documentation**: [docs.docai.com](https://docs.docai.com)
 
 ---
 
-## 📄 License & Support
+## 📄 License
 
-**License**: MIT License - see [LICENSE](LICENSE)
-
-**Support Channels**:
-
-- � Email: support@docai.com
-- 💬 Discord: [DocAI Community](https://discord.gg/docai)
-- 📖 Docs: [docs.docai.com](https://docs.docai.com)
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
