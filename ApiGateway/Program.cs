@@ -14,6 +14,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
 using Swashbuckle.AspNetCore.SwaggerGen;
+using ApiGateway.Middlewares;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,16 +29,15 @@ builder.Services.AddHttpClient("YarpClient")
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
-// Thêm CORS
+// Thêm CORS với cấu hình chi tiết hơn
 builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+        options.AddPolicy(CorConstant.PolicyName,
+            policy => policy
+                .AllowAnyOrigin()
+                .AllowAnyHeader()
+                .AllowAnyMethod());
     });
-});
 
 // Cấu hình JWT Authentication giống với Auth Service
 string secret = builder.Configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret is missing in configuration.");
@@ -148,7 +148,7 @@ app.UseCors("AllowAll");
 app.UseMiddleware<ApiGateway.Middlewares.TokenForwardingMiddleware>();
 
 // Thêm middleware xử lý exception
-app.UseMiddleware<ApiGateway.Middlewares.ExceptionHandlingMiddleware>();
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 
 app.UseSwagger();
