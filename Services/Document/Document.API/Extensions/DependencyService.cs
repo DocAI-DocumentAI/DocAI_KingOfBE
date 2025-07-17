@@ -9,8 +9,18 @@ using Document.Infrastructure.Repository.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.KernelMemory.AI;
 using Microsoft.KernelMemory;
-using Microsoft.KernelMemory.AI.Ollama;
+
 using Shared.DTOs;
+
+using Document.API.Models;
+using Microsoft.SemanticKernel.Connectors.Google;
+using Microsoft.KernelMemory.AI.OpenAI;
+using Microsoft.KernelMemory.SemanticKernel;
+using DocumentFormat.OpenXml.Spreadsheet;
+
+
+
+
 
 namespace Document.API.Extensions;
 
@@ -72,44 +82,89 @@ public static class DependencyService
         return services;
     }
 
-    public static IServiceCollection AddKernelMemoryOllama(this IServiceCollection services, IConfiguration configuration)
+    //public static IServiceCollection AddKernelMemoryOllama(this IServiceCollection services, IConfiguration configuration)
+    //{
+    //    var ollamaConfigSettings = configuration.GetSection("Ollama").Get<OllamaConfigSetting>();
+    //    var connectionString = configuration.GetConnectionString("DefaultConnection");
+
+    //    // Prepare the configuration for Kernel Memory using the bound settings
+    //    var ollamaConfig = new OllamaConfig
+    //    {
+    //        Endpoint = ollamaConfigSettings.Endpoint,
+    //        TextModel = new OllamaModelConfig(ollamaConfigSettings.TextModel, 131072),
+    //        EmbeddingModel = new OllamaModelConfig(ollamaConfigSettings.EmbeddingModel, 2048)
+    //    };
+
+    //    // Prepare Postgres/pgvector configuration
+    //    var postgresConfig = new PostgresConfig
+    //    {
+    //        ConnectionString = connectionString
+    //    };
+
+    //    //quick test for temp file
+    //    KernelMemoryBuilderBuildOptions kmbOptions = new()
+    //    {
+    //        AllowMixingVolatileAndPersistentData = true
+    //    };
+
+    //    // Build the Kernel Memory instance with Ollama services
+    //    var memory = new KernelMemoryBuilder()
+
+    //        .WithOllamaTextGeneration(ollamaConfig, new CL100KTokenizer())
+    //        .WithOllamaTextEmbeddingGeneration(ollamaConfig, new CL100KTokenizer())
+    //        .WithPostgresMemoryDb(postgresConfig)
+    //        .Build<MemoryServerless>(kmbOptions);
+
+    //    // Register the IKernelMemory instance as a singleton so it can be injected elsewhere
+    //    services.AddSingleton<IKernelMemory>(memory);
+
+    //    return services;
+    //}
+
+    public static IServiceCollection AddKernelMemory(this IServiceCollection services, IConfiguration configuration)
     {
-        var ollamaConfigSettings = configuration.GetSection("Ollama").Get<OllamaConfigSetting>();
+        var config = new SemanticKernelConfig();
+
+        var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
+        var geminiConfig = configuration.GetSection("Gemini").Get<GeminiConfigSetting>();
         var connectionString = configuration.GetConnectionString("DefaultConnection");
 
-        // Prepare the configuration for Kernel Memory using the bound settings
-        var ollamaConfig = new OllamaConfig
+        var openAIConfig = new OpenAIConfig
         {
-            Endpoint = ollamaConfigSettings.Endpoint,
-            TextModel = new OllamaModelConfig(ollamaConfigSettings.TextModel, 131072),
-            EmbeddingModel = new OllamaModelConfig(ollamaConfigSettings.EmbeddingModel, 2048)
+            TextModel = openRouterConfig.Model,
+            APIKey = openRouterConfig.APIKey,
+            Endpoint = openRouterConfig.Endpoint
         };
 
-        // Prepare Postgres/pgvector configuration
         var postgresConfig = new PostgresConfig
         {
             ConnectionString = connectionString
         };
 
-        //quick test for temp file
         KernelMemoryBuilderBuildOptions kmbOptions = new()
         {
             AllowMixingVolatileAndPersistentData = true
         };
 
-        // Build the Kernel Memory instance with Ollama services
-        var memory = new KernelMemoryBuilder()
 
-            .WithOllamaTextGeneration(ollamaConfig, new CL100KTokenizer())
-            .WithOllamaTextEmbeddingGeneration(ollamaConfig, new CL100KTokenizer())
+        var memory = new KernelMemoryBuilder()
             .WithPostgresMemoryDb(postgresConfig)
+            .WithOpenAITextGeneration(openAIConfig, new CL100KTokenizer())
+            .WithSemanticKernelTextEmbeddingGenerationService(
+                new GoogleAITextEmbeddingGenerationService(
+                    geminiConfig.EmbeddingModel,
+                    geminiConfig.APIKey,
+                    dimensions: 768
+                ),
+                new SemanticKernelConfig()
+            )
             .Build<MemoryServerless>(kmbOptions);
 
-        // Register the IKernelMemory instance as a singleton so it can be injected elsewhere
         services.AddSingleton<IKernelMemory>(memory);
 
         return services;
     }
+
 
     //public static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
     //{

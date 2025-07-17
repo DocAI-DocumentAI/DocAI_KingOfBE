@@ -21,9 +21,11 @@
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="Microsoft.KernelMemory.Abstractions" Version="0.98.250508.3" />
-        <PackageReference Include="Microsoft.KernelMemory.AI.Ollama" Version="0.98.250508.3" />
+        <PackageReference Include="Microsoft.KernelMemory.AI.OpenAI" Version="0.98.250508.3" />
         <PackageReference Include="Microsoft.KernelMemory.Core" Version="0.98.250508.3" />
         <PackageReference Include="Microsoft.KernelMemory.MemoryDb.Postgres" Version="0.98.250508.3" />
+        <PackageReference Include="Microsoft.KernelMemory.SemanticKernelPlugin" Version="0.98.250508.3" />
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Google" Version="1.60.0-alpha" />
         <PackageReference Include="PdfPig" Version="0.1.10" />
         <PackageReference Include="MassTransit" Version="8.4.1" />
         <PackageReference Include="MassTransit.RabbitMQ" Version="8.4.1" />
