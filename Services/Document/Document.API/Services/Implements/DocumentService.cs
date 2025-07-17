@@ -36,13 +36,13 @@ public class DocumentService : IDocumentService
         _storageService = storageService;
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
-        var geminiConfig = configuration.GetSection("Gemini").Get<GeminiConfigSetting>();
+        var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
 
         _logger.LogInformation("Kernel Memory is configured with:");
         _logger.LogInformation("- Text Generation Model: {Model}", openRouterConfig?.Model);
-        _logger.LogInformation("- Text Embedding Model: {EmbeddingModel}", geminiConfig?.EmbeddingModel);
-        _logger.LogInformation("- OpenRouter API Key: {Key}", openRouterConfig?.APIKey?.Length >= 4 ? openRouterConfig.APIKey[^4..] : "Invalid or too short");
-        _logger.LogInformation("- Gemini API Key: {Key}", geminiConfig?.APIKey?.Length >= 4 ? geminiConfig.APIKey.Substring(geminiConfig.APIKey.Length - 4) : "Invalid or too short");
+        _logger.LogInformation("- Text Embedding Model (OpenAI): {EmbeddingModel}", openAIConfig?.EmbeddingModel);
+        //_logger.LogInformation("- OpenRouter API Key: {Key}", openRouterConfig?.APIKey?.Length >= 4 ? openRouterConfig.APIKey[^4..] : "Invalid or too short");
+        //_logger.LogInformation("- OpenAI API Key: {Key}", openAIConfig?.APIKey?.Length >= 4 ? openAIConfig.APIKey[^4..] : "Invalid or too short");
 
         if (_memory != null)
         {

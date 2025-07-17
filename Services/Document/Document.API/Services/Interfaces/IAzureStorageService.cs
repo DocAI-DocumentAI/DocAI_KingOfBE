@@ -1,4 +1,4 @@
-﻿using Document.API.Models;
+﻿using Document.API.Payload.Response;
 
 namespace Document.API.Services.Interfaces
 {
