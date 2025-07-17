@@ -14,9 +14,7 @@ using Shared.DTOs;
 
 using Document.API.Models;
 using Microsoft.SemanticKernel.Connectors.Google;
-using Microsoft.KernelMemory.AI.OpenAI;
 using Microsoft.KernelMemory.SemanticKernel;
-using DocumentFormat.OpenXml.Spreadsheet;
 
 
 
