@@ -353,20 +353,35 @@ public class DocumentService : IDocumentService
             await _memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
 
             // 2. Engineer a single, comprehensive prompt asking for a JSON response
-            const string comprehensivePrompt = @"
-                Response language based on the document language (eg. Vietnamese, English).
-                Analyze the document and extract the following metadata.
-                Respond with ONLY a single, valid JSON object and nothing else.
-                The JSON object must have these keys: ""title"", ""summary"", ""tags"", ""effectiveFrom"", ""effectiveUntil"", ""signedBy"".
-                - 'summary' should be a concise 3-4 sentence overview.
-                - 'tags' should be a JSON array of up to 5 relevant string keywords.
-                - 'effectiveFrom' and 'effectiveUntil' must be in 'yyyy-MM-dd' format if found.
-                - If a value for any key is not found in the document, use null as the value.
-            ";
+            //const string comprehensivePrompt = @"
+            //    Response language based on the document language (eg. Vietnamese, English).
+            //    Analyze the document and extract the following metadata.
+            //    Respond with ONLY a single, valid JSON object and nothing else.
+            //    The JSON object must have these keys: ""title"", ""summary"", ""tags"", ""effectiveFrom"", ""effectiveUntil"", ""signedBy"".
+            //    - 'summary' should be a concise 3-4 sentence overview.
+            //    - 'tags' should be a JSON array of up to 5 relevant string keywords.
+            //    - 'effectiveFrom' and 'effectiveUntil' must be in 'yyyy-MM-dd' format if found.
+            //    - If a value for any key is not found in the document, use null as the value.
+            //";
+
+            const string comprehensivePrompt = @"Analyze the document and return a single raw JSON object with the following keys:
+- ""summary"": HTML-formatted string. Start with bold document title and number. Summarize scope and key contents. Use <ul><li> for key points.
+Escape all quotes (\""). No markdown.
+- ""title"": string — official document title.
+- ""signedBy"": string — name of the signatory.
+- ""effectiveFrom"": 'yyyy-MM-dd' (or null).
+- ""effectiveUntil"": 'yyyy-MM-dd' (or null).
+- ""tags"": array of up to 5 relevant keywords.
+Requirements:
+- Respond **only** with a valid JSON object (no extra explanation or markdown).
+- If any value is missing, use null.
+- Escape all double-quotes inside HTML/markdown content (e.g., `\""`).
+";
 
             // 3. Make a single call to the AI model
             var filter = new MemoryFilter().ByDocument(tempDocId);
 
+            
             MemoryAnswer answer = null;
             const int maxRetries = 3;
             const int delayBetweenRetriesMs = 1500;
@@ -431,13 +446,22 @@ public class DocumentService : IDocumentService
     {
         try
         {
-            // The AI might sometimes include markdown ```json ... ``` tags, so we clean it.
+            // Step 1: Sanitize possible markdown wrappers
             var cleanJson = jsonResponse.Trim().Trim('`').Replace("json", "").Trim();
 
-            using var jsonDoc = JsonDocument.Parse(cleanJson);
+            // Step 2: Try to isolate the valid JSON portion (from first { to last })
+            int startIndex = cleanJson.IndexOf('{');
+            int endIndex = cleanJson.LastIndexOf('}');
+
+            if (startIndex == -1 || endIndex == -1 || endIndex <= startIndex)
+                throw new JsonException("JSON is not enclosed properly.");
+
+            var jsonFragment = cleanJson.Substring(startIndex, endIndex - startIndex + 1);
+
+            // Step 3: Try parsing
+            using var jsonDoc = JsonDocument.Parse(jsonFragment);
             var root = jsonDoc.RootElement;
 
-            // Safely get each property from the parsed JSON
             if (root.TryGetProperty("title", out var title) && title.ValueKind == JsonValueKind.String)
                 response.Title = title.GetString();
 
@@ -448,25 +472,27 @@ public class DocumentService : IDocumentService
                 response.SignedBy = signedBy.GetString();
 
             if (root.TryGetProperty("effectiveFrom", out var effectiveFrom) && effectiveFrom.ValueKind == JsonValueKind.String)
-                if (DateTime.TryParse(effectiveFrom.GetString(), out var date)) response.EffectiveFrom = date;
+                if (DateTime.TryParse(effectiveFrom.GetString(), out var fromDate))
+                    response.EffectiveFrom = fromDate;
 
             if (root.TryGetProperty("effectiveUntil", out var effectiveUntil) && effectiveUntil.ValueKind == JsonValueKind.String)
-                if (DateTime.TryParse(effectiveUntil.GetString(), out var date)) response.EffectiveUntil = date;
+                if (DateTime.TryParse(effectiveUntil.GetString(), out var untilDate))
+                    response.EffectiveUntil = untilDate;
 
             if (root.TryGetProperty("tags", out var tags) && tags.ValueKind == JsonValueKind.Array)
             {
                 response.Tags = tags.EnumerateArray()
-                                    .Select(tag => tag.GetString())
-                                    .Where(t => !string.IsNullOrEmpty(t))
-                                    .ToList();
+                    .Select(t => t.GetString())
+                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .ToList();
             }
         }
         catch (JsonException jex)
         {
-            _logger.LogWarning(jex, "Failed to parse JSON response from AI. Response was: {AiResponse}", jsonResponse);
-            // We do not throw; the method will return the default/partially filled response object.
+            _logger.LogError(jex, "Failed to parse JSON response from AI. Possibly incomplete or malformed. Raw response: {AiResponse}", jsonResponse);
         }
     }
+
 
     public async Task DeleteDraftAsync(string documentId, string versionId, string userId)
     {
@@ -672,10 +698,10 @@ public class DocumentService : IDocumentService
         return myDocuments;
     }
 
-    public async Task<DocumentVersionResponse> GetDocumentVersionAsync(string documentId, string versionId)
+    public async Task<DocumentVersionResponse> GetDocumentVersionByVersionIdAsync(string documentId, string versionId)
     {
         var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
-            predicate: dv => dv.DocumentFileId == documentId && dv.Id.ToString() == versionId,
+            predicate: dv => dv.DocumentFileId == documentId && dv.Id == versionId,
             include: i => i.Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
@@ -832,33 +858,33 @@ public class DocumentService : IDocumentService
         {
             memoryFilter.Add("isPublic", filter.IsPublic.Value.ToString().ToLower());
         }
-        if (filter.DepartmentId.HasValue)
-        {
-            memoryFilter.Add("departmentId", filter.DepartmentId.Value.ToString());
-        }
+        //if (filter.DepartmentId.HasValue)
+        //{
+        //    memoryFilter.Add("departmentId", filter.DepartmentId);
+        //}
+
 
         var searchResult = await _memory.SearchAsync(request.Query, limit: pageSize, filter: memoryFilter);
 
+        var orderedUniqueDocumentIds = searchResult.Results
+            .SelectMany(item => item.Partitions)
+            .Select(partition => partition.Tags.TryGetValue("documentId", out var ids) ? ids.FirstOrDefault() : null)
+            .Where(id => id != null)
+            .Distinct() // This will preserve the order of first appearance
+            .ToList();
+
         var documentResponses = new List<DocumentResponse>();
 
-        foreach (var item in searchResult.Results)
+        foreach (var documentId in orderedUniqueDocumentIds)
         {
-            foreach (var partition in item.Partitions)
-            {
-                // Assuming DocumentId is stored as a tag in Kernel Memory
-                if (partition.Tags.TryGetValue("documentId", out var documentIds) && documentIds.Any())
-                {
-                    var documentId = documentIds.First();
-                    var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
-                        predicate: dv => dv.DocumentFile.Id.ToString() == documentId && dv.Status == StatusEnum.Approved && filter.ToExpression().Compile().Invoke(dv),
-                        include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
-                    );
+            var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
+                predicate: dv => dv.DocumentFile.Id == documentId && dv.Status == StatusEnum.Approved,
+                include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            );
 
-                    if (documentVersion != null)
-                    {
-                        documentResponses.Add(_mapper.Map<DocumentResponse>(documentVersion));
-                    }
-                }
+            if (documentVersion != null)
+            {
+                documentResponses.Add(_mapper.Map<DocumentResponse>(documentVersion));
             }
         }
 

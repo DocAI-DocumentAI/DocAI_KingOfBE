@@ -34,7 +34,7 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetDocumentVersion([FromRoute(Name = "id")] string documentId, [FromRoute(Name = "versionId")] string versionId)
         {
-            var result = await _documentService.GetDocumentVersionAsync(documentId, versionId);
+            var result = await _documentService.GetDocumentVersionByVersionIdAsync(documentId, versionId);
             return Ok(ApiResponse<object>.Success(result, "Document version retrieved successfully"));
         }
     }

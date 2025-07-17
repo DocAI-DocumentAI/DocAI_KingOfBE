@@ -156,7 +156,7 @@ public static class DependencyService
                     geminiConfig.APIKey,
                     dimensions: 768
                 ),
-                new Microsoft.KernelMemory.SemanticKernel.SemanticKernelConfig()
+                new SemanticKernelConfig()
             )
             .Build<MemoryServerless>(kmbOptions);
 

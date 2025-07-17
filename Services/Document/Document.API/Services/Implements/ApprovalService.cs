@@ -34,26 +34,16 @@ namespace Document.API.Services.Implements
         {
             // Get all approval from department
             // 1. Build the IQueryable without executing it.
-            var pendingDocuments = _unitOfWork.GetRepository<DocumentVersion>()
+            var pendingDocuments = await _unitOfWork.GetRepository<DocumentVersion>()
                 .GetPagingListAsync(
-                selector: v => new PendingDocumentResponse
-                {
-                    VersionId = v.Id,
-                    VersionName = v.VersionName,
-                    Title = v.DocumentFile.Title,
-                    CreatedBy = v.CreatedBy,
-                    CreatedAt = v.CreatedTime,
-                    Status = v.Status, // Convert Enum to string
-                    DepartmentId = v.DocumentFile.DepartmentId,
-                },
+                selector: v => _mapper.Map<PendingDocumentResponse>(v),
                 filter: null,
                 predicate: v => v.Status == StatusEnum.Pending && v.DocumentFile.DepartmentId == departmentId,
                 orderBy: null,
                 page: pageNumber,
-                size: pageSize);
-
-            var response = _mapper.Map<IPaginate<PendingDocumentResponse>>(pendingDocuments);
-            return response;
+                size: pageSize
+                );
+            return pendingDocuments;
         }
 
         public async Task ClaimDocumentForReviewAsync(string versionId, string userId)

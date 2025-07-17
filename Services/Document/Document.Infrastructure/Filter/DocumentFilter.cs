@@ -14,15 +14,15 @@ namespace Document.Infrastructure.Filter
         public StatusEnum? Status { get; set; }
         public DateTime? CreatedTime { get; set; }
         public bool? IsPublic { get; set; }
-        public Guid? DepartmentId { get; set; }
+        //public string? DepartmentId { get; set; }
 
         public Expression<Func<DocumentVersion, bool>> ToExpression()
         {
-            return DocumentVersion =>
-                (!Status.HasValue || DocumentVersion.Status == Status.Value) &&
-                (!CreatedTime.HasValue || DocumentVersion.CreatedTime.Date == CreatedTime.Value.Date) &&
-                (!IsPublic.HasValue || DocumentVersion.IsPublic == IsPublic.Value) &&
-                (!DepartmentId.HasValue || (DocumentVersion.DocumentFile.DepartmentId != null && Guid.Parse(DocumentVersion.DocumentFile.DepartmentId) == DepartmentId.Value));
+            return documentVersion => // Renamed for clarity
+            (!Status.HasValue || documentVersion.Status == Status.Value) &&
+            (!CreatedTime.HasValue || documentVersion.CreatedTime.Date == CreatedTime.Value.Date) &&
+            (!IsPublic.HasValue || documentVersion.IsPublic == IsPublic.Value);
+            //&&(!DepartmentId.is || documentVersion.DocumentFile.DepartmentId == DepartmentId.Value);
         }
     }
 }
