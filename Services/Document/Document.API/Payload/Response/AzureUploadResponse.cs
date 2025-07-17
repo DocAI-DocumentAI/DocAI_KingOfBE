@@ -1,4 +1,4 @@
-namespace Document.API.Models
+namespace Document.API.Payload.Response
 {
     public class AzureUploadResponse
     {
