@@ -1,5 +1,6 @@
 ﻿using AutoMapper;
 using Document.API.Constants;
+using Document.API.Models;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
@@ -31,13 +32,21 @@ public class DocumentService : IDocumentService
     private readonly ILogger<DocumentService> _logger;
     private readonly IAzureStorageService _storageService;
     private readonly IKernelMemory _memory;
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IAzureStorageService storageService)
+    private readonly IConfiguration _configuration;
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IAzureStorageService storageService, IConfiguration configuration)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
         _logger = logger;
         _memory = memory;
         _storageService = storageService;
+
+        var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
+        var geminiConfig = configuration.GetSection("Gemini").Get<GeminiConfigSetting>();
+
+        _logger.LogInformation("Kernel Memory is configured with:");
+        _logger.LogInformation($"- Text Generation Model: {openRouterConfig?.Model}");
+        _logger.LogInformation($"- Text Embedding Model: {geminiConfig?.EmbeddingModel}");
     }
 
     
