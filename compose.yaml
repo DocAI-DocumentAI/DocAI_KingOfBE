@@ -174,7 +174,6 @@
     networks:
       - docai_network
 
-
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: rabbitmq
@@ -189,23 +188,36 @@
     networks:
       - docai_network
     restart: always
-
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
+    
+  redis:
+    image: redis:7-alpine
+    container_name: redis
     ports:
-      - "11434:11434"
+      - "6379:6379"
     volumes:
-      - ollama_data:/root/.ollama
+      - redis_data:/data
     networks:
       - docai_network
     restart: always
 
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   networks:
+  #     - docai_network
+  #   restart: always
+
 volumes:
   rabbitmq_data:
     driver: local
-  ollama_data:
+  redis_data:
     driver: local
+  # ollama_data:
+  #   driver: local
 
 networks:
   docai_network:

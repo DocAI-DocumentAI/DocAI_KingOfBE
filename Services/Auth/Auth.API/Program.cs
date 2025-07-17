@@ -97,8 +97,29 @@ try
     });
 
     app.UseCors(CorConstant.PolicyName);
-    // app.UseHttpsRedirection();
+
+    // Thêm CORS middleware tùy chỉnh trước các middleware khác
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Method == "OPTIONS")
+        {
+            context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+            context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+            context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+            context.Response.StatusCode = 200;
+            return;
+        }
+        await next();
+    });
+
+    // Thêm Rate Limiting Middleware trước Authentication
+    app.UseMiddleware<RateLimitingMiddleware>();
+
     app.UseAuthentication();
+
+    // Thêm JWT Blacklist Middleware sau Authentication
+    app.UseMiddleware<JwtBlacklistMiddleware>();
+
     app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseAuthorization();
     app.UseSerilogRequestLogging();
