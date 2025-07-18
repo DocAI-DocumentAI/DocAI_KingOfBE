@@ -13,7 +13,6 @@
         <PackageReference Include="AutoMapper" Version="14.0.0" />
         <PackageReference Include="Azure.Identity" Version="1.14.0" />
         <PackageReference Include="Azure.Storage.Blobs" Version="12.24.1" />
-        <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.4" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.5" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.5">
@@ -26,7 +25,6 @@
         <PackageReference Include="Microsoft.KernelMemory.MemoryDb.Postgres" Version="0.98.250508.3" />
         <PackageReference Include="Microsoft.KernelMemory.SemanticKernelPlugin" Version="0.98.250508.3" />
         <PackageReference Include="Microsoft.SemanticKernel.Connectors.Google" Version="1.60.0-alpha" />
-        <PackageReference Include="PdfPig" Version="0.1.10" />
         <PackageReference Include="MassTransit" Version="8.4.1" />
         <PackageReference Include="MassTransit.RabbitMQ" Version="8.4.1" />
         

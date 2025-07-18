@@ -1,7 +1,7 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Document.API.Constants;
-using Document.API.Models;
+using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
 
 namespace Document.API.Services.Implements

@@ -4,23 +4,17 @@ using Document.API.Models;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
-using Document.API.Utils;
 using Document.Domain.Enums;
 using Document.Domain.Model;
 using Document.Domain.Models;
 using Document.Infrastructure.Filter;
 using Document.Infrastructure.Paginate;
 using Document.Infrastructure.Repository.Interfaces;
-using DocumentFormat.OpenXml.Drawing.Charts;
-using DocumentFormat.OpenXml.Office2010.Word;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.KernelMemory;
 
 using Shared.DTOs;
 using Shared.Exceptions;
-using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 
 namespace Document.API.Services.Implements;
@@ -42,11 +36,22 @@ public class DocumentService : IDocumentService
         _storageService = storageService;
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
-        var geminiConfig = configuration.GetSection("Gemini").Get<GeminiConfigSetting>();
+        var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
 
         _logger.LogInformation("Kernel Memory is configured with:");
-        _logger.LogInformation($"- Text Generation Model: {openRouterConfig?.Model}");
-        _logger.LogInformation($"- Text Embedding Model: {geminiConfig?.EmbeddingModel}");
+        _logger.LogInformation("- Text Generation Model: {Model}", openRouterConfig?.Model);
+        _logger.LogInformation("- Text Embedding Model (OpenAI): {EmbeddingModel}", openAIConfig?.EmbeddingModel);
+        //_logger.LogInformation("- OpenRouter API Key: {Key}", openRouterConfig?.APIKey?.Length >= 4 ? openRouterConfig.APIKey[^4..] : "Invalid or too short");
+        //_logger.LogInformation("- OpenAI API Key: {Key}", openAIConfig?.APIKey?.Length >= 4 ? openAIConfig.APIKey[^4..] : "Invalid or too short");
+
+        if (_memory != null)
+        {
+            _logger.LogInformation("Kernel Memory service is initialized and available.");
+        }
+        else
+        {
+            _logger.LogWarning("Kernel Memory service is NOT initialized.");
+        }
     }
 
     

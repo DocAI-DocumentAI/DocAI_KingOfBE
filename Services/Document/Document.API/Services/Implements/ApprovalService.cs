@@ -196,6 +196,7 @@ namespace Document.API.Services.Implements
                     var versionKmId = versionToReview.Id.ToString();
                     using (var fileStream = await _storageService.DownloadFileAsync(versionToReview.FilePath))
                     {
+                        _logger.LogInformation("Content length: {Length}, Name: {FileName}", fileStream.Length, versionToReview.FileName);
                         await _memory.ImportDocumentAsync(fileStream, versionToReview.FileName, documentId: versionKmId, tags: tags);
                     }
                     _logger.LogInformation("Indexed approved version {VersionId} in Kernel Memory with structured tags.", versionId);

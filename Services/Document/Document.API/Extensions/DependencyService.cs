@@ -13,10 +13,9 @@ using Microsoft.KernelMemory;
 using Shared.DTOs;
 
 using Document.API.Models;
-using Microsoft.SemanticKernel.Connectors.Google;
+
 using Microsoft.KernelMemory.AI.OpenAI;
 using Microsoft.KernelMemory.SemanticKernel;
-using DocumentFormat.OpenXml.Spreadsheet;
 
 
 
@@ -126,14 +125,20 @@ public static class DependencyService
         var config = new SemanticKernelConfig();
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
-        var geminiConfig = configuration.GetSection("Gemini").Get<GeminiConfigSetting>();
+        var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
         var connectionString = configuration.GetConnectionString("DefaultConnection");
 
-        var openAIConfig = new OpenAIConfig
+        var openRouterTextGenerationConfig = new OpenAIConfig
         {
             TextModel = openRouterConfig.Model,
             APIKey = openRouterConfig.APIKey,
             Endpoint = openRouterConfig.Endpoint
+        };
+
+        var openAITextEmbeddingConfig = new OpenAIConfig
+        {
+            EmbeddingModel = openAIConfig.EmbeddingModel,
+            APIKey = openAIConfig.APIKey
         };
 
         var postgresConfig = new PostgresConfig
@@ -149,15 +154,8 @@ public static class DependencyService
 
         var memory = new KernelMemoryBuilder()
             .WithPostgresMemoryDb(postgresConfig)
-            .WithOpenAITextGeneration(openAIConfig, new CL100KTokenizer())
-            .WithSemanticKernelTextEmbeddingGenerationService(
-                new GoogleAITextEmbeddingGenerationService(
-                    geminiConfig.EmbeddingModel,
-                    geminiConfig.APIKey,
-                    dimensions: 768
-                ),
-                new SemanticKernelConfig()
-            )
+            .WithOpenAITextGeneration(openRouterTextGenerationConfig, new CL100KTokenizer())
+            .WithOpenAITextEmbeddingGeneration(openAITextEmbeddingConfig, new CL100KTokenizer())
             .Build<MemoryServerless>(kmbOptions);
 
         services.AddSingleton<IKernelMemory>(memory);
