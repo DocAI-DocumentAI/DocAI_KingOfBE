@@ -1,7 +1,9 @@
 ﻿using System.Text;
+using System.Text.Json;
 using AI.API.Constants;
 using AI.API.Payload.Request;
 using AI.API.Payload.Response;
+using AI.API.Services.Interface;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.KernelMemory.AI;
@@ -10,21 +12,15 @@ namespace AI.API.Controllers
 {
     [ApiController]
     [Route(ApiEndPointConstant.ApiEndpoint)]
-    [Authorize] 
+    //[Authorize] 
     public class AIController : ControllerBase
     {
-        private readonly ITextGenerator _textGenerator; // REVIEW POINT: Inject ITextGenerator của KM
-        private readonly ITextEmbeddingGenerator _embeddingGenerator; // REVIEW POINT: Inject ITextEmbeddingGenerator của KM
+        private readonly IAIService _aiService;
         private readonly ILogger<AIController> _logger;
-
-        public AIController(
-                          ILogger<AIController> logger,
-                          ITextGenerator textGenerator,
-                          ITextEmbeddingGenerator embeddingGenerator)
+        public AIController(IAIService aiService, ILogger<AIController> logger)
         {
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _textGenerator = textGenerator ?? throw new ArgumentNullException(nameof(textGenerator));
-            _embeddingGenerator = embeddingGenerator ?? throw new ArgumentNullException(nameof(embeddingGenerator));
+            _aiService = aiService;
+            _logger = logger;
         }
 
         [HttpPost("generate")] // Endpoint cho Chat Completion
@@ -32,94 +28,64 @@ namespace AI.API.Controllers
         [ProducesResponseType(typeof(IAsyncEnumerable<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> Generate([FromBody] AIRequest request)
+        public async Task<ActionResult<AIResponse>> GenerateAnswer([FromBody] AIRequest request)
         {
             if (string.IsNullOrEmpty(request.Question))
             {
-                _logger.LogError("Generate request received with empty question.");
-                return BadRequest("Question cannot be empty.");
+                return BadRequest("Question is required");
             }
+
+            if (request.StreamResponse)
+            {
+                return BadRequest("Use /stream-answer endpoint for streaming responses");
+            }
+
+            var result = await _aiService.GenerateAnswerAsync(request);
+
+            if (!result.Success)
+            {
+                return StatusCode(500, result);
+            }
+
+            return Ok(result);
+        }
+
+        [HttpPost("stream-answer")] 
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task StreamAnswer([FromBody] AIRequest request)
+        {
+            if (string.IsNullOrEmpty(request.Question))
+            {
+                Response.StatusCode = 400;
+                await Response.WriteAsync("Question is required");
+                return;
+            }
+
+            Response.Headers.Add("Content-Type", "text/event-stream");
+            Response.Headers.Add("Cache-Control", "no-cache");
+            Response.Headers.Add("Connection", "keep-alive");
 
             try
             {
-                // Xây dựng prompt tương tự như ChatService sẽ làm
-                // AI Microservice này chỉ đóng vai trò là connector,
-                // nên nó mong đợi prompt đã được xây dựng sẵn từ Chat Service.
-                // Tuy nhiên, để API này có thể test độc lập hoặc dùng cho mục đích khác,
-                // chúng ta vẫn xây dựng prompt tại đây nếu Documents được cung cấp.
-                var promptBuilder = new StringBuilder();
-                if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
+                await foreach (var chunk in _aiService.StreamGenerateAnswerAsync(request, HttpContext.RequestAborted))
                 {
-                    promptBuilder.AppendLine(request.SystemPrompt);
+                    var data = $"data: {JsonSerializer.Serialize(new { text = chunk })}\n\n";
+                    await Response.WriteAsync(data);
+                    await Response.Body.FlushAsync();
                 }
-                promptBuilder.AppendLine("User's question: " + request.Question);
-                if (request.Documents != null && request.Documents.Any())
-                {
-                    promptBuilder.AppendLine("\n--- Relevant Documents ---");
-                    foreach (var doc in request.Documents.OrderBy(d => d.DocumentName).ThenBy(d => d.ChunkId))
-                    {
-                        promptBuilder.AppendLine($"Document: {doc.DocumentName ?? "N/A"} (Title: {doc.Title ?? "N/A"})");
-                        promptBuilder.AppendLine($"Chunk ID: {doc.ChunkId}");
-                        promptBuilder.AppendLine($"Content:\n{doc.Content}");
-                        promptBuilder.AppendLine("---");
-                    }
-                    promptBuilder.AppendLine("--- End of Relevant Documents ---");
-                }
-                var fullPrompt = promptBuilder.ToString();
 
-                // Lấy các tùy chọn từ IConfiguration
-                var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>(); // Lấy IConfiguration qua ServiceProvider
-                var textGenerationOptions = new TextGenerationOptions // Options của KM
-                {
-                    Temperature = config.GetValue<double>("Ollama:Temperature", 0.7),
-                    NucleusSampling = config.GetValue<double>("Ollama:TopP", 0.9), // NucleusSampling tương ứng với TopP
-                    MaxTokens = config.GetValue<int?>("Ollama:NumPredict", 1024) // MaxTokens tương ứng với NumPredict
-                };
-
-                if (request.StreamResponse)
-                {
-                    _logger.LogInformation("Streaming response requested for AI generation.");
-                    // REVIEW POINT: Gọi GenerateTextAsync của ITextGenerator
-                    return Ok(StreamGeneratedText(fullPrompt, textGenerationOptions));
-                }
-                else
-                {
-                    _logger.LogInformation("Non-streaming response requested for AI generation.");
-                    // REVIEW POINT: Gọi GenerateTextAsync của ITextGenerator và nối chuỗi
-                    var responseBuilder = new StringBuilder();
-                    await foreach (var chunk in _textGenerator.GenerateTextAsync(fullPrompt, textGenerationOptions))
-                    {
-                        responseBuilder.Append(chunk.Text);
-                    }
-                    // Tên model có thể lấy từ IConfiguration
-                    var modelUsed = config.GetValue<string>("Ollama:TextGenerationModel") ?? "unknown";
-                    return Ok(new AIResponse
-                    {
-                        Answer = responseBuilder.ToString().Trim(),
-                        ModelUsed = modelUsed
-                    });
-                }
+                await Response.WriteAsync("data: [DONE]\n\n");
             }
-            catch (ApplicationException appEx)
+            catch (OperationCanceledException)
             {
-                _logger.LogError(appEx, "Application error during AI generation.");
-                return Problem(detail: appEx.Message, statusCode: StatusCodes.Status500InternalServerError, title: "AI Generation Error");
+                _logger.LogInformation("Stream generation cancelled by client");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An unexpected error occurred during AI generation.");
-                return Problem(detail: "An unexpected error occurred. Please try again later.", statusCode: StatusCodes.Status500InternalServerError, title: "Unexpected Server Error");
-            }
-        }
-        // REVIEW POINT: Thêm Endpoint mới cho Embedding Generation
-        private async IAsyncEnumerable<string> StreamGeneratedText(string prompt, TextGenerationOptions options)
-        {
-            await foreach (var chunk in _textGenerator.GenerateTextAsync(prompt, options))
-            {
-                if (chunk?.Text != null)
-                {
-                    yield return chunk.Text;
-                }
+                _logger.LogError(ex, "Error in stream generation");
+                await Response.WriteAsync($"data: {JsonSerializer.Serialize(new { error = ex.Message })}\n\n");
             }
         }
 
@@ -127,43 +93,58 @@ namespace AI.API.Controllers
         [ProducesResponseType(typeof(EmbeddingResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GenerateEmbedding([FromBody] EmbeddingRequest request)
+        public async Task<ActionResult<EmbeddingResponse>> GenerateEmbedding([FromBody] EmbeddingRequest request)
         {
-            if (string.IsNullOrEmpty(request.Text))
+            if (string.IsNullOrEmpty(request.Content))
             {
-                _logger.LogError("Embedding request received with empty text.");
-                return BadRequest("Input text for embedding cannot be empty.");
+                return BadRequest("Content is required");
             }
 
-            try
+            if (string.IsNullOrEmpty(request.DocumentId))
             {
-                _logger.LogInformation($"Embedding generation requested for text (length: {request.Text.Length}).");
-                // REVIEW POINT: Gọi GenerateEmbeddingAsync của ITextEmbeddingGenerator
-                var embedding = await _embeddingGenerator.GenerateEmbeddingAsync(request.Text);
+                return BadRequest("DocumentId is required");
+            }
 
-                var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-                var modelUsed = config.GetValue<string>("Ollama:EmbeddingModel") ?? "unknown";
-                return Ok(new EmbeddingResponse
-                {
-                    Embedding = embedding.Data.ToArray().ToList(), // Chuyển ReadOnlyMemory<float> sang List<float>
-                    ModelUsed = modelUsed // Lấy tên model từ IConfiguration
-                });
-            }
-            catch (ArgumentException argEx)
+            var result = await _aiService.GenerateEmbeddingAsync(request);
+
+            if (!result.Success)
             {
-                _logger.LogError(argEx, "Invalid argument for embedding generation.");
-                return BadRequest(argEx.Message);
+                return StatusCode(500, result);
             }
-            catch (ApplicationException appEx)
+
+            return Ok(result);
+        }
+        [HttpPost("generate-embeddings-batch")]
+        [ProducesResponseType(typeof(EmbeddingResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<BatchEmbeddingResponse>> GenerateEmbeddingsBatch([FromBody] BatchEmbeddingRequest request)
+        {
+            if (request.Documents == null || !request.Documents.Any())
             {
-                _logger.LogError(appEx, "Application error during embedding generation.");
-                return Problem(detail: appEx.Message, statusCode: StatusCodes.Status500InternalServerError, title: "Embedding Generation Error");
+                return BadRequest("Documents array is required");
             }
-            catch (Exception ex)
+
+            // Validate all documents have required fields
+            var invalidDocs = request.Documents.Where(d => string.IsNullOrEmpty(d.Content) || string.IsNullOrEmpty(d.DocumentId)).ToList();
+            if (invalidDocs.Any())
             {
-                _logger.LogError(ex, "An unexpected error occurred during embedding generation.");
-                return Problem(detail: "An unexpected error occurred. Please try again later.", statusCode: StatusCodes.Status500InternalServerError, title: "Unexpected Server Error");
+                return BadRequest($"All documents must have Content and DocumentId. Invalid documents: {string.Join(", ", invalidDocs.Select(d => d.DocumentId))}");
             }
+
+            var result = await _aiService.GenerateEmbeddingsBatchAsync(request);
+            return Ok(result);
+        }
+
+        [HttpGet("health")]
+        public IActionResult Health()
+        {
+            return Ok(new
+            {
+                status = "healthy",
+                timestamp = DateTime.UtcNow,
+                service = "AI Microservice"
+            });
         }
     }
 }

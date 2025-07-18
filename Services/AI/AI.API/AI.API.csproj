@@ -20,11 +20,14 @@
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.5" />
+		<PackageReference Include="Microsoft.SemanticKernel" Version="1.60.0" />
+		<PackageReference Include="Microsoft.SemanticKernel.Abstractions" Version="1.60.0" />
+		<PackageReference Include="Microsoft.SemanticKernel.Connectors.HuggingFace" Version="1.60.0-preview" />
+		<PackageReference Include="Microsoft.SemanticKernel.Core" Version="1.60.0" />
 
 		<PackageReference Include="NSwag.AspNetCore" Version="14.4.0" />
 
 		<PackageReference Include="Microsoft.KernelMemory.Abstractions" Version="0.98.250508.3" />
-		<PackageReference Include="Microsoft.KernelMemory.AI.Ollama" Version="0.98.250508.3" />
 		<PackageReference Include="Microsoft.KernelMemory.Chunkers" Version="0.98.250508.3" />
 		<PackageReference Include="Microsoft.KernelMemory.Core" Version="0.98.250508.3" />
 		<PackageReference Include="Npgsql" Version="9.0.3" />
@@ -50,7 +53,6 @@
 		<Folder Include="logs\" />
 		<Folder Include="Mappers\" />
 		<Folder Include="Middlewares\" />
-		<Folder Include="Services\Interface\" />
 		<Folder Include="Validators\" />
 		<Folder Include="Utils\" />
 	</ItemGroup>

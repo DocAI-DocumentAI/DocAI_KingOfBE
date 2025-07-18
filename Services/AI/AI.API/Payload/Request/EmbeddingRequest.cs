@@ -2,6 +2,9 @@
 {
     public class EmbeddingRequest
     {
-        public string Text { get; set; }
+        public string DocumentId { get; set; } = string.Empty; 
+        public string Content { get; set; } = string.Empty;
+        public string? Title { get; set; } 
+        public Dictionary<string, object>? Metadata { get; set; } 
     }
 }

@@ -13,6 +13,7 @@ using Serilog.Templates.Themes;
 using OpenApiSecurityScheme = NSwag.OpenApiSecurityScheme;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AI.API.Extensions;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -36,11 +37,12 @@ try
 
     builder.Services.AddOpenApi();
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
-    builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddAuthorization();
+    builder.Services.AddServices(builder.Configuration);
     builder.Services.AddControllers();
     builder.Services.AddHttpContextAccessor();
-
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddAuthentication();
+    builder.Services.AddAuthorization();
     builder.Services.Configure<HostOptions>(hostOptions =>
     {
         hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
@@ -62,6 +64,15 @@ try
 
         options.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("Bearer"));
     });
+    builder.Services.AddCors(options =>
+    {
+        options.AddDefaultPolicy(policy =>
+        {
+            policy.AllowAnyOrigin()
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        });
+    });
 
     var app = builder.Build();
 
@@ -73,9 +84,9 @@ try
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
     });
 
-    // app.UseHttpsRedirection();
+    app.UseHttpsRedirection();
+    app.UseCors();
     app.UseAuthentication();
-    // app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseAuthorization();
     app.UseSerilogRequestLogging();
     app.MapControllers();

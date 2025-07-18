@@ -2,7 +2,11 @@
 {
     public class EmbeddingResponse
     {
-        public List<float> Embedding { get; set; } // Vector nhúng (dạng float)
-        public string ModelUsed { get; set; } // Tên mô hình embedding đã sử dụng
+        public string DocumentId { get; set; } = string.Empty;
+        public float[] Embedding { get; set; } = Array.Empty<float>();
+        public int Dimensions { get; set; }
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+        public string RequestId { get; set; } = string.Empty;
     }
 }

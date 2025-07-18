@@ -1,10 +1,17 @@
 ﻿using AI.API.Services.Implement;
+using AI.API.Services.Interface;
 using AI.Domain.Models;
 using AI.Infrastructure.Repository.Implement;
 using AI.Infrastructure.Repository.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.KernelMemory.AI;
 using Microsoft.KernelMemory;
-using Microsoft.KernelMemory.AI.Ollama;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.Embeddings;
+using Microsoft.SemanticKernel.TextGeneration;
+using Polly;
+using Microsoft.Extensions.AI;
 
 namespace AI.API.Extensions
 {
@@ -12,7 +19,7 @@ namespace AI.API.Extensions
     {
         public static IServiceCollection AddUnitOfWork(this IServiceCollection services)
         {
-            //
+            services.AddScoped<IUnitOfWork<DocAIDbContext>, UnitOfWork<DocAIDbContext>>();
             return services;
         }
         public static IServiceCollection AddDatabase(this IServiceCollection services)
@@ -37,42 +44,34 @@ namespace AI.API.Extensions
         }
         public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
         {
+            var kernelBuilder = Kernel.CreateBuilder();
+
+            string textModel = configuration["HuggingFace:TextModel"];
+            string textEndpoint = configuration["HuggingFace:TextEndpoint"];
+            string embeddingModel = configuration["HuggingFace:EmbeddingModel"];
+            string embeddingEndpoint = configuration["HuggingFace:EmbeddingEndpoint"];
+            string apiKey = configuration["HuggingFace:ApiKey"];
+
+            kernelBuilder.Services.AddHuggingFaceTextGeneration(
+                  //model: textModel,
+                  endpoint: new Uri(textEndpoint),
+                  apiKey: apiKey,
+                  serviceId: "hf-text-gen",
+                      httpClient: new HttpClient(new LoggingHandler(new HttpClientHandler()))
+
+              );    
+
+            kernelBuilder.Services.AddHuggingFaceEmbeddingGenerator(
+                model: embeddingModel,
+                endpoint: new Uri(embeddingEndpoint),
+                apiKey: apiKey,
+                serviceId: "hf-embed-gen"
+            );
+            services.AddSingleton(kernelBuilder.Build());
+
+            services.AddScoped<IAIService, AIService>();
 
             return services;
-        }
-
-        public static IServiceCollection AddKernelMemoryWithOllama(this IServiceCollection services, IConfiguration configuration)
-        {
-            // Bind the "Ollama" section from appsettings.json to our strongly-typed class
-            var ollamaSettings = configuration.GetSection("Ollama").Get<OllamaConfigSettings>()
-                ?? throw new InvalidOperationException("Ollama configuration section is missing in appsettings.json");
-
-            // Create the configuration object that Kernel Memory's native provider expects
-            var ollamaConfig = new OllamaConfig
-            {
-                Endpoint = ollamaSettings.Host,
-                TextModel = new OllamaModelConfig(ollamaSettings.ModelName),
-                EmbeddingModel = new OllamaModelConfig(ollamaSettings.EmbeddingModelName)
-            };
-
-            // Build the Kernel Memory instance using the native Ollama integration
-            var memory = new KernelMemoryBuilder(services)
-                .WithOllamaTextGeneration(ollamaConfig)
-                .WithOllamaTextEmbeddingGeneration(ollamaConfig)
-                // For production, you would use a persistent vector store.
-                // Example with PostgreSQL/Pgvector. You'd need the Microsoft.KernelMemory.Postgres NuGet package.
-                // .WithPostgres("your_postgres_connection_string") 
-                .WithSimpleVectorDb()
-                .Build();
-
-            services.AddSingleton<IKernelMemory>(memory);
-            return services;
-        }
-        public class OllamaConfigSettings
-        {
-            public required string Host { get; set; }
-            public required string ModelName { get; set; }
-            public required string EmbeddingModelName { get; set; }
         }
     }
 }
