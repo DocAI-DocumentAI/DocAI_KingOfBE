@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Reflection.Metadata.Ecma335;
 using System.Threading.Tasks;
+using Auth.API.Attributes;
 using Auth.API.Constants;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.ActiveKey;
@@ -53,6 +54,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost(ApiEndPointConstant.User.Register)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status500InternalServerError)]
@@ -73,7 +75,6 @@ public class AuthController : ControllerBase
     [HttpPost(ApiEndPointConstant.User.SendOtp)]
     [ProducesResponseType(typeof(string), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
-    // [Authorize(Roles = $"{nameof(RoleEnum.Admin)},{nameof(RoleEnum.Manager)}")]
     public async Task<IActionResult> SendOtp([FromBody] GenerateEmailOtpRequest request)
     {
         var result = await _userService.GenerateOtpAsync(request);
@@ -86,7 +87,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost(ApiEndPointConstant.User.ChangeRole)]
-    [Authorize]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(UserRoleChangeResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
@@ -116,7 +117,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost(ApiEndPointConstant.User.ChangeDepartment)]
-    [Authorize]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(ChangeDepartmentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
@@ -146,7 +147,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost(ApiEndPointConstant.User.GetUsersByDepartmentAndRole)]
-    [Authorize]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(List<GetUserByDeparAndRoleResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
@@ -171,6 +172,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.User.Users)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(IPaginate<UserResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]

@@ -1,4 +1,5 @@
-﻿using Auth.API.Constants;
+﻿using Auth.API.Attributes;
+using Auth.API.Constants;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.Department;
 using Auth.API.Payload.Response;
@@ -26,6 +27,7 @@ public class DepartmentController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Department.Departments)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status500InternalServerError)]
@@ -37,6 +39,7 @@ public class DepartmentController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Department.DepartmentInformation + "/{departmentId}")]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status500InternalServerError)]
@@ -47,6 +50,7 @@ public class DepartmentController : ControllerBase
     }
 
     [HttpPost(ApiEndPointConstant.Department.CreateDepartment)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status500InternalServerError)]
@@ -64,6 +68,7 @@ public class DepartmentController : ControllerBase
     }
 
     [HttpPatch(ApiEndPointConstant.Department.UpdateDepartment)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status400BadRequest)]
@@ -82,6 +87,7 @@ public class DepartmentController : ControllerBase
     }
 
     [HttpDelete(ApiEndPointConstant.Department.DeleteDepartment)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status500InternalServerError)]

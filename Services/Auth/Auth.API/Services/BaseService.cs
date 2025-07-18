@@ -34,12 +34,24 @@ public class BaseService<T> where T : class
     }
     protected RoleEnum GetRoleFromJwt()
     {
-        string roleString = _httpContextAccessor?.HttpContext?.User.FindFirstValue(ClaimTypes.Role);
+        var user = _httpContextAccessor?.HttpContext?.User;
+        if (user == null)
+        {
+            Log.Error("HttpContext.User is null");
+            return RoleEnum.None;
+        }
+
+        // Debug: In tất cả claims
+        var allClaims = user.Claims.Select(c => $"{c.Type}: {c.Value}").ToList();
+        Log.Information("All claims: {Claims}", string.Join(", ", allClaims));
+
+        string roleString = user.FindFirstValue(ClaimTypes.Role);
+        Log.Information("Role claim value: {RoleString}", roleString ?? "null");
+
         if (string.IsNullOrEmpty(roleString)) return RoleEnum.None;
 
         Enum.TryParse<RoleEnum>(roleString, out RoleEnum role);
         return role;
-
     }
 
     protected Guid GetUserIdFromJwt()

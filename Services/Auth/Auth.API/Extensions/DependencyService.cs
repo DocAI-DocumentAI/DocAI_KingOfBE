@@ -133,31 +133,20 @@ public static class DependencyService
                 ValidIssuer = configuration["JWT:Issuer"] ?? "DocAI",
                 IssuerSigningKey = new SymmetricSecurityKey(key),
 
-                // ⚠️ Thêm dòng này để hỗ trợ [Authorize(Roles = "...")]
+                // Đảm bảo role claim được map đúng
                 RoleClaimType = ClaimTypes.Role,
 
-                // Nếu bạn dùng custom claim name như "roles", bạn có thể chỉnh ở đây
-                // RoleClaimType = "roles",
+                // Thêm claim mapping
+                NameClaimType = ClaimTypes.NameIdentifier
             };
 
-            options.SaveToken = true;
-
+            // Debug JWT events
             options.Events = new JwtBearerEvents
             {
-                OnMessageReceived = context =>
-                {
-                    Log.Information("Token received: {Token}", context.Token);
-                    return Task.CompletedTask;
-                },
-                OnAuthenticationFailed = context =>
-                {
-                    Log.Error("JWT authentication failed: {Message}", context.Exception.Message);
-                    return Task.CompletedTask;
-                },
                 OnTokenValidated = context =>
                 {
-                    Log.Information("JWT token validated successfully. Claims: {Claims}",
-                        string.Join(", ", context.Principal.Claims.Select(c => $"{c.Type}: {c.Value}")));
+                    var claims = context.Principal.Claims.Select(c => $"{c.Type}: {c.Value}");
+                    Console.WriteLine($"JWT validated with claims: {string.Join(", ", claims)}");
                     return Task.CompletedTask;
                 }
             };

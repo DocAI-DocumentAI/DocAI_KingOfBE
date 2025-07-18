@@ -1,4 +1,5 @@
-﻿using Auth.API.Constants;
+﻿using Auth.API.Attributes;
+using Auth.API.Constants;
 using Auth.API.Payload.Request.Role;
 using Auth.API.Payload.Response.Role;
 using Auth.API.Services.Interface;
@@ -23,9 +24,8 @@ public class RoleController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Role.Roles)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetAllRolesAsync(int page = 1, int size = 30,
         [FromQuery] RoleFilter? filter = null, string? sortBy = null, bool isAsc = true)
     {
@@ -34,9 +34,8 @@ public class RoleController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Role.RoleInformation + "/{roleId}")]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetEditorInformationAsync(Guid roleId)
     {
         var response = await _roleService.GetRoleInformationAsync(roleId);
@@ -44,9 +43,8 @@ public class RoleController : ControllerBase
     }
 
     [HttpPost(ApiEndPointConstant.Role.CreateRole)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> CreateRoleAsync([FromBody] CreateRoleRequest request)
     {
         var response = await _roleService.CreateRoleAsync(request);
@@ -61,10 +59,8 @@ public class RoleController : ControllerBase
     }
 
     [HttpPatch(ApiEndPointConstant.Role.UpdateRole)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> UpdateEditorAsync([FromBody] UpdateRoleRequest updateRoleRequest, Guid roleId)
     {
         var response = await _roleService.UpdateRoleAsync(updateRoleRequest, roleId);
@@ -79,9 +75,8 @@ public class RoleController : ControllerBase
     }
 
     [HttpDelete(ApiEndPointConstant.Role.DeleteRole)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> DeleteRoleAsync(Guid roleId)
     {
         var response = await _roleService.DeleteRoleAsync(roleId);
@@ -96,10 +91,8 @@ public class RoleController : ControllerBase
     }
 
     [HttpPost(ApiEndPointConstant.Role.AddPermissionToRole)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> AddPermissionToRoleAsync(Guid roleId, Guid permissionId)
     {
         try
