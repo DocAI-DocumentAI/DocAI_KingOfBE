@@ -34,6 +34,7 @@ public class MessageConstant
     public const string TagWithNameExists = "Tag with this name already exists.";
     public const string TagNotFound = "Tag not found.";
     public const string CannotDeleteUsedTag = "Cannot delete tag because it is currently in use by one or more documents.";
+    public const string TagNameCannotBeEmpty = "Tag name cannot be empty.";
     public const string UnsupportedFileType = "Unsupported file type. Only PDF and DOCX files are allowed.";
     public const string FileSizeExceeded = "File size exceeds the maximum limit of {0}MB.";
     public const string DepartmentNotAssigned = "Document must be assigned to a department.";

@@ -24,6 +24,11 @@ namespace Document.API.Services.Implements
 
         public async Task<TagResponse> CreateTagAsync(CreateTagRequest request, string userId)
         {
+            if (string.IsNullOrWhiteSpace(request.Name))
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.TagNameCannotBeEmpty);
+            }
+
             var normalizedTagName = request.Name.ToLowerInvariant();
             var existingTag = await _unitOfWork.GetRepository<Tag>()
                 .SingleOrDefaultAsync(predicate: t => t.Name == normalizedTagName);
@@ -49,7 +54,7 @@ namespace Document.API.Services.Implements
         {
             var tag = await _unitOfWork.GetRepository<Tag>()
                 .SingleOrDefaultAsync(predicate: t => t.Id == tagId)
-                ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.TagNotFound);
+                ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.TagNotFound);
 
             return _mapper.Map<TagResponse>(tag);
         }
@@ -69,9 +74,14 @@ namespace Document.API.Services.Implements
 
         public async Task<TagResponse> UpdateTagAsync(string tagId, UpdateTagRequest request, string userId)
         {
+            if (string.IsNullOrWhiteSpace(request.Name))
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.TagNameCannotBeEmpty);
+            }
+
             var tagToUpdate = await _unitOfWork.GetRepository<Tag>()
                 .SingleOrDefaultAsync(predicate: t => t.Id == tagId)
-                ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.TagNotFound);
+                ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.TagNotFound);
 
             var normalizedTagName = request.Name.ToLowerInvariant();
             if (tagToUpdate.Name != normalizedTagName)
@@ -98,7 +108,7 @@ namespace Document.API.Services.Implements
         {
             var tagToDelete = await _unitOfWork.GetRepository<Tag>()
                 .SingleOrDefaultAsync(predicate: t => t.Id == tagId)
-                ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.TagNotFound);
+                ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.TagNotFound);
 
             // Check if the tag is associated with any documents
             var isTagUsed = await _unitOfWork.GetRepository<DocumentTag>()
