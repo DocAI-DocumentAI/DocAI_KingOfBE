@@ -1,4 +1,5 @@
-﻿using Auth.API.Constants;
+﻿using Auth.API.Attributes;
+using Auth.API.Constants;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.Permission;
 using Auth.API.Payload.Response;
@@ -26,6 +27,7 @@ public class PermissionController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Permission.Permissions)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status500InternalServerError)]
@@ -37,6 +39,7 @@ public class PermissionController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Permission.PermissionInformation + "/{permissionId}")]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status500InternalServerError)]
@@ -48,6 +51,7 @@ public class PermissionController : ControllerBase
 
     [HttpPost(ApiEndPointConstant.Permission.CreatePermission)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status201Created)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> CreatePermissionAsync([FromBody] CreatePermissionRequest request)
@@ -64,6 +68,7 @@ public class PermissionController : ControllerBase
     }
 
     [HttpPatch(ApiEndPointConstant.Permission.UpdatePermission)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status400BadRequest)]
@@ -82,6 +87,7 @@ public class PermissionController : ControllerBase
     }
 
     [HttpDelete(ApiEndPointConstant.Permission.DeletePermission)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status500InternalServerError)]
