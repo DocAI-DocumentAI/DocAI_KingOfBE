@@ -52,11 +52,11 @@ namespace Document.API.Services.Implements
                 .SingleOrDefaultAsync(
                     predicate: v => v.Id == versionId,
                     include: i => i.Include(v => v.DocumentFile)
-                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentVersionNotFound);
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
 
             if (versionToClaim.Status != StatusEnum.Pending)
             {
-                throw new ErrorException(StatusCodes.Status400BadRequest, string.Format(MessageConstant.NotPendingApproval, versionToClaim.Status));
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.NotPendingApproval, versionToClaim.Status));
             }
 
             var existingClaim = await _unitOfWork.GetRepository<ApprovalClaim>()
@@ -89,12 +89,12 @@ namespace Document.API.Services.Implements
 
             if (existingClaim == null)
             {
-                throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.ClaimNotFound);
+                throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.ClaimNotFound);
             }
 
             if (existingClaim.ClaimedBy != userId)
             {
-                throw new ErrorException(StatusCodes.Status403Forbidden, MessageConstant.UnauthorizedToReleaseClaim);
+                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToReleaseClaim);
             }
 
             existingClaim.IsActive = false;
@@ -113,7 +113,7 @@ namespace Document.API.Services.Implements
             .SingleOrDefaultAsync(
                 predicate: v => v.Id == versionId,
                 include: i => i.Include(v => v.DocumentFile)
-            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentVersionNotFound);
+            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
             var documentFile = versionToReview.DocumentFile;
 
             //// --- Permission and State Validation ---
@@ -121,7 +121,7 @@ namespace Document.API.Services.Implements
             //    throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to review documents for this department.");
 
             if (versionToReview.Status != StatusEnum.Pending)
-                throw new ErrorException(StatusCodes.Status400BadRequest, string.Format(MessageConstant.NotPendingApproval, versionToReview.Status));
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.NotPendingApproval, versionToReview.Status));
 
             ApprovalAction logAction;
 
@@ -155,7 +155,7 @@ namespace Document.API.Services.Implements
 
                     if (!fileExists)
                     {
-                        throw new ErrorException(StatusCodes.Status500InternalServerError, MessageConstant.FileNotAvailableInApprovedFolder);
+                        throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR, MessageConstant.FileNotAvailableInApprovedFolder);
                     }
 
                     if (previousApprovedVersion != null)
@@ -218,7 +218,7 @@ namespace Document.API.Services.Implements
             {
                 // --- REJECTION LOGIC---
                 if (string.IsNullOrWhiteSpace(request.Comments) || request.Comments.Length < 10)
-                    throw new ErrorException(StatusCodes.Status400BadRequest, MessageConstant.CommentsRequiredForRejection);
+                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,  MessageConstant.CommentsRequiredForRejection);
                 versionToReview.Status = StatusEnum.Rejected;
                 logAction = ApprovalAction.Reject;
             }

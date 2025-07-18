@@ -41,11 +41,12 @@ public class DocumentController : ControllerBase
     }
 
     [HttpPut(ApiEndPointConstant.Document.EditDraft)]
+    [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(ApiResponse<DocumentDraftResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> EditDraft([FromRoute(Name = "id")] string documentId, UpdateDocumentDraftRequest request, string userId)
+    public async Task<IActionResult> EditDraft([FromRoute(Name = "id")] string documentId, [FromForm] UpdateDocumentDraftRequest request, string userId)
     {
         var result = await _documentService.UpdateDraftAsync(documentId, request, userId);
         return Ok(ApiResponse<object>.Success(result));

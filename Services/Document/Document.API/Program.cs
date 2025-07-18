@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Document.API.Constants;
 using Document.API.Extensions;
 using Document.API.Middlewares;
 using Microsoft.AspNetCore.Builder;
@@ -47,6 +48,14 @@ try
     builder.Services.AddControllers();
     //builder.Services.AddKernelMemory();
     builder.Services.AddKernelMemory(configuration);
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy(CorConstant.PolicyName,
+            policy => policy
+                .AllowAnyOrigin() 
+                .AllowAnyHeader()
+                .AllowAnyMethod());
+    });
 
     // Register the NSwag services
     builder.Services.AddOpenApiDocument(options =>
@@ -93,20 +102,27 @@ try
     // }
 
     app.UseHttpsRedirection();
-    
-    app.UseSerilogRequestLogging();
-    
-    app.UseSerilogRequestLogging();
 
+    app.UseCors(CorConstant.PolicyName);
+
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Method == "OPTIONS")
+        {
+            context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+            context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+            context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+            context.Response.StatusCode = 200;
+            return;
+        }
+        await next();
+    });
+
+    app.UseSerilogRequestLogging();
 
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 
     app.MapControllers();
-
-    app.UseSerilogRequestLogging();
-
-    app.UseHttpsRedirection();
-
 
     app.Run();
 

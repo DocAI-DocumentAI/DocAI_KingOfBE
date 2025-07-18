@@ -101,7 +101,7 @@ public class DocumentService : IDocumentService
                 .SingleOrDefaultAsync(
                     predicate: d => d.Id.ToString() == request.ReplacementDocumentId,
                     include: i => i.Include(d => d.DocumentVersions)
-                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentNotFound);
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
 
             // BR-035: Only documents with status 'Approved' can be selected for replacement.
             var latestApprovedVersion = documentToReplace.DocumentVersions.OrderByDescending(v => v.CreatedTime).FirstOrDefault(v => v.Status == StatusEnum.Approved);
@@ -216,6 +216,8 @@ public class DocumentService : IDocumentService
             SubmittedBy = userId,
         };
 
+        version.FileName = request.File.FileName;
+
         await ProcessTagsAsync(version, request.Tags, userId);
 
         // 6. Link entities using the correct navigation property name
@@ -244,7 +246,20 @@ public class DocumentService : IDocumentService
 
     public async Task<DocumentDraftResponse> UpdateDraftAsync(string versionId, UpdateDocumentDraftRequest request, string userId)
     {
-        // Validations
+        // ====================================================================================
+        // STEP 1: Perform all fast, in-memory validations and external I/O first.
+        // Do NOT touch the database yet.
+        // ====================================================================================
+
+        // BR-021 'Effective From' date must be before 'Expiration Date'.
+        if (request.EffectiveFrom.HasValue && request.EffectiveUntil.HasValue && request.EffectiveFrom.Value >= request.EffectiveUntil.Value)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
+        }
+
+        AzureUploadResponse uploadResponse = null;
+        string fileHash = null;
+
         if (request.File != null)
         {
             // BR-015 Supported file types are PDF (text-based) and DOCX.
@@ -259,96 +274,153 @@ public class DocumentService : IDocumentService
             {
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
             }
+
+            // Upload the new file to Azure Storage BEFORE starting the database transaction.
+            _logger.LogInformation("Uploading new file to storage before database transaction begins.");
+            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
+            fileHash = uploadResponse.Md5Hash;
         }
 
-        // BR-021 'Effective From' date must be before 'Expiration Date'.
-        if (request.EffectiveFrom.HasValue && request.EffectiveUntil.HasValue && request.EffectiveFrom.Value >= request.EffectiveUntil.Value)
+        // ====================================================================================
+        // STEP 2: Now, start the database transaction. This section should be as fast as possible.
+        // ====================================================================================
+        try
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
-        }
+            // Retrive draft to update. This is our first read.
+            var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(
+                    predicate: v => v.Id == versionId,
+                    include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
 
-        //1. Retrive draft to update
-        var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
-        .SingleOrDefaultAsync(
-            predicate: v => v.Id == versionId,
-            include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentVersionNotFound);
+            var documentToUpdate = versionToUpdate.DocumentFile;
 
-        var documentToUpdate = versionToUpdate.DocumentFile;
+            // --- Perform all database-dependent validations ---
 
-        //2. Editor must be the owner. 
-        if (documentToUpdate.OwnerId != userId)
-        {
-            throw new ErrorException(StatusCodes.Status403Forbidden, MessageConstant.UnauthorizedToEdit);
-        }
-
-        //3. Status must be Draft or Rejected. 
-        if (versionToUpdate.Status != StatusEnum.Draft && versionToUpdate.Status != StatusEnum.Rejected)
-        {
-            throw new ErrorException(StatusCodes.Status400BadRequest, string.Format(MessageConstant.CannotEditWithStatus, versionToUpdate.Status));
-        }
-
-        //4. Handle file replacement if a new file is provided.
-        if (request.File != null)
-        {
-            _logger.LogInformation("Replacing file for document version {VersionId}.", versionId);
-
-            // Upload the new file to Azure Storage and get the MD5 hash.
-            var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
-            var fileHash = uploadResponse.Md5Hash;
-
-            // Check for file duplication using the MD5 hash.
-            var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
-                .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash && v.Id != versionId && v.Status != StatusEnum.Rejected, include: i => i.Include(v => v.DocumentFile));
-
-            if (existingFile != null)
+            // Editor must be the owner.
+            if (documentToUpdate.OwnerId != userId)
             {
-                // If a duplicate is found, delete the file that was just uploaded.
-                await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
-
-                _logger.LogWarning("Duplicate file detected during update. Hash: {FileHash}. Existing document: {DocumentTitle}, Version: {VersionName}, Status: {Status}",
-                    fileHash, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status);
-                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
-                    string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
+                // If we uploaded a file, we must now delete it since the operation is failing.
+                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToEdit);
             }
 
-            // 1. Delete the old file from Azure Storage.
-            await _storageService.DeleteFileAsync(versionToUpdate.FileName, StorageFolderConstant.Drafts);
+            // Status must be Draft or Rejected.
+            if (versionToUpdate.Status != StatusEnum.Draft && versionToUpdate.Status != StatusEnum.Rejected)
+            {
+                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.CannotEditWithStatus, versionToUpdate.Status));
+            }
 
-            // 2. Update version properties for the new file.
-            versionToUpdate.FilePath = uploadResponse.BlobName;
-            versionToUpdate.FileName = request.File.FileName;
-            versionToUpdate.FileType = Path.GetExtension(request.File.FileName);
-            versionToUpdate.FileSize = request.File.Length;
-            versionToUpdate.FileHash = fileHash;
+            // Check for title duplication
+            if (documentToUpdate.Title != request.Title)
+            {
+                var existingDocument = await _unitOfWork.GetRepository<DocumentFile>()
+                    .SingleOrDefaultAsync(predicate: d => d.Title == request.Title && d.Id != documentToUpdate.Id);
+                if (existingDocument != null)
+                {
+                    if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentTitleExists);
+                }
+            }
+
+            // Check for file hash duplication if a new file was uploaded
+            if (fileHash != null)
+            {
+                var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
+                    .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash && v.Id != versionId && v.Status != StatusEnum.Rejected, include: i => i.Include(v => v.DocumentFile));
+                if (existingFile != null)
+                {
+                    // If a duplicate is found, delete the file that was just uploaded.
+                    await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                    throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
+                        string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
+                }
+            }
+
+            // --- All validations passed. Apply changes. ---
+
+            string oldFileNameToDelete = null;
+            if (uploadResponse != null)
+            {
+                // Keep track of the old file name to delete it AFTER the transaction succeeds.
+                oldFileNameToDelete = versionToUpdate.FileName;
+
+                // Update version properties for the new file.
+                versionToUpdate.FilePath = uploadResponse.BlobName;
+                versionToUpdate.FileName = request.File.FileName;
+                versionToUpdate.FileType = Path.GetExtension(request.File.FileName);
+                versionToUpdate.FileSize = request.File.Length;
+                versionToUpdate.FileHash = fileHash;
+            }
+
+            // Store the original file name before mapping.
+            var originalFileName = versionToUpdate.FileName;
+
+            // Apply metadata updates from the request DTO.
+            _mapper.Map(request, documentToUpdate);
+            _mapper.Map(request, versionToUpdate);
+
+            // If no new file was uploaded, ensure the original FileName is preserved.
+            if (request.File == null)
+            {
+                versionToUpdate.FileName = originalFileName;
+            }
+
+            await ProcessTagsAsync(versionToUpdate, request.Tags, userId);
+
+            documentToUpdate.LastUpdatedBy = userId;
+            documentToUpdate.LastUpdatedTime = DateTime.UtcNow;
+            versionToUpdate.Status = versionToUpdate.Status == StatusEnum.Rejected ? StatusEnum.Draft : versionToUpdate.Status;
+
+            //_unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentToUpdate);
+            //_unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(versionToUpdate);
+
+            // Save changes to the database. This is the critical point.
+            await _unitOfWork.CommitAsync();
+
+            // ====================================================================================
+            // STEP 3: Post-transaction cleanup.
+            // ====================================================================================
+
+            // If the commit was successful, we can now safely delete the old file from storage.
+            if (!string.IsNullOrEmpty(oldFileNameToDelete))
+            {
+                _logger.LogInformation("Database commit successful. Deleting old file {OldFileName} from storage.", oldFileNameToDelete);
+                // This operation can fail, but it won't roll back our database change.
+                // You might want to add more robust error handling/logging here for orphaned files.
+                await _storageService.DeleteFileAsync(oldFileNameToDelete, StorageFolderConstant.Drafts);
+            }
+
+            _logger.LogInformation("Successfully updated document version {VersionId}", versionId);
+            return _mapper.Map<DocumentDraftResponse>(versionToUpdate);
         }
-
-        // Apply metadata updates from the request DTO.
-        _mapper.Map(request, documentToUpdate);
-        _mapper.Map(request, versionToUpdate);
-
-        await ProcessTagsAsync(versionToUpdate, request.Tags, userId);
-
-        documentToUpdate.LastUpdatedBy = userId;
-        documentToUpdate.LastUpdatedTime = DateTime.UtcNow;
-
-        if (versionToUpdate.Status == StatusEnum.Rejected)
+        catch (DbUpdateConcurrencyException ex)
         {
-            versionToUpdate.Status = StatusEnum.Draft;
+            _logger.LogWarning(ex, "Concurrency conflict for versionId {VersionId}. The data was modified by another user.", versionId);
+
+            // IMPORTANT: If we get a concurrency error, we must delete the file we uploaded
+            // at the beginning, otherwise it will be an orphaned file in storage.
+            if (uploadResponse != null)
+            {
+                _logger.LogInformation("Rolling back storage upload for {BlobName} due to concurrency conflict.", uploadResponse.BlobName);
+                await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+            }
+
+            // Throw a specific, user-friendly error.
+            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "This document was updated by someone else. Please refresh and try again.");
         }
-
-        // Save changes to the database.
-        _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(versionToUpdate);
-        await _unitOfWork.CommitAsync();
-
-        _logger.LogInformation("Successfully updated document version {VersionId}", versionId);
-
-        return _mapper.Map<DocumentDraftResponse>(documentToUpdate);
     }
 
 
     public async Task<AnalyzeDocumentResponse> AnalyzeDocumentAsync(IFormFile file)
     {
         _logger.LogInformation("Starting single-prompt AI analysis for file: {FileName}", file.FileName);
+
+        var fileExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (!PolicyConstant.SupportedFileTypes.Contains(fileExtension))
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.UnsupportedFileType);
+        }
 
         var response = new AnalyzeDocumentResponse
         {
@@ -517,7 +589,7 @@ Requirements:
             .SingleOrDefaultAsync(
                 predicate: d => d.Id == documentId,
                 include: q => q.Include(d => d.DocumentVersions)
-            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentNotFound);
+            ) ?? throw new ErrorException(StatusCodes.Status404NotFound,ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
 
         _logger.LogInformation("Document found: {Title}", documentToDelete.Title);
 
@@ -526,7 +598,7 @@ Requirements:
         if (documentToDelete.OwnerId != userId)
         {
             _logger.LogWarning("User {UserId} attempted to delete a document they do not own.", userId);
-            throw new ErrorException(StatusCodes.Status403Forbidden, MessageConstant.UnauthorizedToDelete);
+            throw new ErrorException(StatusCodes.Status403Forbidden,ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToDelete);
         }
 
         _logger.LogInformation("User {UserId} is the owner of the document", userId);
@@ -600,7 +672,7 @@ Requirements:
 
         if (draft == null)
         {
-            throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DraftDocumentNotFound);
+            throw new ErrorException(StatusCodes.Status404NotFound,ErrorCode.NOT_FOUND, MessageConstant.DraftDocumentNotFound);
         }
 
         return _mapper.Map<DocumentDraftResponse>(draft);
@@ -645,7 +717,7 @@ Requirements:
 
         if (rejectedDocument == null)
         {
-            throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.RejectedDocumentNotFound);
+            throw new ErrorException(StatusCodes.Status404NotFound,ErrorCode.NOT_FOUND, MessageConstant.RejectedDocumentNotFound);
         }
 
         return _mapper.Map<DocumentDraftResponse>(rejectedDocument);
@@ -660,7 +732,7 @@ Requirements:
 
         if (officialDocument == null)
         {
-            throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.OfficialDocumentNotFoundForId);
+            throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.OfficialDocumentNotFoundForId);
         }
 
         return _mapper.Map<DocumentDraftResponse>(officialDocument);
@@ -737,7 +809,7 @@ Requirements:
         var documentToUpdate = await _unitOfWork.GetRepository<DocumentFile>().SingleOrDefaultAsync(
             predicate: d => d.Id.ToString() == documentId,
             include: i => i.Include(d => d.DocumentVersions)
-        ) ?? throw new ErrorException(StatusCodes.Status404NotFound, MessageConstant.DocumentNotFound);
+        ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
 
         // BR-037: A document can only be in the process of being replaced by one new document at a time.
         var pendingVersion = documentToUpdate.DocumentVersions.FirstOrDefault(v => v.Status == StatusEnum.Pending);
@@ -752,14 +824,14 @@ Requirements:
 
         if (documentToUpdate.OwnerId != userId)
         {
-            throw new ErrorException(StatusCodes.Status403Forbidden, MessageConstant.UnauthorizedToCreateNewVersion);
+            throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToCreateNewVersion);
         }
 
         var latestVersion = documentToUpdate.DocumentVersions.OrderByDescending(v => v.CreatedTime).FirstOrDefault();
 
         if (latestVersion.Status != StatusEnum.Approved)
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, MessageConstant.CanOnlyCreateNewVersionOfApproved);
+            throw new ErrorException(StatusCodes.Status400BadRequest,ErrorCode.BADREQUEST, MessageConstant.CanOnlyCreateNewVersionOfApproved);
         }
 
         var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);

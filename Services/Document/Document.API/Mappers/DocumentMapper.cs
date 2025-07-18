@@ -69,6 +69,9 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.LastSubmitted, opt => opt.MapFrom(src => src.LastSubmitted))
             .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.SubmittedBy));
 
+        CreateMap<UpdateDocumentDraftRequest, DocumentFile>();
+        CreateMap<UpdateDocumentDraftRequest, DocumentVersion>();
+
         CreateMap<Tag, TagResponse>();
     }
 }
