@@ -21,6 +21,11 @@ public class ApiEndPointConstant
         public const string CreateNewVersion = ApiEndpoint + "/documents/{id}/versions"; // Remains the same
         public const string AnalyzeDocument = ApiEndpoint + "/analyze-document"; // Remains the same
         public const string SemanticSearch = ApiEndpoint + "/semantic-search"; // Remains the same
+        public const string GetDrafts = ApiEndpoint + "/drafts";
+        public const string GetDraftById = ApiEndpoint + "/drafts/{id}";
+        public const string GetRejectedDocuments = ApiEndpoint + "/rejected-documents";
+        public const string GetRejectedById = ApiEndpoint + "/rejected-documents/{id}";
+        public const string GetMyDocumentDetail = ApiEndpoint + "/my-documents/{id}";
     }
 
     public class Approval
@@ -30,6 +35,7 @@ public class ApiEndPointConstant
         public const string GetApprovalQueue = ApiEndpoint + "/approval-queue/{departmentId}";
         public const string Claim = ApiEndpoint + "/claim/{id}";
         public const string ReleaseClaim = ApiEndpoint + "/release-claim/{id}";
+        public const string GetApprovalQueueDetail = ApiEndpoint + "/approval-queue/detail/{id}";
     }
 
     public class Bookmark

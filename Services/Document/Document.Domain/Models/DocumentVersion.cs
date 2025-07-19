@@ -34,5 +34,6 @@ namespace Document.Domain.Models
         public string DocumentFileId { get; set; }
         public DocumentFile DocumentFile { get; set; }
         public virtual ICollection<DocumentTag> DocumentTags { get; set; }
+        public virtual ApprovalClaim? ApprovalClaim { get; set; }
     }
 }

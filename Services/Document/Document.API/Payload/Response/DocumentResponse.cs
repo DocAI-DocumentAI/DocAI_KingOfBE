@@ -84,6 +84,7 @@ public class DocumentResponse
     /// ID of the document that replaces this one
     /// </summary>
     public string? ReplacementId { get; set; }
+    public DocumentResponse? ReplacementDocument { get; set; }
     
     /// <summary>
     /// Whether this document has been replaced

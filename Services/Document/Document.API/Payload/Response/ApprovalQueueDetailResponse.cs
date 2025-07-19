@@ -1,6 +1,6 @@
-﻿namespace Document.API.Payload.Response
+namespace Document.API.Payload.Response
 {
-    public class DocumentDraftResponse
+    public class ApprovalQueueDetailResponse
     {
         public string DocumentId { get; set; }
         public string VersionId { get; set; }
@@ -23,5 +23,7 @@
         public bool IsReplaced { get; set; }
         public DateTime? LastSubmitted { get; set; }
         public string? SubmittedBy { get; set; }
+        public string? ClaimedBy { get; set; }
+        public DateTime? ClaimedAt { get; set; }
     }
 }

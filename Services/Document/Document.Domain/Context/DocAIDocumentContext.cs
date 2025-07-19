@@ -31,6 +31,14 @@ namespace Document.Domain.Context
             modelBuilder.HasPostgresExtension("vector");
             base.OnModelCreating(modelBuilder);
 
+            modelBuilder.Entity<ApprovalClaim>()
+                .HasKey(ac => ac.DocumentVersionId);
+
+            modelBuilder.Entity<ApprovalClaim>()
+                .HasOne(ac => ac.DocumentVersion)
+                .WithOne()
+                .HasForeignKey<ApprovalClaim>(ac => ac.DocumentVersionId);
+
             //// Configure cascade delete for DocumentChunks
             //modelBuilder.Entity<DocumentFile>()
             //    .HasMany(d => d.DocumentChunks)

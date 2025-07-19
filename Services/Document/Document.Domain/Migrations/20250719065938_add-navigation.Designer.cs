@@ -3,6 +3,7 @@ using System;
 using Document.Domain.Context;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Document.Domain.Migrations
 {
     [DbContext(typeof(DocAIDocumentContext))]
-    partial class DocAIDocumentContextModelSnapshot : ModelSnapshot
+    [Migration("20250719065938_add-navigation")]
+    partial class addnavigation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -119,7 +122,7 @@ namespace Document.Domain.Migrations
 
             modelBuilder.Entity("Document.Domain.Models.ApprovalClaim", b =>
                 {
-                    b.Property<string>("DocumentVersionId")
+                    b.Property<string>("Id")
                         .HasColumnType("text");
 
                     b.Property<DateTime>("ClaimedAt")
@@ -136,6 +139,16 @@ namespace Document.Domain.Migrations
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DeletedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("DeletedTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DocumentVersionId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -145,7 +158,9 @@ namespace Document.Domain.Migrations
                     b.Property<DateTime?>("LastUpdatedTime")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("DocumentVersionId");
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentVersionId");
 
                     b.ToTable("ApprovalClaims");
                 });
@@ -216,9 +231,6 @@ namespace Document.Domain.Migrations
             modelBuilder.Entity("Document.Domain.Models.DocumentVersion", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ApprovalClaimDocumentVersionId")
                         .HasColumnType("text");
 
                     b.Property<string>("CreatedBy")
@@ -303,8 +315,6 @@ namespace Document.Domain.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ApprovalClaimDocumentVersionId");
-
                     b.HasIndex("DocumentFileId");
 
                     b.ToTable("DocumentVersions");
@@ -366,8 +376,8 @@ namespace Document.Domain.Migrations
             modelBuilder.Entity("Document.Domain.Models.ApprovalClaim", b =>
                 {
                     b.HasOne("Document.Domain.Models.DocumentVersion", "DocumentVersion")
-                        .WithOne()
-                        .HasForeignKey("Document.Domain.Models.ApprovalClaim", "DocumentVersionId")
+                        .WithMany()
+                        .HasForeignKey("DocumentVersionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -406,17 +416,11 @@ namespace Document.Domain.Migrations
 
             modelBuilder.Entity("Document.Domain.Models.DocumentVersion", b =>
                 {
-                    b.HasOne("Document.Domain.Models.ApprovalClaim", "ApprovalClaim")
-                        .WithMany()
-                        .HasForeignKey("ApprovalClaimDocumentVersionId");
-
                     b.HasOne("Document.Domain.Model.DocumentFile", "DocumentFile")
                         .WithMany("DocumentVersions")
                         .HasForeignKey("DocumentFileId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("ApprovalClaim");
 
                     b.Navigation("DocumentFile");
                 });
