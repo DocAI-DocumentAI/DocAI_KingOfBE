@@ -47,4 +47,5 @@ public class MessageConstant
     public const string DocumentAlreadyClaimed = "This document is currently being reviewed by {0}.";
     public const string ClaimNotFound = "No active claim found for this document version.";
     public const string UnauthorizedToReleaseClaim = "You are not authorized to release this claim.";
+    public const string InvalidStatusForApprovalQueue = "Invalid status for approval queue list. Only 'Pending' 'Rejected' documents can be accepted.";
 }

@@ -439,21 +439,23 @@ public class DocumentService : IDocumentService
             await _memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
 
             // 2. Engineer a single, comprehensive prompt asking for a JSON response
-            //const string comprehensivePrompt = @"
-            //    Response language based on the document language (eg. Vietnamese, English).
-            //    Analyze the document and extract the following metadata.
-            //    Respond with ONLY a single, valid JSON object and nothing else.
-            //    The JSON object must have these keys: ""title"", ""summary"", ""tags"", ""effectiveFrom"", ""effectiveUntil"", ""signedBy"".
-            //    - 'summary' should be a concise 3-4 sentence overview.
-            //    - 'tags' should be a JSON array of up to 5 relevant string keywords.
-            //    - 'effectiveFrom' and 'effectiveUntil' must be in 'yyyy-MM-dd' format if found.
-            //    - If a value for any key is not found in the document, use null as the value.
-            //";
+//            const string comprehensivePrompt = @"Analyze the document and return a single raw JSON object with the following keys:
+//- ""summary"": HTML-formatted string. Start with bold document title and number. Summarize scope and key contents. Use <ul><li> for key points.
+//Escape all quotes (\""). No markdown.
+//- ""title"": string — official document title.
+//- ""signedBy"": string — name of the signatory.
+//- ""effectiveFrom"": 'yyyy-MM-dd' (or null).
+//- ""effectiveUntil"": 'yyyy-MM-dd' (or null).
+//- ""tags"": array of up to 5 relevant keywords.
+//Requirements:
+//- Respond **only** with a valid JSON object (no extra explanation or markdown).
+//- If any value is missing, use null.
+//- Escape all double-quotes inside HTML/markdown content (e.g., `\""`).
+//";
 
             const string comprehensivePrompt = @"Analyze the document and return a single raw JSON object with the following keys:
-- ""summary"": HTML-formatted string. Start with bold document title and number. Summarize scope and key contents. Use <ul><li> for key points.
-Escape all quotes (\""). No markdown.
 - ""title"": string — official document title.
+- ""versionName"": string — document version code (eg. 80_2025_QH15_649688)(or null).
 - ""signedBy"": string — name of the signatory.
 - ""effectiveFrom"": 'yyyy-MM-dd' (or null).
 - ""effectiveUntil"": 'yyyy-MM-dd' (or null).
@@ -551,6 +553,9 @@ Requirements:
             if (root.TryGetProperty("title", out var title) && title.ValueKind == JsonValueKind.String)
                 response.Title = title.GetString();
 
+            if (root.TryGetProperty("versionName", out var versionName) && versionName.ValueKind == JsonValueKind.String)
+                response.VersionName = versionName.GetString();
+
             if (root.TryGetProperty("summary", out var summary) && summary.ValueKind == JsonValueKind.String)
                 response.Summary = summary.GetString();
 
@@ -637,22 +642,7 @@ Requirements:
     {
         var drafts = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             filter: null,
-            selector: d => new DocumentDraftResponse
-            {
-                DocumentId = d.DocumentFile.Id.ToString(),
-                VersionId = d.Id,
-                VersionName = d.VersionName,
-                Title = d.DocumentFile.Title,
-                Summary = d.Summary,
-                FileName = d.FileName,
-                FileType = d.FileType,
-                FileSize = d.FileSize,
-                FilePath = d.FilePath,
-                Status = d.Status.ToString(),
-                DepartmentId = d.DocumentFile.DepartmentId,
-                OwnerId = d.DocumentFile.OwnerId,
-                CreatedTime = d.DocumentFile.CreatedTime
-            },
+            selector: d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
             include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
@@ -660,7 +650,7 @@ Requirements:
             size: pageSize
         );
 
-        return _mapper.Map<IPaginate<DocumentDraftResponse>>(drafts);
+        return drafts;
     }
 
     public async Task<DocumentDraftResponse> GetDraftByIdAsync(string versionId, string userId)
@@ -670,34 +660,16 @@ Requirements:
             include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
-        if (draft == null)
-        {
-            throw new ErrorException(StatusCodes.Status404NotFound,ErrorCode.NOT_FOUND, MessageConstant.DraftDocumentNotFound);
-        }
-
-        return _mapper.Map<DocumentDraftResponse>(draft);
+        return draft == null
+            ? throw new ErrorException(StatusCodes.Status404NotFound,ErrorCode.NOT_FOUND, MessageConstant.DraftDocumentNotFound)
+            : _mapper.Map<DocumentDraftResponse>(draft);
     }
 
     public async Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(string userId, int pageNumber, int pageSize)
     {
         var rejectedDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             filter: null,
-            selector : d => new DocumentDraftResponse
-            {
-                DocumentId = d.DocumentFile.Id.ToString(),
-                VersionId = d.Id,
-                VersionName = d.VersionName,
-                Title = d.DocumentFile.Title,
-                Summary = d.Summary,
-                FileName = d.FileName,
-                FileType = d.FileType,
-                FileSize = d.FileSize,
-                FilePath = d.FilePath,
-                Status = d.Status.ToString(),
-                DepartmentId = d.DocumentFile.DepartmentId,
-                OwnerId = d.DocumentFile.OwnerId,
-                CreatedTime = d.DocumentFile.CreatedTime
-            },
+            selector : d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
             include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.LastUpdatedTime),
@@ -705,7 +677,7 @@ Requirements:
             size: pageSize
         );
 
-        return _mapper.Map<IPaginate<DocumentDraftResponse>>(rejectedDocuments);
+        return rejectedDocuments;
     }
 
     public async Task<DocumentDraftResponse> GetRejectedById(string versionId, string userId)
@@ -742,22 +714,7 @@ Requirements:
     {
         var officialDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             filter: null,
-            selector: d => new DocumentDraftResponse
-            {
-                DocumentId = d.DocumentFile.Id.ToString(),
-                VersionId = d.Id,
-                VersionName = d.VersionName,
-                Title = d.DocumentFile.Title,
-                Summary = d.Summary,
-                FileName = d.FileName,
-                FileType = d.FileType,
-                FileSize = d.FileSize,
-                FilePath = d.FilePath,
-                Status = d.Status.ToString(),
-                DepartmentId = d.DocumentFile.DepartmentId,
-                OwnerId = d.DocumentFile.OwnerId,
-                CreatedTime = d.DocumentFile.CreatedTime
-            },
+            selector: d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.IsOfficial,
             include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
@@ -782,6 +739,21 @@ Requirements:
         );
 
         return myDocuments;
+    }
+
+    public async Task<DocumentDraftResponse> GetMyDocumentByIdAsync(string versionId, string userId)
+    {
+        var document = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
+            predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId,
+            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+        );
+
+        if (document == null)
+        {
+            throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
+        }
+
+        return _mapper.Map<DocumentDraftResponse>(document);
     }
 
     public async Task<DocumentVersionResponse> GetDocumentVersionByVersionIdAsync(string documentId, string versionId)

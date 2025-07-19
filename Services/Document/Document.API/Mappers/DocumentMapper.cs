@@ -11,6 +11,7 @@ public class DocumentMapper : Profile
     public DocumentMapper()
     {
         CreateMap<DocumentFile, DocumentDraftResponse>()
+            .ForMember(dest => dest.DocumentId, opt => opt.MapFrom(src => src.Id.ToString()))
             .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().Id.ToString()))
             .ForMember(dest => dest.VersionName, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().VersionName))
             .ForMember(dest => dest.Status, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().Status.ToString()))
@@ -22,6 +23,7 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.CreatedTime, opt => opt.MapFrom(src => src.CreatedTime))
             .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().DocumentTags.Select(dt => dt.Tag.Name).ToList()))
             .ForMember(dest => dest.ReplacementId, opt => opt.MapFrom(src => src.ReplacementId))
+            .ForMember(dest => dest.ReplacementDocument, opt => opt.MapFrom(src => src.ReplacementDocument))
             .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.IsReplaced))
             .ForMember(dest => dest.LastSubmitted, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().LastSubmitted))
             .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().SubmittedBy));
@@ -46,6 +48,7 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.Version, opt => opt.MapFrom(src => src.VersionName))
             .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentTags.Select(dt => dt.Tag.Name).ToList()))
             .ForMember(dest => dest.ReplacementId, opt => opt.MapFrom(src => src.DocumentFile.ReplacementId))
+            .ForMember(dest => dest.ReplacementDocument, opt => opt.MapFrom(src => src.DocumentFile.ReplacementDocument))
             .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.DocumentFile.IsReplaced));
 
         CreateMap<DocumentVersion, DocumentDraftResponse>()

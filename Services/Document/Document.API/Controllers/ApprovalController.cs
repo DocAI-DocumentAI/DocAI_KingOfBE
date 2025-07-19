@@ -3,6 +3,7 @@ using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Implements;
 using Document.API.Services.Interfaces;
+using Document.Infrastructure.Filter;
 using Document.Infrastructure.Paginate;
 using Microsoft.AspNetCore.Mvc;
 
@@ -45,9 +46,9 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<IPaginate<PendingDocumentResponse>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetApprovalQueue(string departmentId, int pageNumber = 1, int pageSize = 10)
+        public async Task<IActionResult> GetApprovalQueue(string departmentId, [FromQuery] ApprovalQueueFilter filter, int pageNumber = 1, int pageSize = 10)
         {
-            var result = await _approvalService.GetApprovalQueueAsync(departmentId, pageNumber, pageSize);
+            var result = await _approvalService.GetApprovalQueueAsync(departmentId, filter, pageNumber, pageSize);
             return Ok(ApiResponse<object>.Success(result, "Approval queue retrieved successfully", 200));
         }
 
@@ -71,6 +72,16 @@ namespace Document.API.Controllers
         {
             await _approvalService.ReleaseClaimAsync(documentId, userId);
             return Ok(ApiResponse<object>.Success(null, "Document claim released successfully", 200));
+        }
+
+        [HttpGet(ApiEndPointConstant.Approval.GetApprovalQueueDetail)]
+        [ProducesResponseType(typeof(ApiResponse<PendingDocumentResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetApprovalQueueDetail([FromRoute(Name = "id")] string versionId)
+        {
+            var result = await _approvalService.GetApprovalQueueDetailAsync(versionId);
+            return Ok(ApiResponse<object>.Success(result, "Approval queue detail retrieved successfully", 200));
         }
     }
 }

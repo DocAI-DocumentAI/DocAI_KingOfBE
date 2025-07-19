@@ -94,6 +94,56 @@ public class DocumentController : ControllerBase
         return Ok(ApiResponse<object>.Success(result));
     }
 
+    [HttpGet(ApiEndPointConstant.Document.GetMyDocumentDetail)]
+    [ProducesResponseType(typeof(ApiResponse<DocumentDraftResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetMyDocumentDetail(string userId, [FromRoute(Name = "id")] string versionId)
+    {
+        var result = await _documentService.GetMyDocumentByIdAsync(versionId, userId);
+        return Ok(ApiResponse<object>.Success(result));
+    }
+
+    [HttpGet(ApiEndPointConstant.Document.GetDrafts)]
+    [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentDraftResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDrafts(string userId, int pageNumber = 1, int pageSize = 10)
+    {
+        var result = await _documentService.GetDraftsAsync(userId, pageNumber, pageSize);
+        return Ok(ApiResponse<object>.Success(result));
+    }
+
+    [HttpGet(ApiEndPointConstant.Document.GetDraftById)]
+    [ProducesResponseType(typeof(ApiResponse<DocumentDraftResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDraftById(string userId, [FromRoute(Name = "id")] string versionId)
+    {
+        var result = await _documentService.GetDraftByIdAsync(versionId, userId);
+        return Ok(ApiResponse<object>.Success(result));
+    }
+
+    [HttpGet(ApiEndPointConstant.Document.GetRejectedDocuments)]
+    [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentDraftResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetRejectedDocuments(string userId, int pageNumber = 1, int pageSize = 10)
+    {
+        var result = await _documentService.GetRejectDocumentsAsync(userId, pageNumber, pageSize);
+        return Ok(ApiResponse<object>.Success(result));
+    }
+
+    [HttpGet(ApiEndPointConstant.Document.GetRejectedById)]
+    [ProducesResponseType(typeof(ApiResponse<DocumentDraftResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetRejectedById(string userId, [FromRoute(Name = "id")] string versionId)
+    {
+        var result = await _documentService.GetRejectedById(versionId, userId);
+        return Ok(ApiResponse<object>.Success(result));
+    }
+
     [HttpPost(ApiEndPointConstant.Document.CreateNewVersion)]
     [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(ApiResponse<DocumentDraftResponse>), StatusCodes.Status201Created)]

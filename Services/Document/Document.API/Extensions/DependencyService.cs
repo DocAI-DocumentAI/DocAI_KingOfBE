@@ -33,10 +33,11 @@ public static class DependencyService
             x.AddConsumer<UserRequestMessageConsumer>(); 
             x.UsingRabbitMq((context, cfg) =>
             {
-                cfg.Host("rabbitmq://localhost", h =>
+                var rabbitMqConfig = configuration.GetSection("RabbitMQ");
+                cfg.Host(rabbitMqConfig["Host"], h =>
                 {
-                    h.Username("guest");
-                    h.Password("guest");
+                    h.Username(rabbitMqConfig["Username"]);
+                    h.Password(rabbitMqConfig["Password"]);
                 });
                 
                 cfg.ReceiveEndpoint("user-request-queue", e =>

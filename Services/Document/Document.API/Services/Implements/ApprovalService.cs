@@ -30,16 +30,15 @@ namespace Document.API.Services.Implements
             _storageService = storageService;
             _memory = kernelMemory;
         }
-        public async Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueAsync(string departmentId, int pageNumber, int pageSize)
+        public async Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueAsync(string departmentId, Document.Infrastructure.Filter.ApprovalQueueFilter filter, int pageNumber, int pageSize)
         {
-            // Get all approval from department
-            // 1. Build the IQueryable without executing it.
             var pendingDocuments = await _unitOfWork.GetRepository<DocumentVersion>()
                 .GetPagingListAsync(
                 selector: v => _mapper.Map<PendingDocumentResponse>(v),
-                filter: null,
-                predicate: v => v.Status == StatusEnum.Pending && v.DocumentFile.DepartmentId == departmentId,
-                orderBy: null,
+                filter: filter,
+                include: i => i.Include(v => v.DocumentFile),
+                predicate: v => (v.Status == StatusEnum.Pending || v.Status == StatusEnum.Rejected) && v.DocumentFile.DepartmentId == departmentId,
+                orderBy: v => v.OrderByDescending(v => v.LastSubmitted),
                 page: pageNumber,
                 size: pageSize
                 );
@@ -105,6 +104,22 @@ namespace Document.API.Services.Implements
             await _unitOfWork.CommitAsync();
 
             _logger.LogInformation("Document version {VersionId} claim released by user {UserId}", versionId, userId);
+        }
+
+        public async Task<ApprovalQueueDetailResponse> GetApprovalQueueDetailAsync(string versionId)
+        {
+            var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(
+                    predicate: v => v.Id == versionId && (v.Status == StatusEnum.Pending || v.Status == StatusEnum.Rejected),
+                    include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag).Include(v => v.ApprovalClaim)
+                );
+
+            if (documentVersion == null)
+            {
+                throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
+            }
+
+            return _mapper.Map<ApprovalQueueDetailResponse>(documentVersion);
         }
 
         public async Task ReviewDocument(string versionId, ReviewDocumentRequest request, string userId)
