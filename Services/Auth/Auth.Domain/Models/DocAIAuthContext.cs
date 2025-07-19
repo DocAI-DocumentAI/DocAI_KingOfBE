@@ -13,7 +13,7 @@ namespace Auth.Domain.Models
         public DbSet<Role> Roles { get; set; }
         public DbSet<Department> Departments { get; set; }
         public DbSet<Permission> Permissions { get; set; }
-        public DbSet<RolePermission> RolePermissions { get; set; }
+        public DbSet<UserPermission> UserPermissions { get; set; }
         public DbSet<UserSetting> UserSettings { get; set; }
 
 

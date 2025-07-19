@@ -114,12 +114,12 @@ public class PermissionService : BaseService<PermissionService>, IPermissionServ
         );
         if (permission == null)
             throw new BadHttpRequestException(MessageConstant.Permission.PermissionNotFonnd);
-        var rolePermission = await _unitOfWork.GetRepository<RolePermission>().SingleOrDefaultAsync(
+        var userPermission = await _unitOfWork.GetRepository<UserPermission>().SingleOrDefaultAsync(
             predicate: ur => ur.PermissionId == permissionId
         );
-        if (rolePermission != null)
+        if (userPermission != null)
         {
-            _unitOfWork.GetRepository<RolePermission>().DeleteAsync(rolePermission);
+            _unitOfWork.GetRepository<UserPermission>().DeleteAsync(userPermission);
         }
         _unitOfWork.GetRepository<Permission>().DeleteAsync(permission);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;

@@ -73,7 +73,9 @@ public static class DependencyService
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IDepartmentService, DepartmentService>();
         services.AddScoped<IRoleService, RoleService>();
+        services.AddScoped<IUserPermissionService, UserPermissionService>();
         services.AddScoped<Services.Interface.IAuthorizationService, Services.Implement.AuthorizationService>();
+
         // services.AddSingleton<IPublishEndpoint, MockPublishEndpoint>();
 
         // Bỏ comment phần MassTransit

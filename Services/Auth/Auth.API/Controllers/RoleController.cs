@@ -90,26 +90,26 @@ public class RoleController : ControllerBase
         return Ok(response);
     }
 
-    [HttpPost(ApiEndPointConstant.Role.AddPermissionToRole)]
-    [CustomAuthorize(Roles = new[] { Roles.Admin })]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status200OK)]
-    public async Task<IActionResult> AddPermissionToRoleAsync(Guid roleId, Guid permissionId)
-    {
-        try
-        {
-            var response = await _roleService.AddPermissionToRoleAsync(roleId, permissionId);
-            _logger.LogInformation($"Added permission {permissionId} to role {roleId}");
-            return Ok(response);
-        }
-        catch (BadHttpRequestException ex)
-        {
-            _logger.LogError($"Failed to add permission to role: {ex.Message}");
-            return BadRequest(ex.Message);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError($"Error adding permission to role: {ex.Message}");
-            return Problem(ex.Message);
-        }
-    }
+    // [HttpPost(ApiEndPointConstant.Role.AddPermissionToRole)]
+    // [CustomAuthorize(Roles = new[] { Roles.Admin })]
+    // [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status200OK)]
+    // public async Task<IActionResult> AddPermissionToRoleAsync(Guid roleId, Guid permissionId)
+    // {
+    //     try
+    //     {
+    //         var response = await _roleService.AddPermissionToRoleAsync(roleId, permissionId);
+    //         _logger.LogInformation($"Added permission {permissionId} to role {roleId}");
+    //         return Ok(response);
+    //     }
+    //     catch (BadHttpRequestException ex)
+    //     {
+    //         _logger.LogError($"Failed to add permission to role: {ex.Message}");
+    //         return BadRequest(ex.Message);
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         _logger.LogError($"Error adding permission to role: {ex.Message}");
+    //         return Problem(ex.Message);
+    //     }
+    // }
 }

@@ -34,9 +34,9 @@ public class JwtUtil
         var secretKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
         var credentials = new SigningCredentials(secretKey, SecurityAlgorithms.HmacSha256);
 
-        // Lấy danh sách permissions từ user.Role.RolePermissions
-        var permissions = user.Role.RolePermissions
-            .Select(rp => rp.Permission.Name)
+        // Lấy danh sách permissions từ user.UserPermissions
+        var permissions = user.UserPermissions
+            .Select(up => up.Permission.Name)
             .ToList();
 
         // Chuyển danh sách permissions thành chuỗi phân cách bởi dấu phẩy

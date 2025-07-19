@@ -12,5 +12,4 @@ public class Role
     public string Description { get; set; }
     public DateTime CreateAt { get; set; }
     public DateTime UpdateAt { get; set; }
-    public virtual ICollection<RolePermission>? RolePermissions { get; set; }
 }

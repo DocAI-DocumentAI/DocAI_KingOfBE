@@ -19,6 +19,13 @@ public class ApiEndPointConstant
         public const string Users = "users";
     }
 
+    public static class UserPermission
+    {
+        public const string UserPermissions = "user-permissions";
+        public const string AddPermissionToUser = "add-permission-to-user";
+        public const string RemovePermissionFromUser = "remove-permission-from-user";
+    }
+
     public class Role
     {
         public const string Roles = "roles";

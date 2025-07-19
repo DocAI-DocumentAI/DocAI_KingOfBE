@@ -28,6 +28,7 @@ using Auth.API.Payload.Response.UserSetting;
 using Auth.Infrastructure.Paginate;
 using Auth.Infrastructure.Filter;
 using System.IdentityModel.Tokens.Jwt;
+using Auth.API.Payload.Response.Permission;
 
 namespace Auth.API.Services.Interface;
 
@@ -94,6 +95,14 @@ public class UserService : BaseService<UserService>, IUserService
                 NotificationsEnabled = userSetting.NotificationsEnabled,
                 UpdateAt = userSetting.UpdateAt
             } : null,
+            Permissions = user.UserPermissions?.Select(up => new PermissionResponse
+            {
+                Id = up.Permission.Id,
+                Name = up.Permission.Name,
+                Description = up.Permission.Description,
+                CreateAt = up.Permission.CreateAt,
+                UpdateAt = up.Permission.UpdateAt
+            }).ToList() ?? new List<PermissionResponse>(),
             Token = JwtUtil.GenerateJwtToken(user, _configuration),
             RefreshToken = JwtUtil.GenerateRefreshToken()
         };
@@ -128,8 +137,10 @@ public class UserService : BaseService<UserService>, IUserService
     {
         var userDetail = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
             predicate: u => u.Email == email,
-            include: u => u.Include(u => u.Role).ThenInclude(rp => rp.RolePermissions).ThenInclude(p => p.Permission)
+            include: u => u.Include(u => u.Role)
             .Include(u => u.Department)
+            .Include(u => u.UserPermissions)
+            .ThenInclude(up => up.Permission)
             );
         return userDetail;
     }
@@ -656,9 +667,10 @@ public class UserService : BaseService<UserService>, IUserService
                 var updatedUser = await _unitOfWork.GetRepository<User>()
                     .SingleOrDefaultAsync(predicate: u => u.Id == request.UserId,
                                          include: u => u.Include(u => u.Role)
-                                                      .ThenInclude(r => r.RolePermissions!)
-                                                      .ThenInclude(rp => rp.Permission)
-                                                      .Include(u => u.Department));
+                                                      .Include(u => u.Department)
+                                                      .Include(u => u.UserPermissions)
+                                                      .ThenInclude(up => up.Permission)
+                                        );
 
                 // Tạo response
                 var response = new ChangeDepartmentResponse

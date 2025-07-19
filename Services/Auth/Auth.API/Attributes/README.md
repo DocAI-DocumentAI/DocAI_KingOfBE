@@ -9,12 +9,15 @@ Hệ thống authorization tùy chỉnh cho phép kiểm tra Role, Department v�
 ```csharp
 // Chỉ Admin
 [CustomAuthorize(Roles = new[] { "Admin" })]
+public IActionResult AdminOnly() { }
 
 // Admin hoặc Manager
 [CustomAuthorize(Roles = new[] { "Admin", "Manager" })]
+public IActionResult AdminOrManager() { }
 
 // Sử dụng constants
 [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
+public IActionResult UsingConstants() { }
 ```
 
 ### 2. Kiểm tra Department
@@ -22,24 +25,36 @@ Hệ thống authorization tùy chỉnh cho phép kiểm tra Role, Department v�
 ```csharp
 // Chỉ phòng nhân sự
 [CustomAuthorize(Departments = new[] { "Phòng nhân sự" })]
+public IActionResult HROnly() { }
 
 // Phòng nhân sự hoặc Company
 [CustomAuthorize(Departments = new[] { Departments.PhongNhanSu, Departments.Company })]
+public IActionResult HROrCompany() { }
 ```
 
-### 3. Kiểm tra Permission
+### 3. Kiểm tra Permission (User-based)
 
 ```csharp
 // Chỉ có permission VIEW_ANY_DOCUMENT
 [CustomAuthorize(Permissions = new[] { "VIEW_ANY_DOCUMENT" })]
+public IActionResult ViewAnyDocument() { }
 
 // Có một trong các permissions
 [CustomAuthorize(Permissions = new[] { Permissions.ViewAnyDocument, Permissions.ManageUsers })]
+public IActionResult ViewOrManage() { }
+
+// Kiểm tra nhiều permissions (OR logic)
+[CustomAuthorize(Permissions = new[] {
+    Permissions.CreateDocument,
+    Permissions.EditDocument
+})]
+public IActionResult CreateOrEdit() { }
 ```
 
 ### 4. Kết hợp nhiều điều kiện
 
 #### Logic OR (mặc định)
+
 ```csharp
 // Admin HOẶC có permission VIEW_ANY_DOCUMENT HOẶC thuộc HR
 [CustomAuthorize(
@@ -48,9 +63,11 @@ Hệ thống authorization tùy chỉnh cho phép kiểm tra Role, Department v�
     Permissions = new[] { Permissions.ViewAnyDocument },
     RequireAll = false // mặc định
 )]
+public IActionResult AdminOrHROrViewPermission() { }
 ```
 
 #### Logic AND
+
 ```csharp
 // Admin VÀ thuộc Company VÀ có permission MANAGE_USERS
 [CustomAuthorize(
@@ -59,96 +76,16 @@ Hệ thống authorization tùy chỉnh cho phép kiểm tra Role, Department v�
     Permissions = new[] { Permissions.ManageUsers },
     RequireAll = true
 )]
+public IActionResult AdminAndCompanyAndManageUsers() { }
 ```
 
-## Sử dụng IAuthorizationService trong code
+## Ví dụ thực tế trong Controller
 
-### Inject service
-```csharp
-private readonly IAuthorizationService _authorizationService;
-
-public MyController(IAuthorizationService authorizationService)
-{
-    _authorizationService = authorizationService;
-}
-```
-
-### Kiểm tra quyền trong code
-```csharp
-// Kiểm tra role
-if (_authorizationService.HasRole("Admin"))
-{
-    // Logic cho Admin
-}
-
-// Kiểm tra department
-if (_authorizationService.IsInDepartment("Phòng nhân sự"))
-{
-    // Logic cho HR
-}
-
-// Kiểm tra permission
-if (_authorizationService.HasPermission("VIEW_ANY_DOCUMENT"))
-{
-    // Logic cho user có permission
-}
-
-// Kiểm tra phức tạp
-bool hasAccess = _authorizationService.CheckAuthorization(
-    roles: new[] { "Admin", "Manager" },
-    departments: new[] { "Company" },
-    permissions: new[] { "MANAGE_USERS" },
-    requireAll: false // OR logic
-);
-```
-
-### Lấy thông tin user hiện tại
-```csharp
-var userId = _authorizationService.GetCurrentUserId();
-var role = _authorizationService.GetCurrentUserRole();
-var department = _authorizationService.GetCurrentUserDepartment();
-var permissions = _authorizationService.GetCurrentUserPermissions();
-```
-
-## Constants có sẵn
-
-### Roles
-- `Roles.Admin`
-- `Roles.Manager`
-- `Roles.Editor`
-- `Roles.Member`
-
-### Departments
-- `Departments.Company`
-- `Departments.PhongNhanSu`
-- `Departments.DepartmentA`
-- `Departments.DepartmentB`
-
-### Permissions
-- `Permissions.ViewAnyDocument`
-- `Permissions.ViewOwnDepartmentDocument`
-- `Permissions.CreateDocument`
-- `Permissions.EditDocument`
-- `Permissions.DeleteDocument`
-- `Permissions.ManageUsers`
-- `Permissions.ManageRoles`
-- `Permissions.ManageDepartments`
-
-## Ví dụ thực tế
-
-### Controller với nhiều endpoints khác nhau
 ```csharp
 [ApiController]
 [Route("api/[controller]")]
 public class DocumentController : ControllerBase
 {
-    private readonly IAuthorizationService _authorizationService;
-
-    public DocumentController(IAuthorizationService authorizationService)
-    {
-        _authorizationService = authorizationService;
-    }
-
     // Chỉ Admin mới xem được tất cả documents
     [HttpGet("all")]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
@@ -168,44 +105,123 @@ public class DocumentController : ControllerBase
         return Ok("View any document");
     }
 
-    // Kiểm tra quyền trong code
+    // Chỉ user có permission CREATE_DOCUMENT
+    [HttpPost]
+    [CustomAuthorize(Permissions = new[] { Permissions.CreateDocument })]
+    public IActionResult CreateDocument()
+    {
+        return Ok("Document created");
+    }
+
+    // Cần có cả CREATE và EDIT permissions
+    [HttpPut("{id}")]
+    [CustomAuthorize(
+        Permissions = new[] { Permissions.CreateDocument, Permissions.EditDocument },
+        RequireAll = true
+    )]
+    public IActionResult UpdateDocument(Guid id)
+    {
+        return Ok($"Document {id} updated");
+    }
+
+    // Manager của HR hoặc Company
+    [HttpDelete("{id}")]
+    [CustomAuthorize(
+        Roles = new[] { Roles.Manager },
+        Departments = new[] { Departments.PhongNhanSu, Departments.Company },
+        RequireAll = true
+    )]
+    public IActionResult DeleteDocument(Guid id)
+    {
+        return Ok($"Document {id} deleted");
+    }
+
+    // Chỉ cần authenticated (không kiểm tra gì thêm)
     [HttpGet("my-documents")]
-    [CustomAuthorize] // Chỉ cần authenticated
+    [CustomAuthorize]
     public IActionResult GetMyDocuments()
     {
-        if (_authorizationService.HasPermission(Permissions.ViewAnyDocument))
-        {
-            // Trả về tất cả documents
-            return Ok("All documents");
-        }
-        
-        if (_authorizationService.HasPermission(Permissions.ViewOwnDepartmentDocument))
-        {
-            // Trả về documents của department
-            var department = _authorizationService.GetCurrentUserDepartment();
-            return Ok($"Documents of {department}");
-        }
-
-        // Trả về documents của user
-        var userId = _authorizationService.GetCurrentUserId();
-        return Ok($"Documents of user {userId}");
+        return Ok("My documents");
     }
 }
 ```
 
+## Ví dụ User Management
+
+```csharp
+[ApiController]
+[Route("api/[controller]")]
+public class UserController : ControllerBase
+{
+    // Chỉ Admin mới được tạo user
+    [HttpPost]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
+    public IActionResult CreateUser() { }
+
+    // Admin hoặc Manager mới được xem danh sách user
+    [HttpGet]
+    [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
+    public IActionResult GetUsers() { }
+
+    // Cần có permission MANAGE_USERS
+    [HttpPut("{id}")]
+    [CustomAuthorize(Permissions = new[] { Permissions.ManageUsers })]
+    public IActionResult UpdateUser(Guid id) { }
+
+    // Admin VÀ có permission MANAGE_USERS
+    [HttpDelete("{id}")]
+    [CustomAuthorize(
+        Roles = new[] { Roles.Admin },
+        Permissions = new[] { Permissions.ManageUsers },
+        RequireAll = true
+    )]
+    public IActionResult DeleteUser(Guid id) { }
+}
+```
+
+## Constants có sẵn
+
+### Roles
+
+- `Roles.Admin`
+- `Roles.Manager`
+- `Roles.Editor`
+- `Roles.Member`
+
+### Departments
+
+- `Departments.Company`
+- `Departments.PhongNhanSu`
+- `Departments.DepartmentA`
+- `Departments.DepartmentB`
+
+### Permissions
+
+- `Permissions.ViewAnyDocument`
+- `Permissions.ViewOwnDepartmentDocument`
+- `Permissions.CreateDocument`
+- `Permissions.EditDocument`
+- `Permissions.DeleteDocument`
+- `Permissions.ManageUsers`
+- `Permissions.ManageRoles`
+- `Permissions.ManageDepartments`
+
 ## Lưu ý
 
-1. **JWT Token phải chứa các claims cần thiết:**
-   - `ClaimTypes.Role` cho role
-   - `"departmentName"` cho department
-   - `"permissions"` cho permissions (phân cách bởi dấu phẩy)
+1. **Logic OR vs AND:**
 
-2. **Logic OR vs AND:**
    - `RequireAll = false` (mặc định): Chỉ cần thỏa mãn một điều kiện
    - `RequireAll = true`: Phải thỏa mãn tất cả điều kiện
 
-3. **Performance:** Attribute được kiểm tra trước khi vào method, AuthorizationService được sử dụng trong method.
+2. **Error Handling:**
 
-4. **Error Handling:** 
    - Chưa authenticated: 401 Unauthorized
    - Không đủ quyền: 403 Forbidden
+
+3. **Permissions từ UserPermissions:**
+   - Permissions được gán trực tiếp cho từng user
+   - Được lưu trong JWT token và kiểm tra qua claims
+
+```
+
+```

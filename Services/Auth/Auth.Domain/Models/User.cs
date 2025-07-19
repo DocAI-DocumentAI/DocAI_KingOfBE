@@ -22,4 +22,5 @@ public class User
     public virtual Department Department { get; set; }
     public DateTime CreatAt { get; set; }
     public DateTime UpdateAt { get; set; }
+    public virtual ICollection<UserPermission>? UserPermissions { get; set; }
 }
