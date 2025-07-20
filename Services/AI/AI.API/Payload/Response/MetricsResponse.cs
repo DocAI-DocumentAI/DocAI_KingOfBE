@@ -22,6 +22,8 @@
         public Dictionary<int, int> HourlyDistribution { get; set; }
         public DateTime FromDate { get; set; }
         public DateTime ToDate { get; set; }
+        public Dictionary<string, object> Metadata { get; set; }
+
     }
     public class ModelMetrics
     {
@@ -30,5 +32,6 @@
         public double AverageResponseTimeMs { get; set; }
         public int SuccessCount { get; set; }
         public int FailureCount { get; set; }
+        public double SuccessRate {  get; set; }
     }
 }

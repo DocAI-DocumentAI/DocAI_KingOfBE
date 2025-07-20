@@ -16,8 +16,5 @@ namespace AI.API.Payload.Request
 
         public Dictionary<string, string> Variables { get; set; }
     }
-    public class UpdatePromptTemplateRequest : CreatePromptTemplateRequest
-    {
-        public bool IsActive { get; set; } = true;
-    }
+
 }

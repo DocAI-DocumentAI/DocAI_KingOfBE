@@ -17,6 +17,8 @@ namespace AI.Domain.Models
         public double Temperature { get; set; }
         public double TopP { get; set; }
         public bool IsActive { get; set; }
+        public int ModelProviderId { get; set; }
+        public ModelProvider ModelProvider { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
     }

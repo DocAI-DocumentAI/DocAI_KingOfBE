@@ -22,5 +22,7 @@
         public bool Success { get; set; }
         public float[] Embedding { get; set; }
         public int Dimensions { get; set; }
+        public string ErrorMessage { get; set; }
 
     }
+}

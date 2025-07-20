@@ -141,7 +141,97 @@ namespace AI.Domain.Models
                Id = 2,
                Name = "SimpleChat",
                Template = @"You are a helpful AI assistant.{system_prompt} User: {message}"
-           }); 
+           });
+            modelBuilder.Entity<PromptTemplate>().HasData(
+      new PromptTemplate
+      {
+          Id = 1,
+          Name = "DefaultRAG",
+          Template = @"You are a helpful AI assistant specialized in searching internal documents.
+
+Instructions:
+- Answer based ONLY on the provided documents
+- Consider document versions and effective dates when providing information
+- If a document has expired (past effective_until date), mention this in your response
+- Always cite the document ID and version when referencing information
+- For department-specific documents, ensure the user has appropriate access
+- Be accurate and concise
+- Respond in the same language as the question
+
+Context Documents:
+{documents}
+
+Question: {question}
+
+Answer:",
+          Category = "RAG",
+          IsActive = true,
+          Variables = "{\"documents\":\"\",\"question\":\"\"}",
+          CreatedAt = DateTime.UtcNow,
+          UpdatedAt = DateTime.UtcNow
+      },
+      new PromptTemplate
+      {
+          Id = 3,
+          Name = "DocumentSearch",
+          Template = @"You are searching through organizational documents with the following structure:
+- Document Types: Each document belongs to a specific type (e.g., {type_names})
+- Versions: Documents may have multiple versions with different effective dates
+- Departments: Documents may be department-specific or public
+
+Search Context:
+{documents}
+
+User Query: {question}
+User Department: {user_department}
+
+Please provide relevant information considering:
+1. Document version effectiveness (check effective_from and effective_until dates)
+2. User's department access
+3. Most recent version if multiple exist
+
+Answer:",
+          Category = "DocumentSearch",
+          IsActive = true,
+          Variables = "{\"documents\":\"\",\"question\":\"\",\"type_names\":\"\",\"user_department\":\"\"}",
+          CreatedAt = DateTime.UtcNow,
+          UpdatedAt = DateTime.UtcNow
+      }
+  );
+
+            // Add document-specific configurations
+            modelBuilder.Entity<SystemConfiguration>().HasData(
+                new SystemConfiguration
+                {
+                    Id = 10,
+                    Key = "AI:Document:MaxVersionsPerDocument",
+                    Value = "3",
+                    Category = "Document",
+                    Description = "Maximum number of document versions to include in context",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                },
+                new SystemConfiguration
+                {
+                    Id = 11,
+                    Key = "AI:Document:IncludeExpiredDocuments",
+                    Value = "false",
+                    Category = "Document",
+                    Description = "Whether to include expired documents in search results",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                },
+                new SystemConfiguration
+                {
+                    Id = 12,
+                    Key = "AI:Document:PrioritizeRecentVersions",
+                    Value = "true",
+                    Category = "Document",
+                    Description = "Whether to prioritize recent document versions in results",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            );
         }
     }
 }

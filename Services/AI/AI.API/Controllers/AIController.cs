@@ -1,150 +1,236 @@
-﻿using System.Text;
+﻿using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
+using AI.API.Atributte;
 using AI.API.Constants;
 using AI.API.Payload.Request;
 using AI.API.Payload.Response;
 using AI.API.Services.Interface;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.KernelMemory.AI;
 
 namespace AI.API.Controllers
 {
-    [ApiController]
-    [Route(ApiEndPointConstant.ApiEndpoint)]
+    [Authorize]
     //[Authorize] 
-    public class AIController : ControllerBase
+    public class AIController : BaseApiController
     {
         private readonly IAIService _aiService;
         private readonly ILogger<AIController> _logger;
-        public AIController(IAIService aiService, ILogger<AIController> logger)
+
+        public AIController(
+            IAIService aiService,
+            ILogger<AIController> logger)
         {
-            _aiService = aiService;
-            _logger = logger;
+            _aiService = aiService ?? throw new ArgumentNullException(nameof(aiService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        [HttpPost("generate")] // Endpoint cho Chat Completion
-        [ProducesResponseType(typeof(AIResponse), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(IAsyncEnumerable<string>), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<AIResponse>> GenerateAnswer([FromBody] AIRequest request)
+
+        /// <summary>
+        /// Generate AI response based on documents and question
+        /// </summary>
+        [HttpPost("generate")]
+        [RateLimit("ai-generation", limit: 20, windowSeconds: 60)]
+        [ProducesResponseType(typeof(AIResponse), 200)]
+        [ProducesResponseType(typeof(object), 400)]
+        [ProducesResponseType(typeof(object), 429)]
+        [ProducesResponseType(typeof(object), 500)]
+        public async Task<IActionResult> GenerateAnswer([FromBody][Required] AIRequest request)
         {
-            if (string.IsNullOrEmpty(request.Question))
+            try
             {
-                return BadRequest("Question is required");
-            }
+                // Add user context
+                var userId = User.Identity?.Name ?? HttpContext.Connection.RemoteIpAddress?.ToString();
+                request.UserId = userId;
 
-            if (request.StreamResponse)
+                // Add request metadata
+                request.Metadata ??= new Dictionary<string, object>();
+                request.Metadata["requestTime"] = DateTime.UtcNow;
+                request.Metadata["userAgent"] = Request.Headers["User-Agent"].ToString();
+
+                var response = await _aiService.GenerateAnswerAsync(request);
+
+                if (!response.Success)
+                {
+                    _logger.LogWarning("AI generation failed for user {UserId}: {Message}",
+                        userId, response.Message);
+                    return StatusCode(500, response);
+                }
+
+                return Ok(response);
+            }
+            catch (ArgumentException ex)
             {
-                return BadRequest("Use /stream-answer endpoint for streaming responses");
+                return HandleBadRequest(ex.Message);
             }
-
-            var result = await _aiService.GenerateAnswerAsync(request);
-
-            if (!result.Success)
+            catch (Exception ex)
             {
-                return StatusCode(500, result);
+                _logger.LogError(ex, "Error generating AI response");
+                return HandleError(ex, "Failed to generate AI response");
             }
-
-            return Ok(result);
         }
 
-        [HttpPost("stream-answer")] 
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task StreamAnswer([FromBody] AIRequest request)
+        /// <summary>
+        /// Stream AI response in real-time
+        /// </summary>
+        [HttpPost("generate/stream")]
+        [RateLimit("ai-stream", limit: 10, windowSeconds: 60)]
+        [Produces("text/event-stream")]
+        public async Task StreamGenerateAnswer([FromBody][Required] AIRequest request)
         {
-            if (string.IsNullOrEmpty(request.Question))
-            {
-                Response.StatusCode = 400;
-                await Response.WriteAsync("Question is required");
-                return;
-            }
-
-            Response.Headers.Add("Content-Type", "text/event-stream");
+            Response.ContentType = "text/event-stream";
             Response.Headers.Add("Cache-Control", "no-cache");
             Response.Headers.Add("Connection", "keep-alive");
+            Response.Headers.Add("X-Accel-Buffering", "no"); // Disable nginx buffering
 
             try
             {
+                // Add user context
+                var userId = User.Identity?.Name ?? HttpContext.Connection.RemoteIpAddress?.ToString();
+                request.UserId = userId;
+
+                await Response.WriteAsync($"event: start\ndata: {{\"message\":\"Starting generation\"}}\n\n");
+                await Response.Body.FlushAsync();
+
+                var chunkCount = 0;
                 await foreach (var chunk in _aiService.StreamGenerateAnswerAsync(request, HttpContext.RequestAborted))
                 {
-                    var data = $"data: {JsonSerializer.Serialize(new { text = chunk })}\n\n";
-                    await Response.WriteAsync(data);
+                    chunkCount++;
+
+                    // Send chunk
+                    var eventData = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        content = chunk.Content,
+                        isComplete = chunk.IsComplete,
+                        tokenCount = chunk.TokenCount,
+                        chunkIndex = chunkCount
+                    });
+
+                    await Response.WriteAsync($"event: chunk\ndata: {eventData}\n\n");
                     await Response.Body.FlushAsync();
+
+                    // Send heartbeat every 10 chunks
+                    if (chunkCount % 10 == 0)
+                    {
+                        await Response.WriteAsync($"event: heartbeat\ndata: {{\"chunks\":{chunkCount}}}\n\n");
+                        await Response.Body.FlushAsync();
+                    }
                 }
 
-                await Response.WriteAsync("data: [DONE]\n\n");
+                await Response.WriteAsync($"event: complete\ndata: {{\"totalChunks\":{chunkCount}}}\n\n");
+                await Response.Body.FlushAsync();
             }
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Stream generation cancelled by client");
+                await Response.WriteAsync("event: cancelled\ndata: {\"message\":\"Stream cancelled\"}\n\n");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in stream generation");
-                await Response.WriteAsync($"data: {JsonSerializer.Serialize(new { error = ex.Message })}\n\n");
+                await Response.WriteAsync($"event: error\ndata: {{\"error\":\"{ex.Message}\"}}\n\n");
             }
         }
 
-        [HttpPost("embeddings")] // Endpoint cho Embedding Generation
-        [ProducesResponseType(typeof(EmbeddingResponse), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<EmbeddingResponse>> GenerateEmbedding([FromBody] EmbeddingRequest request)
+
+        /// <summary>
+        /// Generate embedding for a document
+        /// </summary>
+        [HttpPost("embeddings")]
+        [RateLimit("embeddings", limit: 50, windowSeconds: 60)]
+        [ProducesResponseType(typeof(EmbeddingResponse), 200)]
+        [ProducesResponseType(typeof(object), 400)]
+        [ProducesResponseType(typeof(object), 500)]
+        public async Task<IActionResult> GenerateEmbedding([FromBody][Required] EmbeddingRequest request)
         {
-            if (string.IsNullOrEmpty(request.Content))
+            try
             {
-                return BadRequest("Content is required");
-            }
+                var response = await _aiService.GenerateEmbeddingAsync(request);
 
-            if (string.IsNullOrEmpty(request.DocumentId))
+                if (!response.Success)
+                {
+                    return StatusCode(500, response);
+                }
+
+                return Ok(response);
+            }
+            catch (ArgumentException ex)
             {
-                return BadRequest("DocumentId is required");
+                return HandleBadRequest(ex.Message);
             }
-
-            var result = await _aiService.GenerateEmbeddingAsync(request);
-
-            if (!result.Success)
+            catch (Exception ex)
             {
-                return StatusCode(500, result);
+                _logger.LogError(ex, "Error generating embedding");
+                return HandleError(ex, "Failed to generate embedding");
             }
-
-            return Ok(result);
-        }
-        [HttpPost("generate-embeddings-batch")]
-        [ProducesResponseType(typeof(EmbeddingResponse), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<BatchEmbeddingResponse>> GenerateEmbeddingsBatch([FromBody] BatchEmbeddingRequest request)
-        {
-            if (request.Documents == null || !request.Documents.Any())
-            {
-                return BadRequest("Documents array is required");
-            }
-
-            // Validate all documents have required fields
-            var invalidDocs = request.Documents.Where(d => string.IsNullOrEmpty(d.Content) || string.IsNullOrEmpty(d.DocumentId)).ToList();
-            if (invalidDocs.Any())
-            {
-                return BadRequest($"All documents must have Content and DocumentId. Invalid documents: {string.Join(", ", invalidDocs.Select(d => d.DocumentId))}");
-            }
-
-            var result = await _aiService.GenerateEmbeddingsBatchAsync(request);
-            return Ok(result);
         }
 
-        [HttpGet("health")]
-        public IActionResult Health()
+        /// <summary>
+        /// Generate embeddings for multiple documents
+        /// </summary>
+        [HttpPost("embeddings/batch")]
+        [RateLimit("embeddings-batch", limit: 10, windowSeconds: 60)]
+        [ProducesResponseType(typeof(BatchEmbeddingResponse), 200)]
+        [ProducesResponseType(typeof(object), 400)]
+        [ProducesResponseType(typeof(object), 500)]
+        public async Task<IActionResult> GenerateEmbeddingsBatch([FromBody][Required] BatchEmbeddingRequest request)
         {
-            return Ok(new
+            try
             {
-                status = "healthy",
-                timestamp = DateTime.UtcNow,
-                service = "AI Microservice"
-            });
+                if (request.Documents?.Any() != true)
+                {
+                    return HandleBadRequest("At least one document is required");
+                }
+
+                var response = await _aiService.GenerateEmbeddingsBatchAsync(request, HttpContext.RequestAborted);
+                return Ok(response);
+            }
+            catch (ArgumentException ex)
+            {
+                return HandleBadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating batch embeddings");
+                return HandleError(ex, "Failed to generate batch embeddings");
+            }
+        }
+        /// <summary>
+        /// Validate if a model is available
+        /// </summary>
+        [HttpGet("models/{modelType}/validate")]
+        [ProducesResponseType(typeof(object), 200)]
+        [ProducesResponseType(typeof(object), 404)]
+        public async Task<IActionResult> ValidateModel(string modelType)
+        {
+            try
+            {
+                var isAvailable = await _aiService.ValidateModelAvailabilityAsync(modelType);
+
+                if (!isAvailable)
+                {
+                    return NotFound(new
+                    {
+                        success = false,
+                        message = $"Model type '{modelType}' is not available",
+                        modelType
+                    });
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    message = $"Model type '{modelType}' is available",
+                    modelType,
+                    validated = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error validating model {ModelType}", modelType);
+                return HandleError(ex, $"Failed to validate model {modelType}");
+            }
         }
     }
 }
+

@@ -30,5 +30,7 @@
         public string BaseUrl { get; set; }
         public bool IsActive { get; set; }
         public List<ModelConfigurationResponse> Models { get; set; }
+        public Dictionary<string, object> Metadata { get; set; }
+
     }
 }

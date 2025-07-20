@@ -20,6 +20,7 @@
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.5" />
+		<PackageReference Include="Microsoft.Extensions.Http.Polly" Version="9.0.7" />
 		<PackageReference Include="Microsoft.SemanticKernel" Version="1.60.0" />
 		<PackageReference Include="Microsoft.SemanticKernel.Abstractions" Version="1.60.0" />
 		<PackageReference Include="Microsoft.SemanticKernel.Connectors.HuggingFace" Version="1.60.0-preview" />
@@ -32,6 +33,7 @@
 		<PackageReference Include="Microsoft.KernelMemory.Core" Version="0.98.250508.3" />
 		<PackageReference Include="Npgsql" Version="9.0.3" />
 		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+		<PackageReference Include="Polly.Extensions.Http" Version="3.0.0" />
 
 		<PackageReference Include="Scalar.AspNetCore" Version="2.2.1" />
 		<PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
@@ -51,9 +53,6 @@
 
 	<ItemGroup>
 		<Folder Include="logs\" />
-		<Folder Include="Mappers\" />
-		<Folder Include="Middlewares\" />
-		<Folder Include="Validators\" />
 		<Folder Include="Utils\" />
 	</ItemGroup>
 
