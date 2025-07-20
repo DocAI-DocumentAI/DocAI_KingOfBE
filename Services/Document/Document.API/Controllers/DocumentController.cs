@@ -160,9 +160,19 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> SemanticSearch([FromQuery] SemanticSearchRequest request, [FromQuery] DocumentFilter filter, string userId, int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> SemanticSearch([FromQuery] SemanticSearchRequest request, [FromQuery] SemanticSearchFilter filter, string userId, int pageNumber = 1, int pageSize = 10)
     {
-        var result = await _documentService.SemanticSearch(request, filter, userId, pageNumber, pageSize);
+        var result = await _documentService.SemanticSearch(request,filter, userId, pageNumber, pageSize);
+        return Ok(ApiResponse<object>.Success(result));
+    }
+
+    [HttpGet(ApiEndPointConstant.Document.FullTextSearch)]
+    [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> FullTextSearch([FromQuery] FullTextSearchFilter filter, int pageNumber = 1, int pageSize = 10)
+    {
+        var result = await _documentService.FullTextSearch(filter, pageNumber, pageSize);
         return Ok(ApiResponse<object>.Success(result));
     }
 }
