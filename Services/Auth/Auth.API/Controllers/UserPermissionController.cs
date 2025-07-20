@@ -35,7 +35,6 @@ public class UserPermissionController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.UserPermission.UserPermissions)]
-    [Authorize]
     public async Task<IActionResult> GetUserPermissions(Guid userId)
     {
         var result = await _userPermissionService.GetUserPermissionsAsync(userId);
