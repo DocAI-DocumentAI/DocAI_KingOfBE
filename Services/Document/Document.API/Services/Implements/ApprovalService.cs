@@ -127,7 +127,7 @@ namespace Document.API.Services.Implements
             var versionToReview = await _unitOfWork.GetRepository<DocumentVersion>()
             .SingleOrDefaultAsync(
                 predicate: v => v.Id == versionId,
-                include: i => i.Include(v => v.DocumentFile)
+                include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
             ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
             var documentFile = versionToReview.DocumentFile;
 
@@ -182,8 +182,21 @@ namespace Document.API.Services.Implements
                             { "departmentId", documentFile.DepartmentId },
                             { "documentId", documentFile.Id.ToString() },
                             { "versionName", previousApprovedVersion.VersionName },
-                            { "approvalDate", previousApprovedVersion.CreatedTime.ToString("yyyy-MM-dd") }
+                            { "approvalDate", previousApprovedVersion.CreatedTime.ToString("yyyy-MM-dd") },
+                            { "ownerId", documentFile.OwnerId },
+                            { "isPublic", previousApprovedVersion.IsPublic.ToString() },
+                            { "effectiveFrom", previousApprovedVersion.EffectiveFrom?.ToString("yyyy-MM-dd") },
+                            { "effectiveUntil", previousApprovedVersion.EffectiveUntil?.ToString("yyyy-MM-dd") },
+                            { "signedBy", previousApprovedVersion.SignedBy }
                         };
+
+                        if (previousApprovedVersion.DocumentTags != null)
+                        {
+                            foreach (var docTag in previousApprovedVersion.DocumentTags)
+                            {
+                                oldTags.Add("tags", docTag.Tag.Name);
+                            }
+                        }
                         using (var fileStream = await _storageService.DownloadFileAsync(previousApprovedVersion.FilePath))
                         {
                             await _memory.ImportDocumentAsync(fileStream, previousApprovedVersion.FileName, documentId: previousVersionKmId, tags: oldTags);
@@ -205,8 +218,21 @@ namespace Document.API.Services.Implements
                         { "departmentId", documentFile.DepartmentId },
                         { "documentId", documentFile.Id.ToString() },
                         { "versionName", versionToReview.VersionName },
-                        { "approvalDate", DateTime.UtcNow.ToString("yyyy-MM-dd") }
+                        { "approvalDate", DateTime.UtcNow.ToString("yyyy-MM-dd") },
+                        { "ownerId", documentFile.OwnerId },
+                        { "isPublic", versionToReview.IsPublic.ToString() },
+                        { "effectiveFrom", versionToReview.EffectiveFrom?.ToString("yyyy-MM-dd") },
+                        { "effectiveUntil", versionToReview.EffectiveUntil?.ToString("yyyy-MM-dd") },
+                        { "signedBy", versionToReview.SignedBy }
                     };
+
+                    if (versionToReview.DocumentTags != null)
+                    {
+                        foreach (var docTag in versionToReview.DocumentTags)
+                        {
+                            tags.Add("tags", docTag.Tag.Name);
+                        }
+                    }
 
                     var versionKmId = versionToReview.Id.ToString();
                     using (var fileStream = await _storageService.DownloadFileAsync(versionToReview.FilePath))

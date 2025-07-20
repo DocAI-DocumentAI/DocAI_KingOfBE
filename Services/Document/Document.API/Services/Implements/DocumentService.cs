@@ -10,6 +10,7 @@ using Document.Domain.Models;
 using Document.Infrastructure.Filter;
 using Document.Infrastructure.Paginate;
 using Document.Infrastructure.Repository.Interfaces;
+using DocumentFormat.OpenXml.Office2010.Excel;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.KernelMemory;
 
@@ -760,7 +761,7 @@ Requirements:
     {
         var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: dv => dv.DocumentFileId == documentId && dv.Id == versionId,
-            include: i => i.Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         return _mapper.Map<DocumentVersionResponse>(documentVersion);
@@ -770,7 +771,7 @@ Requirements:
     {
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
             predicate: dv => dv.DocumentFileId == documentId,
-            include: i => i.Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         return _mapper.Map<List<DocumentVersionResponse>>(documentVersions);
@@ -906,50 +907,114 @@ Requirements:
             version.DocumentTags.Add(new DocumentTag { Tag = tag });
         }
     }
-    
 
-    public async Task<IPaginate<DocumentResponse>> SemanticSearch(SemanticSearchRequest request, DocumentFilter filter, string userId, int pageNumber, int pageSize)
+
+    public async Task<IPaginate<SemanticSearchResponse>> SemanticSearch(SemanticSearchRequest request, SemanticSearchFilter filter, string userId, int pageNumber, int pageSize)
     {
+        // 1. Build the filter
         var memoryFilter = new MemoryFilter();
-
+        if (!string.IsNullOrEmpty(filter.DepartmentId))
+        {
+            memoryFilter.ByTag("departmentId", filter.DepartmentId);
+        }
         if (filter.IsPublic.HasValue)
         {
-            memoryFilter.Add("isPublic", filter.IsPublic.Value.ToString().ToLower());
+            memoryFilter.ByTag("isPublic", filter.IsPublic.Value.ToString());
         }
-        //if (filter.DepartmentId.HasValue)
-        //{
-        //    memoryFilter.Add("departmentId", filter.DepartmentId);
-        //}
-
-
-        var searchResult = await _memory.SearchAsync(request.Query, limit: pageSize, filter: memoryFilter);
-
-        var orderedUniqueDocumentIds = searchResult.Results
-            .SelectMany(item => item.Partitions)
-            .Select(partition => partition.Tags.TryGetValue("documentId", out var ids) ? ids.FirstOrDefault() : null)
-            .Where(id => id != null)
-            .Distinct() // This will preserve the order of first appearance
-            .ToList();
-
-        var documentResponses = new List<DocumentResponse>();
-
-        foreach (var documentId in orderedUniqueDocumentIds)
+        if (filter.EffectiveFrom.HasValue)
         {
-            var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
-                predicate: dv => dv.DocumentFile.Id == documentId && dv.Status == StatusEnum.Approved,
-                include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
-            );
-
-            if (documentVersion != null)
+            memoryFilter.ByTag("effectiveFrom", filter.EffectiveFrom.Value.ToString("yyyy-MM-dd"));
+        }
+        if (filter.EffectiveUntil.HasValue)
+        {
+            memoryFilter.ByTag("effectiveUntil", filter.EffectiveUntil.Value.ToString("yyyy-MM-dd"));
+        }
+        if (!string.IsNullOrEmpty(filter.SignedBy))
+        {
+            memoryFilter.ByTag("signedBy", filter.SignedBy);
+        }
+        if (filter.Tags != null && filter.Tags.Any())
+        {
+            foreach (var tag in filter.Tags)
             {
-                documentResponses.Add(_mapper.Map<DocumentResponse>(documentVersion));
+                memoryFilter.ByTag("tags", tag);
             }
         }
 
-        // Manually create IPaginate from the list
-        var totalCount = searchResult.Results.Count; // This is not the true total count, but KM doesn't provide it directly
-        var paginateResult = new Paginate<DocumentResponse>(documentResponses, pageNumber, pageSize, totalCount);
+        // 2. Fetch results from Kernel Memory
+        var searchResult = await _memory.SearchAsync(
+            request.Query,
+            limit: 100,
+            filter: memoryFilter,
+            minRelevance: 0.2);
 
-        return paginateResult;
+        // 3. Group citations by document and get the MAX relevance for each
+        var relevantDocuments = searchResult.Results
+            .Select(citation => new
+            {
+                // Extract the documentId from the tags
+                DocumentId = citation.Partitions.FirstOrDefault()?.Tags.TryGetValue("documentId", out var ids) == true ? ids.FirstOrDefault() : null,
+                // Get the relevance score for this specific citation (chunk)
+                Relevance = citation.Partitions.FirstOrDefault()?.Relevance ?? 0
+            })
+            .Where(x => !string.IsNullOrEmpty(x.DocumentId))
+            .GroupBy(x => x.DocumentId) // Group all chunks by their parent document ID
+            .Select(g => new
+            {
+                DocumentId = g.Key,
+                // Find the highest relevance score among all chunks for that document
+                MaxRelevance = g.Max(x => x.Relevance)
+            })
+            .OrderByDescending(x => x.MaxRelevance) // Order documents by their best score
+            .ToList();
+
+        if (!relevantDocuments.Any())
+        {
+            return new Paginate<SemanticSearchResponse>(new List<SemanticSearchResponse>(), pageNumber, pageSize, 0);
+        }
+
+        // Create a lookup map for relevance scores for easy access later
+        var relevanceMap = relevantDocuments.ToDictionary(d => d.DocumentId, d => d.MaxRelevance);
+        var orderedUniqueDocumentIds = relevantDocuments.Select(d => d.DocumentId).ToList();
+
+        // 4. Fetch all documents in ONE query from the database
+        var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
+            predicate: dv => orderedUniqueDocumentIds.Contains(dv.DocumentFile.Id) && dv.Status == StatusEnum.Approved,
+            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+        );
+
+        // 5. Map results and add the relevance score
+        var documentResponses = new List<SemanticSearchResponse>();
+        foreach (var docVersion in documentVersions)
+        {
+            var response = _mapper.Map<SemanticSearchResponse>(docVersion);
+            // Assign the stored relevance score
+            response.Relevance = relevanceMap.TryGetValue(docVersion.DocumentFile.Id, out var relevance) ? relevance : 0;
+            documentResponses.Add(response);
+        }
+
+        // Order the final list by the original relevance ranking
+        var orderedResponses = documentResponses.OrderByDescending(r => r.Relevance).ToList();
+
+        // 6. Apply in-memory pagination
+        var totalCount = orderedResponses.Count;
+        var pagedItems = orderedResponses.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();
+
+        return new Paginate<SemanticSearchResponse>(pagedItems, pageNumber, pageSize, totalCount);
+    }
+
+    public async Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, int pageNumber, int pageSize)
+    {
+        var documents = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
+            selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
+            filter: filter,
+            predicate: dv => dv.Status == StatusEnum.Approved,
+            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
+            page: pageNumber,
+            size: pageSize
+        );
+
+        return documents;
     }
 }

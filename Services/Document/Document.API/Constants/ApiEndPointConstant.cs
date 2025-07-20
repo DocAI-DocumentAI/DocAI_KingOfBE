@@ -21,6 +21,7 @@ public class ApiEndPointConstant
         public const string CreateNewVersion = ApiEndpoint + "/documents/{id}/versions"; // Remains the same
         public const string AnalyzeDocument = ApiEndpoint + "/analyze-document"; // Remains the same
         public const string SemanticSearch = ApiEndpoint + "/semantic-search"; // Remains the same
+        public const string FullTextSearch = ApiEndpoint + "/full-text-search";
         public const string GetDrafts = ApiEndpoint + "/drafts";
         public const string GetDraftById = ApiEndpoint + "/drafts/{id}";
         public const string GetRejectedDocuments = ApiEndpoint + "/rejected-documents";
