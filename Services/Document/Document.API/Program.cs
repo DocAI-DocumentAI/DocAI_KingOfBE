@@ -37,6 +37,14 @@ try
             "[{@t:HH:mm:ss} {@l:u3}{#if @tr is not null} ({substring(@tr,0,4)}:{substring(@sp,0,4)}){#end}] {@m}\n{@x}",
             theme: TemplateTheme.Code)));
 
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy(CorConstant.PolicyName,
+            policy => policy
+                .AllowAnyOrigin()
+                .AllowAnyHeader()
+                .AllowAnyMethod());
+    });
     builder.Services.AddOpenApi();
 
     builder.Services.AddDatabase();
@@ -48,14 +56,7 @@ try
     builder.Services.AddControllers();
     //builder.Services.AddKernelMemory();
     builder.Services.AddKernelMemory(configuration);
-    builder.Services.AddCors(options =>
-    {
-        options.AddPolicy(CorConstant.PolicyName,
-            policy => policy
-                .AllowAnyOrigin() 
-                .AllowAnyHeader()
-                .AllowAnyMethod());
-    });
+    
 
     // Register the NSwag services
     builder.Services.AddOpenApiDocument(options =>
@@ -80,8 +81,7 @@ try
 
     // if (app.Environment.IsDevelopment())
     // {
-        app.MapOpenApi();
-        app.UseOpenApi();
+        
         app.UseSwaggerUI(options =>
         {
             options.RoutePrefix = "swagger"; 
@@ -101,22 +101,26 @@ try
         // app.MapScalarApiReference();
     // }
 
-    app.UseHttpsRedirection();
-
     app.UseCors(CorConstant.PolicyName);
 
-    app.Use(async (context, next) =>
-    {
-        if (context.Request.Method == "OPTIONS")
-        {
-            context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
-            context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-            context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
-            context.Response.StatusCode = 200;
-            return;
-        }
-        await next();
-    });
+    //app.Use(async (context, next) =>
+    //{
+    //    if (context.Request.Method == "OPTIONS")
+    //    {
+    //        context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+    //        context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    //        context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    //        context.Response.StatusCode = 200;
+    //        return;
+    //    }
+    //    await next();
+    //});
+
+    app.MapOpenApi();
+
+    app.UseOpenApi();
+
+    app.UseHttpsRedirection();
 
     app.UseSerilogRequestLogging();
 

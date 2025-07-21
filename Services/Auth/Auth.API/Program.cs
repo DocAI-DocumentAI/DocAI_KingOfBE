@@ -99,18 +99,18 @@ try
     app.UseCors(CorConstant.PolicyName);
 
     // Thêm CORS middleware tùy chỉnh trước các middleware khác
-    app.Use(async (context, next) =>
-    {
-        if (context.Request.Method == "OPTIONS")
-        {
-            context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
-            context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-            context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
-            context.Response.StatusCode = 200;
-            return;
-        }
-        await next();
-    });
+    //app.Use(async (context, next) =>
+    //{
+    //    if (context.Request.Method == "OPTIONS")
+    //    {
+    //        context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+    //        context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    //        context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    //        context.Response.StatusCode = 200;
+    //        return;
+    //    }
+    //    await next();
+    //});
 
     // Thêm Rate Limiting Middleware trước Authentication
     app.UseMiddleware<RateLimitingMiddleware>();

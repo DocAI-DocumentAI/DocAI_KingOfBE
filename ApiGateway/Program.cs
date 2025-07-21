@@ -142,7 +142,21 @@ builder.Services.AddSwaggerGen(c =>
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-app.UseCors("AllowAll");
+app.UseCors(CorConstant.PolicyName);
+
+// Thêm CORS middleware tùy chỉnh trước các middleware khác
+//app.Use(async (context, next) =>
+//{
+//    if (context.Request.Method == "OPTIONS")
+//    {
+//        context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+//        context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+//        context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+//        context.Response.StatusCode = 200;
+//        return;
+//    }
+//    await next();
+//});
 
 // Thêm middleware để chuyển tiếp token JWT đến các service
 app.UseMiddleware<ApiGateway.Middlewares.TokenForwardingMiddleware>();
