@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Security.Claims;
 using System.Text;
@@ -82,6 +82,7 @@ public static class DependencyService
         services.AddMassTransit(x =>
         {
             x.AddConsumer<UserRequestMessageConsumer>();
+            x.AddConsumer<NameLookupConsumer>();
 
             x.UsingRabbitMq((context, cfg) =>
             {
@@ -101,6 +102,14 @@ public static class DependencyService
                 cfg.ReceiveEndpoint("user-request-queue", e =>
                 {
                     e.ConfigureConsumer<UserRequestMessageConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                // Configure endpoint for NameLookup requests
+                cfg.ReceiveEndpoint("name-lookup-queue", e =>
+                {
+                    e.ConfigureConsumer<NameLookupConsumer>(context);
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
                     e.UseInMemoryOutbox();
                 });

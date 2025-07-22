@@ -1,4 +1,4 @@
-﻿namespace Document.API.Payload.Response;
+namespace Document.API.Payload.Response;
 
 /// <summary>
 /// Response model for document information
@@ -14,6 +14,11 @@ public class DocumentResponse
     /// Department ID associated with the document
     /// </summary>
     public string? DepartmentId { get; set; }
+    
+    /// <summary>
+    /// Department name associated with the document
+    /// </summary>
+    public string? DepartmentName { get; set; }
     
     /// <summary>
     /// Title of the document
@@ -41,6 +46,11 @@ public class DocumentResponse
     public string CreatedBy { get; set; } = string.Empty;
     
     /// <summary>
+    /// Name of user who created the document
+    /// </summary>
+    public string? CreatedByName { get; set; }
+    
+    /// <summary>
     /// When the document was created
     /// </summary>
     public DateTime CreatedTime { get; set; }
@@ -49,6 +59,11 @@ public class DocumentResponse
     /// User who last updated the document
     /// </summary>
     public string? LastUpdatedby { get; set; }
+    
+    /// <summary>
+    /// Name of user who last updated the document
+    /// </summary>
+    public string? LastUpdatedByName { get; set; }
     
     /// <summary>
     /// When the document was last updated

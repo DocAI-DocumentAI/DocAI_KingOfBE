@@ -1,4 +1,4 @@
-﻿using System.Threading.Tasks;
+using System.Threading.Tasks;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.ActiveKey;
 using Auth.API.Payload.Request.User;
@@ -31,4 +31,11 @@ public interface IUserService
     public Task<IPaginate<UserResponse>> GetAllUsersAsync(int page, int size, UserFilter? filter, string? sortBy, bool isAsc);
 
     public Task<bool> LogoutAsync();
+    
+    /// <summary>
+    /// Get user names by their IDs for bulk lookup
+    /// </summary>
+    /// <param name="userIds">List of user IDs</param>
+    /// <returns>Dictionary mapping user IDs to user names</returns>
+    public Task<Dictionary<string, string>> GetUserNamesByIdsAsync(List<string> userIds);
 }

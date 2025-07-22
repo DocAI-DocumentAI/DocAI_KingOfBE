@@ -30,7 +30,10 @@ public static class DependencyService
     {
         services.AddMassTransit(x =>
         {
-            x.AddConsumer<UserRequestMessageConsumer>(); 
+            x.AddConsumer<UserRequestMessageConsumer>();
+            
+            // Add request client for name lookup
+            x.AddRequestClient<NameLookupRequest>(new Uri("queue:name-lookup-queue")); 
             x.UsingRabbitMq((context, cfg) =>
             {
                 var rabbitMqConfig = configuration.GetSection("RabbitMQ");
@@ -48,6 +51,9 @@ public static class DependencyService
             });
         });
         services.AddScoped<IAzureStorageService, AzureStorageService>();
+        services.AddScoped<INameLookupService, NameLookupService>();
+        services.AddScoped<IDocumentEnrichmentService, DocumentEnrichmentService>();
+        services.AddMemoryCache();
         services.AddScoped<IDocumentService, DocumentService>();
         services.AddScoped<IBookmarkService, BookmarkService>();
         services.AddScoped<IApprovalService, ApprovalService>();
