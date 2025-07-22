@@ -1,4 +1,4 @@
-﻿using AutoMapper;
+using AutoMapper;
 using Document.API.Constants;
 using Document.API.Models;
 using Document.API.Payload.Request;
@@ -28,13 +28,15 @@ public class DocumentService : IDocumentService
     private readonly IAzureStorageService _storageService;
     private readonly IKernelMemory _memory;
     private readonly IConfiguration _configuration;
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IAzureStorageService storageService, IConfiguration configuration)
+    private readonly IDocumentEnrichmentService _enrichmentService;
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IAzureStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
         _logger = logger;
         _memory = memory;
         _storageService = storageService;
+        _enrichmentService = enrichmentService;
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
         var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
@@ -52,6 +54,16 @@ public class DocumentService : IDocumentService
         else
         {
             _logger.LogWarning("Kernel Memory service is NOT initialized.");
+        }
+        
+        // Log enrichment service status
+        if (_enrichmentService != null)
+        {
+            _logger.LogInformation("Document Enrichment Service is initialized and available.");
+        }
+        else
+        {
+            _logger.LogError("Document Enrichment Service is NOT initialized - name enrichment will not work!");
         }
     }
 
@@ -241,8 +253,13 @@ public class DocumentService : IDocumentService
 
         // 8. Use AutoMapper to map the result to the response DTO
         var response = _mapper.Map<DocumentDraftResponse>(documentFile);
+        
+        // 9. Enrich response with user and department names
+        var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
+        
+        _logger.LogInformation("Draft document response enriched with names for document {DocumentId}", documentFile.Id);
 
-        return response;
+        return enrichedResponse;
     }
 
     public async Task<DocumentDraftResponse> UpdateDraftAsync(string versionId, UpdateDocumentDraftRequest request, string userId)
@@ -393,7 +410,14 @@ public class DocumentService : IDocumentService
             }
 
             _logger.LogInformation("Successfully updated document version {VersionId}", versionId);
-            return _mapper.Map<DocumentDraftResponse>(versionToUpdate);
+            
+            // Enrich response with user and department names
+            var response = _mapper.Map<DocumentDraftResponse>(versionToUpdate);
+            var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
+            
+            _logger.LogInformation("Updated document response enriched with names for version {VersionId}", versionId);
+            
+            return enrichedResponse;
         }
         catch (DbUpdateConcurrencyException ex)
         {
@@ -651,7 +675,21 @@ Requirements:
             size: pageSize
         );
 
-        return drafts;
+        // Enrich all documents with names in bulk for better performance
+        var enrichedDocuments = await _enrichmentService.EnrichDocumentDraftResponsesAsync(drafts.Items.ToList());
+
+        // Create new paginated result with enriched documents
+        var enrichedPaginated = new Paginate<DocumentDraftResponse>
+        {
+            Items = enrichedDocuments,
+            Page = drafts.Page, // Replace PageIndex with Page
+            Size = drafts.Size, // Replace PageSize with Size
+            Total = drafts.Total,
+            TotalPages = drafts.TotalPages
+        };
+
+        _logger.LogInformation("Enriched {Count} draft documents with names for user {UserId}", enrichedDocuments.Count, userId);
+        return enrichedPaginated;
     }
 
     public async Task<DocumentDraftResponse> GetDraftByIdAsync(string versionId, string userId)
@@ -661,9 +699,15 @@ Requirements:
             include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
-        return draft == null
-            ? throw new ErrorException(StatusCodes.Status404NotFound,ErrorCode.NOT_FOUND, MessageConstant.DraftDocumentNotFound)
-            : _mapper.Map<DocumentDraftResponse>(draft);
+        if (draft == null)
+        {
+            throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DraftDocumentNotFound);
+        }
+        
+        var response = _mapper.Map<DocumentDraftResponse>(draft);
+        var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
+        _logger.LogInformation("Draft document response enriched with names for version {VersionId}", versionId);
+        return enrichedResponse;
     }
 
     public async Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(string userId, int pageNumber, int pageSize)
@@ -678,7 +722,22 @@ Requirements:
             size: pageSize
         );
 
-        return rejectedDocuments;
+        // Enrich all documents with names in bulk for better performance
+        var enrichedDocuments = await _enrichmentService.EnrichDocumentDraftResponsesAsync(rejectedDocuments.Items.ToList());
+
+        // Create new paginated result with enriched documents
+        var enrichedPaginated = new Paginate<DocumentDraftResponse>
+        {
+            Items = enrichedDocuments,
+            Page = rejectedDocuments.Page, // Replace PageIndex with Page
+            Size = rejectedDocuments.Size, // Replace PageSize with Size
+            Total = rejectedDocuments.Total,
+            TotalPages = rejectedDocuments.TotalPages
+        };
+
+
+        _logger.LogInformation("Enriched {Count} rejected documents with names for user {UserId}", enrichedDocuments.Count, userId);
+        return enrichedPaginated;
     }
 
     public async Task<DocumentDraftResponse> GetRejectedById(string versionId, string userId)
@@ -693,7 +752,10 @@ Requirements:
             throw new ErrorException(StatusCodes.Status404NotFound,ErrorCode.NOT_FOUND, MessageConstant.RejectedDocumentNotFound);
         }
 
-        return _mapper.Map<DocumentDraftResponse>(rejectedDocument);
+        var response = _mapper.Map<DocumentDraftResponse>(rejectedDocument);
+        var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
+        _logger.LogInformation("Rejected document response enriched with names for version {VersionId}", versionId);
+        return enrichedResponse;
     }
 
     public async Task<DocumentDraftResponse> GetOfficialDocumentAsync(string documentFileId)
@@ -708,7 +770,10 @@ Requirements:
             throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.OfficialDocumentNotFoundForId);
         }
 
-        return _mapper.Map<DocumentDraftResponse>(officialDocument);
+        var response = _mapper.Map<DocumentDraftResponse>(officialDocument);
+        var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
+        _logger.LogInformation("Official document response enriched with names for document {DocumentFileId}", documentFileId);
+        return enrichedResponse;
     }
 
     public async Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize)
@@ -723,7 +788,21 @@ Requirements:
             size: pageSize
         );
 
-        return _mapper.Map<IPaginate<DocumentDraftResponse>>(officialDocuments);
+        // Enrich all documents with names in bulk for better performance
+        var enrichedDocuments = await _enrichmentService.EnrichDocumentDraftResponsesAsync(officialDocuments.Items.ToList());
+
+        // Create new paginated result with enriched documents
+        var enrichedPaginated = new Paginate<DocumentDraftResponse>
+        {
+            Items = enrichedDocuments,
+            Page = officialDocuments.Page, // Replace PageIndex with Page
+            Size = officialDocuments.Size, // Replace PageSize with Size
+            Total = officialDocuments.Total,
+            TotalPages = officialDocuments.TotalPages
+        };
+
+        _logger.LogInformation("Enriched {Count} official documents with names", enrichedDocuments.Count);
+        return enrichedPaginated;
     }
 
     public async Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(string userId, MyDocumentsFilter filter, int pageNumber, int pageSize)
@@ -739,7 +818,21 @@ Requirements:
             size: pageSize
         );
 
-        return myDocuments;
+        // Enrich all documents with names in bulk for better performance
+        var enrichedDocuments = await _enrichmentService.EnrichDocumentDraftResponsesAsync(myDocuments.Items.ToList());
+
+        // Create new paginated result with enriched documents
+        var enrichedPaginated = new Paginate<DocumentDraftResponse>
+        {
+            Items = enrichedDocuments,
+            Page = myDocuments.Page, // Replace PageIndex with Page
+            Size = myDocuments.Size, // Replace PageSize with Size
+            Total = myDocuments.Total,
+            TotalPages = myDocuments.TotalPages
+        };
+
+        _logger.LogInformation("Enriched {Count} user documents with names for user {UserId}", enrichedDocuments.Count, userId);
+        return enrichedPaginated;
     }
 
     public async Task<DocumentDraftResponse> GetMyDocumentByIdAsync(string versionId, string userId)
@@ -754,7 +847,10 @@ Requirements:
             throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
         }
 
-        return _mapper.Map<DocumentDraftResponse>(document);
+        var response = _mapper.Map<DocumentDraftResponse>(document);
+        var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
+        _logger.LogInformation("My document response enriched with names for version {VersionId}", versionId);
+        return enrichedResponse;
     }
 
     public async Task<DocumentVersionResponse> GetDocumentVersionByVersionIdAsync(string documentId, string versionId)
@@ -848,7 +944,10 @@ Requirements:
 
         _logger.LogInformation("Successfully created new version for document {DocumentId}", documentToUpdate.Id);
 
-        return _mapper.Map<DocumentDraftResponse>(newVersion);
+        var response = _mapper.Map<DocumentDraftResponse>(newVersion);
+        var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
+        _logger.LogInformation("New version response enriched with names for document {DocumentId}", documentToUpdate.Id);
+        return enrichedResponse;
     }
 
     private async Task ProcessTagsAsync(DocumentVersion version, IEnumerable<string> tagNames, string userId)
@@ -1000,7 +1099,11 @@ Requirements:
         var totalCount = orderedResponses.Count;
         var pagedItems = orderedResponses.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();
 
-        return new Paginate<SemanticSearchResponse>(pagedItems, pageNumber, pageSize, totalCount);
+        // 7. Enrich the paginated items with names
+        var enrichedItems = await _enrichmentService.EnrichSemanticSearchResponsesAsync(pagedItems);
+        _logger.LogInformation("Enriched {Count} semantic search results with names", enrichedItems.Count);
+
+        return new Paginate<SemanticSearchResponse>(enrichedItems, pageNumber, pageSize, totalCount);
     }
 
     public async Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, int pageNumber, int pageSize)
@@ -1015,6 +1118,20 @@ Requirements:
             size: pageSize
         );
 
-        return documents;
+        // Enrich all documents with names in bulk for better performance
+        var enrichedDocuments = await _enrichmentService.EnrichDocumentDraftResponsesAsync(documents.Items.ToList());
+        
+        // Create new paginated result with enriched documents
+        var enrichedPaginated = new Paginate<DocumentDraftResponse>
+        {
+            Items = enrichedDocuments,
+            Page = documents.Page, // Replace PageIndex with Page
+            Size = documents.Size, // Replace PageSize with Size
+            Total = documents.Total,
+            TotalPages = documents.TotalPages
+        };
+        
+        _logger.LogInformation("Enriched {Count} full text search documents with names", enrichedDocuments.Count);
+        return enrichedPaginated;
     }
 }

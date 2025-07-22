@@ -1,4 +1,4 @@
-﻿using System.Security.Authentication;
+using System.Security.Authentication;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -865,6 +865,50 @@ public class UserService : BaseService<UserService>, IUserService
         {
             _logger.LogError(ex, "Error during logout");
             throw new BadHttpRequestException("Logout failed");
+        }
+    }
+
+    public async Task<Dictionary<string, string>> GetUserNamesByIdsAsync(List<string> userIds)
+    {
+        try
+        {
+            var result = new Dictionary<string, string>();
+            
+            if (!userIds.Any())
+                return result;
+
+            // Convert string IDs to Guids and filter valid ones
+            var validGuids = new List<Guid>();
+            foreach (var userId in userIds)
+            {
+                if (Guid.TryParse(userId, out var guid))
+                {
+                    validGuids.Add(guid);
+                }
+            }
+
+            if (!validGuids.Any())
+                return result;
+
+            // Bulk query users from database
+            var users = await _unitOfWork.GetRepository<User>().GetListAsync(
+                predicate: u => validGuids.Contains(u.Id),
+                selector: u => new { u.Id, u.FullName}
+            );
+
+            // Map results back to string IDs
+            foreach (var user in users)
+            {
+                result[user.Id.ToString()] = string.IsNullOrEmpty(user.FullName) ? "Unknown User" : user.FullName;
+            }
+
+            _logger.LogInformation("Retrieved names for {Count} users", result.Count);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving user names by IDs");
+            return new Dictionary<string, string>();
         }
     }
 }

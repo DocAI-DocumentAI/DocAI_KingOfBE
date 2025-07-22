@@ -1,4 +1,4 @@
-﻿using System.Security.Authentication;
+using System.Security.Authentication;
 using Auth.API.Constants;
 using Auth.API.Payload.Request.Department;
 using Auth.API.Payload.Response;
@@ -128,5 +128,49 @@ public class DepartmentService : BaseService<DepartmentService>, IDepartmentServ
         DepartmentResponse response = null;
         if (isSuccess) response = _mapper.Map<DepartmentResponse>(department);
         return response;
+    }
+
+    public async Task<Dictionary<string, string>> GetDepartmentNamesByIdsAsync(List<string> departmentIds)
+    {
+        try
+        {
+            var result = new Dictionary<string, string>();
+            
+            if (!departmentIds.Any())
+                return result;
+
+            // Convert string IDs to Guids and filter valid ones
+            var validGuids = new List<Guid>();
+            foreach (var deptId in departmentIds)
+            {
+                if (Guid.TryParse(deptId, out var guid))
+                {
+                    validGuids.Add(guid);
+                }
+            }
+
+            if (!validGuids.Any())
+                return result;
+
+            // Bulk query departments from database
+            var departments = await _unitOfWork.GetRepository<Department>().GetListAsync(
+                predicate: d => validGuids.Contains(d.Id),
+                selector: d => new { d.Id, d.Name }
+            );
+
+            // Map results back to string IDs
+            foreach (var dept in departments)
+            {
+                result[dept.Id.ToString()] = string.IsNullOrEmpty(dept.Name) ? "Unknown Department" : dept.Name;
+            }
+
+            _logger.LogInformation("Retrieved names for {Count} departments", result.Count);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving department names by IDs");
+            return new Dictionary<string, string>();
+        }
     }
 }

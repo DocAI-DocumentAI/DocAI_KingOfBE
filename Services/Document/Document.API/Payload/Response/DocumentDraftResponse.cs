@@ -1,4 +1,4 @@
-﻿namespace Document.API.Payload.Response
+namespace Document.API.Payload.Response
 {
     public class DocumentDraftResponse
     {
@@ -14,7 +14,9 @@
         public string Status { get; set; }
         public string VersionName { get; set; }
         public string DepartmentId { get; set; }
+        public string? DepartmentName { get; set; }
         public string OwnerId { get; set; }
+        public string? OwnerName { get; set; }
         public List<string> Tags { get; set; }
         public DateTime CreatedTime { get; set; }
         public string? ReplacementId { get; set; }
@@ -23,5 +25,6 @@
         public bool IsReplaced { get; set; }
         public DateTime? LastSubmitted { get; set; }
         public string? SubmittedBy { get; set; }
+        public string? SubmittedByName { get; set; }
     }
 }
