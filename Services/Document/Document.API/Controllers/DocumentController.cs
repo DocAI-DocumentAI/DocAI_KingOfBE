@@ -150,7 +150,7 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> CreateNewVersion([FromRoute(Name = "id")] string documentId, [FromForm] CreateDraftRequest request, string userId)
+    public async Task<IActionResult> CreateNewVersion([FromRoute(Name = "id")] string documentId, [FromForm] CreateNewVersionDraftRequest request, string userId)
     {
         var result = await _documentService.CreateNewVersionAsync(documentId, request, userId);
         return Ok(ApiResponse<object>.Success(result));

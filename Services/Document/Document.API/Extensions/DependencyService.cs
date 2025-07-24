@@ -1,8 +1,8 @@
-
-﻿using Document.API.Consumers;
+using Document.API.Consumers;
 using MassTransit;
-﻿using Document.API.Services.Implements;
+using Document.API.Services.Implements;
 using Document.API.Services.Interfaces;
+using Document.API.Utils;
 using Document.Domain.Context;
 using Document.Infrastructure.Repository.Implement;
 using Document.Infrastructure.Repository.Interfaces;
@@ -53,6 +53,7 @@ public static class DependencyService
         services.AddScoped<IAzureStorageService, AzureStorageService>();
         services.AddScoped<INameLookupService, NameLookupService>();
         services.AddScoped<IDocumentEnrichmentService, DocumentEnrichmentService>();
+        services.AddScoped<AiResponseHelper>();
         services.AddMemoryCache();
         services.AddScoped<IDocumentService, DocumentService>();
         services.AddScoped<IBookmarkService, BookmarkService>();

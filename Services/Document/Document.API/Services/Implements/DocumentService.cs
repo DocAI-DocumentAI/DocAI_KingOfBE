@@ -480,7 +480,7 @@ public class DocumentService : IDocumentService
 
             const string comprehensivePrompt = @"Analyze the document and return a single raw JSON object with the following keys:
 - ""title"": string — official document title.
-- ""versionName"": string — document version code (eg. 80_2025_QH15_649688)(or null).
+- ""versionName"": string — the document code (eg. 80_2025_QH15_649688)(or null).
 - ""signedBy"": string — name of the signatory.
 - ""effectiveFrom"": 'yyyy-MM-dd' (or null).
 - ""effectiveUntil"": 'yyyy-MM-dd' (or null).
@@ -873,12 +873,47 @@ Requirements:
         return _mapper.Map<List<DocumentVersionResponse>>(documentVersions);
     }
 
-    public async Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateDraftRequest request, string userId)
+    public async Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateNewVersionDraftRequest request, string userId)
     {
         var documentToUpdate = await _unitOfWork.GetRepository<DocumentFile>().SingleOrDefaultAsync(
-            predicate: d => d.Id.ToString() == documentId,
+            predicate: d => d.Id == documentId,
             include: i => i.Include(d => d.DocumentVersions)
         ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
+
+        // Input validations
+        if (request?.File == null)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "File is required for creating a new version.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Title))
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Title is required for creating a new version.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.VersionName))
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Version name is required for creating a new version.");
+        }
+
+        // BR-015 Supported file types are PDF (text-based) and DOCX.
+        var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
+        if (!PolicyConstant.SupportedFileTypes.Contains(fileExtension))
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.UnsupportedFileType);
+        }
+
+        // BR-016 Maximum file size is 5MB.
+        if (request.File.Length > PolicyConstant.MaxFileSizeMB * 1024 * 1024)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
+        }
+
+        // BR-021 'Effective From' date must be before 'Expiration Date'.
+        if (request.EffectiveFrom.HasValue && request.EffectiveUntil.HasValue && request.EffectiveFrom.Value >= request.EffectiveUntil.Value)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
+        }
 
         // BR-037: A document can only be in the process of being replaced by one new document at a time.
         var pendingVersion = documentToUpdate.DocumentVersions.FirstOrDefault(v => v.Status == StatusEnum.Pending);
@@ -898,56 +933,118 @@ Requirements:
 
         var latestVersion = documentToUpdate.DocumentVersions.OrderByDescending(v => v.CreatedTime).FirstOrDefault();
 
-        if (latestVersion.Status != StatusEnum.Approved)
+        if (latestVersion == null || latestVersion.Status != StatusEnum.Approved)
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest,ErrorCode.BADREQUEST, MessageConstant.CanOnlyCreateNewVersionOfApproved);
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.CanOnlyCreateNewVersionOfApproved);
         }
 
-        var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
-        var fileHash = uploadResponse.Md5Hash;
-
-        var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
-            .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash, include: i => i.Include(v => v.DocumentFile));
-
-        if (existingFile != null)
+        // Check draft limit for the user
+        var draftCount = await _unitOfWork.GetRepository<DocumentVersion>()
+            .CountAsync(predicate: v => v.CreatedBy == userId && v.Status == StatusEnum.Draft);
+        if (draftCount >= PolicyConstant.MaxDraftsPerUser)
         {
-            await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
-
-            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.MaxDraftsReached, PolicyConstant.MaxDraftsPerUser));
         }
 
-        var newVersion = new DocumentVersion
+        // Business Rule: For new versions, DepartmentId and ReplacementId are inherited from the existing DocumentFile
+        // The new request model (CreateNewVersionDraftRequest) doesn't include these fields as they are automatically inherited
+
+        AzureUploadResponse uploadResponse = null;
+        try
         {
-            DocumentFileId = documentToUpdate.Id,
-            DocumentFile = documentToUpdate,
-            Title = request.Title,
-            VersionName = request.VersionName,
-            Status = StatusEnum.Draft,
-            IsOfficial = false,
-            Summary = request.Summary,
-            FileName = request.File.FileName,
-            FileType = Path.GetExtension(request.File.FileName),
-            FileSize = request.File.Length,
-            FilePath = uploadResponse.BlobName,
-            FileHash = fileHash,
-            SignedBy = request.SignedBy,
-            EffectiveFrom = request.EffectiveFrom,
-            EffectiveUntil = request.EffectiveUntil,
-            CreatedBy = userId,
-        };
+            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
+            var fileHash = uploadResponse.Md5Hash;
 
-        await ProcessTagsAsync(newVersion, request.Tags, userId);
+            // Check for file duplication using the MD5 hash
+            var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash && v.Status != StatusEnum.Rejected, include: i => i.Include(v => v.DocumentFile));
 
-        documentToUpdate.DocumentVersions.Add(newVersion);
-        await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentToUpdate);
-        await _unitOfWork.CommitAsync();
+            if (existingFile != null)
+            {
+                await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
+            }
 
-        _logger.LogInformation("Successfully created new version for document {DocumentId}", documentToUpdate.Id);
+            // Create new version - inherit departmentId and replacementId from existing DocumentFile
+            // Note: DepartmentId and ReplacementId are automatically inherited from the DocumentFile
+            var newVersion = new DocumentVersion
+            {
+                DocumentFileId = documentToUpdate.Id,
+                Title = request.Title,
+                VersionName = request.VersionName,
+                Status = StatusEnum.Draft,
+                IsOfficial = false,
+                Summary = request.Summary,
+                FileName = request.File.FileName,
+                FileType = Path.GetExtension(request.File.FileName),
+                FileSize = request.File.Length,
+                FilePath = uploadResponse.BlobName,
+                FileHash = fileHash,
+                SignedBy = request.SignedBy,
+                EffectiveFrom = request.EffectiveFrom,
+                EffectiveUntil = request.EffectiveUntil,
+                CreatedBy = userId,
+                LastSubmitted = DateTime.UtcNow,
+                SubmittedBy = userId,
+            };
 
-        var response = _mapper.Map<DocumentDraftResponse>(newVersion);
-        var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
-        _logger.LogInformation("New version response enriched with names for document {DocumentId}", documentToUpdate.Id);
-        return enrichedResponse;
+            await ProcessTagsAsync(newVersion, request.Tags, userId);
+
+            // Insert the new version directly instead of updating the DocumentFile
+            // This avoids concurrency issues with the DocumentFile entity
+            await _unitOfWork.GetRepository<DocumentVersion>().InsertAsync(newVersion);
+            await _unitOfWork.CommitAsync();
+
+            _logger.LogInformation("Successfully created new version for document {DocumentId}", documentToUpdate.Id);
+
+            // Load the complete version with DocumentFile and Tags for proper mapping
+            var completeVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
+                predicate: v => v.Id == newVersion.Id,
+                include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            );
+
+            var response = _mapper.Map<DocumentDraftResponse>(completeVersion);
+            var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
+            _logger.LogInformation("New version response enriched with names for document {DocumentId}", documentToUpdate.Id);
+            return enrichedResponse;
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Concurrency conflict when creating new version for document {DocumentId}. The document was modified by another user.", documentId);
+
+            // Clean up uploaded file if concurrency error occurs
+            if (uploadResponse != null)
+            {
+                try
+                {
+                    _logger.LogInformation("Rolling back storage upload for {BlobName} due to concurrency conflict.", uploadResponse.BlobName);
+                    await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                }
+                catch (Exception deleteEx)
+                {
+                    _logger.LogError(deleteEx, "Failed to delete uploaded file {BlobName} during rollback after concurrency conflict.", uploadResponse.BlobName);
+                }
+            }
+
+            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, "This document was updated by someone else. Please refresh and try again.");
+        }
+        catch (Exception)
+        {
+            // Clean up uploaded file if any other error occurs
+            if (uploadResponse != null)
+            {
+                try
+                {
+                    _logger.LogInformation("Rolling back storage upload for {BlobName} due to error.", uploadResponse.BlobName);
+                    await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                }
+                catch (Exception deleteEx)
+                {
+                    _logger.LogError(deleteEx, "Failed to delete uploaded file {BlobName} during rollback after error.", uploadResponse.BlobName);
+                }
+            }
+            throw;
+        }
     }
 
     private async Task ProcessTagsAsync(DocumentVersion version, IEnumerable<string> tagNames, string userId)
