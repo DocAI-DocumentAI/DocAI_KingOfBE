@@ -1231,4 +1231,68 @@ Requirements:
         _logger.LogInformation("Enriched {Count} full text search documents with names", enrichedDocuments.Count);
         return enrichedPaginated;
     }
+
+    public async Task<(Stream stream, string contentType, string fileName)> GetFileForViewingAsync(string versionId)
+    {
+        _logger.LogInformation("Getting file for viewing for version {VersionId}", versionId);
+
+        // Get the document version
+        var version = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
+            predicate: v => v.Id == versionId
+        );
+
+        if (version == null)
+        {
+            throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Document version not found.");
+        }
+
+        // Get the file from storage
+        var (stream, contentType, fileName) = await _storageService.GetFileForViewingAsync(version.FilePath);
+
+        _logger.LogInformation("File {FileName} served for viewing for version {VersionId}", fileName, versionId);
+
+        return (stream, contentType, fileName);
+    }
+
+    public async Task<(Stream stream, string contentType, string fileName)> GetFileForDownloadAsync(string versionId)
+    {
+        _logger.LogInformation("Getting file for download for version {VersionId}", versionId);
+
+        // Get the document version
+        var version = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
+            predicate: v => v.Id == versionId
+        );
+
+        if (version == null)
+        {
+            throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Document version not found.");
+        }
+
+        // Get the file from storage
+        var (stream, contentType, fileName) = await _storageService.GetFileForViewingAsync(version.FilePath);
+
+        _logger.LogInformation("File {FileName} served for download for version {VersionId}", fileName, versionId);
+
+        return (stream, contentType, fileName);
+    }
+
+    public async Task<DocumentVersion> GetFileInfoAsync(string versionId)
+    {
+        _logger.LogInformation("Getting file info for version {VersionId}", versionId);
+
+        // Get the document version with related data
+        var version = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
+            predicate: v => v.Id == versionId,
+            include: i => i.Include(v => v.DocumentFile)
+        );
+
+        if (version == null)
+        {
+            throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Document version not found.");
+        }
+
+        _logger.LogInformation("File info retrieved for version {VersionId}", versionId);
+
+        return version;
+    }
 }

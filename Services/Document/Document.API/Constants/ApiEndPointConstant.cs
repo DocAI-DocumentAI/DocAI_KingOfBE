@@ -27,6 +27,11 @@ public class ApiEndPointConstant
         public const string GetRejectedDocuments = ApiEndpoint + "/rejected-documents";
         public const string GetRejectedById = ApiEndpoint + "/rejected-documents/{id}";
         public const string GetMyDocumentDetail = ApiEndpoint + "/my-documents/{id}";
+
+        // File serving endpoints
+        public const string ViewFile = ApiEndpoint + "/files/{versionId}/view";
+        public const string DownloadFile = ApiEndpoint + "/files/{versionId}/download";
+        public const string GetFileInfo = ApiEndpoint + "/files/{versionId}/info";
     }
 
     public class Approval

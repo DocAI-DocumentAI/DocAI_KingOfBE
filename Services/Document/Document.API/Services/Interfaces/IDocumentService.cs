@@ -1,5 +1,6 @@
 ﻿using Document.API.Payload.Request;
 using Document.API.Payload.Response;
+using Document.Domain.Models;
 using Document.Infrastructure.Filter;
 using Document.Infrastructure.Paginate;
 using Microsoft.AspNetCore.Mvc.TagHelpers.Cache;
@@ -25,4 +26,9 @@ public interface IDocumentService
     Task<DocumentVersionResponse> GetDocumentVersionByVersionIdAsync(string documentId, string versionId);
     Task<IPaginate<SemanticSearchResponse>> SemanticSearch(SemanticSearchRequest request, SemanticSearchFilter filter, string userId, int pageNumber, int pageSize);
     Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, int pageNumber, int pageSize);
+
+    // File serving methods
+    Task<(Stream stream, string contentType, string fileName)> GetFileForViewingAsync(string versionId);
+    Task<(Stream stream, string contentType, string fileName)> GetFileForDownloadAsync(string versionId);
+    Task<DocumentVersion> GetFileInfoAsync(string versionId);
 }

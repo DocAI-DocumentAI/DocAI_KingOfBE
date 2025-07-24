@@ -109,6 +109,84 @@ namespace Document.API.Services.Implements
             var blobClient = _blobContainerClient.GetBlobClient(filePath);
             return await blobClient.ExistsAsync();
         }
+
+        public async Task<(Stream stream, string contentType, string fileName)> GetFileForViewingAsync(string filePath)
+        {
+            try
+            {
+                var blobClient = _blobContainerClient.GetBlobClient(filePath);
+
+                // Check if file exists
+                if (!await blobClient.ExistsAsync())
+                {
+                    throw new FileNotFoundException($"File not found: {filePath}");
+                }
+
+                // Get blob properties to retrieve content type and metadata
+                var properties = await blobClient.GetPropertiesAsync();
+
+                // Download the file to a memory stream
+                var memoryStream = new MemoryStream();
+                await blobClient.DownloadToAsync(memoryStream);
+                memoryStream.Position = 0;
+
+                // Extract filename from the blob path
+                var fileName = Path.GetFileName(filePath);
+
+                // Get content type from blob properties or determine from file extension
+                var contentType = properties.Value.ContentType;
+                if (string.IsNullOrEmpty(contentType))
+                {
+                    contentType = GetContentTypeFromExtension(fileName);
+                }
+
+                return (memoryStream, contentType, fileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting file for viewing from {FilePath}", filePath);
+                throw;
+            }
+        }
+
+        public async Task<string> GetFileContentTypeAsync(string filePath)
+        {
+            try
+            {
+                var blobClient = _blobContainerClient.GetBlobClient(filePath);
+                var properties = await blobClient.GetPropertiesAsync();
+
+                var contentType = properties.Value.ContentType;
+                if (string.IsNullOrEmpty(contentType))
+                {
+                    var fileName = Path.GetFileName(filePath);
+                    contentType = GetContentTypeFromExtension(fileName);
+                }
+
+                return contentType;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting content type for file {FilePath}", filePath);
+                throw;
+            }
+        }
+
+        private static string GetContentTypeFromExtension(string fileName)
+        {
+            var extension = Path.GetExtension(fileName).ToLowerInvariant();
+            return extension switch
+            {
+                ".pdf" => "application/pdf",
+                ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ".doc" => "application/msword",
+                ".txt" => "text/plain",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png" => "image/png",
+                ".gif" => "image/gif",
+                _ => "application/octet-stream"
+            };
+        }
     }
 }
 

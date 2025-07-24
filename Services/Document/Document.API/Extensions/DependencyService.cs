@@ -51,6 +51,7 @@ public static class DependencyService
             });
         });
         services.AddScoped<IAzureStorageService, AzureStorageService>();
+        services.AddScoped<IFileConversionService, FileConversionService>();
         services.AddScoped<INameLookupService, NameLookupService>();
         services.AddScoped<IDocumentEnrichmentService, DocumentEnrichmentService>();
         services.AddScoped<AiResponseHelper>();

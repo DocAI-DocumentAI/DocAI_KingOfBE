@@ -9,5 +9,7 @@ namespace Document.API.Services.Interfaces
         Task MoveFileAsync(string sourceFilename, string sourceFolder, string destinationFolder);
         Task<Stream> DownloadFileAsync(string filename);
         Task<bool> FileExistsAsync(string filePath);
+        Task<(Stream stream, string contentType, string fileName)> GetFileForViewingAsync(string filePath);
+        Task<string> GetFileContentTypeAsync(string filePath);
     }
 }
