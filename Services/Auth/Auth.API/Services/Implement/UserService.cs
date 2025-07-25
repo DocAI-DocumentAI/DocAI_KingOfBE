@@ -29,22 +29,27 @@ using Auth.Infrastructure.Paginate;
 using Auth.Infrastructure.Filter;
 using System.IdentityModel.Tokens.Jwt;
 using Auth.API.Payload.Response.Permission;
+using Auth.API.Payload.Request.Auth;
+using Auth.API.Payload.Response.Auth;
+using Auth.API.DTOs.Request;
 
 namespace Auth.API.Services.Interface;
 
 public class UserService : BaseService<UserService>, IUserService
 {
     private readonly IRedisService _redisService;
+    private readonly IGoogleOAuthService _googleOAuthService;
     private IConfiguration _configuration;
     private IPublishEndpoint _publishEndpoint;
 
     public UserService(IUnitOfWork<DocAIAuthContext> unitOfWork, ILogger<UserService> logger,
         IHttpContextAccessor httpContextAccessor, IConfiguration configuration, IMapper mapper,
-        IRedisService redisService, IPublishEndpoint publishEndpoint) : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
+        IRedisService redisService, IPublishEndpoint publishEndpoint, IGoogleOAuthService googleOAuthService) : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
     {
         _configuration = configuration;
         _redisService = redisService;
         _publishEndpoint = publishEndpoint;
+        _googleOAuthService = googleOAuthService;
     }
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request)
@@ -53,7 +58,7 @@ public class UserService : BaseService<UserService>, IUserService
 
         var user = await GetUserWithDetailsAsync(request.Email);
 
-        if (user == null || !PasswordUtil.VerifyPassword(request.Password, user.Password))
+        if (user == null || !PasswordUtil.VerifyPassword(request.Password, user.Password) || user.Active == false)
         {
             _logger.LogWarning("Login failed for email: {Email}", request.Email);
             throw new BadHttpRequestException(MessageConstant.User.UserNotFound);
@@ -71,6 +76,7 @@ public class UserService : BaseService<UserService>, IUserService
             Email = user.Email,
             FullName = user.FullName,
             Phone = user.Phone,
+            RequirePasswordChange = user.RequirePasswordChange,
             Role = new RoleResponse
             {
                 Id = user.Role.Id,
@@ -103,9 +109,23 @@ public class UserService : BaseService<UserService>, IUserService
                 CreateAt = up.Permission.CreateAt,
                 UpdateAt = up.Permission.UpdateAt
             }).ToList() ?? new List<PermissionResponse>(),
-            Token = JwtUtil.GenerateJwtToken(user, _configuration),
-            RefreshToken = JwtUtil.GenerateRefreshToken()
         };
+
+        // Generate tokens
+        response.DocaiToken = JwtUtil.GenerateJwtToken(user, _configuration);
+        response.DocaiRefreshToken = JwtUtil.GenerateJwtRefreshToken(user, _configuration);
+
+        // Check if user has Google tokens in Redis
+        var googleTokens = await _redisService.GetGoogleTokensAsync(user.Id.ToString());
+        if (googleTokens.HasValue)
+        {
+            response.GoogleAccessToken = googleTokens.Value.accessToken;
+            response.GoogleRefreshToken = googleTokens.Value.refreshToken;
+        }
+
+        // Store DocAI tokens in Redis
+        await _redisService.SetDocAITokensAsync(user.Id.ToString(),
+            response.DocaiToken, response.DocaiRefreshToken);
 
         // Cập nhật last login sau khi đã tạo response
         await UpdateLastLoginAsync(user);
@@ -135,17 +155,27 @@ public class UserService : BaseService<UserService>, IUserService
 
     private async Task<User> GetUserWithDetailsAsync(string email)
     {
+        _logger.LogInformation("Searching for user with email: {Email}", email);
+
         var userDetail = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
-            predicate: u => u.Email == email,
+            predicate: u => u.Email.ToLower() == email.ToLower(), // Case insensitive
             include: u => u.Include(u => u.Role)
             .Include(u => u.Department)
             .Include(u => u.UserPermissions)
             .ThenInclude(up => up.Permission)
             );
+
+        if (userDetail == null)
+        {
+            _logger.LogWarning("No user found with email: {Email}", email);
+        }
+        else
+        {
+            _logger.LogInformation("Found user: {UserId} with email: {Email}", userDetail.Id, userDetail.Email);
+        }
+
         return userDetail;
     }
-
-    // CreateLoginResponse đã bị xóa vì đã tích hợp vào LoginAsync
 
     private async Task UpdateLastLoginAsync(User user)
     {
@@ -316,14 +346,19 @@ public class UserService : BaseService<UserService>, IUserService
             NotificationsEnabled = userSetting.NotificationsEnabled,
             UpdateAt = user.UpdateAt
         };
-        response.Token = JwtUtil.GenerateJwtToken(user, _configuration);
-        response.RefreshToken = JwtUtil.GenerateRefreshToken();
+        response.DocaiToken = JwtUtil.GenerateJwtToken(user, _configuration);
+        response.DocaiRefreshToken = JwtUtil.GenerateJwtRefreshToken(user, _configuration);
+
+        // Check if user has Google tokens in Redis
+        var googleTokens = await _redisService.GetGoogleTokensAsync(user.Id.ToString());
+        if (googleTokens.HasValue)
+        {
+            response.GoogleAccessToken = googleTokens.Value.accessToken;
+            response.GoogleRefreshToken = googleTokens.Value.refreshToken;
+        }
 
         return response;
     }
-
-
-
 
     public async Task<string> GenerateOtpAsync(GenerateEmailOtpRequest request)
     {
@@ -831,41 +866,27 @@ public class UserService : BaseService<UserService>, IUserService
 
     public async Task<bool> LogoutAsync()
     {
-        try
+        var authHeader = _httpContextAccessor.HttpContext?.Request.Headers["Authorization"].FirstOrDefault();
+        if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
         {
-            var authHeader = _httpContextAccessor.HttpContext?.Request.Headers["Authorization"].FirstOrDefault();
-            if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
-            {
-                throw new UnauthorizedAccessException("No valid token found");
-            }
-
-            var token = authHeader.Substring("Bearer ".Length).Trim();
-            var handler = new JwtSecurityTokenHandler();
-            var jsonToken = handler.ReadJwtToken(token);
-
-            var jti = jsonToken.Claims.FirstOrDefault(x => x.Type == JwtRegisteredClaimNames.Jti)?.Value;
-            var exp = jsonToken.Claims.FirstOrDefault(x => x.Type == JwtRegisteredClaimNames.Exp)?.Value;
-
-            if (!string.IsNullOrEmpty(jti) && !string.IsNullOrEmpty(exp))
-            {
-                // Tính thời gian còn lại của token
-                var expiration = DateTimeOffset.FromUnixTimeSeconds(long.Parse(exp));
-                var timeRemaining = expiration - DateTimeOffset.UtcNow;
-
-                if (timeRemaining > TimeSpan.Zero)
-                {
-                    await _redisService.BlacklistJwtAsync(jti, timeRemaining);
-                    _logger.LogInformation("JWT token blacklisted successfully: {Jti}", jti);
-                }
-            }
-
-            return true;
+            return false;
         }
-        catch (Exception ex)
+
+        var token = authHeader.Substring("Bearer ".Length).Trim();
+        var jti = JwtUtil.ExtractJtiFromToken(token);
+        var expiration = JwtUtil.GetTokenExpiration(token);
+
+        if (!string.IsNullOrEmpty(jti) && expiration.HasValue)
         {
-            _logger.LogError(ex, "Error during logout");
-            throw new BadHttpRequestException("Logout failed");
+            var timeRemaining = expiration.Value - DateTime.UtcNow;
+            if (timeRemaining > TimeSpan.Zero)
+            {
+                await _redisService.BlacklistJwtAsync(jti, timeRemaining);
+                _logger.LogInformation("JWT token blacklisted successfully: {Jti}", jti);
+            }
         }
+
+        return true;
     }
 
     public async Task<Dictionary<string, string>> GetUserNamesByIdsAsync(List<string> userIds)
@@ -873,7 +894,7 @@ public class UserService : BaseService<UserService>, IUserService
         try
         {
             var result = new Dictionary<string, string>();
-            
+
             if (!userIds.Any())
                 return result;
 
@@ -893,7 +914,7 @@ public class UserService : BaseService<UserService>, IUserService
             // Bulk query users from database
             var users = await _unitOfWork.GetRepository<User>().GetListAsync(
                 predicate: u => validGuids.Contains(u.Id),
-                selector: u => new { u.Id, u.FullName}
+                selector: u => new { u.Id, u.FullName }
             );
 
             // Map results back to string IDs
@@ -909,6 +930,185 @@ public class UserService : BaseService<UserService>, IUserService
         {
             _logger.LogError(ex, "Error retrieving user names by IDs");
             return new Dictionary<string, string>();
+        }
+    }
+
+    public async Task<GoogleOAuthResponse> GoogleLoginAsync(GoogleLoginRequest request)
+    {
+        var googleResult = await _googleOAuthService.ValidateGoogleTokenAsync(request.GoogleToken);
+        if (!googleResult.IsValid)
+        {
+            throw new UnauthorizedAccessException("Invalid Google token");
+        }
+
+        var user = await GetOrCreateGoogleUser(googleResult);
+        var response = _mapper.Map<GoogleOAuthResponse>(user);
+
+        // Generate DocAI tokens
+        response.DocaiToken = JwtUtil.GenerateJwtToken(user, _configuration);
+        response.DocaiRefreshToken = JwtUtil.GenerateJwtRefreshToken(user, _configuration);
+
+        // Set Google tokens
+        response.GoogleAccessToken = googleResult.AccessToken;
+        response.GoogleRefreshToken = googleResult.RefreshToken;
+
+        // Store tokens in Redis
+        await _redisService.SetDocAITokensAsync(user.Id.ToString(),
+            response.DocaiToken, response.DocaiRefreshToken);
+        await _redisService.SetGoogleTokensAsync(user.Id.ToString(),
+            googleResult.AccessToken, googleResult.RefreshToken, googleResult.ExpiresAt);
+
+        return response;
+    }
+
+    public async Task<GoogleOAuthResponse> GoogleCallbackAsync(string code, string state)
+    {
+        var request = new GoogleOAuthRequest { Code = code, State = state };
+        return await _googleOAuthService.AuthenticateWithGoogleAsync(request);
+    }
+
+    public async Task<RefreshTokenResponse> RefreshTokenAsync(RefreshTokenRequest request)
+    {
+        var principal = JwtUtil.GetPrincipalFromExpiredToken(request.RefreshToken, _configuration);
+        var userId = principal.FindFirst("UserId")?.Value;
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            throw new UnauthorizedAccessException("Invalid refresh token");
+        }
+
+        var user = await GetUserByIdAsync(Guid.Parse(userId));
+        if (user == null)
+        {
+            throw new UnauthorizedAccessException("User not found");
+        }
+
+        var response = _mapper.Map<RefreshTokenResponse>(user);
+        response.DocaiToken = JwtUtil.GenerateJwtToken(user, _configuration);
+        response.DocaiRefreshToken = JwtUtil.GenerateJwtRefreshToken(user, _configuration);
+
+        // Update DocAI tokens in Redis
+        await _redisService.SetDocAITokensAsync(userId, response.DocaiToken, response.DocaiRefreshToken);
+
+        // Refresh Google tokens if available
+        var googleTokens = await _redisService.GetGoogleTokensAsync(userId);
+        if (googleTokens.HasValue)
+        {
+            var refreshedGoogle = await _googleOAuthService.RefreshGoogleTokenAsync(googleTokens.Value.refreshToken);
+            if (refreshedGoogle.HasValue)
+            {
+                response.GoogleAccessToken = refreshedGoogle.Value.accessToken;
+                response.GoogleRefreshToken = refreshedGoogle.Value.refreshToken;
+
+                await _redisService.SetGoogleTokensAsync(userId,
+                    refreshedGoogle.Value.accessToken, refreshedGoogle.Value.refreshToken, DateTime.UtcNow.AddHours(1));
+            }
+        }
+
+        return response;
+    }
+
+    public async Task<bool> ChangePasswordAsync(Guid userId, ChangePasswordRequest request)
+    {
+        var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Id == userId);
+
+        if (user == null)
+        {
+            return false;
+        }
+
+        // Verify current password
+        if (!PasswordUtil.VerifyPassword(request.CurrentPassword, user.Password))
+        {
+            return false;
+        }
+
+        // Update password
+        user.Password = PasswordUtil.HashPassword(request.NewPassword);
+        user.RequirePasswordChange = false;
+        user.UpdateAt = DateTime.UtcNow;
+
+        _unitOfWork.GetRepository<User>().UpdateAsync(user);
+        var result = await _unitOfWork.CommitAsync();
+
+        return result > 0;
+    }
+
+    private async Task<User> GetOrCreateGoogleUser(GoogleTokenValidationResult googleResult)
+    {
+        var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Email == googleResult.Email,
+            include: u => u.Include(x => x.Role)
+                         .Include(x => x.Department)
+                         .Include(x => x.UserPermissions)
+                         .ThenInclude(up => up.Permission));
+
+        if (user == null)
+        {
+            // Create new user from Google account
+            user = new User
+            {
+                Id = Guid.NewGuid(),
+                Email = googleResult.Email,
+                FullName = googleResult.Name,
+                GoogleId = googleResult.GoogleId,
+                RequirePasswordChange = false,
+                Password = PasswordUtil.HashPassword(Guid.NewGuid().ToString()), // Random password
+                CreatAt = DateTime.UtcNow,
+                UpdateAt = DateTime.UtcNow
+            };
+
+            // Set default role and department
+            var defaultRole = await _unitOfWork.GetRepository<Role>().SingleOrDefaultAsync(
+                predicate: r => r.RoleName == "Member");
+            user.RoleId = defaultRole?.Id ?? Guid.Empty;
+
+            var defaultDepartment = await _unitOfWork.GetRepository<Department>().SingleOrDefaultAsync(
+                predicate: d => d.Name == "General");
+            user.DepartmentId = defaultDepartment?.Id ?? Guid.Empty;
+
+            await _unitOfWork.GetRepository<User>().InsertAsync(user);
+            await _unitOfWork.CommitAsync();
+
+            _logger.LogInformation("Created new user from Google OAuth: {Email}", googleResult.Email);
+        }
+
+        return user;
+    }
+
+    private async Task<User> GetUserByIdAsync(Guid userId)
+    {
+        return await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Id == userId,
+            include: u => u.Include(x => x.Role)
+                         .Include(x => x.Department)
+                         .Include(x => x.UserPermissions)
+                         .ThenInclude(up => up.Permission));
+    }
+
+    public async Task<bool> RevokeGoogleTokenAsync(string userId)
+    {
+        try
+        {
+            // Revoke Google token through GoogleOAuthService
+            var result = await _googleOAuthService.RevokeGoogleTokenAsync(userId);
+
+            if (result)
+            {
+                _logger.LogInformation("Google token revoked successfully for user: {UserId}", userId);
+            }
+            else
+            {
+                _logger.LogWarning("Failed to revoke Google token for user: {UserId}", userId);
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error revoking Google token for user: {UserId}", userId);
+            return false;
         }
     }
 }

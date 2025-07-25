@@ -16,8 +16,23 @@ public interface IRedisService
 
     Task<List<string>> GetListAsync(string key);
 
-    // Thêm methods cho JWT Blacklist và Rate Limiting
+    // Google Token Management
+    Task SetGoogleTokensAsync(string userId, string accessToken, string refreshToken, DateTime expiry);
+    Task<(string accessToken, string refreshToken)?> GetGoogleTokensAsync(string userId);
+    Task RemoveGoogleTokensAsync(string userId);
+    Task ClearGoogleTokensAsync(string userId);
+
+    // DocAI Token Management  
+    Task SetDocAITokensAsync(string userId, string accessToken, string refreshToken);
+    Task<(string accessToken, string refreshToken)?> GetDocAITokensAsync(string userId);
+    Task RemoveDocAITokensAsync(string userId);
+    Task ClearDocAITokensAsync(string userId);
+
+    // JWT Blacklist và Rate Limiting
     Task BlacklistJwtAsync(string jti, TimeSpan expiration);
     Task<bool> IsJwtBlacklistedAsync(string jti);
     Task<bool> CheckRateLimitAsync(string key, int limit, TimeSpan window);
+
+    // Token cleanup
+    Task ClearAllUserTokensAsync(string userId);
 }

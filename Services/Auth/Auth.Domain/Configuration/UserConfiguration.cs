@@ -44,6 +44,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
                 Email = "admin@gmail.com",
                 Phone = "0847911068",
                 FullName = "Admin",
+                Active = true,
                 RoleId = Guid.Parse("a996692c-1f5e-4458-8dcf-c2494a47b6d6"), //Admin
                 DepartmentId = Guid.Parse("d8854d21-8fae-46aa-b51b-0de060b92ee3"), // Company
                 CreatAt = DateTime.UtcNow,

@@ -9,6 +9,8 @@ public class User
 {
     [Key]
     public Guid Id { get; set; }
+    public string? GoogleId { get; set; }
+    public bool RequirePasswordChange { get; set; } = true;
     public string Password { get; set; }
     public string Email { get; set; }
     public string Phone { get; set; }

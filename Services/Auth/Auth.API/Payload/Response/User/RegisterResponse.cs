@@ -14,6 +14,8 @@ public class RegisterResponse
     public RoleResponse Role { get; set; }
     public DepartmentResponse Department { get; set; }
     public UserSettingResponse UserSetting { get; set; }
-    public string Token { get; set; }
-    public string RefreshToken { get; set; }
+    public string DocaiToken { get; set; }
+    public string DocaiRefreshToken { get; set; }
+    public string? GoogleAccessToken { get; set; }
+    public string? GoogleRefreshToken { get; set; }
 }

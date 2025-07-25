@@ -11,7 +11,15 @@ public class ApiEndPointConstant
     public static class User
     {
         public const string Login = "login";
+        public const string GoogleLogin = "google/login";
+        public const string GoogleCallback = "google/callback";
+        public const string GoogleAuthUrl = "google/auth-url";
+        public const string RevokeGoogleToken = "google/revoke";
+        public const string GoogleRefreshToken = "google/refresh-token";
         public const string Register = "register";
+        public const string RefreshToken = "refresh-token";
+        public const string Logout = "logout";
+        public const string ChangePassword = "change-password";
         public const string SendOtp = "send-otp";
         public const string ChangeRole = "change-role";
         public const string ChangeDepartment = "change-department";

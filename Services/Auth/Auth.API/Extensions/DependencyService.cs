@@ -75,6 +75,9 @@ public static class DependencyService
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<IUserPermissionService, UserPermissionService>();
         services.AddScoped<Services.Interface.IAuthorizationService, Services.Implement.AuthorizationService>();
+        services.AddHttpClient<IGoogleOAuthService, GoogleOAuthService>();
+        services.AddScoped<IGoogleOAuthService, GoogleOAuthService>();
+        services.AddHttpClient<GoogleOAuthService>();
 
         // services.AddSingleton<IPublishEndpoint, MockPublishEndpoint>();
 
@@ -165,6 +168,4 @@ public static class DependencyService
 
         return services;
     }
-
-
 }

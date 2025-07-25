@@ -1,12 +1,9 @@
-﻿using System;
 using Auth.API.Payload.Response.Department;
+using Auth.API.Payload.Response.Permission;
 using Auth.API.Payload.Response.Role;
 using Auth.API.Payload.Response.UserSetting;
-using Auth.API.Payload.Response.Permission;
 
-namespace Auth.API.Payload.Response;
-
-public class LoginResponse
+public class GoogleOAuthResponse
 {
     public Guid UserId { get; set; }
     public string Email { get; set; }
@@ -18,7 +15,7 @@ public class LoginResponse
     public List<PermissionResponse> Permissions { get; set; }
     public string DocaiToken { get; set; }
     public string DocaiRefreshToken { get; set; }
-    public string? GoogleAccessToken { get; set; }
-    public string? GoogleRefreshToken { get; set; }
+    public string GoogleAccessToken { get; set; }
+    public string GoogleRefreshToken { get; set; }
     public bool RequirePasswordChange { get; set; }
 }

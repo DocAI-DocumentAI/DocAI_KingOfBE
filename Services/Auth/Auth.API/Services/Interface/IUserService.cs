@@ -1,8 +1,10 @@
 using System.Threading.Tasks;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.ActiveKey;
+using Auth.API.Payload.Request.Auth;
 using Auth.API.Payload.Request.User;
 using Auth.API.Payload.Response;
+using Auth.API.Payload.Response.Auth;
 using Auth.API.Payload.Response.User;
 using Auth.Infrastructure.Filter;
 using Auth.Infrastructure.Paginate;
@@ -31,11 +33,16 @@ public interface IUserService
     public Task<IPaginate<UserResponse>> GetAllUsersAsync(int page, int size, UserFilter? filter, string? sortBy, bool isAsc);
 
     public Task<bool> LogoutAsync();
-    
+
     /// <summary>
     /// Get user names by their IDs for bulk lookup
     /// </summary>
     /// <param name="userIds">List of user IDs</param>
     /// <returns>Dictionary mapping user IDs to user names</returns>
     public Task<Dictionary<string, string>> GetUserNamesByIdsAsync(List<string> userIds);
+    public Task<RefreshTokenResponse> RefreshTokenAsync(RefreshTokenRequest request);
+    public Task<GoogleOAuthResponse> GoogleLoginAsync(GoogleLoginRequest request);
+    public Task<GoogleOAuthResponse> GoogleCallbackAsync(string code, string state);
+    public Task<bool> RevokeGoogleTokenAsync(string userId);
+    public Task<bool> ChangePasswordAsync(Guid userId, ChangePasswordRequest request);
 }
