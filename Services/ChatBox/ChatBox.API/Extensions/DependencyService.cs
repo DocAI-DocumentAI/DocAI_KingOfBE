@@ -51,7 +51,7 @@ public static class DependencyService
             .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
                 onRetry: (outcome, timespan, retryAttempt, context) =>
                 {
-                    var logger = serviceProvider.GetService<ILogger<AIClient>>();
+                    var logger = serviceProvider.GetService<ILogger<AiServiceClient>>();
                     logger?.LogWarning("Retrying HTTP request. Attempt {RetryAttempt} after {Timespan} due to {Reason}",
                         retryAttempt, timespan, outcome.Exception?.Message ?? outcome.Result?.ReasonPhrase);
                 });
@@ -64,13 +64,13 @@ public static class DependencyService
             .CircuitBreakerAsync(5, TimeSpan.FromSeconds(30),
                 onBreak: (outcome, timespan, context) =>
                 {
-                    var logger = serviceProvider.GetService<ILogger<AIClient>>();
+                    var logger = serviceProvider.GetService<ILogger<AiServiceClient>>();
                     logger?.LogError("Circuit breaker opened for {Timespan} due to {Reason}",
                         timespan, outcome.Exception?.Message);
                 },
                 onReset: context =>
                 {
-                    var logger = serviceProvider.GetService<ILogger<AIClient>>();
+                    var logger = serviceProvider.GetService<ILogger<AiServiceClient>>();
                     logger?.LogInformation("Circuit breaker reset");
                 });
     }
@@ -80,7 +80,7 @@ public static class DependencyService
         services.AddDatabase();
         services.AddUnitOfWork();
 
-        services.AddHttpClient<IAIClient, AIClient>(client =>
+        services.AddHttpClient<IAiServiceClient, AiServiceClient>(client =>
         {
             client.BaseAddress = new Uri(configuration["ChatService:AIMicroserviceBaseUrl"]
                 ?? throw new InvalidOperationException("AI Microservice Base URL is missing."));
@@ -92,13 +92,32 @@ public static class DependencyService
         services.AddHttpContextAccessor();
         services.AddAutoMapper(typeof(MappingProfile).Assembly);
 
-        services.AddHttpClient<IDocumentClient, DocumentClient>(client =>
+        services.AddHttpClient<IDocumentServiceClient, DocumentServiceClient>(client =>
         {
             client.BaseAddress = new Uri(configuration["ChatService:DocumentMicroserviceBaseUrl"] ?? throw new InvalidOperationException("Document Microservice Base URL is missing."));
         })
         .SetHandlerLifetime(TimeSpan.FromMinutes(5));
 
-        services.AddScoped<IDocumentClient, MockDocumentClient>();
+        // Register new HTTP clients for new services
+        services.AddHttpClient<IAiServiceClient, AiServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(configuration["ChatService:AIMicroserviceBaseUrl"]
+                ?? throw new InvalidOperationException("AI Microservice Base URL is missing."));
+        })
+        .SetHandlerLifetime(TimeSpan.FromMinutes(5))
+        .AddPolicyHandler((serviceProvider, request) => GetRetryPolicy(serviceProvider))
+        .AddPolicyHandler((serviceProvider, request) => GetCircuitBreakerPolicy(serviceProvider));
+
+        services.AddHttpClient<IDocumentServiceClient, ChatBox.API.Services.Implement.DocumentServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(configuration["ChatService:DocumentMicroserviceBaseUrl"]
+                ?? throw new InvalidOperationException("Document Microservice Base URL is missing."));
+        })
+        .SetHandlerLifetime(TimeSpan.FromMinutes(5))
+        .AddPolicyHandler((serviceProvider, request) => GetRetryPolicy(serviceProvider))
+        .AddPolicyHandler((serviceProvider, request) => GetCircuitBreakerPolicy(serviceProvider));
+
+        // Keep legacy services for backward compatibility
         services.AddScoped<IChatService, ChatService>();
 
         return services;

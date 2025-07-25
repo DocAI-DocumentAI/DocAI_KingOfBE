@@ -1,11 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using AI.Domain.Models;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace AI.Domain.Configuration
 {
@@ -14,42 +9,31 @@ namespace AI.Domain.Configuration
         public void Configure(EntityTypeBuilder<UsageMetric> builder)
         {
             builder.ToTable("UsageMetrics");
-
-            builder.HasKey(e => e.Id);
-
-            builder.HasIndex(e => e.RequestId)
-                .HasDatabaseName("IX_UsageMetric_RequestId");
-
-            builder.HasIndex(e => e.UserId)
-                .HasDatabaseName("IX_UsageMetric_UserId");
-
-            builder.HasIndex(e => e.CreatedAt)
-                .HasDatabaseName("IX_UsageMetric_CreatedAt");
-
-            builder.HasIndex(e => new { e.ModelType, e.CreatedAt })
-                .HasDatabaseName("IX_UsageMetric_Type_Date");
-
-            builder.Property(e => e.RequestId)
-                .IsRequired()
-                .HasMaxLength(50);
-
-            builder.Property(e => e.UserId)
+            
+            builder.HasKey(x => x.Id);
+            
+            builder.Property(x => x.RequestId)
                 .IsRequired()
                 .HasMaxLength(100);
-
-            builder.Property(e => e.ModelType)
-                .HasConversion<string>()
-                .IsRequired();
-
-            builder.Property(e => e.Status)
-                .HasConversion<string>()
-                .IsRequired();
-
-            builder.Property(e => e.ErrorMessage)
+                
+            builder.Property(x => x.SourceService)
+                .HasMaxLength(100);
+                
+            builder.Property(x => x.ModelType)
+                .HasMaxLength(100);
+                
+            builder.Property(x => x.Status)
+                .HasMaxLength(50);
+                
+            builder.Property(x => x.ErrorMessage)
                 .HasMaxLength(1000);
-
-            builder.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP");
+                
+            builder.Property(x => x.EstimatedCost)
+                .HasColumnType("decimal(18,6)");
+                
+            builder.HasIndex(x => x.RequestId);
+            builder.HasIndex(x => x.CreatedAt);
+            builder.HasIndex(x => x.SourceService);
         }
     }
 }

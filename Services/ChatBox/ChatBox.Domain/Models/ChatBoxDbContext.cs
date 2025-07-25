@@ -11,21 +11,14 @@ namespace ChatBox.Domain.Models
     {
         public ChatBoxDbContext(DbContextOptions<ChatBoxDbContext> options) : base(options) { }
 
-        public DbSet<Conversation> Conversations { get; set; } = null!;
-        public DbSet<MessageHistory> MessageHistories { get; set; } = null!;
+        // New chat system tables
+        public DbSet<ChatSession> ChatSessions { get; set; } = null!;
+        public DbSet<ChatMessage> ChatMessages { get; set; } = null!;
+        public DbSet<UserPreference> UserChatPreferences { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
-
-            modelBuilder.Entity<Conversation>()
-                .HasMany(c => c.MessageHistories)
-                .WithOne(m => m.Conversation)
-                .HasForeignKey(m => m.ConversationId)
-                .OnDelete(DeleteBehavior.Cascade); 
-
-            modelBuilder.Entity<MessageHistory>()
-                .HasIndex(m => new { m.ConversationId, m.Order });
 
         }
     }

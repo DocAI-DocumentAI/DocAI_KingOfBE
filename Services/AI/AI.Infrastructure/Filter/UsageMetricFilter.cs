@@ -13,6 +13,8 @@ namespace AI.Infrastructure.FIlter
     public class UsageMetricFilter : IFilter<UsageMetric>
     {
         public string? UserId { get; set; }
+        public string? SourceService { get; set; }
+        public string? RequestId { get; set; }
         public ModelType? ModelType { get; set; }
         public RequestStatus? Status { get; set; }
         public DateTime? FromDate { get; set; }
@@ -22,6 +24,8 @@ namespace AI.Infrastructure.FIlter
         {
             return metric =>
                 (string.IsNullOrEmpty(UserId) || metric.UserId == UserId) &&
+                (string.IsNullOrEmpty(SourceService) || metric.SourceService == SourceService) &&
+                (string.IsNullOrEmpty(RequestId) || metric.RequestId == RequestId) &&
                 (!ModelType.HasValue || metric.ModelType == ModelType.Value) &&
                 (!Status.HasValue || metric.Status == Status.Value) &&
                 (!FromDate.HasValue || metric.CreatedAt >= FromDate.Value) &&

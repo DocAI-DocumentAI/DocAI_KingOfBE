@@ -6,44 +6,19 @@ namespace AI.API.Atributte
 {
     public class RateLimitAttribute : ActionFilterAttribute
     {
-        private readonly string _name;
-        private readonly int _limit;
-        private readonly int _windowSeconds;
+        public int MaxRequests { get; set; } = 10;
+        public int WindowInMinutes { get; set; } = 1;
 
-        public RateLimitAttribute(string name = "default", int limit = 10, int windowSeconds = 60)
+        public RateLimitAttribute(int maxRequests = 10, int windowInMinutes = 1)
         {
-            _name = name;
-            _limit = limit;
-            _windowSeconds = windowSeconds;
+            MaxRequests = maxRequests;
+            WindowInMinutes = windowInMinutes;
         }
 
         public override async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
         {
-            var cache = context.HttpContext.RequestServices.GetRequiredService<IMemoryCache>();
-            var ipAddress = context.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-            var key = $"ratelimit_{_name}_{ipAddress}";
-
-            var requestCount = await cache.GetOrCreateAsync(key, async entry =>
-            {
-                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(_windowSeconds);
-                return 0;
-            });
-
-            if (requestCount >= _limit)
-            {
-                context.Result = new ObjectResult(new
-                {
-                    success = false,
-                    message = "Rate limit exceeded",
-                    retryAfter = _windowSeconds
-                })
-                {
-                    StatusCode = 429
-                };
-                return;
-            }
-
-            cache.Set(key, requestCount + 1, TimeSpan.FromSeconds(_windowSeconds));
+            // Rate limiting is handled by SimpleRateLimitMiddleware
+            // This attribute just provides metadata for the middleware
             await next();
         }
     }

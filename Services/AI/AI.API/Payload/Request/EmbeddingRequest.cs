@@ -2,22 +2,26 @@
 
 namespace AI.API.Payload.Request
 {
+    /// <summary>
+    /// Simplified embedding request for frontend usage
+    /// </summary>
     public class EmbeddingRequest
     {
-        [Required(ErrorMessage = "DocumentId is required")]
-        public string DocumentId { get; set; }
+        [Required]
+        [StringLength(8000, ErrorMessage = "Text cannot exceed 8000 characters")]
+        public string Text { get; set; }
 
-        [Required(ErrorMessage = "VersionId is required")]
-        public string VersionId { get; set; }
+        public string UserId { get; set; }
 
-        [Required(ErrorMessage = "Content is required")]
-        [StringLength(8000, ErrorMessage = "Content cannot exceed 8000 characters")]
-        public string Content { get; set; }
-        public string Title { get; set; }
-        public string Summary { get; set; }
-        public string TypeName { get; set; }
+        public string SessionId { get; set; }
+
+        public string Source { get; set; }
+
+        public string? DocumentId { get; set; }
+        public string? VersionId { get; set; }
+        public string? Title { get; set; }
+        public string? Summary { get; set; }
+        public string? TypeName { get; set; }
         public int? DepartmentId { get; set; }
-
-        public Dictionary<string, string> Metadata { get; set; }
     }
 }

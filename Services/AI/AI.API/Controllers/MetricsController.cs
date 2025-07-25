@@ -1,16 +1,13 @@
-﻿using AI.API.Constants;
 using AI.API.Payload.Request;
 using AI.API.Payload.Response;
 using AI.API.Services.Interface;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.ComponentModel.DataAnnotations;
 
 namespace AI.API.Controllers
 {
-    [Authorize]
-    [Route(ApiEndPointConstant.API_PREFIX + "/metrics")]
-    public class MetricsController : BaseApiController
+    [ApiController]
+    [Route("api/[controller]")]
+    public class MetricsController : ControllerBase
     {
         private readonly IMetricsService _metricsService;
         private readonly ILogger<MetricsController> _logger;
@@ -19,240 +16,123 @@ namespace AI.API.Controllers
             IMetricsService metricsService,
             ILogger<MetricsController> logger)
         {
-            _metricsService = metricsService ?? throw new ArgumentNullException(nameof(metricsService));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _metricsService = metricsService;
+            _logger = logger;
         }
 
         /// <summary>
-        /// Get usage metrics
+        /// Get usage metrics with pagination and filtering
         /// </summary>
         [HttpGet("usage")]
-        [ProducesResponseType(typeof(PagedResponse<UsageMetricResponse>), 200)]
-        public async Task<IActionResult> GetUsageMetrics([FromQuery] GetMetricsRequest request)
+        public async Task<ActionResult<PagedResponse<UsageMetricResponse>>> GetUsageMetrics([FromQuery] GetUsageMetricsRequest request)
         {
             try
             {
-                // Regular users can only see their own metrics
-                if (!User.IsInRole("Admin"))
-                {
-                    request.UserId = User.Identity?.Name;
-                }
-
-                var response = await _metricsService.GetUsageMetricsAsync(request);
-                return Ok(response);
+                var metrics = await _metricsService.GetUsageMetricsAsync(request);
+                return Ok(metrics);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting usage metrics");
-                return HandleError(ex);
+                return StatusCode(500, new { message = "Internal server error" });
             }
         }
 
         /// <summary>
-        /// Get request logs (Admin only)
+        /// Get request logs with pagination and filtering
         /// </summary>
         [HttpGet("logs")]
-        [Authorize(Roles = "Admin")]
-        [ProducesResponseType(typeof(PagedResponse<AIRequestLogResponse>), 200)]
-        public async Task<IActionResult> GetRequestLogs([FromQuery] GetLogsRequest request)
+        public async Task<ActionResult<PagedResponse<AIRequestLogResponse>>> GetRequestLogs([FromQuery] GetLogsRequest request)
         {
             try
             {
-                var response = await _metricsService.GetRequestLogsAsync(request);
-                return Ok(response);
+                var logs = await _metricsService.GetRequestLogsAsync(request);
+                return Ok(logs);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting request logs");
-                return HandleError(ex);
+                return StatusCode(500, new { message = "Internal server error" });
             }
         }
 
         /// <summary>
-        /// Get aggregated metrics (Admin only)
+        /// Get aggregated metrics for a time period
         /// </summary>
         [HttpGet("aggregated")]
-        [Authorize(Roles = "Admin")]
-        [ProducesResponseType(typeof(AggregatedMetricsResponse), 200)]
-        public async Task<IActionResult> GetAggregatedMetrics(
+        public async Task<ActionResult<AggregatedMetricsResponse>> GetAggregatedMetrics(
             [FromQuery] DateTime? from = null,
             [FromQuery] DateTime? to = null)
         {
             try
             {
-                var response = await _metricsService.GetAggregatedMetricsAsync(from, to);
-                return Ok(response);
-            }
-            catch (ArgumentException ex)
-            {
-                return HandleBadRequest(ex.Message);
+                var metrics = await _metricsService.GetAggregatedMetricsAsync(from, to);
+                return Ok(metrics);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting aggregated metrics");
-                return HandleError(ex);
+                return StatusCode(500, new { message = "Internal server error" });
             }
         }
 
         /// <summary>
-        /// Get user-specific metrics
+        /// Get system health metrics
         /// </summary>
-        [HttpGet("user/{userId}")]
-        [ProducesResponseType(typeof(Dictionary<string, object>), 200)]
-        public async Task<IActionResult> GetUserMetrics(
-            string userId,
-            [FromQuery] DateTime? from = null,
-            [FromQuery] DateTime? to = null)
+        [HttpGet("health")]
+        public async Task<ActionResult> GetHealthMetrics()
         {
             try
             {
-                // Regular users can only see their own metrics
-                if (!User.IsInRole("Admin") && userId != User.Identity?.Name)
+                // Basic health check
+                var healthData = new
                 {
-                    return Forbid("You can only view your own metrics");
-                }
+                    status = "healthy",
+                    timestamp = DateTime.UtcNow,
+                    uptime = Environment.TickCount64,
+                    memoryUsage = GC.GetTotalMemory(false)
+                };
 
-                var metrics = await _metricsService.GetUserMetricsAsync(userId, from, to);
-                return Ok(metrics);
-            }
-            catch (ArgumentException ex)
-            {
-                return HandleBadRequest(ex.Message);
+                return Ok(healthData);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting user metrics for {UserId}", userId);
-                return HandleError(ex);
+                _logger.LogError(ex, "Error getting health metrics");
+                return StatusCode(500, new { message = "Internal server error" });
             }
         }
 
         /// <summary>
-        /// Get current user's metrics
+        /// Get metrics summary for dashboard
         /// </summary>
-        [HttpGet("my-metrics")]
-        [ProducesResponseType(typeof(Dictionary<string, object>), 200)]
-        public async Task<IActionResult> GetMyMetrics(
-            [FromQuery] DateTime? from = null,
-            [FromQuery] DateTime? to = null)
+        [HttpGet("summary")]
+        public async Task<ActionResult> GetMetricsSummary([FromQuery] int days = 7)
         {
             try
             {
-                var userId = User.Identity?.Name;
-                if (string.IsNullOrEmpty(userId))
+                var from = DateTime.UtcNow.AddDays(-days);
+                var to = DateTime.UtcNow;
+                
+                var aggregated = await _metricsService.GetAggregatedMetricsAsync(from, to);
+                
+                var summary = new
                 {
-                    return HandleBadRequest("User identity not found");
-                }
+                    period = new { from, to, days },
+                    totalRequests = aggregated.TotalRequests,
+                    successRate = aggregated.TotalRequests > 0 
+                        ? (double)aggregated.SuccessfulRequests / aggregated.TotalRequests * 100 
+                        : 0,
+                    averageResponseTime = aggregated.AverageResponseTimeMs,
+                    totalTokens = aggregated.TotalTokensUsed
+                };
 
-                var metrics = await _metricsService.GetUserMetricsAsync(userId, from, to);
-                return Ok(metrics);
+                return Ok(summary);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting current user metrics");
-                return HandleError(ex);
+                _logger.LogError(ex, "Error getting metrics summary");
+                return StatusCode(500, new { message = "Internal server error" });
             }
-        }
-
-        /// <summary>
-        /// Cleanup old metrics (Admin only)
-        /// </summary>
-        [HttpPost("cleanup")]
-        [Authorize(Roles = "Admin")]
-        [ProducesResponseType(typeof(object), 200)]
-        public async Task<IActionResult> CleanupOldMetrics([FromQuery][Required] int daysToKeep = 90)
-        {
-            try
-            {
-                if (daysToKeep < 7)
-                {
-                    return HandleBadRequest("Days to keep must be at least 7");
-                }
-
-                var success = await _metricsService.CleanupOldMetricsAsync(daysToKeep);
-
-                _logger.LogInformation("Metrics cleanup initiated by {User} for data older than {Days} days",
-                    User.Identity?.Name, daysToKeep);
-
-                return Ok(new
-                {
-                    success,
-                    message = success
-                        ? $"Cleanup completed for data older than {daysToKeep} days"
-                        : "Cleanup failed",
-                    daysToKeep,
-                    initiatedBy = User.Identity?.Name,
-                    initiatedAt = DateTime.UtcNow
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during metrics cleanup");
-                return HandleError(ex);
-            }
-        }
-
-        /// <summary>
-        /// Export metrics to CSV (Admin only)
-        /// </summary>
-        [HttpGet("export")]
-        [Authorize(Roles = "Admin")]
-        [Produces("text/csv")]
-        public async Task<IActionResult> ExportMetrics(
-            [FromQuery] DateTime? from = null,
-            [FromQuery] DateTime? to = null,
-            [FromQuery] string format = "csv")
-        {
-            try
-            {
-                from ??= DateTime.UtcNow.AddDays(-30);
-                to ??= DateTime.UtcNow;
-
-                var metrics = await _metricsService.GetAggregatedMetricsAsync(from, to);
-
-                if (format.ToLower() == "csv")
-                {
-                    var csv = GenerateMetricsCsv(metrics);
-                    var bytes = System.Text.Encoding.UTF8.GetBytes(csv);
-                    return File(bytes, "text/csv", $"ai_metrics_{from:yyyyMMdd}_{to:yyyyMMdd}.csv");
-                }
-                else
-                {
-                    return Ok(metrics);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error exporting metrics");
-                return HandleError(ex);
-            }
-        }
-
-        private string GenerateMetricsCsv(AggregatedMetricsResponse metrics)
-        {
-            var csv = new System.Text.StringBuilder();
-
-            // Headers
-            csv.AppendLine("Metric,Value");
-
-            // Summary metrics
-            csv.AppendLine($"Total Requests,{metrics.TotalRequests}");
-            csv.AppendLine($"Successful Requests,{metrics.SuccessfulRequests}");
-            csv.AppendLine($"Failed Requests,{metrics.FailedRequests}");
-            csv.AppendLine($"Total Tokens Used,{metrics.TotalTokensUsed}");
-            csv.AppendLine($"Average Response Time (ms),{metrics.AverageResponseTimeMs:F2}");
-            csv.AppendLine($"Unique Users,{metrics.UniqueUsers}");
-            csv.AppendLine($"From Date,{metrics.FromDate:yyyy-MM-dd HH:mm:ss}");
-            csv.AppendLine($"To Date,{metrics.ToDate:yyyy-MM-dd HH:mm:ss}");
-
-            // Model breakdown
-            csv.AppendLine();
-            csv.AppendLine("Model Type,Request Count,Tokens Used,Avg Response Time,Success Rate");
-            foreach (var model in metrics.MetricsByModel)
-            {
-                csv.AppendLine($"{model.Key},{model.Value.RequestCount},{model.Value.TokensUsed},{model.Value.AverageResponseTimeMs:F2},{model.Value.SuccessRate:F2}%");
-            }
-
-            return csv.ToString();
         }
     }
 }

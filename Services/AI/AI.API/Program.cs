@@ -6,10 +6,7 @@ using Serilog.Templates;
 using Serilog.Templates.Themes;
 using OpenApiSecurityScheme = NSwag.OpenApiSecurityScheme;
 using AI.API.Extensions;
-using Scalar.AspNetCore;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using AI.API;
-using AI.API.Middlewares;
+using AI.API.Background;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -30,25 +27,25 @@ try
             "[{@t:HH:mm:ss} {@l:u3}{#if @tr is not null} ({substring(@tr,0,4)}:{substring(@sp,0,4)}){#end}] {@m}\n{@x}",
             theme: TemplateTheme.Code)));
 
-    builder.Services.AddDatabase();
-    builder.Services.AddServices(builder.Configuration);
+    // Add services to the container
+    builder.Services.AddHttpClient();
+    builder.Services.AddHttpContextAccessor();
 
-    builder.Services.AddOpenApi();
-    builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+    builder.Services
+       .AddDatabase()
+       .AddApplicationServices(builder.Configuration)
+       .AddHuggingFaceServices(builder.Configuration)
+       .AddAutoMapperProfiles()
+       .AddBackgroundServices()
+       .AddCorsPolicy(builder.Configuration)
+       .AddJwtAuthentication(builder.Configuration)
+       .AddSemanticKernel()
+       .AddOpenAIEmbeddingService(builder.Configuration);
 
     builder.Services.AddControllers();
-    builder.Services.AddHttpContextAccessor();
-    builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddAuthentication();
-    builder.Services.AddAuthorization();
-    builder.Services.Configure<HostOptions>(hostOptions =>
-    {
-        hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
-    });
 
-    builder.Services.AddHostedService<MetricsCleanupService>();
-    builder.Services.AddRateLimit();
-    // Register the NSwag services
+    builder.Services.AddEndpointsApiExplorer();
+
     builder.Services.AddOpenApiDocument(options =>
     {
         options.Title = "DocAI AI API";
@@ -66,30 +63,28 @@ try
         options.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("Bearer"));
     });
 
-
-    builder.Services.AddCors(options =>
-    {
-        options.AddDefaultPolicy(policy =>
-        {
-            policy.WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? new[] { "*" })
-                  .AllowAnyMethod()
-                  .AllowAnyHeader()
-                  .AllowCredentials();
-        });
-    });
+    //builder.Services.AddHealthChecks()
+    // .AddCheck<AIServiceHealthCheck>("ai-models");
 
     builder.Services.Configure<HostOptions>(hostOptions =>
     {
         hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
     });
 
-    var app = builder.Build();
+    builder.Services.AddOpenApi();
 
+    builder.Services.AddHostedService<MetricsCleanupService>();
+ 
+
+    // CORS policy configured in DependencyService.AddCorsPolicy()
+
+
+    var app = builder.Build();
     if (app.Environment.IsDevelopment())
     {
-        app.UseMiddleware<RequestResponseLoggingMiddleware>();
+        app.UseDeveloperExceptionPage();
     }
-    app.MapOpenApi();
+
     app.UseOpenApi();
     app.UseSwaggerUI(options =>
     {
@@ -100,34 +95,17 @@ try
 
     app.UseHttpsRedirection();
     app.UseCors();
+
+    // Add rate limiting middleware
+    app.UseMiddleware<AI.API.Middlewares.SimpleRateLimitMiddleware>();
+
     app.UseAuthentication();
     app.UseAuthorization();
-    app.UseSerilogRequestLogging(options =>
-    {
-        options.MessageTemplate = "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms";
-        options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
-        {
-            diagnosticContext.Set("RequestHost", httpContext.Request.Host.Value);
-            diagnosticContext.Set("RequestScheme", httpContext.Request.Scheme);
-            diagnosticContext.Set("UserAgent", httpContext.Request.Headers["User-Agent"].ToString());
-        };
-    });
-    app.UseRateLimiter();
 
-    // Health checks
-    //app.MapHealthChecks("/health");
-    //app.MapHealthChecks("/health/ready", new HealthCheckOptions
-    //{
-    //    Predicate = check => check.Tags.Contains("ready")
-    //});
-    //app.MapHealthChecks("/health/live", new HealthCheckOptions
-    //{
-    //    Predicate = _ => false
-    //});
 
-    // Map controllers
-    app.MapControllers()
-        .RequireRateLimiting("api");
+    app.MapControllers();
+
+    app.MapHealthChecks("/health");
 
     await app.RunAsync();
     Log.Information("Stopped cleanly");

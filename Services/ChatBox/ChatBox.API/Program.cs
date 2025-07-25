@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using ChatBox.API.Constants;
 using ChatBox.API.Extensions;
+using ChatBox.API.Hubs;
 using ChatBox.API.Middlewares;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -51,6 +52,12 @@ try
 
     builder.Services.AddAuthorization();
 
+    // Add SignalR for WebSocket support
+    builder.Services.AddSignalR();
+
+    // Add Memory Cache for system settings
+    builder.Services.AddMemoryCache();
+
     builder.Services.AddOpenApiDocument(options =>
     {
         options.Title = "DocAI Auth API";
@@ -99,13 +106,14 @@ try
 
     app.UseAuthentication();
 
-    app.UseMiddleware<ExceptionHandlingMiddleware>();
-
     app.UseAuthorization();
 
     app.UseSerilogRequestLogging();
 
     app.MapControllers();
+
+    // Map SignalR Hub
+    app.MapHub<ChatHub>("/chatHub");
 
     app.Run();
 
