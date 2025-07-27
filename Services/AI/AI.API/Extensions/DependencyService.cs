@@ -80,8 +80,7 @@ namespace AI.API.Extensions
         {
             var openAiApiKey = configuration["AI:Embedding:OpenAI:ApiKey"];
             var embeddingModel = configuration["AI:Embedding:OpenAI:Model"] ?? "text-embedding-3-small";
-            var dimensions = configuration.GetValue<int?>("AI:Embedding:OpenAI:Dimensions");
-            var orgId = configuration["AI:Embedding:OpenAI:OrganizationId"]; // Optional
+
 
             if (string.IsNullOrWhiteSpace(openAiApiKey))
             {
@@ -149,9 +148,6 @@ namespace AI.API.Extensions
                     logger: logger
                 );
             });
-
-            // Register Dynamic Provider Services for creating services on-demand
-            services.AddScoped<IDynamicProviderService, DynamicProviderService>();
 
             return services;
         }

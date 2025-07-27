@@ -13,5 +13,7 @@
         public DateTime Timestamp { get; set; }
         public int TokensUsed { get; set; }
         public TimeSpan ProcessingTime { get; set; }
+
+        public string AIModelUsed { get; set; }
     }
 }

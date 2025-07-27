@@ -2,7 +2,6 @@
 using System.Text.Json;
 using ChatBox.API.Payload.Request.DocumentClientService;
 using ChatBox.API.Payload.Response.DocumentServiceResponse;
-using ChatBox.API.Payload.Response.HealthMonitoringResponses;
 using ChatBox.API.Services.Interfaces;
 
 namespace ChatBox.API.Services.Implement
@@ -68,35 +67,6 @@ namespace ChatBox.API.Services.Implement
                     $"Error searching documents: {ex.Message}", "medium");
 
                 return CreateEmptySearchResponse(request.Query);
-            }
-        }
-
-        public async Task<List<DocumentCitation>> SearchDocumentsByIdsAsync(List<string> documentIds, Guid userId)
-        {
-            try
-            {
-                _logger.LogInformation("Searching documents by IDs for user {UserId}, Count: {DocumentCount}",
-                    userId, documentIds.Count);
-
-                var request = new { DocumentIds = documentIds, UserId = userId };
-                var response = await PostAsync<List<DocumentCitation>>("/api/documents/search/by-ids", request);
-
-                if (response != null)
-                {
-                    _logger.LogInformation("Retrieved {DocumentCount} document citations", response.Count);
-
-                    await _auditService.LogAsync(userId, "DocumentSearchByIds", "Search", string.Join(",", documentIds),
-                        null, new { DocumentIds = documentIds, ResultCount = response.Count });
-
-                    return response;
-                }
-
-                return new List<DocumentCitation>();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error searching documents by IDs for user {UserId}", userId);
-                return new List<DocumentCitation>();
             }
         }
 
@@ -210,44 +180,6 @@ namespace ChatBox.API.Services.Implement
                 return null;
             }
         }
-
-        public async Task<BatchDocumentResponse> GetBatchMetadataAsync(BatchDocumentRequest request)
-        {
-            try
-            {
-                _logger.LogInformation("Getting batch document metadata for user {UserId}, Documents: {DocumentCount}",
-                    request.UserId, request.DocumentIds.Count);
-
-                var response = await PostAsync<BatchDocumentResponse>("/api/documents/metadata/batch", request);
-
-                if (response != null)
-                {
-                    await _auditService.LogAsync(request.UserId, "GetBatchDocumentMetadata", "DocumentMetadata", string.Join(",", request.DocumentIds),
-                        null, new { DocumentIds = request.DocumentIds, ResultCount = response.AccessibleDocuments.Count });
-
-                    return response;
-                }
-
-                return new BatchDocumentResponse
-                {
-                    AccessibleDocuments = new List<string>(),
-                    RestrictedDocuments = request.DocumentIds,
-                    AccessReasons = request.DocumentIds.ToDictionary(id => id, id => "Metadata retrieval failed")
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting batch document metadata for user {UserId}", request.UserId);
-
-                return new BatchDocumentResponse
-                {
-                    AccessibleDocuments = new List<string>(),
-                    RestrictedDocuments = request.DocumentIds,
-                    AccessReasons = request.DocumentIds.ToDictionary(id => id, id => $"Metadata retrieval failed: {ex.Message}")
-                };
-            }
-        }
-
         public async Task<DocumentContent> GetDocumentContentAsync(string documentId, Guid userId)
         {
             try

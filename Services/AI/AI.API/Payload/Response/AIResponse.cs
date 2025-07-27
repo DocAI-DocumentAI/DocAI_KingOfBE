@@ -2,20 +2,22 @@
 
 namespace AI.API.Payload.Response
 {
-    public class AIResponse : BaseResponse
+    public class AIResponse 
     {
+        public bool Success { get; set; }
+        public string RequestId { get; set; }
         public string Content { get; set; }
         public int TokensUsed { get; set; }
         public int ResponseTimeMs { get; set; }
-        public string Text => Content;
-    }
+        public string? ModelUsed { get; set; }
+        public string? Message { get; set; }
 
-    public class StreamChunk
-    {
-        public string Content { get; set; }
-        public bool IsComplete { get; set; }
-        public int? TokenCount { get; set; }
-        public string RequestId { get; set; }
+        // Context-specific properties
+        public int DocumentsUsed { get; set; }
+        public int ConversationHistoryLength { get; set; }
+        public string? DetectedIntent { get; set; }
+        public double IntentConfidence { get; set; }
+        public int ContextTokens { get; set; }
     }
 
     /// <summary>
@@ -37,10 +39,6 @@ namespace AI.API.Payload.Response
         public DateTime LastUpdated { get; set; }
         public Dictionary<string, object> AdditionalMetrics { get; set; } = new();
     }
-
-    /// <summary>
-    /// Aggregated metrics response
-    /// </summary>
     public class AggregatedMetricsResponse : BaseResponse
     {
         public int TotalRequests { get; set; }
@@ -56,9 +54,6 @@ namespace AI.API.Payload.Response
         public Dictionary<string, ServiceMetrics> MetricsByService { get; set; } = new();
     }
 
-    /// <summary>
-    /// Model-specific metrics
-    /// </summary>
     public class ModelMetrics
     {
         public int RequestCount { get; set; }
@@ -67,10 +62,6 @@ namespace AI.API.Payload.Response
         public double SuccessRate { get; set; }
         public decimal EstimatedCost { get; set; }
     }
-
-    /// <summary>
-    /// Service-specific metrics
-    /// </summary>
     public class ServiceMetrics
     {
         public int RequestCount { get; set; }
@@ -79,65 +70,4 @@ namespace AI.API.Payload.Response
         public double SuccessRate { get; set; }
     }
 
-    /// <summary>
-    /// Usage metric response
-    /// </summary>
-    public class UsageMetricResponse
-    {
-        public int Id { get; set; }
-        public string RequestId { get; set; }
-        public string SourceService { get; set; }
-        public string ModelType { get; set; }
-        public int TokensUsed { get; set; }
-        public int ResponseTimeMs { get; set; }
-        public string Status { get; set; }
-        public string ErrorMessage { get; set; }
-        public DateTime CreatedAt { get; set; }
-        public decimal? EstimatedCost { get; set; }
-    }
-
-    /// <summary>
-    /// AI request log response
-    /// </summary>
-    public class AIRequestLogResponse
-    {
-        public int Id { get; set; }
-        public string RequestId { get; set; }
-        public string UserId { get; set; }
-        public string SourceService { get; set; }
-        public string ModelType { get; set; }
-        public string PromptPreview { get; set; }
-        public string ResponsePreview { get; set; }
-        public int TokensUsed { get; set; }
-        public int ResponseTimeMs { get; set; }
-        public string Status { get; set; }
-        public string ErrorMessage { get; set; }
-        public DateTime CreatedAt { get; set; }
-        public string RequestContent { get; set; }
-        public string ResponseContent { get; set; }
-        public decimal? EstimatedCost { get; set; }
-        public Dictionary<string, object> Metadata { get; set; }
-    }
-
-    /// <summary>
-    /// Cleanup operation response
-    /// </summary>
-    public class CleanupResponse : BaseResponse
-    {
-        public int DaysToKeep { get; set; }
-        public int RecordsDeleted { get; set; }
-        public string InitiatedBy { get; set; }
-        public DateTime InitiatedAt { get; set; }
-    }
-
-    public class PagedResponse<T> : BaseResponse
-    {
-        public List<T> Items { get; set; } = new();
-        public int Page { get; set; }
-        public int Size { get; set; }
-        public int TotalItems { get; set; }
-        public int TotalPages { get; set; }
-        public bool HasNextPage { get; set; }
-        public bool HasPreviousPage { get; set; }
-    }
 }

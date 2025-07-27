@@ -15,17 +15,12 @@ namespace ChatBox.Domain.Models
         public string Severity { get; set; }
         public DateTime Timestamp { get; set; }
         public string IpAddress { get; set; }
-        public string UserAgent { get; set; }
         public string Source { get; set; }
         public string ThreatLevel { get; set; }
         public bool RequiresInvestigation { get; set; }
         public string InvestigationStatus { get; set; }
-        public string InvestigatedBy { get; set; }
-        public DateTime? InvestigatedAt { get; set; }
-        public string Resolution { get; set; }
-        public Dictionary<string, object> EventData { get; set; } = new();
-        public Dictionary<string, object> Metadata { get; set; } = new();
         public bool IsArchived { get; set; }
         public DateTime? ArchiveDate { get; set; }
+        public string Checksum { get; set; }
     }
 }

@@ -9,6 +9,10 @@ using ChatBox.Domain.Models;
 using ChatBox.Infrastructure.Repository.Interfaces;
 using ChatBox.API.Payload.Request.DocumentClientService;
 using ChatBox.Domain.Enum;
+using System.Text.Json;
+using ChatBox.API.Payload.Response.AIServiceResponse;
+using ChatBox.API.Payload.Response.ChatServiceResponse;
+using ChatBox.API.Payload.Request.AIClientService;
 
 namespace ChatBox.API.Services.Implement
 {
@@ -17,181 +21,173 @@ namespace ChatBox.API.Services.Implement
         private readonly IAiServiceClient _aiServiceClient;
         private readonly IDocumentServiceClient _documentServiceClient;
         private readonly IUserPreferenceService _userPreferenceService;
-        private readonly ISecurityService _securityService;
-        private readonly IContentModerationService _contentModerationService;
-        private readonly IAuditService _auditService;
         private readonly IUnitOfWork<ChatBoxDbContext> _unitOfWork;
         private readonly ILogger<ConversationOrchestrationService> _logger;
         private readonly IMapper _mapper;
+        private readonly IConfiguration _configuration;
+        private readonly JsonSerializerOptions _jsonOptions;
 
-      public ConversationOrchestrationService(
+        public ConversationOrchestrationService(
             IAiServiceClient aiServiceClient,
             IDocumentServiceClient documentServiceClient,
             IUserPreferenceService userPreferenceService,
-            ISecurityService securityService,
-            IContentModerationService contentModerationService,
-            IAuditService auditService,
             IUnitOfWork<ChatBoxDbContext> unitOfWork,
             ILogger<ConversationOrchestrationService> logger,
-            IMapper mapper)
+            IMapper mapper,
+            IConfiguration configuration)
         {
             _aiServiceClient = aiServiceClient;
             _documentServiceClient = documentServiceClient;
             _userPreferenceService = userPreferenceService;
-            _securityService = securityService;
-            _contentModerationService = contentModerationService;
-            _auditService = auditService;
             _unitOfWork = unitOfWork;
             _logger = logger;
             _mapper = mapper;
+            _configuration = configuration;
+
+            _jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = false
+            };
         }
 
         public async Task<ConversationResponse> ProcessMessageAsync(ProcessMessageRequest request)
         {
-            var stopwatch = Stopwatch.StartNew();
             var messageId = Guid.NewGuid();
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
-                _logger.LogInformation("Processing message for user {UserId}, MessageId: {MessageId}",
-                    request.UserId, messageId);
+                _logger.LogInformation("Processing message for user {UserId}, MessageId: {MessageId}", request.UserId, messageId);
 
-                // 1. Validate and moderate content
-                var moderationResult = await ValidateAndModerateContentAsync(request.Message, request.UserId);
-                if (!moderationResult.IsValid)
-                {
-                    return CreateErrorResponse(moderationResult.ErrorMessage, messageId, stopwatch.Elapsed);
-                }
+                // 1. Intent Detection trước khi xử lý
+                var intentResult = await DetectUserIntentAsync(request.Message, request.UserId);
 
-                // 2. Get or create session
-                var session = await GetOrCreateSessionAsync(request.UserId, request.SessionId);
-
-                // 3. Load user preferences
+                // 2. Load user preferences
                 var userPreferences = await LoadUserPreferencesAsync(request.UserId);
 
-                // 4. Build conversation context
-                var conversationHistory = await BuildConversationHistoryAsync(session.Id, request.UserId);
+                // 3. Build conversation context với token validation
+                var conversationHistory = await BuildConversationHistoryAsync(request.SessionId, request.UserId);
 
-                // 5. Execute RAG workflow
+                // 4. Execute RAG workflow với intent-aware processing
                 var ragRequest = new RAGRequest
                 {
                     Query = request.Message,
                     UserId = request.UserId,
                     ConversationHistory = conversationHistory,
                     UserPreferences = userPreferences,
-                    MaxDocuments = GetMaxDocumentsFromPreferences(userPreferences),
-                    MaxTokens = GetMaxTokensFromPreferences(userPreferences)
+                    AIModelId = request.AIModelId ?? _configuration["ChatService:DefaultAIModel"],
+                    Temperature = request.Temperature ?? _configuration.GetValue<double>("ChatService:DefaultTemperature", 0.7),
+                    MaxTokens = request.MaxTokens ?? _configuration.GetValue<int>("ChatService:DefaultMaxTokens", 2000),
+                    MaxDocuments = _configuration.GetValue<int>("ChatService:DocSearchLimit", 5),
+                    MinRelevance = _configuration.GetValue<double>("ChatService:DocMinRelevance", 0.7),
+                    DetectedIntent = intentResult.PredictedIntent
                 };
 
                 var ragResponse = await ExecuteRAGWorkflowAsync(ragRequest);
 
                 if (!ragResponse.Success)
                 {
-                    return CreateErrorResponse("Failed to generate response", messageId, stopwatch.Elapsed);
+                    return new ConversationResponse
+                    {
+                        Success = false,
+                        Message = ragResponse.ErrorMessage ?? _configuration["ChatService:Messages:ProcessingError"],
+                        MessageId = messageId,
+                        Timestamp = DateTime.UtcNow,
+                        ProcessingTime = stopwatch.Elapsed
+                    };
                 }
 
-                // 6. Enhance response with smart features
-                var enhancedResponse = await EnhanceResponseAsync(ragResponse, request.Message, session.Id);
-
-                // 7. Save message to database
-                await SaveMessageToSessionAsync(session.Id, request.Message, enhancedResponse.GeneratedResponse,
-                    ragResponse.SourceDocuments, messageId, ragResponse.TokensUsed);
-
-                // 8. Log audit trail
-                await _auditService.LogAsync(request.UserId, "ProcessMessage", "ChatMessage", messageId.ToString(),
-                    null, new { Message = request.Message, Response = enhancedResponse.GeneratedResponse },
-                    request.IpAddress, request.UserAgent);
+                // 5. Save message to database với AI model info
+                await SaveMessageToSessionAsync(request.SessionId, request.Message, ragResponse.GeneratedResponse,
+                    ragResponse.SourceDocuments, messageId, ragResponse.TokensUsed, request.AIModelId, intentResult.PredictedIntent);
 
                 stopwatch.Stop();
-
-                _logger.LogInformation("Message processed successfully for user {UserId}, MessageId: {MessageId}, Duration: {Duration}ms",
-                    request.UserId, messageId, stopwatch.ElapsedMilliseconds);
 
                 return new ConversationResponse
                 {
                     Success = true,
-                    Message = "Message processed successfully",
-                    Response = enhancedResponse.GeneratedResponse,
+                    Message = _configuration["ChatService:Messages:ProcessingSuccess"] ?? "Message processed successfully",
+                    Response = ragResponse.GeneratedResponse,
                     MessageId = messageId,
-                    SessionId = session.Id,
+                    SessionId = request.SessionId,
                     DocumentReferences = ragResponse.SourceDocuments,
-                    SuggestedQuestions = enhancedResponse.SuggestedQuestions,
-                    Metadata = enhancedResponse.Metadata,
+                    SuggestedQuestions = await GenerateSuggestedQuestionsAsync(ragResponse.GeneratedResponse, request.Message, intentResult.PredictedIntent),
+                    Metadata = BuildResponseMetadata(ragResponse, intentResult, request.AIModelId),
                     Timestamp = DateTime.UtcNow,
                     TokensUsed = ragResponse.TokensUsed,
-                    ProcessingTime = stopwatch.Elapsed
+                    ProcessingTime = stopwatch.Elapsed,
+                    AIModelUsed = request.AIModelId ?? ragRequest.AIModelId
                 };
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing message for user {UserId}, MessageId: {MessageId}",
-                    request.UserId, messageId);
+                _logger.LogError(ex, "Error processing message for user {UserId}, MessageId: {MessageId}", request.UserId, messageId);
 
-                await _auditService.LogSecurityEventAsync(request.UserId, "ProcessMessageError",
-                    $"Error processing message: {ex.Message}", "high", request.IpAddress);
-
-                return CreateErrorResponse("An error occurred while processing your message", messageId, stopwatch.Elapsed);
+                return new ConversationResponse
+                {
+                    Success = false,
+                    Message = _configuration["ChatService:Messages:UnexpectedError"] ?? "An unexpected error occurred",
+                    MessageId = messageId,
+                    Timestamp = DateTime.UtcNow,
+                    ProcessingTime = stopwatch.Elapsed
+                };
             }
         }
 
         public async Task<RAGResponse> ExecuteRAGWorkflowAsync(RAGRequest request)
         {
             var stopwatch = Stopwatch.StartNew();
-
             try
             {
-                _logger.LogInformation("Executing RAG workflow for user {UserId}, Query: {Query}",
-                    request.UserId, request.Query);
+                _logger.LogInformation("Executing RAG workflow for user {UserId}, Model: {AIModel}, Intent: {Intent}",
+                    request.UserId, request.AIModelId, request.DetectedIntent);
 
-                // 1. Document Search Phase
-                var documentSearchResult = await SearchRelevantDocumentsAsync(request);
-                if (documentSearchResult.Documents.Count == 0)
+                // 1. Token validation trước khi xử lý
+                var isWithinTokenLimit = await ValidateTokenLimitAsync(request.Query, request.MaxTokens);
+                if (!isWithinTokenLimit)
                 {
-                    _logger.LogWarning("No relevant documents found for query: {Query}", request.Query);
-                    return await HandleNoDocumentsFoundAsync(request);
+                    return new RAGResponse
+                    {
+                        Success = false,
+                        ErrorMessage = _configuration["ChatService:Messages:TokenLimitExceeded"] ?? "Query too long for processing"
+                    };
                 }
 
-                // 2. Access Control Validation
-                var accessibleDocuments = await ValidateDocumentAccessAsync(documentSearchResult.Documents, request.UserId);
-                if (accessibleDocuments.Count == 0)
+                // 2. Document Search Phase (chỉ khi intent cần document)
+                List<AccessibleDocument> accessibleDocuments = new();
+                if (RequiresDocumentSearch(request.DetectedIntent))
                 {
-                    _logger.LogWarning("User {UserId} has no access to found documents", request.UserId);
-                    return await HandleNoAccessibleDocumentsAsync(request);
+                    var documentSearchResult = await SearchRelevantDocumentsAsync(request);
+                    if (!documentSearchResult.Documents.Any())
+                    {
+                        return await HandleNoDocumentsFoundAsync(request);
+                    }
+
+                    // 3. Access Control Validation
+                    accessibleDocuments = await ValidateDocumentAccessAsync(documentSearchResult.Documents, request.UserId);
+                    if (!accessibleDocuments.Any())
+                    {
+                        return await HandleNoAccessibleDocumentsAsync(request);
+                    }
                 }
 
-                // 3. Context Building
-                var contextData = await BuildContextFromDocumentsAsync(accessibleDocuments, request.Query);
+                // 4. Context Building với token optimization
+                var contextData = await BuildOptimizedContextAsync(accessibleDocuments, request);
 
-                // 4. Token Management
-                var optimizedContext = await OptimizeContextForTokenLimitAsync(contextData, request.MaxTokens);
-
-                // 5. AI Generation Phase
-                var aiGenerationResult = await GenerateAIResponseAsync(request, optimizedContext);
-
-                // 6. Response Validation
-                var validatedResponse = await ValidateAndSanitizeResponseAsync(aiGenerationResult.Response);
-
-                stopwatch.Stop();
-
-                _logger.LogInformation("RAG workflow completed for user {UserId}, Duration: {Duration}ms, TokensUsed: {TokensUsed}",
-                    request.UserId, stopwatch.ElapsedMilliseconds, aiGenerationResult.TokensUsed);
+                // 5. AI Generation với full configuration
+                var aiGenerationResult = await GenerateAIResponseWithFullConfigAsync(request, contextData);
 
                 return new RAGResponse
                 {
                     Success = true,
-                    GeneratedResponse = validatedResponse,
+                    GeneratedResponse = aiGenerationResult.Response,
                     SourceDocuments = accessibleDocuments.Select(MapDocumentToReference).ToList(),
-                    Context = optimizedContext,
+                    Context = contextData,
                     TokensUsed = aiGenerationResult.TokensUsed,
                     Model = aiGenerationResult.Model,
                     ConfidenceScore = aiGenerationResult.ConfidenceScore,
-                    Metadata = new Dictionary<string, object>
-                    {
-                        { "ProcessingTimeMs", stopwatch.ElapsedMilliseconds },
-                        { "DocumentsFound", documentSearchResult.Documents.Count },
-                        { "AccessibleDocuments", accessibleDocuments.Count },
-                        { "ContextLength", optimizedContext.Length }
-                    }
+                    Metadata = BuildRAGMetadata(accessibleDocuments, request, aiGenerationResult)
                 };
             }
             catch (Exception ex)
@@ -201,81 +197,57 @@ namespace ChatBox.API.Services.Implement
                 return new RAGResponse
                 {
                     Success = false,
-                    GeneratedResponse = "I'm sorry, I encountered an error while searching for information. Please try again.",
-                    Metadata = new Dictionary<string, object>
-                    {
-                        { "Error", ex.Message },
-                        { "ProcessingTimeMs", stopwatch.ElapsedMilliseconds }
-                    }
+                    ErrorMessage = _configuration["ChatService:Messages:RAGWorkflowError"] ?? "RAG workflow failed",
+                    Metadata = new Dictionary<string, object> { { "Error", ex.Message } }
                 };
             }
         }
-
-        // Private helper methods
-
-        private async Task<(bool IsValid, string ErrorMessage)> ValidateAndModerateContentAsync(string content, Guid userId)
+        private async Task<IntentDetectionResult> DetectUserIntentAsync(string message, Guid userId)
         {
             try
             {
-                // Security analysis
-                var securityResult = await _securityService.AnalyzeContentAsync(content, userId, null);
-                if (securityResult.HasSecurityIssues)
+                var intentRequest = new IntentDetectionRequest
                 {
-                    return (false, "Your message contains potentially unsafe content.");
-                }
+                    Text = message,
+                    UserId = userId,
+                    PossibleIntents = _configuration.GetSection("ChatService:PossibleIntents").Get<List<string>>() ??
+                        new List<string> { "question", "document_search", "help_request", "greeting", "general" },
+                    Context = null
+                };
 
-                // Content moderation
-                var moderationResult = await _contentModerationService.ModerateContentAsync(content, userId);
-                if (!moderationResult.IsApproved)
-                {
-                    return (false, moderationResult.Reason ?? "Your message violates our content policy.");
-                }
-
-                return (true, null);
+                return await _aiServiceClient.DetectIntentAsync(intentRequest);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in content validation for user {UserId}", userId);
-                return (false, "Unable to validate your message. Please try again.");
-            }
-        }
-
-        private async Task<ChatSession> GetOrCreateSessionAsync(Guid userId, Guid? sessionId)
-        {
-            var sessionRepo = _unitOfWork.GetRepository<ChatSession>();
-
-            if (sessionId.HasValue)
-            {
-                var existingSession = await sessionRepo.SingleOrDefaultAsync(predicate:
-                    s => s.Id == sessionId.Value && s.UserId == userId && s.Status == SessionStatus.Active);
-
-                if (existingSession != null)
+                _logger.LogWarning(ex, "Error detecting intent for user {UserId}, using fallback", userId);
+                return new IntentDetectionResult
                 {
-                    existingSession.LastActivityAt = DateTime.UtcNow;
-                    sessionRepo.UpdateAsync(existingSession);
-                    await _unitOfWork.CommitAsync();
-                    return existingSession;
-                }
+                    PredictedIntent = "general",
+                    Confidence = 0.5
+                };
             }
-
-            // Create new session
-            var newSession = new ChatSession
-            {
-                Id = Guid.NewGuid(),
-                UserId = userId,
-                Title = "New Conversation",
-                Status = SessionStatus.Active,
-                CreatedAt = DateTime.UtcNow,
-                LastActivityAt = DateTime.UtcNow,
-                MessageCount = 0
-            };
-
-            await sessionRepo.InsertAsync(newSession);
-            await _unitOfWork.CommitAsync();
-
-            return newSession;
         }
+        private async Task<bool> ValidateTokenLimitAsync(string query, int maxTokens)
+        {
+            try
+            {
+                var tokenCount = await _aiServiceClient.CountTokensAsync(query);
+                var inputTokenLimit = _configuration.GetValue<int>("ChatService:MaxInputTokens", 3000);
+                return tokenCount <= Math.Min(maxTokens / 2, inputTokenLimit); // Reserve half for response
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error validating token limit, allowing request");
+                return true; // Fail open
+            }
+        }
+        private bool RequiresDocumentSearch(string intent)
+        {
+            var documentSearchIntents = _configuration.GetSection("ChatService:DocumentSearchIntents").Get<List<string>>() ??
+                new List<string> { "document_search", "question", "general" };
 
+            return documentSearchIntents.Contains(intent);
+        }
         private async Task<Dictionary<string, object>> LoadUserPreferencesAsync(Guid userId)
         {
             try
@@ -283,43 +255,61 @@ namespace ChatBox.API.Services.Implement
                 var preferences = await _userPreferenceService.GetPreferenceAsync(userId);
                 return new Dictionary<string, object>
                 {
-                    { "Language", preferences?.Language ?? "en" },
-                    { "ResponseStyle", preferences?.ResponseStyle ?? "balanced" },
-                    { "MaxResponseLength", preferences?.MaxResponseLength ?? 500 },
-                    { "IncludeCitations", preferences?.IncludeCitations ?? true }
+                    { "Language", preferences?.Language ?? _configuration["ChatService:DefaultPreferences:Language"] },
+                    { "ResponseStyle", preferences?.ResponseStyle ?? _configuration["ChatService:DefaultPreferences:ResponseStyle"] },
+                    { "Tone", preferences?.Tone ?? _configuration["ChatService:DefaultPreferences:Tone"] },
+                    { "MaxResponseLength", preferences?.MaxResponseLength ?? _configuration.GetValue<int>("ChatService:DefaultPreferences:MaxResponseLength", 500) },
+                    { "IncludeCitations", preferences?.IncludeCitations ?? _configuration.GetValue<bool>("ChatService:DefaultPreferences:IncludeCitations", true) }
                 };
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error loading preferences for user {UserId}, using defaults", userId);
-                return new Dictionary<string, object>
-                {
-                    { "Language", "en" },
-                    { "ResponseStyle", "balanced" },
-                    { "MaxResponseLength", 500 },
-                    { "IncludeCitations", true }
-                };
+                return GetDefaultUserPreferences();
             }
         }
 
+        private Dictionary<string, object> GetDefaultUserPreferences()
+        {
+            return new Dictionary<string, object>
+            {
+                { "Language", _configuration["ChatService:DefaultPreferences:Language"] ?? "vi" },
+                { "ResponseStyle", _configuration["ChatService:DefaultPreferences:ResponseStyle"] ?? "balanced" },
+                { "Tone", _configuration["ChatService:DefaultPreferences:Tone"] ?? "professional" },
+                { "MaxResponseLength", _configuration.GetValue<int>("ChatService:DefaultPreferences:MaxResponseLength", 500) },
+                { "IncludeCitations", _configuration.GetValue<bool>("ChatService:DefaultPreferences:IncludeCitations", true) }
+            };
+        }
         private async Task<List<string>> BuildConversationHistoryAsync(Guid sessionId, Guid userId)
         {
             try
             {
                 var messageRepo = _unitOfWork.GetRepository<ChatMessage>();
+                var contextWindowSize = _configuration.GetValue<int>("ChatService:ContextWindowSize", 10);
+
                 var recentMessages = await messageRepo.GetListAsync(
-                    m => m.SessionId == sessionId && m.UserId == userId,
-                    orderBy: m => m.OrderByDescending(x => x.CreatedAt),
-                    include: null);
+                    predicate: m => m.SessionId == sessionId && m.UserId == userId && !m.IsDeleted,
+                    orderBy: m => m.OrderByDescending(x => x.CreatedAt));
 
                 var history = new List<string>();
-                foreach (var message in recentMessages.Take(10).Reverse())
+                foreach (var message in recentMessages.Take(contextWindowSize).Reverse())
                 {
                     history.Add($"User: {message.Content}");
                     if (!string.IsNullOrEmpty(message.AiResponse))
                     {
                         history.Add($"Assistant: {message.AiResponse}");
                     }
+                }
+
+                // Validate total token count của conversation history
+                var historyText = string.Join("\n", history);
+                var historyTokens = await _aiServiceClient.CountTokensAsync(historyText);
+                var maxHistoryTokens = _configuration.GetValue<int>("ChatService:MaxHistoryTokens", 1000);
+
+                if (historyTokens > maxHistoryTokens)
+                {
+                    var truncatedHistory = await _aiServiceClient.TruncateToTokenLimitAsync(historyText, maxHistoryTokens);
+                    return truncatedHistory.Split('\n').ToList();
                 }
 
                 return history;
@@ -330,25 +320,6 @@ namespace ChatBox.API.Services.Implement
                 return new List<string>();
             }
         }
-
-        private int GetMaxDocumentsFromPreferences(Dictionary<string, object> preferences)
-        {
-            if (preferences.TryGetValue("MaxDocuments", out var value) && value is int maxDocs)
-            {
-                return Math.Min(maxDocs, 10); // Cap at 10 documents
-            }
-            return 5; // Default
-        }
-
-        private int GetMaxTokensFromPreferences(Dictionary<string, object> preferences)
-        {
-            if (preferences.TryGetValue("MaxTokens", out var value) && value is int maxTokens)
-            {
-                return Math.Min(maxTokens, 8000); // Cap at 8000 tokens
-            }
-            return 4000; // Default
-        }
-
         private async Task<DocumentSearchResult> SearchRelevantDocumentsAsync(RAGRequest request)
         {
             var searchRequest = new DocumentSearchRequest
@@ -388,174 +359,164 @@ namespace ChatBox.API.Services.Implement
                 };
 
                 var accessResponse = await _documentServiceClient.CheckBatchAccessAsync(batchAccessRequest);
-
                 return documents.Where(d => accessResponse.AccessibleDocuments.Contains(d.Id)).ToList();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error validating document access for user {UserId}", userId);
-                return new List<AccessibleDocument>(); // Fail secure - no access
+                return new List<AccessibleDocument>();
             }
         }
 
-        private async Task<string> BuildContextFromDocumentsAsync(List<AccessibleDocument> documents, string query)
+        private async Task<string> BuildOptimizedContextAsync(List<AccessibleDocument> documents, RAGRequest request)
         {
             var contextBuilder = new StringBuilder();
+            var maxContextLength = _configuration.GetValue<int>("ChatService:MaxContextLength", 8000);
+
+            contextBuilder.AppendLine($"Query: {request.Query}");
+            if (!string.IsNullOrEmpty(request.DetectedIntent))
+            {
+                contextBuilder.AppendLine($"Intent: {request.DetectedIntent}");
+            }
+            contextBuilder.AppendLine("Relevant Documents:");
 
             foreach (var doc in documents.OrderByDescending(d => d.RelevanceScore))
             {
-                contextBuilder.AppendLine($"Document: {doc.Title}");
-                contextBuilder.AppendLine($"Content: {doc.Content}");
-                contextBuilder.AppendLine($"Last Modified: {doc.LastModified:yyyy-MM-dd}");
-                contextBuilder.AppendLine("---");
+                var docContext = $"Document: {doc.Title}\nContent: {doc.Content}\n---\n";
+                if (contextBuilder.Length + docContext.Length > maxContextLength)
+                    break;
+
+                contextBuilder.Append(docContext);
             }
 
-            return contextBuilder.ToString();
+            var context = contextBuilder.ToString();
+
+            // Sử dụng AI service để optimize context cho model cụ thể
+            var contextTokens = await _aiServiceClient.CountTokensAsync(context, request.AIModelId);
+            var maxContextTokens = GetModelTokenLimit(request.AIModelId) - _configuration.GetValue<int>("ChatService:ReservedTokensForResponse", 500);
+
+            if (contextTokens > maxContextTokens)
+            {
+                context = await _aiServiceClient.TruncateToTokenLimitAsync(context, maxContextTokens);
+            }
+
+            return context;
         }
 
-        private async Task<string> OptimizeContextForTokenLimitAsync(string context, int maxTokens)
+        private int GetModelTokenLimit(string modelId)
         {
-            try
+            var modelLimits = _configuration.GetSection("ChatService:ModelTokenLimits").Get<Dictionary<string, int>>();
+            return modelLimits?.GetValueOrDefault(modelId, 4000) ?? 4000;
+        }
+
+        private async Task<AiGenerationResult> GenerateAIResponseWithFullConfigAsync(RAGRequest request, string context)
+        {
+            var systemPrompt = _configuration["ChatService:SystemPrompt"];
+
+            // Customize system prompt based on intent
+            if (!string.IsNullOrEmpty(request.DetectedIntent))
             {
-                var isWithinLimit = await _aiServiceClient.CountTokensAsync(context);
-                if (isWithinLimit <= maxTokens)
+                var intentPrompts = _configuration.GetSection("ChatService:IntentPrompts").Get<Dictionary<string, string>>();
+                if (intentPrompts?.ContainsKey(request.DetectedIntent) == true)
                 {
-                    return context;
+                    systemPrompt += "\n" + intentPrompts[request.DetectedIntent];
                 }
-
-                // Truncate context to fit token limit
-                var truncatedContext = await _aiServiceClient.TruncateToTokenLimitAsync(context, maxTokens - 500); // Reserve 500 tokens for response
-                return truncatedContext;
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error optimizing context for token limit, using original");
-                return context;
-            }
-        }
 
-        private async Task<AIGenerationResult> GenerateAIResponseAsync(RAGRequest request, string context)
-        {
             var aiRequest = new AdvancedAiGenerationRequest
             {
                 Query = request.Query,
                 Context = context,
                 ConversationHistory = request.ConversationHistory,
                 UserPreferences = request.UserPreferences,
-                MaxTokens = request.MaxTokens / 2, // Reserve half for response
-                Temperature = GetTemperatureFromPreferences(request.UserPreferences)
+                MaxTokens = request.MaxTokens,
+                Temperature = request.Temperature,
+                Model = request.AIModelId,
+                SystemPrompt = systemPrompt,
+                UserId = request.UserId
             };
 
-            var result = await _aiServiceClient.GenerateResponseAsync(aiRequest);
-
-            return new AIGenerationResult
-            {
-                Response = result.Response,
-                TokensUsed = result.TokensUsed,
-                Model = result.Model,
-                ConfidenceScore = result.ConfidenceScore
-            };
+            return await _aiServiceClient.GenerateResponseAsync(aiRequest);
         }
 
-        private double GetTemperatureFromPreferences(Dictionary<string, object> preferences)
-        {
-            if (preferences.TryGetValue("ResponseStyle", out var style))
-            {
-                return style.ToString().ToLower() switch
-                {
-                    "creative" => 0.8,
-                    "balanced" => 0.5,
-                    "precise" => 0.2,
-                    _ => 0.5
-                };
-            }
-            return 0.5;
-        }
-
-        private async Task<string> ValidateAndSanitizeResponseAsync(string response)
-        {
-            // Basic sanitization
-            if (string.IsNullOrWhiteSpace(response))
-            {
-                return "I apologize, but I couldn't generate a proper response. Please try rephrasing your question.";
-            }
-
-            // Remove any potentially harmful content
-            var sanitized = response.Trim();
-
-            // Ensure response doesn't exceed reasonable length
-            if (sanitized.Length > 10000)
-            {
-                sanitized = sanitized.Substring(0, 10000) + "... [Response truncated]";
-            }
-
-            return sanitized;
-        }
-
-        private async Task<EnhancedResponse> EnhanceResponseAsync(RAGResponse ragResponse, string originalQuery, Guid sessionId)
-        {
-            var suggestedQuestions = await GenerateSuggestedQuestionsAsync(ragResponse.GeneratedResponse, originalQuery);
-
-            return new EnhancedResponse
-            {
-                GeneratedResponse = ragResponse.GeneratedResponse,
-                SuggestedQuestions = suggestedQuestions,
-                Metadata = new Dictionary<string, object>
-                {
-                    { "SourceDocumentCount", ragResponse.SourceDocuments.Count },
-                    { "ConfidenceScore", ragResponse.ConfidenceScore },
-                    { "Model", ragResponse.Model }
-                }
-            };
-        }
-
-        private async Task<List<string>> GenerateSuggestedQuestionsAsync(string response, string originalQuery)
+        private async Task<List<string>> GenerateSuggestedQuestionsAsync(string response, string originalQuery, string intent)
         {
             try
             {
+                // Sử dụng AI service để generate suggestions thông minh hơn
+                var suggestionRequest = new TitleSuggestionRequest
+                {
+                    Content = $"Original Question: {originalQuery}\nAI Response: {response}\nIntent: {intent}",
+                    MaxLength = _configuration.GetValue<int>("ChatService:MaxSuggestionLength", 100),
+                    Language = _configuration["ChatService:DefaultPreferences:Language"] ?? "vi",
+                    Style = "question"
+                };
+
+                // Generate multiple suggestions
                 var suggestions = new List<string>();
-
-                // Rule-based suggestions based on response content
-                if (response.Contains("policy") || response.Contains("procedure"))
+                for (int i = 0; i < 3; i++)
                 {
-                    suggestions.Add("Can you show me the complete policy document?");
-                    suggestions.Add("What are the exceptions to this policy?");
-                }
-
-                if (response.Contains("step") || response.Contains("process"))
-                {
-                    suggestions.Add("Can you explain this process in more detail?");
-                    suggestions.Add("What happens if I skip a step?");
-                }
-
-                if (response.Contains("requirement") || response.Contains("needed"))
-                {
-                    suggestions.Add("Are there any alternative requirements?");
-                    suggestions.Add("How long does this typically take?");
-                }
-
-                // Fallback generic suggestions
-                if (suggestions.Count == 0)
-                {
-                    suggestions.AddRange(new[]
+                    var suggestion = await _aiServiceClient.SuggestTitleAsync(suggestionRequest);
+                    if (!string.IsNullOrEmpty(suggestion) && !suggestions.Contains(suggestion))
                     {
-                        "Can you provide more details about this?",
-                        "Are there related topics I should know about?",
-                        "Where can I find the official documentation?"
-                    });
+                        suggestions.Add(suggestion);
+                    }
                 }
 
-                return suggestions.Take(3).ToList();
+                return suggestions.Any() ? suggestions : GetFallbackSuggestions(response, intent);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error generating suggested questions");
-                return new List<string> { "Can you provide more information about this topic?" };
+                _logger.LogWarning(ex, "Error generating AI suggestions, using fallback");
+                return GetFallbackSuggestions(response, intent);
             }
         }
 
+        private List<string> GetFallbackSuggestions(string response, string intent)
+        {
+            var suggestions = new List<string>();
+
+            // Intent-based suggestions
+            var intentSuggestions = _configuration.GetSection("ChatService:IntentSuggestions").Get<Dictionary<string, List<string>>>();
+            if (intentSuggestions?.ContainsKey(intent) == true)
+            {
+                suggestions.AddRange(intentSuggestions[intent]);
+            }
+
+            // Content-based suggestions
+            if (response.Contains("policy") || response.Contains("chính sách"))
+            {
+                suggestions.Add("Bạn có thể cho xem toàn bộ tài liệu chính sách này không?");
+                suggestions.Add("Có ngoại lệ nào cho chính sách này không?");
+            }
+
+            if (response.Contains("process") || response.Contains("quy trình"))
+            {
+                suggestions.Add("Bạn có thể giải thích chi tiết hơn về quy trình này không?");
+                suggestions.Add("Điều gì xảy ra nếu tôi bỏ qua một bước?");
+            }
+
+            if (response.Contains("requirement") || response.Contains("yêu cầu"))
+            {
+                suggestions.Add("Có yêu cầu thay thế nào khác không?");
+                suggestions.Add("Thường thì việc này mất bao lâu?");
+            }
+
+            if (suggestions.Count == 0)
+            {
+                suggestions.AddRange(new[]
+                {
+                    "Bạn có thể cung cấp thêm chi tiết về điều này không?",
+                    "Có chủ đề liên quan nào tôi nên biết không?",
+                    "Tôi có thể tìm tài liệu chính thức ở đâu?"
+                });
+            }
+
+            return suggestions.Take(3).ToList();
+        }
+
         private async Task SaveMessageToSessionAsync(Guid sessionId, string userMessage, string aiResponse,
-            List<DocumentReference> sourceDocuments, Guid messageId, int tokensUsed)
+            List<DocumentReference> sourceDocuments, Guid messageId, int tokensUsed, string aiModelUsed, string detectedIntent)
         {
             try
             {
@@ -569,23 +530,33 @@ namespace ChatBox.API.Services.Implement
                     UserId = await GetUserIdFromSessionAsync(sessionId),
                     Content = userMessage,
                     AiResponse = aiResponse,
-                    MessageType = (Domain.Enum.MessageType)MessageType.UserMessage,
+                    MessageType = MessageType.Text,
                     TokensUsed = tokensUsed,
                     CreatedAt = DateTime.UtcNow,
-                    SourceDocuments = string.Join(",", sourceDocuments.Select(d => d.DocumentId))
+                    SourceDocuments = string.Join(",", sourceDocuments.Select(d => d.DocumentId)),
+                    Metadata = JsonSerializer.Serialize(new
+                    {
+                        AIModelUsed = aiModelUsed,
+                        DetectedIntent = detectedIntent,
+                        TokensUsed = tokensUsed,
+                        DocumentCount = sourceDocuments.Count
+                    }, _jsonOptions)
                 };
 
                 await messageRepo.InsertAsync(message);
 
-                // Update session
+                // Update session với auto-generated title
                 var session = await sessionRepo.SingleOrDefaultAsync(predicate: s => s.Id == sessionId);
                 if (session != null)
                 {
                     session.MessageCount++;
                     session.LastActivityAt = DateTime.UtcNow;
-                    if (string.IsNullOrEmpty(session.Title) || session.Title == "New Conversation")
+                    session.AIModelId = aiModelUsed;
+
+                    // Auto-generate title cho session mới bằng AI
+                    if (string.IsNullOrEmpty(session.Title) || session.Title == _configuration["ChatService:DefaultSessionTitle"])
                     {
-                        session.Title = await GenerateSessionTitleAsync(userMessage);
+                        session.Title = await GenerateSessionTitleWithAIAsync(userMessage);
                     }
                     sessionRepo.UpdateAsync(session);
                 }
@@ -595,7 +566,27 @@ namespace ChatBox.API.Services.Implement
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error saving message to session {SessionId}", sessionId);
-                // Don't throw - this shouldn't break the user experience
+            }
+        }
+
+        private async Task<string> GenerateSessionTitleWithAIAsync(string firstMessage)
+        {
+            try
+            {
+                var titleRequest = new TitleSuggestionRequest
+                {
+                    Content = firstMessage,
+                    MaxLength = _configuration.GetValue<int>("ChatService:MaxSessionTitleLength", 50),
+                    Language = _configuration["ChatService:DefaultPreferences:Language"] ?? "vi",
+                    Style = "concise"
+                };
+
+                var title = await _aiServiceClient.SuggestTitleAsync(titleRequest);
+                return string.IsNullOrEmpty(title) ? _configuration["ChatService:DefaultSessionTitle"] : title;
+            }
+            catch
+            {
+                return _configuration["ChatService:DefaultSessionTitle"] ?? "Cuộc trò chuyện mới";
             }
         }
 
@@ -606,23 +597,32 @@ namespace ChatBox.API.Services.Implement
             return session?.UserId ?? Guid.Empty;
         }
 
-        private async Task<string> GenerateSessionTitleAsync(string firstMessage)
+        private Dictionary<string, object> BuildResponseMetadata(RAGResponse ragResponse, IntentDetectionResult intentResult, string aiModelUsed)
         {
-            try
+            return new Dictionary<string, object>
             {
-                var titleRequest = new TitleSuggestionRequest
-                {
-                    Content = firstMessage,
-                    MaxLength = 50
-                };
+                { "DocumentsFound", ragResponse.SourceDocuments.Count },
+                { "AIModelUsed", aiModelUsed },
+                { "DetectedIntent", intentResult.PredictedIntent },
+                { "IntentConfidence", intentResult.Confidence },
+                { "RequiresClarification", intentResult.RequiresClarification },
+                { "TokensUsed", ragResponse.TokensUsed },
+                { "ConfidenceScore", ragResponse.ConfidenceScore }
+            };
+        }
 
-                var title = await _aiServiceClient.SuggestTitleAsync(titleRequest);
-                return string.IsNullOrEmpty(title) ? "New Conversation" : title;
-            }
-            catch
+        private Dictionary<string, object> BuildRAGMetadata(List<AccessibleDocument> documents, RAGRequest request, AiGenerationResult aiResult)
+        {
+            return new Dictionary<string, object>
             {
-                return "New Conversation";
-            }
+                { "DocumentsFound", documents.Count },
+                { "AccessibleDocuments", documents.Count },
+                { "AIModelUsed", request.AIModelId },
+                { "Temperature", request.Temperature },
+                { "MaxTokens", request.MaxTokens },
+                { "DetectedIntent", request.DetectedIntent },
+                { "ProcessingTime", aiResult.ProcessingTime.TotalMilliseconds }
+            };
         }
 
         private async Task<RAGResponse> HandleNoDocumentsFoundAsync(RAGRequest request)
@@ -630,16 +630,10 @@ namespace ChatBox.API.Services.Implement
             return new RAGResponse
             {
                 Success = true,
-                GeneratedResponse = "I couldn't find any relevant documents for your question. You might want to try rephrasing your question or contact your administrator if you believe this information should be available.",
+                GeneratedResponse = _configuration["ChatService:Messages:NoDocumentsFound"] ??
+                    "Tôi không thể tìm thấy tài liệu phù hợp cho câu hỏi của bạn. Bạn có thể thử diễn đạt lại câu hỏi hoặc liên hệ quản trị viên nếu tin rằng thông tin này có sẵn.",
                 SourceDocuments = new List<DocumentReference>(),
-                Context = string.Empty,
-                TokensUsed = 0,
-                Model = "fallback",
-                ConfidenceScore = 0.0,
-                Metadata = new Dictionary<string, object>
-                {
-                    { "Reason", "NoDocumentsFound" }
-                }
+                Metadata = new Dictionary<string, object> { { "Reason", "NoDocumentsFound" } }
             };
         }
 
@@ -648,16 +642,10 @@ namespace ChatBox.API.Services.Implement
             return new RAGResponse
             {
                 Success = true,
-                GeneratedResponse = "I found some relevant documents, but you don't have permission to access them. Please contact your administrator if you need access to this information.",
+                GeneratedResponse = _configuration["ChatService:Messages:NoAccessibleDocuments"] ??
+                    "Tôi tìm thấy một số tài liệu liên quan, nhưng bạn không có quyền truy cập. Vui lòng liên hệ quản trị viên nếu bạn cần truy cập thông tin này.",
                 SourceDocuments = new List<DocumentReference>(),
-                Context = string.Empty,
-                TokensUsed = 0,
-                Model = "fallback",
-                ConfidenceScore = 0.0,
-                Metadata = new Dictionary<string, object>
-                {
-                    { "Reason", "NoAccessibleDocuments" }
-                }
+                Metadata = new Dictionary<string, object> { { "Reason", "NoAccessibleDocuments" } }
             };
         }
 
@@ -674,64 +662,26 @@ namespace ChatBox.API.Services.Implement
                 DocumentType = doc.DocumentType
             };
         }
-
-        private ConversationResponse CreateErrorResponse(string errorMessage, Guid messageId, TimeSpan processingTime)
-        {
-            return new ConversationResponse
-            {
-                Success = false,
-                Message = errorMessage,
-                Response = "I apologize, but I encountered an issue processing your request. Please try again.",
-                MessageId = messageId,
-                SessionId = Guid.Empty,
-                DocumentReferences = new List<DocumentReference>(),
-                SuggestedQuestions = new List<string> { "Can you help me with something else?" },
-                Metadata = new Dictionary<string, object> { { "Error", errorMessage } },
-                Timestamp = DateTime.UtcNow,
-                TokensUsed = 0,
-                ProcessingTime = processingTime
-            };
-        }
     }
-}
 
     // Supporting classes
     public class DocumentSearchResult
-{
-    public List<AccessibleDocument> Documents { get; set; } = new();
+    {
+        public List<AccessibleDocument> Documents { get; set; } = new();
+    }
+
+    public class AccessibleDocument
+    {
+        public string Id { get; set; }
+        public string Title { get; set; }
+        public string Content { get; set; }
+        public double RelevanceScore { get; set; }
+        public DateTime LastModified { get; set; }
+        public string DocumentType { get; set; }
+    }
+
 }
 
-public class AccessibleDocument
-{
-    public string Id { get; set; }
-    public string Title { get; set; }
-    public string Content { get; set; }
-    public double RelevanceScore { get; set; }
-    public DateTime LastModified { get; set; }
-    public string DocumentType { get; set; }
-}
+        // Private helper methods
 
-public class AIGenerationResult
-{
-    public string Response { get; set; }
-    public int TokensUsed { get; set; }
-    public string Model { get; set; }
-    public double ConfidenceScore { get; set; }
-}
-
-public class EnhancedResponse
-{
-    public string GeneratedResponse { get; set; }
-    public List<string> SuggestedQuestions { get; set; } = new();
-    public Dictionary<string, object> Metadata { get; set; } = new();
-}
-
-// Enums
-
-
-public enum MessageType
-{
-    UserMessage = 1,
-    SystemMessage = 2,
-    ErrorMessage = 3
-}
+       

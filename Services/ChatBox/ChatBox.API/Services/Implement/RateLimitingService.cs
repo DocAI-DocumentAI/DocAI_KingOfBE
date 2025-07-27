@@ -9,7 +9,7 @@ using System.Collections.Concurrent;
 
 namespace ChatBox.API.Services.Implement
 {
-    public class RateLimitingService
+    public class RateLimitingService : IRateLimitingService
     {
         private readonly IUnitOfWork<ChatBoxDbContext> _unitOfWork;
         private readonly IAuditService _auditService;

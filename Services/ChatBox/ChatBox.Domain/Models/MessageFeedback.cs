@@ -15,6 +15,8 @@ namespace ChatBox.Domain.Models
         public string Comment { get; set; }
         public string FeedbackType { get; set; }
         public DateTime CreatedAt { get; set; }
-        public DateTime? UpdatedAt { get; set; }
+        public string Metadata { get; set; }
+
+        public virtual ChatMessage Message { get; set; }
     }
 }

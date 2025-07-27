@@ -133,7 +133,7 @@ namespace AI.API.Services.Implement
         public async Task<TestModelResponse> TestModelAsync(int id)
         {
             var stopwatch = Stopwatch.StartNew();
-            
+
             try
             {
                 var repository = _unitOfWork.GetRepository<AIModelConfiguration>();
@@ -213,7 +213,7 @@ namespace AI.API.Services.Implement
             {
                 stopwatch.Stop();
                 _logger.LogError(ex, "Failed to test model {ModelId}", id);
-                
+
                 return new TestModelResponse
                 {
                     Success = false,

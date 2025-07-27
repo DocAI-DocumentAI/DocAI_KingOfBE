@@ -9,5 +9,9 @@
         public int MaxTokens { get; set; } = 4000;
         public double Temperature { get; set; } = 0.5;
         public string Model { get; set; } = "default";
+
+        public string SystemPrompt { get; set; }
+
+        public Guid UserId { get; set; }
     }
 }

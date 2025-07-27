@@ -4,6 +4,7 @@
     {
         public bool Success { get; set; }
         public string GeneratedResponse { get; set; }
+        public string ErrorMessage { get; set; }
         public List<DocumentReference> SourceDocuments { get; set; } = new();
         public string Context { get; set; }
         public int TokensUsed { get; set; }

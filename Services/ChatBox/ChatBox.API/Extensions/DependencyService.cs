@@ -2,6 +2,7 @@
 using System.Security.Claims;
 using System.Text;
 using ChatBox.API.Mappers;
+using ChatBox.API.Middlewares;
 using ChatBox.API.Services.Implement;
 using ChatBox.API.Services.Interfaces;
 using ChatBox.Domain.Models;
@@ -80,48 +81,59 @@ public static class DependencyService
         services.AddDatabase();
         services.AddUnitOfWork();
 
+        services.AddScoped<IAuditService, AuditService>();
+        services.AddScoped<ISecurityService, SecurityService>();
+        services.AddScoped<IContentModerationService, ContentModerationService>();
+        services.AddScoped<IRateLimitingService, RateLimitingService>();
+        services.AddScoped<IUserPreferenceService, UserPreferenceService>();
+        services.AddScoped<IConversationOrchestrationService, ConversationOrchestrationService>();
+        services.AddScoped<IChatService, ChatService>();
+        services.AddScoped<ITokenValidationService, TokenValidationService>();
+
         services.AddHttpClient<IAiServiceClient, AiServiceClient>(client =>
         {
             client.BaseAddress = new Uri(configuration["ChatService:AIMicroserviceBaseUrl"]
                 ?? throw new InvalidOperationException("AI Microservice Base URL is missing."));
+            client.Timeout = TimeSpan.FromMinutes(5);
         })
-             .SetHandlerLifetime(TimeSpan.FromMinutes(5))
-             .AddPolicyHandler((serviceProvider, request) => GetRetryPolicy(serviceProvider))
-             .AddPolicyHandler((serviceProvider, request) => GetCircuitBreakerPolicy(serviceProvider));
+            .SetHandlerLifetime(TimeSpan.FromMinutes(5))
+            .AddPolicyHandler((serviceProvider, request) => GetRetryPolicy(serviceProvider))
+            .AddPolicyHandler((serviceProvider, request) => GetCircuitBreakerPolicy(serviceProvider));
+
+        services.AddHttpClient<IDocumentServiceClient, DocumentServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(configuration["ChatService:DocumentMicroserviceBaseUrl"]
+                ?? throw new InvalidOperationException("Document Microservice Base URL missing"));
+            client.Timeout = TimeSpan.FromMinutes(2);
+        })
+        .SetHandlerLifetime(TimeSpan.FromMinutes(5))
+        .AddPolicyHandler((serviceProvider, request) => GetRetryPolicy(serviceProvider))
+        .AddPolicyHandler((serviceProvider, request) => GetCircuitBreakerPolicy(serviceProvider));
 
         services.AddHttpContextAccessor();
         services.AddAutoMapper(typeof(MappingProfile).Assembly);
 
-        services.AddHttpClient<IDocumentServiceClient, DocumentServiceClient>(client =>
+        services.AddMemoryCache();
+        services.AddStackExchangeRedisCache(options =>
         {
-            client.BaseAddress = new Uri(configuration["ChatService:DocumentMicroserviceBaseUrl"] ?? throw new InvalidOperationException("Document Microservice Base URL is missing."));
-        })
-        .SetHandlerLifetime(TimeSpan.FromMinutes(5));
-
-        // Register new HTTP clients for new services
-        services.AddHttpClient<IAiServiceClient, AiServiceClient>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["ChatService:AIMicroserviceBaseUrl"]
-                ?? throw new InvalidOperationException("AI Microservice Base URL is missing."));
-        })
-        .SetHandlerLifetime(TimeSpan.FromMinutes(5))
-        .AddPolicyHandler((serviceProvider, request) => GetRetryPolicy(serviceProvider))
-        .AddPolicyHandler((serviceProvider, request) => GetCircuitBreakerPolicy(serviceProvider));
-
-        services.AddHttpClient<IDocumentServiceClient, ChatBox.API.Services.Implement.DocumentServiceClient>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["ChatService:DocumentMicroserviceBaseUrl"]
-                ?? throw new InvalidOperationException("Document Microservice Base URL is missing."));
-        })
-        .SetHandlerLifetime(TimeSpan.FromMinutes(5))
-        .AddPolicyHandler((serviceProvider, request) => GetRetryPolicy(serviceProvider))
-        .AddPolicyHandler((serviceProvider, request) => GetCircuitBreakerPolicy(serviceProvider));
-
-        // Keep legacy services for backward compatibility
-        services.AddScoped<IChatService, ChatService>();
+            options.Configuration = configuration.GetConnectionString("Redis") ?? "localhost:6379";
+            options.InstanceName = "ChatBox";
+        });
 
         return services;
     }
+    public static IApplicationBuilder UseCustomMiddlewares(this IApplicationBuilder app)
+    {
+        app.UseMiddleware<CorrelationMiddleware>();
+        app.UseMiddleware<PerformanceMiddleware>();
+        app.UseMiddleware<ExceptionHandlingMiddleware>();
+        app.UseMiddleware<SecurityMiddleware>();
+        app.UseMiddleware<RateLimitingMiddleware>();
+        app.UseMiddleware<AuditMiddleware>();
+
+        return app;
+    }
+
     public static IServiceCollection AddJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
         string secret = configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret is missing in configuration.");

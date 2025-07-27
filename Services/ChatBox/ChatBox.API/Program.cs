@@ -1,10 +1,13 @@
 using System;
 using System.Linq;
+using System.Text.Json;
 using ChatBox.API.Constants;
 using ChatBox.API.Extensions;
 using ChatBox.API.Hubs;
 using ChatBox.API.Middlewares;
+using ChatBox.Domain.Models;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NSwag;
@@ -33,6 +36,23 @@ try
             "[{@t:HH:mm:ss} {@l:u3}{#if @tr is not null} ({substring(@tr,0,4)}:{substring(@sp,0,4)}){#end}] {@m}\n{@x}",
             theme: TemplateTheme.Code)));
 
+    builder.Services.AddControllers()
+     .AddJsonOptions(options =>
+     {
+         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+         options.JsonSerializerOptions.WriteIndented = false;
+         options.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+     });
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddServices(builder.Configuration);
+    builder.Services.AddJwtAuthentication(builder.Configuration);
+    builder.Services.AddSignalR(options =>
+    {
+        options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+        options.ClientTimeoutInterval = TimeSpan.FromMinutes(1);
+        options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+    });
+
     builder.Services.AddCors(options =>
     {
         options.AddPolicy(CorConstant.PolicyName,
@@ -42,21 +62,11 @@ try
                 .AllowAnyMethod());
     });
 
-    builder.Services.AddServices(builder.Configuration);
 
-    builder.Services.AddControllers();
 
     builder.Services.AddHttpContextAccessor();
 
-    builder.Services.AddJwtAuthentication(builder.Configuration);
-
     builder.Services.AddAuthorization();
-
-    // Add SignalR for WebSocket support
-    builder.Services.AddSignalR();
-
-    // Add Memory Cache for system settings
-    builder.Services.AddMemoryCache();
 
     builder.Services.AddOpenApiDocument(options =>
     {
@@ -85,9 +95,8 @@ try
     {
         hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
     });
-
-
     var app = builder.Build();
+    app.UseExceptionHandling();
 
     app.MapOpenApi();
     app.UseOpenApi();
@@ -97,18 +106,25 @@ try
         options.RoutePrefix = "swagger";
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
     });
+    app.Use(async (context, next) =>
+    {
+        context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+        context.Response.Headers.Add("X-Frame-Options", "DENY");
+        context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+        context.Response.Headers.Add("Referrer-Policy", "strict-origin-when-cross-origin");
+        await next();
+    });
 
     app.UseHttpsRedirection();
-
-    app.UseRouting();
+    app.UseSerilogRequestLogging();
 
     app.UseCors(CorConstant.PolicyName);
+
+    app.UseCustomMiddlewares();
 
     app.UseAuthentication();
 
     app.UseAuthorization();
-
-    app.UseSerilogRequestLogging();
 
     app.MapControllers();
 

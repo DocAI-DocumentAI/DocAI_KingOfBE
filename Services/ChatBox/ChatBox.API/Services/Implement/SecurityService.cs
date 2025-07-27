@@ -1,6 +1,7 @@
 ﻿using System.Security.Principal;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using AutoMapper;
 using ChatBox.API.Payload.Response.SecurityServiceResponse;
 using ChatBox.API.Services.Interfaces;
 using ChatBox.Domain.Models;
@@ -15,47 +16,22 @@ namespace ChatBox.API.Services.Implement
         private readonly IAuditService _auditService;
         private readonly ILogger<SecurityService> _logger;
         private readonly IConfiguration _configuration;
-        private readonly JsonSerializerOptions _jsonOptions;
-
-        // In-memory blacklist for performance (in production, use Redis or database)
-
-        private static readonly Dictionary<string, Regex> SecurityPatterns = new()
-        {
-            { "sql_injection", new Regex(@"(\bUNION\b|\bSELECT\b|\bINSERT\b|\bUPDATE\b|\bDELETE\b|\bDROP\b).*(\bFROM\b|\bWHERE\b|\bINTO\b)", RegexOptions.IgnoreCase) },
-            { "xss_attempt", new Regex(@"<script[^>]*>.*?</script>|javascript:|on\w+\s*=", RegexOptions.IgnoreCase) },
-            { "path_traversal", new Regex(@"\.\.[\\/]|[\\/]\.\.[\\/]", RegexOptions.IgnoreCase) },
-            { "command_injection", new Regex(@"(\||\&|\;|\`|\$\(|\$\{)", RegexOptions.IgnoreCase) },
-            { "suspicious_keywords", new Regex(@"\b(password|admin|root|system|database|config|secret|token|key)\b", RegexOptions.IgnoreCase) }
-        };
-
-        private static readonly Dictionary<string, Regex> PIIPatterns = new()
-        {
-            { "email", new Regex(@"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b") },
-            { "phone", new Regex(@"(\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})") },
-            { "ssn", new Regex(@"\b\d{3}-?\d{2}-?\d{4}\b") },
-            { "credit_card", new Regex(@"\b(?:\d{4}[-\s]?){3}\d{4}\b") },
-            { "ip_address", new Regex(@"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b") },
-            { "url", new Regex(@"https?://[^\s]+") },
-            { "api_key", new Regex(@"\b[A-Za-z0-9]{20,}\b") }
-        };
+        private readonly IMapper _mapper;
 
         public SecurityService(
             IUnitOfWork<ChatBoxDbContext> unitOfWork,
             IAuditService auditService,
             ILogger<SecurityService> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IMapper mapper)
         {
             _unitOfWork = unitOfWork;
             _auditService = auditService;
             _logger = logger;
             _configuration = configuration;
-
-            _jsonOptions = new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                WriteIndented = false
-            };
+            _mapper = mapper;
         }
+
 
         public async Task<SecurityAnalysisResult> AnalyzeContentAsync(string content, Guid userId, string ipAddress)
         {
@@ -71,48 +47,35 @@ namespace ChatBox.API.Services.Implement
                     AnalysisId = analysisId,
                     AnalysisTimestamp = DateTime.UtcNow,
                     DetectedThreats = new List<SecurityThreat>(),
-                    DetectedIssues = new List<string>(),
-                    Details = new Dictionary<string, object>()
+                    DetectedIssues = new List<string>()
                 };
 
-                // 1. Pattern-based threat detection
-                await DetectPatternBasedThreatsAsync(content, result);
+                var enableThreatDetection = _configuration.GetValue<bool>("Security:EnableThreatDetection", true);
+                if (enableThreatDetection)
+                {
+                    await DetectPatternBasedThreatsAsync(content, result);
+                }
 
-                // 2. User behavior analysis
                 await AnalyzeUserBehaviorAsync(userId, content, result);
-
-                // 3. Content anomaly detection
                 await DetectContentAnomaliesAsync(content, result);
 
-                // 4. IP reputation check
-                await CheckIpReputationAsync(ipAddress, result);
+                var enableIPReputation = _configuration.GetValue<bool>("Security:EnableIPReputation", true);
+                if (enableIPReputation)
+                {
+                    await CheckIpReputationAsync(ipAddress, result);
+                }
 
-                // 5. Calculate overall risk score
                 CalculateRiskScore(result);
-
-                // 6. Generate recommendation
                 GenerateSecurityRecommendation(result);
-
-                // 7. Update user security profile
                 await UpdateUserSecurityProfileAsync(userId, result);
 
-                // 8. Log security event if needed
                 if (result.HasSecurityIssues)
                 {
                     await LogSecurityEventAsync(userId, content, result, ipAddress);
                 }
 
-                // 9. Audit trail
                 await _auditService.LogAsync(userId, "SecurityAnalysis", "Content", analysisId,
-                    null, new
-                    {
-                        ContentLength = content.Length,
-                        RiskScore = result.RiskScore,
-                        ThreatsDetected = result.DetectedThreats.Count
-                    }, ipAddress);
-
-                _logger.LogInformation("Security analysis completed. AnalysisId: {AnalysisId}, RiskScore: {RiskScore}, Threats: {ThreatCount}",
-                    analysisId, result.RiskScore, result.DetectedThreats.Count);
+                    null, new { ContentLength = content.Length, RiskScore = result.RiskScore, ThreatsDetected = result.DetectedThreats.Count }, ipAddress);
 
                 return result;
             }
@@ -124,18 +87,17 @@ namespace ChatBox.API.Services.Implement
                 await _auditService.LogSecurityEventAsync(userId, "SecurityAnalysisError",
                     $"Security analysis failed: {ex.Message}", "high", ipAddress);
 
-                // Return safe default - assume content is risky if analysis fails
                 return new SecurityAnalysisResult
                 {
                     HasSecurityIssues = true,
-                    RiskScore = 0.8,
-                    DetectedIssues = new List<string> { "Security analysis failed - treating as high risk" },
+                    RiskScore = _configuration.GetValue<double>("Security:FailureRiskScore", 0.8),
+                    DetectedIssues = new List<string> { _configuration["Security:Messages:AnalysisFailure"] ?? "Security analysis failed - treating as high risk" },
                     AnalysisId = analysisId,
                     AnalysisTimestamp = DateTime.UtcNow,
                     Recommendation = new SecurityRecommendation
                     {
                         Action = "block",
-                        Reason = "Security analysis failed",
+                        Reason = _configuration["Security:Messages:AnalysisFailureReason"] ?? "Security analysis failed",
                         Confidence = 0.9,
                         RequiresHumanReview = true
                     }
@@ -153,7 +115,9 @@ namespace ChatBox.API.Services.Implement
                 {
                     DetectedPII = new List<PIIEntity>(),
                     PIITypes = new List<string>(),
-                    Metadata = new Dictionary<string, object>()
+                    ContainsPII = false,
+                    ConfidenceScore = 1.0,
+                    MaskedContent = content
                 };
 
                 if (string.IsNullOrEmpty(content))

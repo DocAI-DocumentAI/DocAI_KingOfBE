@@ -23,38 +23,38 @@ namespace AI.API.Controllers
         /// <summary>
         /// Get usage metrics with pagination and filtering
         /// </summary>
-        [HttpGet("usage")]
-        public async Task<ActionResult<PagedResponse<UsageMetricResponse>>> GetUsageMetrics([FromQuery] GetUsageMetricsRequest request)
-        {
-            try
-            {
-                var metrics = await _metricsService.GetUsageMetricsAsync(request);
-                return Ok(metrics);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting usage metrics");
-                return StatusCode(500, new { message = "Internal server error" });
-            }
-        }
+        //[HttpGet("usage")]
+        //public async Task<ActionResult<PagedResponse<UsageMetricResponse>>> GetUsageMetrics([FromQuery] GetUsageMetricsRequest request)
+        //{
+        //    try
+        //    {
+        //        var metrics = await _metricsService.GetUsageMetricsAsync(request);
+        //        return Ok(metrics);
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.LogError(ex, "Error getting usage metrics");
+        //        return StatusCode(500, new { message = "Internal server error" });
+        //    }
+        //}
 
-        /// <summary>
-        /// Get request logs with pagination and filtering
-        /// </summary>
-        [HttpGet("logs")]
-        public async Task<ActionResult<PagedResponse<AIRequestLogResponse>>> GetRequestLogs([FromQuery] GetLogsRequest request)
-        {
-            try
-            {
-                var logs = await _metricsService.GetRequestLogsAsync(request);
-                return Ok(logs);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting request logs");
-                return StatusCode(500, new { message = "Internal server error" });
-            }
-        }
+        ///// <summary>
+        ///// Get request logs with pagination and filtering
+        ///// </summary>
+        //[HttpGet("logs")]
+        //public async Task<ActionResult<PagedResponse<AIRequestLogResponse>>> GetRequestLogs([FromQuery] GetLogsRequest request)
+        //{
+        //    try
+        //    {
+        //        var logs = await _metricsService.GetRequestLogsAsync(request);
+        //        return Ok(logs);
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.LogError(ex, "Error getting request logs");
+        //        return StatusCode(500, new { message = "Internal server error" });
+        //    }
+        //}
 
         /// <summary>
         /// Get aggregated metrics for a time period

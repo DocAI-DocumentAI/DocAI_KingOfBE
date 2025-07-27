@@ -13,9 +13,8 @@ namespace AI.API.Services.Interface
         Task<List<UsageMetric>> GetUsageHistoryAsync(string sourceService = null, DateTime? from = null, DateTime? to = null);
         Task<bool> CleanupOldMetricsAsync(int retentionDays = 90);
 
-        // New methods for enhanced controller functionality
-        Task<PagedResponse<UsageMetricResponse>> GetUsageMetricsAsync(GetUsageMetricsRequest request);
-        Task<PagedResponse<AIRequestLogResponse>> GetRequestLogsAsync(GetLogsRequest request);
+       Task<IPaginate<UsageMetricResponse>> GetUsageMetricsAsync(GetUsageMetricsRequest request);
+        Task<IPaginate<AIRequestLogResponse>> GetRequestLogsAsync(GetLogsRequest request);
         Task<AggregatedMetricsResponse> GetAggregatedMetricsAsync(DateTime? from = null, DateTime? to = null);
         Task<Dictionary<string, object>> GetUserMetricsAsync(string userId, DateTime? from = null, DateTime? to = null);
 

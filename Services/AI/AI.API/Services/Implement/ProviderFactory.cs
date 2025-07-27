@@ -1,5 +1,6 @@
 ﻿using AI.API.Services.Interface;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel.TextGeneration;
 
 namespace AI.API.Services.Implement
@@ -7,20 +8,20 @@ namespace AI.API.Services.Implement
     public class ProviderFactory : IProviderFactory
     {
         private readonly IHttpClientFactory _httpClientFactory;
-        private readonly ILogger<ProviderFactory> _logger;
+        private readonly ILoggerFactory _loggerFactory;
 
         public ProviderFactory(
             IHttpClientFactory httpClientFactory,
-            ILogger<ProviderFactory> logger)
+            ILoggerFactory loggerFactory)
         {
             _httpClientFactory = httpClientFactory;
-            _logger = logger;
+            _loggerFactory = loggerFactory;
         }
 
         public ITextGenerationService CreateHuggingFaceTextService(string modelId, string apiKey, string endpoint)
         {
             var httpClient = _httpClientFactory.CreateClient("HuggingFaceClient");
-            var logger = _logger.CreateLogger<HuggingFaceTextService>();
+            var logger = _loggerFactory.CreateLogger<HuggingFaceTextService>();
 
             return new HuggingFaceTextService(
                 httpClient: httpClient,

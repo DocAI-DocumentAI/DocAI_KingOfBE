@@ -1,4 +1,5 @@
-﻿using ChatBox.API.Services.Interfaces;
+﻿using AutoMapper;
+using ChatBox.API.Services.Interfaces;
 using ChatBox.Domain.Models;
 using ChatBox.Infrastructure.Repository.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -14,91 +15,29 @@ namespace ChatBox.API.Services.Implement
         private readonly IUnitOfWork<ChatBoxDbContext> _unitOfWork;
         private readonly ILogger<AuditService> _logger;
         private readonly IConfiguration _configuration;
-        private readonly JsonSerializerOptions _jsonOptions;
         private readonly IHttpContextAccessor _httpContextAccessor;
-
-        // Default audit configurations
-        private static readonly Dictionary<string, AuditConfiguration> DefaultConfigurations = new()
-        {
-            {
-                "ChatMessage",
-                new AuditConfiguration
-                {
-                    EntityType = "ChatMessage",
-                    ActionType = "*",
-                    IsEnabled = true,
-                    RetentionDays = 2555, // 7 years for compliance
-                    LogLevel = "standard",
-                    IncludeOldValues = true,
-                    IncludeNewValues = true,
-                    RequireApproval = false,
-                    SensitiveFields = new List<string> { "Content", "AiResponse" }
-                }
-            },
-            {
-                "UserPreference",
-                new AuditConfiguration
-                {
-                    EntityType = "UserPreference",
-                    ActionType = "*",
-                    IsEnabled = true,
-                    RetentionDays = 1095, // 3 years
-                    LogLevel = "standard",
-                    IncludeOldValues = true,
-                    IncludeNewValues = true,
-                    RequireApproval = false,
-                    SensitiveFields = new List<string>()
-                }
-            },
-            {
-                "SecurityEvent",
-                new AuditConfiguration
-                {
-                    EntityType = "SecurityEvent",
-                    ActionType = "*",
-                    IsEnabled = true,
-                    RetentionDays = 3650, // 10 years for security events
-                    LogLevel = "full",
-                    IncludeOldValues = true,
-                    IncludeNewValues = true,
-                    RequireApproval = false,
-                    SensitiveFields = new List<string> { "IpAddress", "UserAgent" }
-                }
-            }
-        };
-
+        private readonly IMapper _mapper;
         public AuditService(
-            IUnitOfWork<ChatBoxDbContext> unitOfWork,
-            ILogger<AuditService> logger,
-            IConfiguration configuration,
-            IHttpContextAccessor httpContextAccessor)
+             IUnitOfWork<ChatBoxDbContext> unitOfWork,
+             ILogger<AuditService> logger,
+             IConfiguration configuration,
+             IHttpContextAccessor httpContextAccessor,
+             IMapper mapper)
         {
             _unitOfWork = unitOfWork;
             _logger = logger;
             _configuration = configuration;
-
-            _jsonOptions = new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                WriteIndented = false,
-                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-            };
             _httpContextAccessor = httpContextAccessor;
+            _mapper = mapper;
         }
 
         public async Task LogAsync(Guid? userId, string action, string entityType, string entityId,
-            object oldValues = null, object newValues = null, string ipAddress = null, string userAgent = null)
+                  object oldValues = null, object newValues = null, string ipAddress = null, string userAgent = null)
         {
             try
             {
-                // Check if auditing is enabled for this entity type and action
-                var auditConfig = await GetAuditConfigurationAsync(entityType, action);
-                if (!auditConfig.IsEnabled)
-                {
-                    return;
-                }
-
                 var auditLogRepo = _unitOfWork.GetRepository<AuditLog>();
+                var retentionDays = _configuration.GetValue<int>("AuditService:DefaultRetentionDays", 365);
 
                 var auditLog = new AuditLog
                 {
@@ -107,35 +46,17 @@ namespace ChatBox.API.Services.Implement
                     Action = action,
                     EntityType = entityType,
                     EntityId = entityId,
-                    IpAddress = ipAddress,
-                    UserAgent = userAgent,
+                    IpAddress = ipAddress ?? GetClientIpAddress(),
+                    UserAgent = userAgent ?? GetUserAgent(),
                     Timestamp = DateTime.UtcNow,
                     SessionId = GenerateSessionId(),
                     Source = DetermineSource(userAgent),
                     Category = DetermineCategory(action, entityType),
                     Severity = DetermineSeverity(action, entityType),
                     IsDeleted = false,
-                    RetentionDate = DateTime.UtcNow.AddDays(auditConfig.RetentionDays)
-                };
-
-                // Process old and new values based on configuration
-                if (auditConfig.IncludeOldValues && oldValues != null)
-                {
-                    auditLog.OldValues = await ProcessSensitiveDataAsync(oldValues, auditConfig.SensitiveFields);
-                }
-
-                if (auditConfig.IncludeNewValues && newValues != null)
-                {
-                    auditLog.NewValues = await ProcessSensitiveDataAsync(newValues, auditConfig.SensitiveFields);
-                }
-
-                // Add metadata
-                auditLog.Metadata = new Dictionary<string, object>
-                {
-                    { "LogLevel", auditConfig.LogLevel },
-                    { "ConfigId", auditConfig.Id },
-                    { "Checksum", await GenerateChecksumAsync(auditLog) },
-                    { "Version", "1.0" }
+                    RetentionDate = DateTime.UtcNow.AddDays(retentionDays),
+                    OldValues = oldValues != null ? System.Text.Json.JsonSerializer.Serialize(oldValues) : null,
+                    NewValues = newValues != null ? System.Text.Json.JsonSerializer.Serialize(newValues) : null
                 };
 
                 await auditLogRepo.InsertAsync(auditLog);
@@ -148,10 +69,6 @@ namespace ChatBox.API.Services.Implement
             {
                 _logger.LogError(ex, "Error creating audit log for {EntityType}:{EntityId} by user {UserId}",
                     entityType, entityId, userId);
-
-                // Audit logging failures should not break the main application flow
-                // But we should log this failure for monitoring
-                await LogInternalErrorAsync("AuditLogFailure", ex.Message, userId, ipAddress);
             }
         }
 
@@ -161,6 +78,7 @@ namespace ChatBox.API.Services.Implement
             try
             {
                 var securityAuditRepo = _unitOfWork.GetRepository<SecurityAuditLog>();
+                var retentionDays = _configuration.GetValue<int>("AuditService:SecurityEventRetentionDays", 2555);
 
                 var securityLog = new SecurityAuditLog
                 {
@@ -170,35 +88,20 @@ namespace ChatBox.API.Services.Implement
                     Description = description,
                     Severity = severity,
                     Timestamp = DateTime.UtcNow,
-                    IpAddress = ipAddress,
-                    Source = "system",
+                    IpAddress = ipAddress ?? GetClientIpAddress(),
+                    Source = _configuration.GetValue<string>("AuditService:DefaultSource", "system"),
                     ThreatLevel = DetermineThreatLevel(eventType, severity),
                     RequiresInvestigation = RequiresInvestigation(severity, eventType),
-                    InvestigationStatus = "new",
-                    EventData = metadata ?? new Dictionary<string, object>(),
-                    IsArchived = false
-                };
-
-                // Add additional metadata
-                securityLog.Metadata = new Dictionary<string, object>
-                {
-                    { "AutoGenerated", true },
-                    { "Source", "AuditService" },
-                    { "Checksum", await GenerateSecurityChecksumAsync(securityLog) },
-                    { "Timestamp", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
+                    InvestigationStatus = _configuration.GetValue<string>("AuditService:DefaultInvestigationStatus", "new"),
+                    IsArchived = false,
                 };
 
                 await securityAuditRepo.InsertAsync(securityLog);
                 await _unitOfWork.CommitAsync();
 
-                // Also create a regular audit log for security events
-                await LogAsync(userId, "SecurityEvent", "SecurityAuditLog", securityLog.Id.ToString(),
-                    null, new { EventType = eventType, Severity = severity }, ipAddress);
-
                 _logger.LogWarning("Security event logged: {EventType} for user {UserId} with severity {Severity}",
                     eventType, userId, severity);
 
-                // Trigger alerts for high severity events
                 if (severity == "high" || severity == "critical")
                 {
                     await TriggerSecurityAlertAsync(securityLog);
@@ -207,9 +110,6 @@ namespace ChatBox.API.Services.Implement
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error logging security event {EventType} for user {UserId}", eventType, userId);
-
-                // For security events, we should try alternative logging methods
-                await LogCriticalErrorAsync("SecurityLogFailure", ex.Message, userId, ipAddress);
             }
         }
 
@@ -218,13 +118,13 @@ namespace ChatBox.API.Services.Implement
             try
             {
                 var auditLogRepo = _unitOfWork.GetRepository<AuditLog>();
+                var maxLimit = _configuration.GetValue<int>("AuditService:MaxQueryLimit", 1000);
+                limit = Math.Min(limit, maxLimit);
 
                 var predicate = BuildUserAuditPredicate(userId, fromDate, toDate);
-
                 var auditLogs = await auditLogRepo.GetListAsync(
                     predicate: predicate,
-                    orderBy: logs => logs.OrderByDescending(l => l.Timestamp),
-                    include: null);
+                    orderBy: logs => logs.OrderByDescending(l => l.Timestamp));
 
                 return auditLogs.Take(limit).ToList();
             }
@@ -234,19 +134,18 @@ namespace ChatBox.API.Services.Implement
                 return new List<AuditLog>();
             }
         }
-
         public async Task<List<AuditLog>> GetSystemAuditLogsAsync(DateTime? fromDate = null, DateTime? toDate = null, int limit = 1000)
         {
             try
             {
                 var auditLogRepo = _unitOfWork.GetRepository<AuditLog>();
+                var maxLimit = _configuration.GetValue<int>("AuditService:MaxSystemQueryLimit", 5000);
+                limit = Math.Min(limit, maxLimit);
 
                 var predicate = BuildSystemAuditPredicate(fromDate, toDate);
-
                 var auditLogs = await auditLogRepo.GetListAsync(
                     predicate: predicate,
-                    orderBy: logs => logs.OrderByDescending(l => l.Timestamp),
-                    include: null);
+                    orderBy: logs => logs.OrderByDescending(l => l.Timestamp));
 
                 return auditLogs.Take(limit).ToList();
             }
@@ -262,13 +161,13 @@ namespace ChatBox.API.Services.Implement
             try
             {
                 var auditLogRepo = _unitOfWork.GetRepository<AuditLog>();
+                var maxLimit = _configuration.GetValue<int>("AuditService:MaxSearchLimit", 500);
+                limit = Math.Min(limit, maxLimit);
 
                 var predicate = BuildSearchAuditPredicate(searchTerm, fromDate, toDate);
-
                 var auditLogs = await auditLogRepo.GetListAsync(
                     predicate: predicate,
-                    orderBy: logs => logs.OrderByDescending(l => l.Timestamp),
-                    include: null);
+                    orderBy: logs => logs.OrderByDescending(l => l.Timestamp));
 
                 return auditLogs.Take(limit).ToList();
             }
@@ -283,6 +182,7 @@ namespace ChatBox.API.Services.Implement
         {
             try
             {
+                var batchSize = _configuration.GetValue<int>("AuditService:CleanupBatchSize", 1000);
                 _logger.LogInformation("Starting audit log cleanup for logs older than {RetentionDays} days", retentionDays);
 
                 var auditLogRepo = _unitOfWork.GetRepository<AuditLog>();
@@ -290,181 +190,58 @@ namespace ChatBox.API.Services.Implement
 
                 var cutoffDate = DateTime.UtcNow.AddDays(-retentionDays);
 
-                // Get logs to be cleaned up
+                // Process in batches for better performance
                 var expiredAuditLogs = await auditLogRepo.GetListAsync(
                     predicate: log => log.RetentionDate.HasValue && log.RetentionDate.Value < DateTime.UtcNow && !log.IsDeleted);
 
                 var expiredSecurityLogs = await securityAuditRepo.GetListAsync(
                     predicate: log => log.Timestamp < cutoffDate && !log.IsArchived);
 
-                // Archive security logs instead of deleting them
-                foreach (var securityLog in expiredSecurityLogs)
+                // Archive security logs
+                foreach (var batch in expiredSecurityLogs.Chunk(batchSize))
                 {
-                    securityLog.IsArchived = true;
-                    securityLog.ArchiveDate = DateTime.UtcNow;
-                    securityAuditRepo.UpdateAsync(securityLog);
+                    foreach (var securityLog in batch)
+                    {
+                        securityLog.IsArchived = true;
+                        securityLog.ArchiveDate = DateTime.UtcNow;
+                        securityAuditRepo.UpdateAsync(securityLog);
+                    }
+                    await _unitOfWork.CommitAsync();
                 }
 
-                // Soft delete regular audit logs
-                foreach (var auditLog in expiredAuditLogs)
+                // Soft delete audit logs
+                foreach (var batch in expiredAuditLogs.Chunk(batchSize))
                 {
-                    auditLog.IsDeleted = true;
-                    auditLogRepo.UpdateAsync(auditLog);
+                    foreach (var auditLog in batch)
+                    {
+                        auditLog.IsDeleted = true;
+                        auditLogRepo.UpdateAsync(auditLog);
+                    }
+                    await _unitOfWork.CommitAsync();
                 }
-
-                await _unitOfWork.CommitAsync();
 
                 _logger.LogInformation("Audit log cleanup completed. Archived {SecurityLogCount} security logs, soft-deleted {AuditLogCount} audit logs",
                     expiredSecurityLogs.Count, expiredAuditLogs.Count);
 
-                // Log the cleanup operation itself
                 await LogAsync(null, "CleanupOldLogs", "AuditService", "bulk_cleanup",
-                    null, new
-                    {
-                        RetentionDays = retentionDays,
-                        ArchivedSecurityLogs = expiredSecurityLogs.Count,
-                        DeletedAuditLogs = expiredAuditLogs.Count
-                    });
+                    null, new { RetentionDays = retentionDays, ArchivedSecurityLogs = expiredSecurityLogs.Count, DeletedAuditLogs = expiredAuditLogs.Count });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during audit log cleanup");
-                await LogInternalErrorAsync("AuditCleanupFailure", ex.Message, null, null);
             }
         }
-
         // Private helper methods
-        private async Task<AuditConfiguration> GetAuditConfigurationAsync(string entityType, string action)
+        private string GetClientIpAddress()
         {
-            try
-            {
-                var configRepo = _unitOfWork.GetRepository<AuditConfiguration>();
-                var config = await configRepo.SingleOrDefaultAsync(predicate:
-                    c => c.EntityType == entityType &&
-                         (c.ActionType == action || c.ActionType == "*") &&
-                         c.IsActive);
-
-                if (config != null)
-                {
-                    return new AuditConfiguration
-                    {
-                        Id = config.Id,
-                        EntityType = config.EntityType,
-                        ActionType = config.ActionType,
-                        IsEnabled = config.IsEnabled,
-                        RetentionDays = config.RetentionDays,
-                        LogLevel = config.LogLevel,
-                        IncludeOldValues = config.IncludeOldValues,
-                        IncludeNewValues = config.IncludeNewValues,
-                        RequireApproval = config.RequireApproval,
-                        SensitiveFields = config.SensitiveFields
-                    };
-                }
-
-                // Return default configuration if none found
-                if (DefaultConfigurations.TryGetValue(entityType, out var defaultConfig))
-                {
-                    return defaultConfig;
-                }
-
-                return new AuditConfiguration
-                {
-                    EntityType = entityType,
-                    ActionType = "*",
-                    IsEnabled = true,
-                    RetentionDays = 365,
-                    LogLevel = "standard",
-                    IncludeOldValues = true,
-                    IncludeNewValues = true,
-                    RequireApproval = false,
-                    SensitiveFields = new List<string>()
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error getting audit configuration, using default");
-                return DefaultConfigurations.GetValueOrDefault(entityType, DefaultConfigurations["ChatMessage"]);
-            }
+            var context = _httpContextAccessor.HttpContext;
+            return context?.Connection?.RemoteIpAddress?.ToString() ?? "unknown";
         }
 
-        private async Task<string> ProcessSensitiveDataAsync(object data, List<string> sensitiveFields)
+        private string GetUserAgent()
         {
-            try
-            {
-                if (data == null)
-                    return null;
-
-                var jsonString = JsonSerializer.Serialize(data, _jsonOptions);
-
-                if (!sensitiveFields.Any())
-                    return jsonString;
-
-                // Parse JSON and mask sensitive fields
-                var jsonDocument = JsonDocument.Parse(jsonString);
-                var maskedData = new Dictionary<string, object>();
-
-                foreach (var property in jsonDocument.RootElement.EnumerateObject())
-                {
-                    if (sensitiveFields.Contains(property.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        maskedData[property.Name] = MaskSensitiveValue(property.Value.ToString());
-                    }
-                    else
-                    {
-                        maskedData[property.Name] = property.Value.ToString();
-                    }
-                }
-
-                return JsonSerializer.Serialize(maskedData, _jsonOptions);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error processing sensitive data, returning masked placeholder");
-                return "[SENSITIVE_DATA_PROCESSING_ERROR]";
-            }
-        }
-
-        private string MaskSensitiveValue(string value)
-        {
-            if (string.IsNullOrEmpty(value))
-                return value;
-
-            if (value.Length <= 4)
-                return new string('*', value.Length);
-
-            return value.Substring(0, 2) + new string('*', value.Length - 4) + value.Substring(value.Length - 2);
-        }
-
-        private async Task<string> GenerateChecksumAsync(AuditLog auditLog)
-        {
-            try
-            {
-                var checksumData = $"{auditLog.UserId}|{auditLog.Action}|{auditLog.EntityType}|{auditLog.EntityId}|{auditLog.Timestamp:O}";
-                using var sha256 = SHA256.Create();
-                var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(checksumData));
-                return Convert.ToHexString(hash).ToLower();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error generating checksum for audit log");
-                return "checksum_error";
-            }
-        }
-
-        private async Task<string> GenerateSecurityChecksumAsync(SecurityAuditLog securityLog)
-        {
-            try
-            {
-                var checksumData = $"{securityLog.UserId}|{securityLog.EventType}|{securityLog.Severity}|{securityLog.Timestamp:O}";
-                using var sha256 = SHA256.Create();
-                var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(checksumData));
-                return Convert.ToHexString(hash).ToLower();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error generating security checksum");
-                return "checksum_error";
-            }
+            var context = _httpContextAccessor.HttpContext;
+            return context?.Request?.Headers["User-Agent"].ToString() ?? "unknown";
         }
 
         private string GenerateSessionId()
@@ -476,61 +253,71 @@ namespace ChatBox.API.Services.Implement
         private string DetermineSource(string userAgent)
         {
             if (string.IsNullOrEmpty(userAgent))
-                return "unknown";
+                return _configuration.GetValue<string>("AuditService:DefaultSource", "unknown");
 
-            if (userAgent.Contains("Mobile"))
-                return "mobile";
-            else if (userAgent.Contains("API") || userAgent.Contains("Bot"))
-                return "api";
-            else
-                return "web";
+            var sourceMap = _configuration.GetSection("AuditService:SourceMapping").Get<Dictionary<string, string>>() ?? new();
+
+            foreach (var mapping in sourceMap)
+            {
+                if (userAgent.Contains(mapping.Key, StringComparison.OrdinalIgnoreCase))
+                    return mapping.Value;
+            }
+
+            return userAgent.Contains("Mobile") ? "mobile" :
+                   userAgent.Contains("API") ? "api" : "web";
         }
 
         private string DetermineCategory(string action, string entityType)
         {
-            var securityActions = new[] { "Login", "Logout", "PasswordChange", "SecurityEvent", "AccessDenied" };
-            var systemActions = new[] { "SystemStartup", "SystemShutdown", "ConfigurationChange" };
+            var categories = _configuration.GetSection("AuditService:CategoryMapping").Get<Dictionary<string, string>>() ?? new();
 
-            if (securityActions.Contains(action, StringComparer.OrdinalIgnoreCase))
-                return "security_event";
-            else if (systemActions.Contains(action, StringComparer.OrdinalIgnoreCase))
-                return "system_event";
-            else
-                return "user_action";
+            var key = $"{action}_{entityType}";
+            if (categories.TryGetValue(key, out var category))
+                return category;
+
+            var securityActions = _configuration.GetSection("AuditService:SecurityActions").Get<string[]>() ??
+                new[] { "Login", "Logout", "PasswordChange", "SecurityEvent", "AccessDenied" };
+
+            return securityActions.Contains(action, StringComparer.OrdinalIgnoreCase) ? "security_event" : "user_action";
         }
 
         private string DetermineSeverity(string action, string entityType)
         {
-            var highSeverityActions = new[] { "Delete", "SecurityEvent", "AccessDenied", "PasswordChange" };
-            var mediumSeverityActions = new[] { "Update", "Create", "Login", "Logout" };
+            var severityMap = _configuration.GetSection("AuditService:SeverityMapping").Get<Dictionary<string, string>>() ?? new();
 
-            if (highSeverityActions.Contains(action, StringComparer.OrdinalIgnoreCase))
-                return "high";
-            else if (mediumSeverityActions.Contains(action, StringComparer.OrdinalIgnoreCase))
-                return "medium";
-            else
-                return "low";
+            var key = $"{action}_{entityType}";
+            if (severityMap.TryGetValue(key, out var severity))
+                return severity;
+
+            var highSeverityActions = _configuration.GetSection("AuditService:HighSeverityActions").Get<string[]>() ??
+                new[] { "Delete", "SecurityEvent", "AccessDenied", "PasswordChange" };
+
+            return highSeverityActions.Contains(action, StringComparer.OrdinalIgnoreCase) ? "high" : "medium";
         }
 
         private string DetermineThreatLevel(string eventType, string severity)
         {
-            var criticalEvents = new[] { "DataBreach", "SystemCompromise", "UnauthorizedAccess" };
-            var highThreatEvents = new[] { "SecurityViolation", "SuspiciousActivity", "MultipleFailedLogins" };
+            var threatMap = _configuration.GetSection("AuditService:ThreatLevelMapping").Get<Dictionary<string, string>>() ?? new();
 
-            if (severity == "critical" || criticalEvents.Contains(eventType, StringComparer.OrdinalIgnoreCase))
-                return "critical";
-            else if (severity == "high" || highThreatEvents.Contains(eventType, StringComparer.OrdinalIgnoreCase))
-                return "high";
-            else if (severity == "medium")
-                return "medium";
-            else
-                return "low";
+            if (threatMap.TryGetValue(eventType, out var threatLevel))
+                return threatLevel;
+
+            return severity switch
+            {
+                "critical" => "critical",
+                "high" => "high",
+                "medium" => "medium",
+                _ => "low"
+            };
         }
 
         private bool RequiresInvestigation(string severity, string eventType)
         {
-            var investigationRequired = new[] { "critical", "high" };
-            var autoInvestigateEvents = new[] { "DataBreach", "SystemCompromise", "SecurityViolation" };
+            var investigationRequired = _configuration.GetSection("AuditService:InvestigationRequired").Get<string[]>() ??
+                new[] { "critical", "high" };
+
+            var autoInvestigateEvents = _configuration.GetSection("AuditService:AutoInvestigateEvents").Get<string[]>() ??
+                new[] { "DataBreach", "SystemCompromise", "SecurityViolation" };
 
             return investigationRequired.Contains(severity, StringComparer.OrdinalIgnoreCase) ||
                    autoInvestigateEvents.Contains(eventType, StringComparer.OrdinalIgnoreCase);
@@ -540,56 +327,22 @@ namespace ChatBox.API.Services.Implement
         {
             try
             {
-                // In a real implementation, this would trigger alerts via:
-                // - Email notifications
-                // - Slack/Teams notifications
-                // - SMS alerts
-                // - Dashboard alerts
-                // - SIEM integration
+                var alertConfig = _configuration.GetSection("AuditService:AlertConfiguration");
+                var enableEmailAlerts = alertConfig.GetValue<bool>("EnableEmailAlerts", true);
+                var enableLogAlerts = alertConfig.GetValue<bool>("EnableLogAlerts", true);
 
-                _logger.LogWarning("SECURITY ALERT: {EventType} for user {UserId} - {Description}",
-                    securityLog.EventType, securityLog.UserId, securityLog.Description);
+                if (enableLogAlerts)
+                {
+                    _logger.LogCritical("SECURITY ALERT: {EventType} for user {UserId} - {Description}",
+                        securityLog.EventType, securityLog.UserId, securityLog.Description);
+                }
 
-                // For now, just log at critical level
-                _logger.LogCritical("High severity security event detected: {SecurityLogId}", securityLog.Id);
+                // Additional alert mechanisms can be implemented here
+                // Email, Slack, SMS, etc. based on configuration
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error triggering security alert for {SecurityLogId}", securityLog.Id);
-            }
-        }
-
-        private async Task LogInternalErrorAsync(string errorType, string message, Guid? userId, string ipAddress)
-        {
-            try
-            {
-                // Use a separate error logging mechanism that doesn't depend on the main audit system
-                _logger.LogError("AUDIT_SYSTEM_ERROR: {ErrorType} - {Message} for user {UserId}",
-                    errorType, message, userId);
-
-                // Could also write to a separate error log file or external logging service
-            }
-            catch (Exception ex)
-            {
-                // Last resort logging
-                _logger.LogCritical(ex, "CRITICAL: Audit system completely failed to log error");
-            }
-        }
-
-        private async Task LogCriticalErrorAsync(string errorType, string message, Guid? userId, string ipAddress)
-        {
-            try
-            {
-                _logger.LogCritical("CRITICAL_AUDIT_ERROR: {ErrorType} - {Message} for user {UserId}",
-                    errorType, message, userId);
-
-                // Write to event log or external monitoring system
-                // This should trigger immediate alerts
-            }
-            catch (Exception ex)
-            {
-                // Absolute last resort - write to console or event log
-                Console.WriteLine($"CRITICAL AUDIT FAILURE: {ex.Message}");
             }
         }
 
@@ -605,8 +358,11 @@ namespace ChatBox.API.Services.Implement
         private System.Linq.Expressions.Expression<Func<AuditLog, bool>> BuildSystemAuditPredicate(
             DateTime? fromDate, DateTime? toDate)
         {
+            var systemCategories = _configuration.GetSection("AuditService:SystemCategories").Get<string[]>() ??
+                new[] { "system_event" };
+
             return log => !log.IsDeleted &&
-                         log.Category == "system_event" &&
+                         systemCategories.Contains(log.Category) &&
                          (!fromDate.HasValue || log.Timestamp >= fromDate.Value) &&
                          (!toDate.HasValue || log.Timestamp <= toDate.Value);
         }
@@ -623,40 +379,6 @@ namespace ChatBox.API.Services.Implement
                           (log.NewValues != null && log.NewValues.ToLower().Contains(searchLower))) &&
                          (!fromDate.HasValue || log.Timestamp >= fromDate.Value) &&
                          (!toDate.HasValue || log.Timestamp <= toDate.Value);
-        }
-    }
-
-    // Extension methods for audit convenience
-    public static class AuditExtensions
-    {
-        public static async Task LogCreateAsync<T>(this IAuditService auditService,
-            Guid? userId, T entity, string ipAddress = null, string userAgent = null) where T : class
-        {
-            var entityType = typeof(T).Name;
-            var entityId = GetEntityId(entity);
-            await auditService.LogAsync(userId, "Create", entityType, entityId, null, entity, ipAddress, userAgent);
-        }
-
-        public static async Task LogUpdateAsync<T>(this IAuditService auditService,
-            Guid? userId, T oldEntity, T newEntity, string ipAddress = null, string userAgent = null) where T : class
-        {
-            var entityType = typeof(T).Name;
-            var entityId = GetEntityId(newEntity);
-            await auditService.LogAsync(userId, "Update", entityType, entityId, oldEntity, newEntity, ipAddress, userAgent);
-        }
-
-        public static async Task LogDeleteAsync<T>(this IAuditService auditService,
-            Guid? userId, T entity, string ipAddress = null, string userAgent = null) where T : class
-        {
-            var entityType = typeof(T).Name;
-            var entityId = GetEntityId(entity);
-            await auditService.LogAsync(userId, "Delete", entityType, entityId, entity, null, ipAddress, userAgent);
-        }
-
-        private static string GetEntityId<T>(T entity)
-        {
-            var idProperty = typeof(T).GetProperty("Id");
-            return idProperty?.GetValue(entity)?.ToString() ?? "unknown";
         }
     }
 }

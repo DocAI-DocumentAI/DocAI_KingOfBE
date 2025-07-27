@@ -313,70 +313,65 @@ namespace AI.API.Services.Implement
         }
 
         // New methods for enhanced controller functionality
-        public async Task<PagedResponse<UsageMetricResponse>> GetUsageMetricsAsync(GetUsageMetricsRequest request)
+        public async Task<IPaginate<UsageMetricResponse>> GetUsageMetricsAsync(GetUsageMetricsRequest request)
         {
             try
             {
-                // This is a placeholder implementation
-                // In a real implementation, you would map GetMetricsRequest to UsageMetricFilter
-                // and convert results to UsageMetricResponse
-
                 var filter = new UsageMetricFilter
                 {
                     SourceService = request.SourceService,
-                    RequestId = request.UserId // Note: This mapping might need adjustment
+                    RequestId = request.UserId
                 };
 
-                var result = await GetUsageMetricsPaginatedAsync(filter, request.Page, request.Size, request.SortBy, request.IsAscending);
+                var result = await GetUsageMetricsPaginatedAsync(
+                    filter, request.Page, request.Size, request.SortBy, request.IsAscending
+                );
 
-                return new PagedResponse<UsageMetricResponse>
+                return new Paginate<UsageMetricResponse>
                 {
-                    Success = true,
                     Items = _mapper.Map<List<UsageMetricResponse>>(result.Items),
                     Page = request.Page,
                     Size = request.Size,
-                    TotalItems = result.Total,
-                    TotalPages = (int)Math.Ceiling((double)result.Total / request.Size),
-                    HasNextPage = request.Page < (int)Math.Ceiling((double)result.Total / request.Size),
-                    HasPreviousPage = request.Page > 1
+                    Total = result.Total
                 };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting usage metrics");
-                return new PagedResponse<UsageMetricResponse>
+
+                return new Paginate<UsageMetricResponse>
                 {
-                    Success = false,
-                    Message = ex.Message,
-                    Items = new List<UsageMetricResponse>()
+                    Items = new List<UsageMetricResponse>(),
+                    Page = request.Page,
+                    Size = request.Size,
+                    Total = 0
                 };
             }
         }
 
-        public async Task<PagedResponse<AIRequestLogResponse>> GetRequestLogsAsync(GetLogsRequest request)
+
+        public async Task<IPaginate<AIRequestLogResponse>> GetRequestLogsAsync(GetLogsRequest request)
         {
             try
             {
-                // Placeholder implementation
-                return new PagedResponse<AIRequestLogResponse>
+                return new Paginate<AIRequestLogResponse>
                 {
-                    Success = true,
-                    Items = new List<AIRequestLogResponse>(),
                     Page = request.Page,
                     Size = request.Size,
-                    TotalItems = 0,
-                    TotalPages = 0,
-                    HasNextPage = false,
-                    HasPreviousPage = false
+                    Total = 0,
+                    Items = new List<AIRequestLogResponse>(),
                 };
+      
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting request logs");
-                return new PagedResponse<AIRequestLogResponse>
+                return new Paginate<AIRequestLogResponse>
                 {
-                    Success = false,
-                    Message = ex.Message,
+                    Page = request.Page,
+                    Size = request.Size,
+                    Total = 0,
+                    TotalPages = 0,
                     Items = new List<AIRequestLogResponse>()
                 };
             }

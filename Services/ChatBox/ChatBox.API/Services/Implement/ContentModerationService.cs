@@ -1,4 +1,5 @@
-﻿using ChatBox.API.Payload.Response.ContentModerationServiceResponse;
+﻿using AutoMapper;
+using ChatBox.API.Payload.Response.ContentModerationServiceResponse;
 using ChatBox.API.Services.Interfaces;
 using ChatBox.Domain.Enum;
 using ChatBox.Domain.Models;
@@ -15,123 +16,22 @@ namespace ChatBox.API.Services.Implement
         private readonly IAuditService _auditService;
         private readonly ILogger<ContentModerationService> _logger;
         private readonly IConfiguration _configuration;
-        private readonly JsonSerializerOptions _jsonOptions;
-
-        // Built-in moderation rules
-        private static readonly Dictionary<string, ModerationRule> DefaultRules = new()
-        {
-            {
-                "profanity_basic",
-                new ModerationRule
-                {
-                    Id = "profanity_basic",
-                    Name = "Basic Profanity Filter",
-                    Category = "language",
-                    RuleType = "keyword",
-                    Keywords = new List<string> { "damn", "shit", "fuck", "bitch", "asshole" },
-                    Severity = 0.6,
-                    Action = "flag",
-                    IsActive = true,
-                    IsCaseSensitive = false,
-                    IsWholeWordOnly = true
-                }
-            },
-            {
-                "harassment",
-                new ModerationRule
-                {
-                    Id = "harassment",
-                    Name = "Harassment Detection",
-                    Category = "behavior",
-                    RuleType = "pattern",
-                    Pattern = @"\b(kill yourself|go die|you should die|hate you|stupid idiot)\b",
-                    Severity = 0.9,
-                    Action = "block",
-                    IsActive = true,
-                    IsCaseSensitive = false
-                }
-            },
-            {
-                "spam_repetition",
-                new ModerationRule
-                {
-                    Id = "spam_repetition",
-                    Name = "Spam Repetition Detection",
-                    Category = "spam",
-                    RuleType = "pattern",
-                    Pattern = @"(.)\1{10,}|(\b\w+\b)\s*\2\s*\2+",
-                    Severity = 0.7,
-                    Action = "flag",
-                    IsActive = true,
-                    IsCaseSensitive = false
-                }
-            },
-            {
-                "personal_attacks",
-                new ModerationRule
-                {
-                    Id = "personal_attacks",
-                    Name = "Personal Attacks",
-                    Category = "behavior",
-                    RuleType = "keyword",
-                    Keywords = new List<string> { "you're stupid", "you're an idiot", "you're dumb", "moron", "retard" },
-                    Severity = 0.8,
-                    Action = "flag",
-                    IsActive = true,
-                    IsCaseSensitive = false,
-                    IsWholeWordOnly = false
-                }
-            },
-            {
-                "inappropriate_content",
-                new ModerationRule
-                {
-                    Id = "inappropriate_content",
-                    Name = "Inappropriate Content",
-                    Category = "content",
-                    RuleType = "keyword",
-                    Keywords = new List<string> { "nude", "naked", "porn", "sex", "sexual" },
-                    Severity = 0.7,
-                    Action = "flag",
-                    IsActive = true,
-                    IsCaseSensitive = false,
-                    IsWholeWordOnly = true
-                }
-            },
-            {
-                "threats_violence",
-                new ModerationRule
-                {
-                    Id = "threats_violence",
-                    Name = "Threats and Violence",
-                    Category = "safety",
-                    RuleType = "pattern",
-                    Pattern = @"\b(kill|murder|hurt|harm|attack|beat up|destroy)\s+(you|him|her|them)\b",
-                    Severity = 1.0,
-                    Action = "block",
-                    IsActive = true,
-                    IsCaseSensitive = false
-                }
-            }
-        };
+        private readonly IMapper _mapper;
 
         public ContentModerationService(
             IUnitOfWork<ChatBoxDbContext> unitOfWork,
             IAuditService auditService,
             ILogger<ContentModerationService> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IMapper mapper)
         {
             _unitOfWork = unitOfWork;
             _auditService = auditService;
             _logger = logger;
             _configuration = configuration;
-
-            _jsonOptions = new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                WriteIndented = false
-            };
+            _mapper = mapper;
         }
+
 
         public async Task<ContentModerationResponse> ModerateContentAsync(string content, Guid? userId)
         {
@@ -147,65 +47,66 @@ namespace ChatBox.API.Services.Implement
                     ModerationId = moderationId,
                     ModerationTimestamp = DateTime.UtcNow,
                     Violations = new List<ContentViolation>(),
-                    ViolatedRules = new List<string>(),
-                    Metadata = new Dictionary<string, object>()
+                    ViolatedRules = new List<string>()
                 };
 
                 if (string.IsNullOrWhiteSpace(content))
                 {
                     response.IsApproved = true;
-                    response.Reason = "Content is empty";
+                    response.Reason = _configuration["ContentModeration:Messages:EmptyContent"] ?? "Content is empty";
                     response.Action = "approve";
                     response.ConfidenceScore = 1.0;
                     response.Severity = ContentSeverity.Low;
                     return response;
                 }
 
-                // 1. Get active moderation rules
+                var maxContentLength = _configuration.GetValue<int>("ContentModeration:MaxContentLength", 10000);
+                if (content.Length > maxContentLength)
+                {
+                    response.IsApproved = false;
+                    response.Reason = _configuration["ContentModeration:Messages:ContentTooLong"] ?? "Content exceeds maximum length";
+                    response.Action = "block";
+                    response.ConfidenceScore = 1.0;
+                    response.Severity = ContentSeverity.High;
+                    return response;
+                }
+
+                // Get active moderation rules
                 var moderationRules = await GetActiveModerationRulesAsync();
 
-                // 2. Check user moderation profile
+                // Check user moderation profile
                 var userProfile = userId.HasValue ? await GetUserModerationProfileAsync(userId.Value) : null;
 
-                // 3. Apply content filters
+                // Apply content filters
                 await ApplyModerationRulesAsync(content, moderationRules, response);
 
-                // 4. Apply user-specific moderation
+                // Apply user-specific moderation
                 if (userProfile != null)
                 {
                     await ApplyUserSpecificModerationAsync(content, userProfile, response);
                 }
 
-                // 5. Calculate overall moderation result
+                // Calculate overall moderation result
                 CalculateModerationResult(response);
 
-                // 6. Apply user context adjustments
+                // Apply user context adjustments
                 if (userProfile != null)
                 {
                     AdjustModerationForUser(response, userProfile);
                 }
 
-                // 7. Log moderation result
+                // Log moderation result
                 await LogModerationResultAsync(content, response, userId);
 
-                // 8. Update user moderation profile if needed
+                // Update user moderation profile if needed
                 if (userId.HasValue && !response.IsApproved)
                 {
                     await UpdateUserModerationProfileAsync(userId.Value, response);
                 }
 
-                // 9. Audit trail
+                // Audit trail
                 await _auditService.LogAsync(userId, "ContentModeration", "Content", moderationId,
-                    null, new
-                    {
-                        ContentLength = content.Length,
-                        IsApproved = response.IsApproved,
-                        ViolationCount = response.Violations.Count,
-                        Action = response.Action
-                    });
-
-                _logger.LogInformation("Content moderation completed. ModerationId: {ModerationId}, IsApproved: {IsApproved}, Violations: {ViolationCount}",
-                    moderationId, response.IsApproved, response.Violations.Count);
+                    null, new { ContentLength = content.Length, IsApproved = response.IsApproved, ViolationCount = response.Violations.Count, Action = response.Action });
 
                 return response;
             }
@@ -217,32 +118,30 @@ namespace ChatBox.API.Services.Implement
                 await _auditService.LogSecurityEventAsync(userId, "ContentModerationError",
                     $"Content moderation failed: {ex.Message}", "medium");
 
-                // Return restrictive result on error
                 return new ContentModerationResponse
                 {
                     IsApproved = false,
-                    Reason = "Content moderation system error - content blocked for safety",
+                    Reason = _configuration["ContentModeration:Messages:SystemError"] ?? "Content moderation system error - content blocked for safety",
                     Action = "block",
                     ConfidenceScore = 0.9,
                     Severity = ContentSeverity.High,
                     ModerationId = moderationId,
-                    ModerationTimestamp = DateTime.UtcNow,
-                    Metadata = new Dictionary<string, object> { { "Error", ex.Message } }
+                    ModerationTimestamp = DateTime.UtcNow
                 };
             }
         }
-
         public async Task<bool> IsContentSafeAsync(string content)
         {
             try
             {
                 var moderationResult = await ModerateContentAsync(content, null);
-                return moderationResult.IsApproved && moderationResult.Severity <= ContentSeverity.Low;
+                var safetyThreshold = _configuration.GetValue<double>("ContentModeration:SafetyThreshold", 0.7);
+                return moderationResult.IsApproved && (double)moderationResult.Severity <= safetyThreshold;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error checking content safety");
-                return false; // Fail safe - assume unsafe
+                return false; // Fail safe
             }
         }
 
@@ -257,7 +156,7 @@ namespace ChatBox.API.Services.Implement
 
                 var moderationRules = await GetActiveModerationRulesAsync();
 
-                foreach (var rule in moderationRules)
+                foreach (var rule in moderationRules.Where(r => r.RuleType == "keyword"))
                 {
                     var detectedTerms = await DetectTermsInContentAsync(content, rule);
                     prohibitedTerms.AddRange(detectedTerms);
@@ -301,45 +200,16 @@ namespace ChatBox.API.Services.Implement
 
                     if (existingRule != null)
                     {
-                        // Update existing rule
-                        existingRule.Category = rule.Category;
-                        existingRule.RuleType = rule.RuleType;
-                        existingRule.Pattern = rule.Pattern;
-                        existingRule.Keywords = JsonSerializer.Serialize(rule.Keywords, _jsonOptions);
-                        existingRule.Description = rule.Description;
-                        existingRule.Severity = rule.Severity;
-                        existingRule.Action = rule.Action;
-                        existingRule.IsActive = rule.IsActive;
-                        existingRule.IsCaseSensitive = rule.IsCaseSensitive;
-                        existingRule.IsWholeWordOnly = rule.IsWholeWordOnly;
-                        existingRule.Configuration = JsonSerializer.Serialize(rule.Configuration, _jsonOptions);
+                        _mapper.Map(rule, existingRule);
                         existingRule.UpdatedAt = DateTime.UtcNow;
-
                         ruleRepo.UpdateAsync(existingRule);
                     }
                     else
                     {
-                        // Create new rule
-                        var newRule = new ContentModerationRule
-                        {
-                            Id = Guid.NewGuid(),
-                            Name = rule.Name,
-                            Category = rule.Category,
-                            RuleType = rule.RuleType,
-                            Pattern = rule.Pattern,
-                            Keywords = JsonSerializer.Serialize(rule.Keywords, _jsonOptions),
-                            Description = rule.Description,
-                            Severity = rule.Severity,
-                            Action = rule.Action,
-                            IsActive = rule.IsActive,
-                            IsCaseSensitive = rule.IsCaseSensitive,
-                            IsWholeWordOnly = rule.IsWholeWordOnly,
-                            Configuration = JsonSerializer.Serialize(rule.Configuration, _jsonOptions),
-                            Priority = 100,
-                            CreatedAt = DateTime.UtcNow,
-                            CreatedBy = "system"
-                        };
-
+                        var newRule = _mapper.Map<ContentModerationRule>(rule);
+                        newRule.Id = Guid.NewGuid();
+                        newRule.CreatedAt = DateTime.UtcNow;
+                        newRule.CreatedBy = _configuration["ContentModeration:DefaultCreatedBy"] ?? "system";
                         await ruleRepo.InsertAsync(newRule);
                     }
                 }
@@ -357,6 +227,7 @@ namespace ChatBox.API.Services.Implement
                 throw;
             }
         }
+
         private async Task<List<ModerationRule>> GetActiveModerationRulesAsync()
         {
             try
@@ -986,19 +857,19 @@ namespace ChatBox.API.Services.Implement
             }
         }
 
-        private Dictionary<string, object> ParseJsonToDictionary(string json)
-        {
-            if (string.IsNullOrEmpty(json))
-                return new Dictionary<string, object>();
+        //private Dictionary<string, object> ParseJsonToDictionary(string json)
+        //{
+        //    if (string.IsNullOrEmpty(json))
+        //        return new Dictionary<string, object>();
 
-            try
-            {
-                return JsonSerializer.Deserialize<Dictionary<string, object>>(json, _jsonOptions) ?? new Dictionary<string, object>();
-            }
-            catch
-            {
-                return new Dictionary<string, object>();
-            }
-        }
+        //    try
+        //    {
+        //        return JsonSerializer.Deserialize<Dictionary<string, object>>(json, _jsonOptions) ?? new Dictionary<string, object>();
+        //    }
+        //    catch
+        //    {
+        //        return new Dictionary<string, object>();
+        //    }
+        //}
     }
 }

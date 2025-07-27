@@ -4,9 +4,7 @@ namespace ChatBox.API.Payload.Request.ChatService
 {
     public class SearchRequest
     {
-        [Required]
         public string Query { get; set; }
-
         public int Page { get; set; } = 1;
         public int Size { get; set; } = 20;
         public DateTime? FromDate { get; set; }

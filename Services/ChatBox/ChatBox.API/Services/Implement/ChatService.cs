@@ -5,7 +5,6 @@ using ChatBox.API.Payload.Request.ConversationOrchestrationService;
 using ChatBox.API.Payload.Response;
 using ChatBox.API.Payload.Response.ChatServiceResponse;
 using ChatBox.API.Payload.Response.ConversationOrchestrationServiceResponse;
-using ChatBox.API.Payload.Response.HealthMonitoringResponses;
 using ChatBox.API.Services.Interfaces;
 using ChatBox.Domain.Enum;
 using ChatBox.Domain.Models;
@@ -21,89 +20,170 @@ namespace ChatBox.API.Services.Implement
 {
     public class ChatService : IChatService
     {
+        private readonly IAiServiceClient _aiServiceClient;
         private readonly IConversationOrchestrationService _orchestrationService;
-        private readonly IAnalyticsService _analyticsService;
-        private readonly IAuditService _auditService;
         private readonly IRateLimitingService _rateLimitingService;
         private readonly ISecurityService _securityService;
+        private readonly IContentModerationService _contentModerationService;
+        private readonly ITokenValidationService _tokenValidationService;
         private readonly IUnitOfWork<ChatBoxDbContext> _unitOfWork;
         private readonly ILogger<ChatService> _logger;
         private readonly IHubContext<ChatHub> _hubContext;
         private readonly IMapper _mapper;
+        private readonly IConfiguration _configuration;
+        private readonly JsonSerializerOptions _jsonOptions;
 
         public ChatService(
-           IConversationOrchestrationService orchestrationService,
-           IAnalyticsService analyticsService,
-           IAuditService auditService,
-           IRateLimitingService rateLimitingService,
-           ISecurityService securityService,
-           IUnitOfWork<ChatBoxDbContext> unitOfWork,
-           ILogger<ChatService> logger,
-           IHubContext<ChatHub> hubContext,
-           IMapper mapper)
+            IAiServiceClient aiServiceClient,
+            IConversationOrchestrationService orchestrationService,
+            IRateLimitingService rateLimitingService,
+            ISecurityService securityService,
+            IContentModerationService contentModerationService,
+            ITokenValidationService tokenValidationService,
+            IUnitOfWork<ChatBoxDbContext> unitOfWork,
+            ILogger<ChatService> logger,
+            IHubContext<ChatHub> hubContext,
+            IMapper mapper,
+            IConfiguration configuration)
         {
+            _aiServiceClient = aiServiceClient;
             _orchestrationService = orchestrationService;
-            _analyticsService = analyticsService;
-            _auditService = auditService;
             _rateLimitingService = rateLimitingService;
             _securityService = securityService;
+            _contentModerationService = contentModerationService;
+            _tokenValidationService = tokenValidationService;
             _unitOfWork = unitOfWork;
             _logger = logger;
             _hubContext = hubContext;
             _mapper = mapper;
+            _configuration = configuration;
+
+            _jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = false
+            };
         }
+
         public async Task<SendMessageResponse> SendMessageAsync(Guid userId, SendMessageRequest request, string ipAddress, string userAgent)
         {
             try
             {
                 _logger.LogInformation("Processing message for user {UserId}", userId);
 
-                // 1. Rate limiting check
+
+                // 1. Kiểm tra rate limiting
                 var isWithinLimit = await _rateLimitingService.IsWithinLimitAsync(userId, "send_message");
                 if (!isWithinLimit)
                 {
                     return new SendMessageResponse
                     {
                         Success = false,
-                        Message = "Rate limit exceeded. Please wait before sending another message.",
+                        Message = _configuration["ChatService:Messages:RateLimitExceeded"] ?? "Bạn đã gửi quá nhiều tin nhắn. Vui lòng chờ một chút trước khi gửi tiếp.",
                         Timestamp = DateTime.UtcNow
                     };
                 }
 
-                // 2. Record request for rate limiting
-                await _rateLimitingService.RecordRequestAsync(userId, "send_message");
-
-                // 3. Security analysis
-                var securityResult = await _securityService.AnalyzeContentAsync(request.Message, userId, ipAddress);
-                if (securityResult.HasSecurityIssues)
+                // 2. Kiểm tra độ dài và token limit của tin nhắn
+                var maxMessageLength = _configuration.GetValue<int>("ChatService:MaxMessageLength", 5000);
+                if (request.Message.Length > maxMessageLength)
                 {
-                    await _auditService.LogSecurityEventAsync(userId, "SecurityViolation",
-                        $"Message blocked due to security issues: {string.Join(", ", securityResult.DetectedIssues)}",
-                        "high", ipAddress);
-
                     return new SendMessageResponse
                     {
                         Success = false,
-                        Message = "Your message contains content that violates our security policy.",
+                        Message = _configuration["ChatService:Messages:MessageTooLong"] ?? $"Tin nhắn quá dài. Vui lòng nhập ít hơn {maxMessageLength} ký tự.",
                         Timestamp = DateTime.UtcNow
                     };
                 }
 
-                // 4. Process message through orchestration service
-                var processRequest = _mapper.Map<ProcessMessageRequest>(request);
-                processRequest.UserId = userId;
-                processRequest.IpAddress = ipAddress;
-                processRequest.UserAgent = userAgent;
+                // 3. Kiểm tra token limit
+                var maxTokens = _configuration.GetValue<int>("ChatService:MaxInputTokens", 3000);
+                var isWithinTokenLimit = await _tokenValidationService.IsWithinTokenLimitAsync(request.Message, maxTokens);
+                if (!isWithinTokenLimit)
+                {
+                    return new SendMessageResponse
+                    {
+                        Success = false,
+                        Message = _configuration["ChatService:Messages:TokenLimitExceeded"] ?? "Nội dung quá dài để xử lý. Vui lòng chia nhỏ câu hỏi của bạn.",
+                        Timestamp = DateTime.UtcNow
+                    };
+                }
+                //var maxInputTokens = _configuration.GetValue<int>("ChatService:MaxInputTokens", 3000);
+                //var tokenCount = await _aiServiceClient.CountTokensAsync(request.Message, request.AIModelId);
+                //if (tokenCount > maxInputTokens)
+                //{
+                //    return new SendMessageResponse
+                //    {
+                //        Success = false,
+                //        Message = _configuration["ChatService:Messages:TokenLimitExceeded"] ?? "Nội dung quá dài để xử lý. Vui lòng chia nhỏ câu hỏi của bạn.",
+                //        Timestamp = DateTime.UtcNow,
+                //        Metadata = new Dictionary<string, object>
+                //{
+                //    { "TokenCount", tokenCount },
+                //    { "MaxTokens", maxInputTokens }
+                //}
+                //    };
+                //}
+                // 4. Kiểm tra nội dung không phù hợp
+                var moderationResult = await _contentModerationService.ModerateContentAsync(request.Message, userId);
+                if (!moderationResult.IsApproved)
+                {
+                    return new SendMessageResponse
+                    {
+                        Success = false,
+                        Message = _configuration["ChatService:Messages:ContentViolation"] ?? "Nội dung của bạn vi phạm chính sách. Vui lòng nhập câu hỏi khác.",
+                        Timestamp = DateTime.UtcNow
+                    };
+                }
+
+                var securityResult = await _securityService.AnalyzeContentAsync(request.Message, userId, ipAddress);
+                if (securityResult.HasSecurityIssues && securityResult.RiskScore > _configuration.GetValue<double>("ChatService:SecurityRiskThreshold", 0.7))
+                {
+                    return new SendMessageResponse
+                    {
+                        Success = false,
+                        Message = _configuration["ChatService:Messages:SecurityIssue"] ?? "Nội dung có vấn đề bảo mật. Vui lòng thử lại.",
+                        Timestamp = DateTime.UtcNow
+                    };
+                }
+
+                // 6. Ghi nhận request để rate limiting
+                await _rateLimitingService.RecordRequestAsync(userId, "send_message");
+
+
+                // 7. Lấy hoặc tạo session
+                var session = await GetOrCreateSessionAsync(userId, request.SessionId, request.AIModelId, request.Temperature, request.MaxTokens);
+
+
+               // 8.Xử lý qua orchestration service
+                var processRequest = new ProcessMessageRequest
+                {
+                    UserId = userId,
+                    Message = request.Message,
+                    SessionId = session.Id,
+                    Context = request.Context,
+                    AIModelId = request.AIModelId ?? session.AIModelId,
+                    Temperature = request.Temperature ?? session.Temperature,
+                    MaxTokens = request.MaxTokens ?? session.MaxTokens,
+                    IpAddress = ipAddress,
+                    UserAgent = userAgent
+                };
 
                 var orchestrationResult = await _orchestrationService.ProcessMessageAsync(processRequest);
 
-                // 5. Map to response using AutoMapper
+                if (!orchestrationResult.Success)
+                {
+                    return new SendMessageResponse
+                    {
+                        Success = false,
+                        Message = orchestrationResult.Message ?? _configuration["ChatService:Messages:ProcessingError"] ?? "Có lỗi xảy ra khi xử lý tin nhắn. Vui lòng thử lại.",
+                        Timestamp = DateTime.UtcNow
+                    };
+                }
+
+                // Map to response
                 var response = _mapper.Map<SendMessageResponse>(orchestrationResult);
                 response.SuggestedQuestions = request.IncludeSuggestions ? orchestrationResult.SuggestedQuestions : new List<string>();
-
-                // 6. Log audit trail
-                await _auditService.LogAsync(userId, "SendMessage", "ChatMessage", orchestrationResult.MessageId.ToString(),
-                    null, new { Request = request, Response = response }, ipAddress, userAgent);
 
                 _logger.LogInformation("Message processed successfully for user {UserId}, MessageId: {MessageId}",
                     userId, orchestrationResult.MessageId);
@@ -114,13 +194,10 @@ namespace ChatBox.API.Services.Implement
             {
                 _logger.LogError(ex, "Error processing message for user {UserId}", userId);
 
-                await _auditService.LogSecurityEventAsync(userId, "SendMessageError",
-                    $"Error processing message: {ex.Message}", "medium", ipAddress);
-
                 return new SendMessageResponse
                 {
                     Success = false,
-                    Message = "An error occurred while processing your message. Please try again.",
+                    Message = _configuration["ChatService:ErrorMessages:ProcessingError"] ?? "An error occurred while processing your message.",
                     Timestamp = DateTime.UtcNow
                 };
             }
@@ -138,7 +215,29 @@ namespace ChatBox.API.Services.Implement
                     return new StreamingResponse
                     {
                         Success = false,
-                        Message = "Rate limit exceeded for streaming.",
+                        Message = _configuration["ChatService:Messages:StreamingRateLimit"] ?? "Quá nhiều yêu cầu streaming. Vui lòng chờ.",
+                        StartedAt = DateTime.UtcNow
+                    };
+                }
+                var moderationResult = await _contentModerationService.ModerateContentAsync(request.Message, userId);
+                if (!moderationResult.IsApproved)
+                {
+                    return new StreamingResponse
+                    {
+                        Success = false,
+                        Message = _configuration["ChatService:Messages:ContentViolation"] ?? "Nội dung vi phạm chính sách.",
+                        StartedAt = DateTime.UtcNow
+                    };
+                }
+
+                var maxTokens = _configuration.GetValue<int>("ChatService:MaxInputTokens", 3000);
+                var isWithinTokenLimit = await _tokenValidationService.IsWithinTokenLimitAsync(request.Message, maxTokens);
+                if (!isWithinTokenLimit)
+                {
+                    return new StreamingResponse
+                    {
+                        Success = false,
+                        Message = _configuration["ChatService:Messages:TokenLimitExceeded"] ?? "Nội dung quá dài. Vui lòng rút ngắn.",
                         StartedAt = DateTime.UtcNow
                     };
                 }
@@ -146,19 +245,19 @@ namespace ChatBox.API.Services.Implement
                 await _rateLimitingService.RecordRequestAsync(userId, "start_streaming");
 
                 // 2. Create or get session
-                var session = await GetOrCreateSessionForStreamingAsync(userId, request.SessionId);
+                var session = await GetOrCreateSessionAsync(userId, request.SessionId, request.AIModelId, request.Temperature, request.MaxTokens);
 
                 // 3. Generate stream ID
                 var streamId = Guid.NewGuid();
 
                 // 4. Start background streaming process
-                _ = Task.Run(async () => await ProcessStreamingAsync(userId, request, connectionId, streamId, session.Id));
+                _ = Task.Run(async () => await ProcessEnhancedStreamingAsync(userId, request, connectionId, streamId, session.Id));
 
                 // 5. Return immediate response
                 return new StreamingResponse
                 {
                     Success = true,
-                    Message = "Streaming started successfully",
+                    Message = _configuration["ChatService:Messages:StreamingStarted"] ?? "Bắt đầu streaming thành công",
                     StreamId = streamId,
                     SessionId = session.Id,
                     ConnectionId = connectionId,
@@ -171,7 +270,7 @@ namespace ChatBox.API.Services.Implement
                 return new StreamingResponse
                 {
                     Success = false,
-                    Message = "Failed to start streaming",
+                    Message = _configuration["ChatService:Messages:StreamingError"] ?? "Không thể bắt đầu streaming",
                     StartedAt = DateTime.UtcNow
                 };
             }
@@ -183,11 +282,7 @@ namespace ChatBox.API.Services.Implement
             {
                 _logger.LogInformation("Cancelling streaming for user {UserId}, MessageId: {MessageId}", userId, messageId);
 
-                // Send cancellation signal through SignalR
                 await _hubContext.Clients.User(userId.ToString()).SendAsync("StreamingCancelled", messageId);
-
-                await _auditService.LogAsync(userId, "CancelStreaming", "ChatMessage", messageId.ToString());
-
                 return true;
             }
             catch (Exception ex)
@@ -197,26 +292,23 @@ namespace ChatBox.API.Services.Implement
             }
         }
 
-        public async Task<AdvancedMessageResponse> GetMessageAsync(Guid userId, Guid messageId)
+        public async Task<MessageResponse> GetMessageAsync(Guid userId, Guid messageId)
         {
             try
             {
                 var messageRepo = _unitOfWork.GetRepository<ChatMessage>();
                 var message = await messageRepo.SingleOrDefaultAsync(predicate:
-                    m => m.Id == messageId && m.UserId == userId,
-                    include: null);
+                    m => m.Id == messageId && m.UserId == userId && !m.IsDeleted);
 
                 if (message == null)
                 {
                     return null;
                 }
 
-                var feedback = await GetMessageFeedbackAsync(messageId);
-
-                // Map using AutoMapper and add additional properties
-                var response = _mapper.Map<AdvancedMessageResponse>(message);
+                var response = _mapper.Map<MessageResponse>(message);
                 response.Sources = ParseDocumentReferences(message.SourceDocuments);
                 response.Metadata = ParseMetadata(message.Metadata);
+                response.Feedback = await GetMessageFeedbackAsync(messageId);
 
                 return response;
             }
@@ -248,12 +340,6 @@ namespace ChatBox.API.Services.Implement
                 messageRepo.UpdateAsync(message);
                 await _unitOfWork.CommitAsync();
 
-                await _auditService.LogAsync(userId, "DeleteMessage", "ChatMessage", messageId.ToString(),
-                    message, null, null, null);
-
-                _logger.LogInformation("Message {MessageId} deleted for user {UserId}, Reason: {Reason}",
-                    messageId, userId, reason);
-
                 return true;
             }
             catch (Exception ex)
@@ -263,140 +349,79 @@ namespace ChatBox.API.Services.Implement
             }
         }
 
-        public async Task<bool> AddFeedbackAsync(Guid userId, FeedbackRequest request)
+
+        public async Task<SessionResponse> CreateSessionAsync(Guid userId, CreateSessionRequest request, string ipAddress, string userAgent)
         {
             try
             {
-                var messageRepo = _unitOfWork.GetRepository<ChatMessage>();
-                var feedbackRepo = _unitOfWork.GetRepository<MessageFeedback>();
-
-                // Verify message belongs to user
-                var message = await messageRepo.SingleOrDefaultAsync(predicate:
-                    m => m.Id == request.MessageId && m.UserId == userId);
-
-                if (message == null)
-                {
-                    return false;
-                }
-
-                // Check if feedback already exists
-                var existingFeedback = await feedbackRepo.SingleOrDefaultAsync(predicate:
-                    f => f.MessageId == request.MessageId && f.UserId == userId);
-
-                if (existingFeedback != null)
-                {
-                    // Update existing feedback
-                    existingFeedback.Rating = request.Rating;
-                    existingFeedback.Comment = request.Comment;
-                    existingFeedback.FeedbackType = request.FeedbackType;
-                    existingFeedback.UpdatedAt = DateTime.UtcNow;
-                    feedbackRepo.UpdateAsync(existingFeedback);
-                }
-                else
-                {
-                    // Create new feedback
-                    var feedback = new MessageFeedback
-                    {
-                        Id = Guid.NewGuid(),
-                        MessageId = request.MessageId,
-                        UserId = userId,
-                        Rating = request.Rating,
-                        Comment = request.Comment,
-                        FeedbackType = request.FeedbackType,
-                        CreatedAt = DateTime.UtcNow
-                    };
-
-                    await feedbackRepo.InsertAsync(feedback);
-                }
-
-                await _unitOfWork.CommitAsync();
-
-                await _auditService.LogAsync(userId, "AddFeedback", "MessageFeedback", request.MessageId.ToString(),
-                    null, request);
-
-                _logger.LogInformation("Feedback added for message {MessageId} by user {UserId}",
-                    request.MessageId, userId);
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error adding feedback for message {MessageId} by user {UserId}",
-                    request.MessageId, userId);
-                return false;
-            }
-        }
-        public async Task<AdvancedSessionResponse> CreateSessionAsync(Guid userId, CreateSessionRequest request, string ipAddress, string userAgent)
-        {
-            try
-            {
-                _logger.LogInformation("Creating session for user {UserId}", userId);
-
                 var sessionRepo = _unitOfWork.GetRepository<ChatSession>();
 
-                // Map request to domain model using AutoMapper
                 var session = _mapper.Map<ChatSession>(request);
                 session.Id = Guid.NewGuid();
                 session.UserId = userId;
-                session.Title = string.IsNullOrWhiteSpace(request.Title) ? "New Conversation" : request.Title;
+
+                if (!string.IsNullOrWhiteSpace(request.InitialContext))
+                {
+                    session.Title = await GenerateSessionTitleAsync(request.InitialContext);
+                }
+                else
+                {
+                    session.Title = string.IsNullOrWhiteSpace(request.Title) ?
+                        _configuration["ChatService:DefaultSessionTitle"] ?? "Cuộc trò chuyện mới" : request.Title;
+                }
+
+                session.Status = SessionStatus.Active;
+                session.CreatedAt = DateTime.UtcNow;
+                session.LastActivityAt = DateTime.UtcNow;
+                session.MessageCount = 0;
+                session.AIModelId = request.AIModelId ?? _configuration["ChatService:DefaultAIModel"];
+                session.Temperature = request.Temperature;
+                session.MaxTokens = request.MaxTokens;
 
                 await sessionRepo.InsertAsync(session);
                 await _unitOfWork.CommitAsync();
 
-                await _auditService.LogAsync(userId, "CreateSession", "ChatSession", session.Id.ToString(),
-                    null, request, ipAddress, userAgent);
-
-                var statistics = new SessionStatistics
-                {
-                    TotalMessages = 0,
-                    TotalTokensUsed = 0,
-                    AverageResponseTime = TimeSpan.Zero,
-                    AverageRating = 0,
-                    TopTopics = new List<string>()
-                };
-
-                // Map session to response using AutoMapper
-                var response = _mapper.Map<AdvancedSessionResponse>(session);
-                response.Statistics = statistics;
-                response.Metadata = new Dictionary<string, object>
-                {
-                    { "SessionType", session.SessionType },
-                    { "InitialContext", request.InitialContext }
-                };
-
-                return response;
+                return _mapper.Map<SessionResponse>(session);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error create session for message ");
+                _logger.LogError(ex, "Error creating session for user {UserId}", userId);
                 return null;
             }
         }
-        public async Task<AdvancedSessionResponse> GetSessionAsync(Guid userId, Guid sessionId)
+        private async Task<string> GenerateSessionTitleAsync(string initialContext)
+        {
+            try
+            {
+                var titleRequest = new TitleSuggestionRequest
+                {
+                    Content = initialContext,
+                    MaxLength = _configuration.GetValue<int>("ChatService:MaxSessionTitleLength", 50),
+                    Language = _configuration["ChatService:DefaultPreferences:Language"] ?? "vi",
+                    Style = "concise"
+                };
+
+                var generatedTitle = await _aiServiceClient.SuggestTitleAsync(titleRequest);
+                return string.IsNullOrEmpty(generatedTitle) ?
+                    _configuration["ChatService:DefaultSessionTitle"] ?? "Cuộc trò chuyện mới" :
+                    generatedTitle;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error generating session title, using default");
+                return _configuration["ChatService:DefaultSessionTitle"] ?? "Cuộc trò chuyện mới";
+            }
+        }
+
+        public async Task<SessionResponse> GetSessionAsync(Guid userId, Guid sessionId)
         {
             try
             {
                 var sessionRepo = _unitOfWork.GetRepository<ChatSession>();
                 var session = await sessionRepo.SingleOrDefaultAsync(predicate:
-                    s => s.Id == sessionId && s.UserId == userId);
+                    s => s.Id == sessionId && s.UserId == userId && !s.IsDeleted);
 
-                if (session == null)
-                {
-                    return null;
-                }
-
-                var statistics = await CalculateSessionStatisticsAsync(sessionId);
-
-                // Map session to response using AutoMapper
-                var response = _mapper.Map<AdvancedSessionResponse>(session);
-                response.Statistics = statistics;
-                response.Metadata = new Dictionary<string, object>
-                {
-                    { "SessionType", session.SessionType ?? "general" },
-                    { "InitialContext", ParseMetadata(session.InitialContext) }
-                };
-
-                return response;
+                return session != null ? _mapper.Map<SessionResponse>(session) : null;
             }
             catch (Exception ex)
             {
@@ -404,28 +429,20 @@ namespace ChatBox.API.Services.Implement
                 return null;
             }
         }
-        public async Task<IPaginate<SessionSummaryResponse>> GetSessionsAsync(Guid userId, GetSessionsRequest request)
+        public async Task<IPaginate<SessionResponse>> GetSessionsAsync(Guid userId, GetSessionsRequest request)
         {
             try
             {
                 var sessionRepo = _unitOfWork.GetRepository<ChatSession>();
 
                 var predicate = BuildSessionFilterPredicate(userId, request);
+                var orderBy = GetSessionOrderBy(request.SortBy, request.IsAscending);
 
                 var sessions = await sessionRepo.GetPagingListAsync(
-                    selector: s => new SessionSummaryResponse
-                    {
-                        Id = s.Id,
-                        Title = s.Title,
-                        Status = s.Status,
-                        MessageCount = s.MessageCount,
-                        LastActivityAt = s.LastActivityAt,
-                        LastMessage = GetLastMessagePreview(s.Id),
-                        Duration = s.LastActivityAt - s.CreatedAt
-                    },
+                    selector: s => _mapper.Map<SessionResponse>(s),
                     filter: null,
                     predicate: predicate,
-                    orderBy: GetSessionOrderBy(request.SortBy, request.IsAscending),
+                    orderBy: orderBy,
                     include: null,
                     page: request.Page,
                     size: request.Size);
@@ -435,10 +452,10 @@ namespace ChatBox.API.Services.Implement
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting sessions for user {UserId}", userId);
-                return new Paginate<SessionSummaryResponse>(new List<SessionSummaryResponse>(), 0, request.Page, request.Size);
+                return new Paginate<SessionResponse>(new List<SessionResponse>(), 0, request.Page, request.Size);
             }
         }
-        public async Task<bool> DeleteSessionAsync(Guid userId, Guid sessionId, string reason = "user_request")
+            public async Task<bool> DeleteSessionAsync(Guid userId, Guid sessionId, string reason = "user_request")
         {
             try
             {
@@ -453,13 +470,11 @@ namespace ChatBox.API.Services.Implement
                     return false;
                 }
 
-                // Soft delete session
                 session.IsDeleted = true;
                 session.DeletedAt = DateTime.UtcNow;
                 session.DeletionReason = reason;
                 session.Status = SessionStatus.Archived;
 
-                // Soft delete all messages in session
                 var messages = await messageRepo.GetListAsync(predicate:
                     m => m.SessionId == sessionId && m.UserId == userId);
 
@@ -474,12 +489,6 @@ namespace ChatBox.API.Services.Implement
                 messageRepo.UpdateRange(messages);
                 await _unitOfWork.CommitAsync();
 
-                await _auditService.LogAsync(userId, "DeleteSession", "ChatSession", sessionId.ToString(),
-                    session, null, null, null);
-
-                _logger.LogInformation("Session {SessionId} deleted for user {UserId}, Reason: {Reason}",
-                    sessionId, userId, reason);
-
                 return true;
             }
             catch (Exception ex)
@@ -489,78 +498,11 @@ namespace ChatBox.API.Services.Implement
             }
         }
 
-        public async Task<ConversationSummaryResponse> GenerateSummaryAsync(Guid userId, Guid sessionId)
-        {
-            try
-            {
-                _logger.LogInformation("Generating summary for session {SessionId}, user {UserId}", sessionId, userId);
-
-                // Verify session ownership
-                var sessionRepo = _unitOfWork.GetRepository<ChatSession>();
-                var session = await sessionRepo.SingleOrDefaultAsync(predicate:
-                    s => s.Id == sessionId && s.UserId == userId);
-
-                if (session == null)
-                {
-                    return null;
-                }
-
-                // Get all messages in session
-                var messageRepo = _unitOfWork.GetRepository<ChatMessage>();
-                var messages = await messageRepo.GetListAsync(predicate:
-                    m => m.SessionId == sessionId && !m.IsDeleted,
-                    orderBy: m => m.OrderBy(x => x.CreatedAt));
-
-                if (messages.Count == 0)
-                {
-                    return new ConversationSummaryResponse
-                    {
-                        SessionId = sessionId,
-                        Summary = "No messages found in this conversation.",
-                        KeyTopics = new List<string>(),
-                        ActionItems = new List<string>(),
-                        MessageCount = 0,
-                        TotalDuration = TimeSpan.Zero,
-                        GeneratedAt = DateTime.UtcNow
-                    };
-                }
-
-                // Build conversation text for summarization
-                var conversationText = BuildConversationTextForSummary(messages);
-
-                // Generate summary using AI service (through orchestration)
-                var summary = await GenerateAISummaryAsync(conversationText);
-
-                // Extract key topics and action items
-                var keyTopics = ExtractKeyTopicsFromMessages(messages);
-                var actionItems = ExtractActionItemsFromMessages(messages);
-
-                // Calculate duration
-                var duration = messages.Last().CreatedAt - messages.First().CreatedAt;
-
-                return new ConversationSummaryResponse
-                {
-                    SessionId = sessionId,
-                    Summary = summary,
-                    KeyTopics = keyTopics,
-                    ActionItems = actionItems,
-                    MessageCount = messages.Count,
-                    TotalDuration = duration,
-                    GeneratedAt = DateTime.UtcNow
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating summary for session {SessionId}", sessionId);
-                return null;
-            }
-        }
         public async Task<IPaginate<SearchResult>> SearchConversationsAsync(Guid userId, SearchRequest request)
         {
             try
             {
                 var messageRepo = _unitOfWork.GetRepository<ChatMessage>();
-
                 var predicate = BuildSearchPredicate(userId, request);
 
                 var searchResults = await messageRepo.GetPagingListAsync(
@@ -589,37 +531,46 @@ namespace ChatBox.API.Services.Implement
                 return new Paginate<SearchResult>(new List<SearchResult>(), 0, request.Page, request.Size);
             }
         }
-
-        public async Task<List<AlertResponse>> GetUserAlertsAsync(Guid userId)
+        public async Task<bool> SubmitMessageFeedbackAsync(Guid userId, Guid messageId, MessageFeedbackRequest request)
         {
             try
             {
-                var alertRepo = _unitOfWork.GetRepository<UserAlert>();
-                var alerts = await alertRepo.GetListAsync(predicate:
-                    a => a.UserId == userId && !a.IsRead,
-                    orderBy: a => a.OrderByDescending(x => x.CreatedAt));
+                var feedbackRepo = _unitOfWork.GetRepository<MessageFeedback>();
 
-                return alerts.Select(a => new AlertResponse
+                var existingFeedback = await feedbackRepo.SingleOrDefaultAsync(predicate:
+                    f => f.MessageId == messageId && f.UserId == userId);
+
+                if (existingFeedback != null)
                 {
-                    Id = a.Id,
-                    Type = a.Type,
-                    Title = a.Title,
-                    Message = a.Message,
-                    Severity = a.Severity,
-                    CreatedAt = a.CreatedAt,
-                    IsRead = a.IsRead,
-                    Data = ParseMetadata(a.Data)
-                }).ToList();
+                    existingFeedback.Rating = request.Rating;
+                    existingFeedback.Comment = request.Comment;
+                    existingFeedback.FeedbackType = request.FeedbackType;
+                    existingFeedback.CreatedAt = DateTime.UtcNow;
+
+                    feedbackRepo.UpdateAsync(existingFeedback);
+                }
+                else
+                {
+                    var feedback = _mapper.Map<MessageFeedback>(request);
+                    feedback.Id = Guid.NewGuid();
+                    feedback.MessageId = messageId;
+                    feedback.UserId = userId;
+                    feedback.CreatedAt = DateTime.UtcNow;
+
+                    await feedbackRepo.InsertAsync(feedback);
+                }
+
+                await _unitOfWork.CommitAsync();
+                return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting alerts for user {UserId}", userId);
-                return new List<AlertResponse>();
+                _logger.LogError(ex, "Error submitting feedback for message {MessageId}", messageId);
+                return false;
             }
         }
-
         // Private helper methods
-        private async Task<ChatSession> GetOrCreateSessionForStreamingAsync(Guid userId, Guid? sessionId)
+        private async Task<ChatSession> GetOrCreateSessionAsync(Guid userId, Guid? sessionId, string aiModelId, double? temperature, int? maxTokens)
         {
             var sessionRepo = _unitOfWork.GetRepository<ChatSession>();
 
@@ -630,21 +581,25 @@ namespace ChatBox.API.Services.Implement
 
                 if (existingSession != null)
                 {
+                    existingSession.LastActivityAt = DateTime.UtcNow;
+                    sessionRepo.UpdateAsync(existingSession);
+                    await _unitOfWork.CommitAsync();
                     return existingSession;
                 }
             }
 
-            // Create new session for streaming
             var newSession = new ChatSession
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
-                Title = "Streaming Conversation",
+                Title = _configuration["ChatService:DefaultSessionTitle"] ?? "Cuộc trò chuyện mới",
                 Status = SessionStatus.Active,
                 CreatedAt = DateTime.UtcNow,
                 LastActivityAt = DateTime.UtcNow,
                 MessageCount = 0,
-                SessionType = "streaming"
+                AIModelId = aiModelId ?? _configuration["ChatService:DefaultAIModel"] ?? "gpt-3.5-turbo",
+                Temperature = temperature ?? _configuration.GetValue<double>("ChatService:DefaultTemperature", 0.7),
+                MaxTokens = maxTokens ?? _configuration.GetValue<int>("ChatService:DefaultMaxTokens", 2000)
             };
 
             await sessionRepo.InsertAsync(newSession);
@@ -653,44 +608,50 @@ namespace ChatBox.API.Services.Implement
             return newSession;
         }
 
-        private async Task ProcessStreamingAsync(Guid userId, StreamChatRequest request, string connectionId, Guid streamId, Guid sessionId)
+        private async Task ProcessEnhancedStreamingAsync(Guid userId, StreamChatRequest request, string connectionId, Guid streamId, Guid sessionId)
         {
             try
             {
-                _logger.LogInformation("Processing streaming for user {UserId}, StreamId: {StreamId}", userId, streamId);
-
-                // Send streaming start notification
                 await _hubContext.Clients.Client(connectionId).SendAsync("StreamingStarted", streamId);
 
-                // Process through orchestration service
                 var processRequest = new ProcessMessageRequest
                 {
                     UserId = userId,
                     Message = request.Message,
                     SessionId = sessionId,
-                    Context = request.Context
+                    Context = request.Context,
+                    AIModelId = request.AIModelId,
+                    Temperature = request.Temperature,
+                    MaxTokens = request.MaxTokens
                 };
 
                 var result = await _orchestrationService.ProcessMessageAsync(processRequest);
 
                 if (result.Success)
                 {
-                    // Send streaming chunks (simulate streaming response)
+                    // Enhanced streaming với metadata
                     var responseChunks = SplitResponseIntoChunks(result.Response);
 
-                    foreach (var chunk in responseChunks)
+                    foreach (var (chunk, index) in responseChunks.Select((chunk, index) => (chunk, index)))
                     {
                         await _hubContext.Clients.Client(connectionId).SendAsync("StreamingChunk", new
                         {
                             StreamId = streamId,
                             Chunk = chunk,
-                            IsComplete = false
+                            ChunkIndex = index,
+                            IsComplete = false,
+                            Metadata = new
+                            {
+                                TokensUsed = result.TokensUsed,
+                                AIModelUsed = result.AIModelUsed,
+                                ProcessingTime = result.ProcessingTime.TotalMilliseconds
+                            }
                         });
 
-                        await Task.Delay(100); // Simulate streaming delay
+                        await Task.Delay(_configuration.GetValue<int>("ChatService:StreamingDelayMs", 100));
                     }
 
-                    // Send completion
+                    // Enhanced completion với full metadata
                     await _hubContext.Clients.Client(connectionId).SendAsync("StreamingComplete", new
                     {
                         StreamId = streamId,
@@ -698,12 +659,14 @@ namespace ChatBox.API.Services.Implement
                         SessionId = result.SessionId,
                         Sources = result.DocumentReferences,
                         SuggestedQuestions = result.SuggestedQuestions,
-                        TokensUsed = result.TokensUsed
+                        TokensUsed = result.TokensUsed,
+                        AIModelUsed = result.AIModelUsed,
+                        ProcessingTime = result.ProcessingTime,
+                        Metadata = result.Metadata
                     });
                 }
                 else
                 {
-                    // Send error
                     await _hubContext.Clients.Client(connectionId).SendAsync("StreamingError", new
                     {
                         StreamId = streamId,
@@ -713,48 +676,52 @@ namespace ChatBox.API.Services.Implement
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in streaming process for user {UserId}, StreamId: {StreamId}", userId, streamId);
+                _logger.LogError(ex, "Error in enhanced streaming process for user {UserId}, StreamId: {StreamId}", userId, streamId);
 
                 await _hubContext.Clients.Client(connectionId).SendAsync("StreamingError", new
                 {
                     StreamId = streamId,
-                    Error = "An error occurred during streaming"
+                    Error = _configuration["ChatService:Messages:StreamingError"] ?? "Lỗi trong quá trình streaming"
                 });
             }
         }
+        private List<string> SplitResponseIntoChunks(string response)
+        {
+            var chunkSize = _configuration.GetValue<int>("ChatService:StreamingChunkSize", 50);
+            var chunks = new List<string>();
 
-        private async Task<FeedbackInfo> GetMessageFeedbackAsync(Guid messageId)
+            for (int i = 0; i < response.Length; i += chunkSize)
+            {
+                var length = Math.Min(chunkSize, response.Length - i);
+                chunks.Add(response.Substring(i, length));
+            }
+
+            return chunks;
+        }
+        private async Task<MessageFeedBackResponse> GetMessageFeedbackAsync(Guid messageId)
         {
             try
             {
                 var feedbackRepo = _unitOfWork.GetRepository<MessageFeedback>();
                 var feedback = await feedbackRepo.SingleOrDefaultAsync(predicate: f => f.MessageId == messageId);
 
-                if (feedback == null)
-                {
-                    return null;
-                }
-
-                return new FeedbackInfo
+                return feedback != null ? new MessageFeedBackResponse
                 {
                     Rating = feedback.Rating,
                     Comment = feedback.Comment,
-                    FeedbackDate = feedback.CreatedAt,
-                    FeedbackType = feedback.FeedbackType
-                };
+                    FeedbackType = feedback.FeedbackType,
+                    FeedbackDate = feedback.CreatedAt
+                } : null;
             }
             catch
             {
                 return null;
             }
         }
-
         private List<DocumentReference> ParseDocumentReferences(string sourceDocuments)
         {
             if (string.IsNullOrEmpty(sourceDocuments))
-            {
                 return new List<DocumentReference>();
-            }
 
             try
             {
@@ -771,120 +738,26 @@ namespace ChatBox.API.Services.Implement
                 return new List<DocumentReference>();
             }
         }
-
         private Dictionary<string, object> ParseMetadata(string metadata)
         {
             if (string.IsNullOrEmpty(metadata))
-            {
                 return new Dictionary<string, object>();
-            }
 
             try
             {
-                return JsonSerializer.Deserialize<Dictionary<string, object>>(metadata) ?? new Dictionary<string, object>();
+                return JsonSerializer.Deserialize<Dictionary<string, object>>(metadata, _jsonOptions) ?? new Dictionary<string, object>();
             }
             catch
             {
                 return new Dictionary<string, object>();
             }
         }
-
-        private async Task<SessionStatistics> CalculateSessionStatisticsAsync(Guid sessionId)
-        {
-            try
-            {
-                var messageRepo = _unitOfWork.GetRepository<ChatMessage>();
-                var feedbackRepo = _unitOfWork.GetRepository<MessageFeedback>();
-
-                var messages = await messageRepo.GetListAsync(predicate: m => m.SessionId == sessionId && !m.IsDeleted);
-                var feedbacks = await feedbackRepo.GetListAsync(predicate:  f => messages.Select(m => m.Id).Contains(f.MessageId));
-
-                var totalTokens = messages.Sum(m => m.TokensUsed);
-                var averageRating = feedbacks.Any() ? feedbacks.Average(f => f.Rating) : 0;
-
-                // Extract top topics (simplified)
-                var topTopics = ExtractTopTopicsFromMessages(messages);
-
-                return new SessionStatistics
-                {
-                    TotalMessages = messages.Count,
-                    TotalTokensUsed = totalTokens,
-                    AverageResponseTime = TimeSpan.FromSeconds(2), // Placeholder - would need to track actual response times
-                    AverageRating = averageRating,
-                    TopTopics = topTopics
-                };
-            }
-            catch
-            {
-                return new SessionStatistics
-                {
-                    TotalMessages = 0,
-                    TotalTokensUsed = 0,
-                    AverageResponseTime = TimeSpan.Zero,
-                    AverageRating = 0,
-                    TopTopics = new List<string>()
-                };
-            }
-        }
-
-        private List<string> ExtractTopTopicsFromMessages(ICollection<ChatMessage> messages)
-        {
-            // Simplified topic extraction - in real implementation, use NLP
-            var commonWords = new[] { "policy", "procedure", "document", "process", "requirement", "guideline" };
-            var topics = new List<string>();
-
-            foreach (var word in commonWords)
-            {
-                if (messages.Any(m => m.Content.ToLower().Contains(word) || m.AiResponse?.ToLower().Contains(word) == true))
-                {
-                    topics.Add(word);
-                }
-            }
-
-            return topics.Take(5).ToList();
-        }
-
         private System.Linq.Expressions.Expression<Func<ChatSession, bool>> BuildSessionFilterPredicate(Guid userId, GetSessionsRequest request)
         {
-            var predicate = System.Linq.Expressions.Expression.Parameter(typeof(ChatSession), "s");
-            var condition = System.Linq.Expressions.Expression.Equal(
-                System.Linq.Expressions.Expression.Property(predicate, nameof(ChatSession.UserId)),
-                System.Linq.Expressions.Expression.Constant(userId));
-
-            // Add IsDeleted check
-            var isDeletedCheck = System.Linq.Expressions.Expression.Equal(
-                System.Linq.Expressions.Expression.Property(predicate, nameof(ChatSession.IsDeleted)),
-                System.Linq.Expressions.Expression.Constant(false));
-
-            condition = System.Linq.Expressions.Expression.AndAlso(condition, isDeletedCheck);
-
-            // Add date filters if specified
-            if (request.FromDate.HasValue)
-            {
-                var fromDateCheck = System.Linq.Expressions.Expression.GreaterThanOrEqual(
-                    System.Linq.Expressions.Expression.Property(predicate, nameof(ChatSession.CreatedAt)),
-                    System.Linq.Expressions.Expression.Constant(request.FromDate.Value));
-                condition = System.Linq.Expressions.Expression.AndAlso(condition, fromDateCheck);
-            }
-
-            if (request.ToDate.HasValue)
-            {
-                var toDateCheck = System.Linq.Expressions.Expression.LessThanOrEqual(
-                    System.Linq.Expressions.Expression.Property(predicate, nameof(ChatSession.CreatedAt)),
-                    System.Linq.Expressions.Expression.Constant(request.ToDate.Value));
-                condition = System.Linq.Expressions.Expression.AndAlso(condition, toDateCheck);
-            }
-
-            // Add status filter if specified
-            if (!string.IsNullOrEmpty(request.Status) && Enum.TryParse<SessionStatus>(request.Status, out var status))
-            {
-                var statusCheck = System.Linq.Expressions.Expression.Equal(
-                    System.Linq.Expressions.Expression.Property(predicate, nameof(ChatSession.Status)),
-                    System.Linq.Expressions.Expression.Constant(status));
-                condition = System.Linq.Expressions.Expression.AndAlso(condition, statusCheck);
-            }
-
-            return System.Linq.Expressions.Expression.Lambda<Func<ChatSession, bool>>(condition, predicate);
+            return s => s.UserId == userId && !s.IsDeleted &&
+                       (!request.FromDate.HasValue || s.CreatedAt >= request.FromDate.Value) &&
+                       (!request.ToDate.HasValue || s.CreatedAt <= request.ToDate.Value) &&
+                       (string.IsNullOrEmpty(request.Status) || s.Status.ToString() == request.Status);
         }
 
         private Func<IQueryable<ChatSession>, IOrderedQueryable<ChatSession>> GetSessionOrderBy(string sortBy, bool isAscending)
@@ -898,214 +771,36 @@ namespace ChatBox.API.Services.Implement
             };
         }
 
-        private string GetLastMessagePreview(Guid sessionId)
-        {
-            try
-            {
-                var messageRepo = _unitOfWork.GetRepository<ChatMessage>();
-                var lastMessage = messageRepo.SingleOrDefaultAsync(predicate:
-                    m => m.SessionId == sessionId && !m.IsDeleted,
-                    orderBy: m => m.OrderByDescending(x => x.CreatedAt)).Result;
-
-                if (lastMessage == null)
-                {
-                    return "No messages";
-                }
-
-                var preview = lastMessage.Content.Length > 100 ?
-                    lastMessage.Content.Substring(0, 100) + "..." :
-                    lastMessage.Content;
-
-                return preview;
-            }
-            catch
-            {
-                return "No messages";
-            }
-        }
-
-        private string BuildConversationTextForSummary(ICollection<ChatMessage> messages)
-        {
-            var conversationBuilder = new StringBuilder();
-
-            foreach (var message in messages)
-            {
-                conversationBuilder.AppendLine($"User: {message.Content}");
-                if (!string.IsNullOrEmpty(message.AiResponse))
-                {
-                    conversationBuilder.AppendLine($"Assistant: {message.AiResponse}");
-                }
-                conversationBuilder.AppendLine();
-            }
-
-            return conversationBuilder.ToString();
-        }
-
-        private async Task<string> GenerateAISummaryAsync(string conversationText)
-        {
-            try
-            {
-                // This would typically call the AI service for summarization
-                // For now, return a basic summary
-                var lines = conversationText.Split('\n').Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
-                var messageCount = lines.Count(l => l.StartsWith("User:"));
-
-                return $"This conversation contained {messageCount} user messages covering various topics. " +
-                       "The user asked questions about company policies and procedures, and received detailed responses.";
-            }
-            catch
-            {
-                return "Unable to generate summary at this time.";
-            }
-        }
-
-        private List<string> ExtractKeyTopicsFromMessages(ICollection<ChatMessage> messages)
-        {
-            var topics = new HashSet<string>();
-            var keywordTopicMap = new Dictionary<string, string>
-            {
-                { "policy", "Company Policies" },
-                { "procedure", "Procedures" },
-                { "hr", "Human Resources" },
-                { "it", "IT Support" },
-                { "finance", "Finance" },
-                { "legal", "Legal" },
-                { "training", "Training" },
-                { "benefits", "Benefits" }
-            };
-
-            foreach (var message in messages)
-            {
-                var content = (message.Content + " " + message.AiResponse).ToLower();
-                foreach (var kvp in keywordTopicMap)
-                {
-                    if (content.Contains(kvp.Key))
-                    {
-                        topics.Add(kvp.Value);
-                    }
-                }
-            }
-
-            return topics.Take(5).ToList();
-        }
-
-        private List<string> ExtractActionItemsFromMessages(ICollection<ChatMessage> messages)
-        {
-            var actionItems = new List<string>();
-            var actionKeywords = new[] { "need to", "should", "must", "required", "contact", "submit", "apply" };
-
-            foreach (var message in messages)
-            {
-                var responses = new[] { message.Content, message.AiResponse }.Where(r => !string.IsNullOrEmpty(r));
-
-                foreach (var response in responses)
-                {
-                    var sentences = response.Split('.', '!', '?');
-                    foreach (var sentence in sentences)
-                    {
-                        if (actionKeywords.Any(keyword => sentence.ToLower().Contains(keyword)))
-                        {
-                            var actionItem = sentence.Trim();
-                            if (actionItem.Length > 10 && actionItem.Length < 200)
-                            {
-                                actionItems.Add(actionItem);
-                            }
-                        }
-                    }
-                }
-            }
-
-            return actionItems.Distinct().Take(5).ToList();
-        }
-
         private System.Linq.Expressions.Expression<Func<ChatMessage, bool>> BuildSearchPredicate(Guid userId, SearchRequest request)
         {
-            var predicate = System.Linq.Expressions.Expression.Parameter(typeof(ChatMessage), "m");
-
-            // Base conditions: user ownership and not deleted
-            var userCondition = System.Linq.Expressions.Expression.Equal(
-                System.Linq.Expressions.Expression.Property(predicate, nameof(ChatMessage.UserId)),
-                System.Linq.Expressions.Expression.Constant(userId));
-
-            var notDeletedCondition = System.Linq.Expressions.Expression.Equal(
-                System.Linq.Expressions.Expression.Property(predicate, nameof(ChatMessage.IsDeleted)),
-                System.Linq.Expressions.Expression.Constant(false));
-
-            var condition = System.Linq.Expressions.Expression.AndAlso(userCondition, notDeletedCondition);
-
-            // Search in content or AI response
-            var contentProperty = System.Linq.Expressions.Expression.Property(predicate, nameof(ChatMessage.Content));
-            var responseProperty = System.Linq.Expressions.Expression.Property(predicate, nameof(ChatMessage.AiResponse));
-            var queryConstant = System.Linq.Expressions.Expression.Constant(request.Query.ToLower());
-
-            var contentContains = System.Linq.Expressions.Expression.Call(
-                System.Linq.Expressions.Expression.Call(contentProperty, typeof(string).GetMethod("ToLower", Type.EmptyTypes)),
-                typeof(string).GetMethod("Contains", new[] { typeof(string) }),
-                queryConstant);
-
-            var responseContains = System.Linq.Expressions.Expression.Call(
-                System.Linq.Expressions.Expression.Call(responseProperty, typeof(string).GetMethod("ToLower", Type.EmptyTypes)),
-                typeof(string).GetMethod("Contains", new[] { typeof(string) }),
-                queryConstant);
-
-            var searchCondition = System.Linq.Expressions.Expression.OrElse(contentContains, responseContains);
-            condition = System.Linq.Expressions.Expression.AndAlso(condition, searchCondition);
-
-            // Add date filters
-            if (request.FromDate.HasValue)
-            {
-                var fromDateCheck = System.Linq.Expressions.Expression.GreaterThanOrEqual(
-                    System.Linq.Expressions.Expression.Property(predicate, nameof(ChatMessage.CreatedAt)),
-                    System.Linq.Expressions.Expression.Constant(request.FromDate.Value));
-                condition = System.Linq.Expressions.Expression.AndAlso(condition, fromDateCheck);
-            }
-
-            if (request.ToDate.HasValue)
-            {
-                var toDateCheck = System.Linq.Expressions.Expression.LessThanOrEqual(
-                    System.Linq.Expressions.Expression.Property(predicate, nameof(ChatMessage.CreatedAt)),
-                    System.Linq.Expressions.Expression.Constant(request.ToDate.Value));
-                condition = System.Linq.Expressions.Expression.AndAlso(condition, toDateCheck);
-            }
-
-            // Add session filter
-            if (request.SessionIds.Any())
-            {
-                var sessionProperty = System.Linq.Expressions.Expression.Property(predicate, nameof(ChatMessage.SessionId));
-                var sessionIds = System.Linq.Expressions.Expression.Constant(request.SessionIds);
-                var sessionContains = System.Linq.Expressions.Expression.Call(
-                    sessionIds,
-                    typeof(List<Guid>).GetMethod("Contains"),
-                    sessionProperty);
-                condition = System.Linq.Expressions.Expression.AndAlso(condition, sessionContains);
-            }
-
-            return System.Linq.Expressions.Expression.Lambda<Func<ChatMessage, bool>>(condition, predicate);
+            var searchLower = request.Query.ToLower();
+            return m => m.UserId == userId && !m.IsDeleted &&
+                       (m.Content.ToLower().Contains(searchLower) || m.AiResponse.ToLower().Contains(searchLower)) &&
+                       (!request.FromDate.HasValue || m.CreatedAt >= request.FromDate.Value) &&
+                       (!request.ToDate.HasValue || m.CreatedAt <= request.ToDate.Value) &&
+                       (!request.SessionIds.Any() || request.SessionIds.Contains(m.SessionId));
         }
 
         private double CalculateRelevanceScore(string content, string response, string query)
         {
-            // Simple relevance scoring - in production, use more sophisticated scoring
             var queryLower = query.ToLower();
             var contentLower = (content + " " + response).ToLower();
-
             var queryWords = queryLower.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             var matchCount = queryWords.Count(word => contentLower.Contains(word));
-
             return (double)matchCount / queryWords.Length;
         }
 
         private string GenerateMatchContext(string content, string response, string query)
         {
-            // Generate context showing where the match occurred
             var queryLower = query.ToLower();
             var fullText = content + " " + response;
-
             var index = fullText.ToLower().IndexOf(queryLower);
+
             if (index >= 0)
             {
+                var contextSize = _configuration.GetValue<int>("ChatService:SearchContextSize", 100);
                 var start = Math.Max(0, index - 50);
-                var length = Math.Min(100, fullText.Length - start);
+                var length = Math.Min(contextSize, fullText.Length - start);
                 var context = fullText.Substring(start, length);
 
                 if (start > 0) context = "..." + context;
@@ -1115,20 +810,6 @@ namespace ChatBox.API.Services.Implement
             }
 
             return content.Length > 100 ? content.Substring(0, 100) + "..." : content;
-        }
-
-        private List<string> SplitResponseIntoChunks(string response)
-        {
-            const int chunkSize = 50;
-            var chunks = new List<string>();
-
-            for (int i = 0; i < response.Length; i += chunkSize)
-            {
-                var length = Math.Min(chunkSize, response.Length - i);
-                chunks.Add(response.Substring(i, length));
-            }
-
-            return chunks;
         }
     }
 }

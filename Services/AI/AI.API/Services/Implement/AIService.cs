@@ -13,10 +13,8 @@ using AI.Infrastructure.Repository.Interfaces;
 using Microsoft.Extensions.AI;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.TextGeneration;
-using Microsoft.SemanticKernel.Embeddings;
-using Document = AI.Domain.Models.Document;
-using Microsoft.AspNetCore.Http;
-using OllamaSharp.Models;
+using AutoMapper;
+using Microsoft.AspNetCore.Mvc;
 
 namespace AI.API.Services.Implement
 {
@@ -25,59 +23,60 @@ namespace AI.API.Services.Implement
         private readonly ITextGenerationService _defaultTextService;
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
         private readonly IAIConfigurationService _configService;
-        private readonly IDynamicProviderService _dynamicProviderService;
         private readonly IKernelProviderService _kernelProviderService;
         private readonly IMetricsService _metricsService;
         private readonly IUnitOfWork<DocAIDbContext> _unitOfWork;
+        private readonly IMapper _mapper;
         private readonly ILogger<AIService> _logger;
 
-        // Removed unused caching fields - using database-driven model selection instead
         private readonly SemaphoreSlim _cacheSemaphore = new(1, 1);
 
-        private const string VIETNAMESE_SYSTEM_PROMPT = @"Bạn là một trợ lý AI thông minh và hữu ích. 
+        private const string VIETNAMESE_SYSTEM_PROMPT = @"Bạn là một trợ lý AI thông minh và hữu ích cho hệ thống tìm kiếm tài liệu nội bộ. 
 Hãy luôn trả lời bằng tiếng Việt một cách tự nhiên, lịch sự và chính xác. 
-Nếu câu hỏi bằng tiếng Anh hoặc ngôn ngữ khác, hãy hiểu và trả lời bằng tiếng Việt. 
+Khi được cung cấp thông tin từ tài liệu, hãy dựa vào đó để trả lời và luôn đề cập đến nguồn tài liệu.
+Nếu không có thông tin liên quan trong tài liệu được cung cấp, hãy nói rõ và đưa ra gợi ý tìm kiếm.
 Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
+
         public AIService(
-             ITextGenerationService defaultTextService,
-             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
-             IAIConfigurationService configService,
-             IDynamicProviderService dynamicProviderService,
-             IKernelProviderService kernelProviderService,
-             IMetricsService metricsService,
-             IUnitOfWork<DocAIDbContext> unitOfWork,
-             ILogger<AIService> logger)
+            ITextGenerationService defaultTextService,
+            IEmbeddingGenerator<string, Embedding<float>> embeddingService,
+            IAIConfigurationService configService,
+            IKernelProviderService kernelProviderService,
+            IMetricsService metricsService,
+            IUnitOfWork<DocAIDbContext> unitOfWork,
+            IMapper mapper,
+            ILogger<AIService> logger)
         {
             _defaultTextService = defaultTextService ?? throw new ArgumentNullException(nameof(defaultTextService));
             _embeddingService = embeddingService ?? throw new ArgumentNullException(nameof(embeddingService));
             _configService = configService ?? throw new ArgumentNullException(nameof(configService));
-            _dynamicProviderService = dynamicProviderService ?? throw new ArgumentNullException(nameof(dynamicProviderService));
             _kernelProviderService = kernelProviderService ?? throw new ArgumentNullException(nameof(kernelProviderService));
             _metricsService = metricsService ?? throw new ArgumentNullException(nameof(metricsService));
             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+            _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
+
         public async Task<AIResponse> GenerateAnswerAsync(AIRequest request, CancellationToken cancellationToken = default)
         {
             var requestId = Guid.NewGuid().ToString("N")[..8];
             var stopwatch = Stopwatch.StartNew();
-            AIRequestLog requestLog = null;
+            AIRequestLog? requestLog = null;
+
 
             try
             {
                 _logger.LogInformation("[{RequestId}] Starting text generation for user: {UserId}", requestId, request.UserId);
 
-
+                // Log request if enabled
                 var shouldLog = await _configService.GetConfigurationAsync("AI:EnableRequestLogging", true);
                 if (shouldLog)
                 {
                     requestLog = await LogRequestStartAsync(requestId, request, ModelType.Chat);
                 }
 
-                // Get text generation service (try dynamic kernel first, fallback to default)
+                // Get text generation service
                 var textService = await GetTextGenerationServiceAsync();
-
-                // Get current config for validation
                 var aiConfig = await _configService.GetActiveAIModelAsync();
 
                 // Validate request
@@ -85,15 +84,11 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
 
                 // Create execution settings
                 var settings = CreateExecutionSettings(request, aiConfig);
-
-                _logger.LogDebug("[{RequestId}] Using settings - MaxTokens: {MaxTokens}, Temperature: {Temperature}, TopP: {TopP}",
-                    requestId, settings.ExtensionData?["max_tokens"], settings.ExtensionData?["temperature"], settings.ExtensionData?["top_p"]);
-
                 var enhancedPrompt = PrepareVietnamesePrompt(request.Prompt);
 
                 // Generate response
                 var result = await textService.GetTextContentsAsync(
-                              enhancedPrompt, settings, cancellationToken: cancellationToken);
+                    enhancedPrompt, settings, cancellationToken: cancellationToken);
 
                 var content = result.FirstOrDefault()?.Text ?? "Xin lỗi, tôi không thể tạo phản hồi lúc này.";
                 var tokensUsed = ExtractTokenCount(result.FirstOrDefault()?.Metadata) ?? EstimateTokens(content);
@@ -118,7 +113,13 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                     RequestId = requestId,
                     Content = content,
                     TokensUsed = tokensUsed,
-                    ResponseTimeMs = (int)stopwatch.ElapsedMilliseconds
+                    ResponseTimeMs = (int)stopwatch.ElapsedMilliseconds,
+                    ModelUsed = aiConfig?.ModelId ?? "default",
+                    DocumentsUsed = request.Context?.Count ?? 0,
+                    ConversationHistoryLength = request.ConversationHistory?.Count ?? 0,
+                    DetectedIntent = request.Intent ?? "general",
+                    IntentConfidence = !string.IsNullOrEmpty(request.Intent) ? 0.85 : 0.0,
+                    ContextTokens = EstimateTokens(CreateContextPrompt(request)) - EstimateTokens(request.Prompt)
                 };
             }
             catch (Exception ex)
@@ -144,17 +145,17 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
             }
         }
         public async IAsyncEnumerable<StreamChunk> StreamGenerateAnswerAsync(
-                  AIRequest request,
-                  [EnumeratorCancellation] CancellationToken cancellationToken = default)
+            AIRequest request,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             var requestId = Guid.NewGuid().ToString("N")[..8];
             var stopwatch = Stopwatch.StartNew();
             var totalTokens = 0;
             var fullResponse = new StringBuilder();
-            AIRequestLog requestLog = null;
+            AIRequestLog? requestLog = null;
             var chunks = new List<StreamChunk>();
             bool hasError = false;
-            string errorMessage = null;
+            string? errorMessage = null;
 
             _logger.LogInformation("[{RequestId}] Starting streaming generation for user: {UserId}", requestId, request.UserId);
 
@@ -176,8 +177,6 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
 
                 // Create execution settings
                 var settings = CreateExecutionSettings(request, aiConfig);
-
-                // Prepare prompt with Vietnamese instruction
                 var enhancedPrompt = PrepareVietnamesePrompt(request.Prompt);
 
                 // Generate streaming response
@@ -195,7 +194,9 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                             Content = streamContent.Text,
                             IsComplete = false,
                             TokenCount = tokenCount,
-                            RequestId = requestId
+                            RequestId = requestId,
+                            HasContext = request.Context?.Any() == true || request.ConversationHistory?.Any() == true,
+                            DocumentsCount = request.Context?.Count ?? 0
                         });
                     }
                 }
@@ -206,7 +207,9 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                     Content = "",
                     IsComplete = true,
                     TokenCount = totalTokens,
-                    RequestId = requestId
+                    RequestId = requestId,
+                    HasContext = request.Context?.Any() == true || request.ConversationHistory?.Any() == true,
+                    DocumentsCount = request.Context?.Count ?? 0
                 });
             }
             catch (Exception ex)
@@ -238,13 +241,447 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                     requestId, stopwatch.ElapsedMilliseconds, totalTokens, hasError, request.UserId);
             }
 
-            // Yield all chunks
             foreach (var chunk in chunks)
             {
                 yield return chunk;
             }
         }
+        public async Task<AIResponse> GenerateWithContextAsync(AIContextRequest request, CancellationToken cancellationToken = default)
+        {
+            var requestId = Guid.NewGuid().ToString("N")[..8];
+            var stopwatch = Stopwatch.StartNew();
 
+            try
+            {
+                _logger.LogInformation("[{RequestId}] Context-aware generation for user: {UserId}, Documents: {DocCount}, History: {HistoryCount}",
+                    requestId, request.UserId, request.DocumentContext?.Count ?? 0, request.ConversationHistory?.Count ?? 0);
+
+                // Get text generation service
+                var textService = await GetTextGenerationServiceAsync();
+                var aiConfig = await _configService.GetActiveAIModelAsync();
+
+                // Create enhanced prompt with document context
+                var enhancedPrompt = CreateContextualPrompt(request);
+
+                // Create execution settings with context adjustments
+                var settings = CreateContextualExecutionSettings(request, aiConfig);
+
+                // Generate response
+                var result = await textService.GetTextContentsAsync(enhancedPrompt, settings, cancellationToken: cancellationToken);
+                var content = result.FirstOrDefault()?.Text ?? "Xin lỗi, tôi không thể tạo phản hồi lúc này.";
+                var tokensUsed = ExtractTokenCount(result.FirstOrDefault()?.Metadata) ?? EstimateTokens(content);
+
+                stopwatch.Stop();
+
+                // Log metrics with context info
+                await LogMetricsAsync(requestId, request.UserId, ModelType.Chat, tokensUsed,
+                    stopwatch.ElapsedMilliseconds, RequestStatus.Completed, null);
+
+                return new AIResponse
+                {
+                    Success = true,
+                    RequestId = requestId,
+                    Content = content,
+                    TokensUsed = tokensUsed,
+                    ResponseTimeMs = (int)stopwatch.ElapsedMilliseconds,
+                    ModelUsed = aiConfig?.ModelId ?? "default",
+                    DocumentsUsed = request.DocumentContext?.Count ?? 0,
+                    ConversationHistoryLength = request.ConversationHistory?.Count ?? 0,
+                    DetectedIntent = request.Intent ?? "general",
+                    IntentConfidence = !string.IsNullOrEmpty(request.Intent) ? 0.85 : 0.0,
+                    ContextTokens = EstimateTokens(enhancedPrompt) - EstimateTokens(request.Prompt)
+            };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[{RequestId}] Contextual generation failed", requestId);
+                stopwatch.Stop();
+
+                await LogMetricsAsync(requestId, request.UserId, ModelType.Chat, 0,
+                    stopwatch.ElapsedMilliseconds, RequestStatus.Failed, ex.Message);
+
+                return new AIResponse
+                {
+                    Success = false,
+                    RequestId = requestId,
+                    Message = $"Contextual generation failed: {ex.Message}",
+                    ResponseTimeMs = (int)stopwatch.ElapsedMilliseconds
+                };
+            }
+        }
+        public async IAsyncEnumerable<StreamChunk> StreamWithContextAsync(
+          AIContextRequest request,
+          [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var requestId = Guid.NewGuid().ToString("N")[..8];
+            var stopwatch = Stopwatch.StartNew();
+            var totalTokens = 0;
+            var fullResponse = new StringBuilder();
+            var chunks = new List<StreamChunk>();
+
+
+            try
+            {
+                _logger.LogInformation("[{RequestId}] Starting contextual streaming for user: {UserId}", requestId, request.UserId);
+
+                // Get text generation service
+                var textService = await GetTextGenerationServiceAsync();
+                var aiConfig = await _configService.GetActiveAIModelAsync();
+
+                // Create enhanced prompt with context
+                var enhancedPrompt = CreateContextualPrompt(request);
+                var settings = CreateContextualExecutionSettings(request, aiConfig);
+
+                // Generate streaming response
+                await foreach (var streamContent in textService.GetStreamingTextContentsAsync(
+                    enhancedPrompt, settings, cancellationToken: cancellationToken))
+                {
+                    if (!string.IsNullOrEmpty(streamContent.Text))
+                    {
+                        fullResponse.Append(streamContent.Text);
+                        var tokenCount = EstimateTokens(streamContent.Text);
+                        totalTokens += tokenCount;
+
+                        chunks.Add(new StreamChunk
+                        {
+                            Content = streamContent.Text,
+                            IsComplete = false,
+                            TokenCount = tokenCount,
+                            RequestId = requestId,
+                            HasContext = true,
+                            DocumentsCount = request.DocumentContext?.Count ?? 0
+                        });
+                    }
+                }
+
+                // Add completion chunk
+                chunks.Add(new StreamChunk
+                {
+                    Content = "",
+                    IsComplete = true,
+                    TokenCount = totalTokens,
+                    RequestId = requestId,
+                    HasContext = true,
+                    DocumentsCount = request.DocumentContext?.Count ?? 0
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[{RequestId}] Contextual streaming failed", requestId);
+                chunks.Add(new StreamChunk
+                {
+                    Content = $"Lỗi contextual streaming: {ex.Message}",
+                    IsComplete = true,
+                    RequestId = requestId,
+                    Error = ex.Message
+                });
+            }
+            finally
+            {
+                stopwatch.Stop();
+                await LogMetricsAsync(requestId, request.UserId, ModelType.Chat, totalTokens,
+                    stopwatch.ElapsedMilliseconds, RequestStatus.Completed, null);
+            }
+
+            foreach (var chunk in chunks)
+            {
+                yield return chunk;
+            }
+        }
+        // ========== MODEL MANAGEMENT ==========
+
+        public async Task<AIResponse> GenerateWithModelAsync(string modelId, AIRequest request, CancellationToken cancellationToken = default)
+        {
+            var requestId = Guid.NewGuid().ToString("N")[..8];
+            var stopwatch = Stopwatch.StartNew();
+
+            try
+            {
+                _logger.LogInformation("[{RequestId}] Generation with specific model {ModelId} for user: {UserId}",
+                    requestId, modelId, request.UserId);
+
+                // Get specific model configuration
+                var modelRepo = _unitOfWork.GetRepository<AIModelConfiguration>();  
+                var modelConfig = await modelRepo.SingleOrDefaultAsync(
+                    predicate: m => m.ModelId == modelId && m.IsEnabled);
+
+                if (modelConfig == null)
+                {
+                    _logger.LogWarning("[{RequestId}] Model {ModelId} not found, falling back to default service", requestId, modelId);
+                    return await GenerateAnswerAsync(request, cancellationToken); // Fallback to default
+                }
+
+                // Kiểm tra API Key
+                if (string.IsNullOrEmpty(modelConfig.ApiKey))
+                {
+                    _logger.LogWarning("[{RequestId}] Model {ModelId} has no API Key, falling back to default service", requestId, modelId);
+                    return await GenerateAnswerAsync(request, cancellationToken); // Fallback to default
+                }
+
+                try
+                {
+                    // Create text service for specific model
+                    var textService = await _kernelProviderService.CreateTextGenerationServiceAsync(modelConfig);
+                    var settings = CreateModelSpecificSettings(request, modelConfig);
+                    var enhancedPrompt = PrepareVietnamesePrompt(request.Prompt);
+
+                    // Generate response
+                    var result = await textService.GetTextContentsAsync(enhancedPrompt, settings, cancellationToken: cancellationToken);
+                    var content = result.FirstOrDefault()?.Text ?? "Xin lỗi, tôi không thể tạo phản hồi lúc này.";
+                    var tokensUsed = ExtractTokenCount(result.FirstOrDefault()?.Metadata) ?? EstimateTokens(content);
+
+                    stopwatch.Stop();
+
+                    // Update model usage
+                    modelConfig.LastUsedAt = DateTime.UtcNow;
+                    modelRepo.UpdateAsync(modelConfig);
+                    await _unitOfWork.CommitAsync();
+
+                    await LogMetricsAsync(requestId, request.UserId, ModelType.Chat, tokensUsed,
+                        stopwatch.ElapsedMilliseconds, RequestStatus.Completed, null);
+
+                    return new AIResponse
+                    {
+                        Success = true,
+                        RequestId = requestId,
+                        Content = content,
+                        TokensUsed = tokensUsed,
+                        ResponseTimeMs = (int)stopwatch.ElapsedMilliseconds,
+                        ModelUsed = modelId
+                    };
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[{RequestId}] Failed to use model {ModelId}, falling back to default service", requestId, modelId);
+
+                    // Fallback to default service khi có lỗi
+                    var fallbackResponse = await GenerateAnswerAsync(request, cancellationToken);
+                    fallbackResponse.RequestId = requestId; // Keep original request ID
+                    fallbackResponse.ModelUsed = $"default (fallback from {modelId})";
+
+                    return fallbackResponse;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[{RequestId}] Model-specific generation failed completely", requestId);
+                stopwatch.Stop();
+
+                return new AIResponse
+                {
+                    Success = false,
+                    RequestId = requestId,
+                    Message = $"Generation failed with model {modelId}: {ex.Message}",
+                    ResponseTimeMs = (int)stopwatch.ElapsedMilliseconds
+                };
+            }
+        }
+
+        public async Task<List<AIModel>> GetAvailableModelsAsync()
+        {
+            try
+            {
+                var modelRepository = _unitOfWork.GetRepository<AIModelConfiguration>();
+                var configurations = await modelRepository.GetListAsync(
+                    predicate: m => m.IsEnabled,
+                    orderBy: q => q.OrderBy(m => m.ProviderType).ThenBy(m => m.Name)
+                );
+
+                var models = new List<AIModel>();
+
+                foreach (var config in configurations)
+                {
+                    // Use AutoMapper for basic mapping
+                    var model = _mapper.Map<AIModel>(config);
+
+                    // Set additional properties based on provider type and config
+                    await EnhanceModelWithCapabilitiesAndPerformance(model, config);
+
+                    models.Add(model);
+                }
+
+                return models;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting available models");
+                return new List<AIModel>();
+            }
+        }
+
+        public async Task<ModelCapabilities> GetModelCapabilitiesAsync(string modelId)
+        {
+            try
+            {
+                var modelRepository = _unitOfWork.GetRepository<AIModelConfiguration>();
+                var config = await modelRepository.SingleOrDefaultAsync(
+                    predicate: m => m.ModelId == modelId
+                );
+
+                if (config == null)
+                {
+                    return new ModelCapabilities
+                    {
+                        SupportsTextGeneration = false,
+                        SupportsStreaming = false,
+                        SupportsEmbedding = false,
+                        MaxTokens = 0,
+                        SupportedLanguages = new List<string>()
+                    };
+                }
+
+                // Use AutoMapper to map to ModelCapabilities
+                return _mapper.Map<ModelCapabilities>(config);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting model capabilities for {ModelId}", modelId);
+                return new ModelCapabilities();
+            }
+        }
+        #region Utility Functions
+
+        public async Task<TokenCountResult> CountTokensAsync(string text, string? model = null)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(text))
+                {
+                    return new TokenCountResult
+                    {
+                        Success = false,
+                        Message = "Text cannot be empty"
+                    };
+                }
+
+                var tokenCount = EstimateTokens(text);
+
+                return new TokenCountResult
+                {
+                    Success = true,
+                    DetectedIntent = "token_count",
+                    Confidence = 1.0,
+                    Message = $"Token count: {tokenCount} for model: {model ?? "default"}"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error counting tokens");
+                return new TokenCountResult
+                {
+                    Success = false,
+                    Message = ex.Message
+                };
+            }
+        }
+
+        public async Task<IntentResult> DetectIntentAsync(string text)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(text))
+                {
+                    return new IntentResult
+                    {
+                        Success = false,
+                        Message = "Text cannot be empty"
+                    };
+                }
+
+                // Enhanced intent detection for document search system
+                var intents = new Dictionary<string, (List<string> keywords, string description)>
+                {
+                    ["document_search"] = (new() { "tìm", "search", "tìm kiếm", "tra cứu", "tài liệu", "file", "document" }, "Tìm kiếm tài liệu"),
+                    ["question"] = (new() { "?", "gì", "sao", "như thế nào", "tại sao", "có phải", "là gì" }, "Đặt câu hỏi"),
+                    ["explanation"] = (new() { "giải thích", "explain", "hướng dẫn", "cách", "làm sao" }, "Yêu cầu giải thích"),
+                    ["greeting"] = (new() { "xin chào", "hello", "hi", "chào", "good morning" }, "Chào hỏi"),
+                    ["help"] = (new() { "giúp", "help", "hướng dẫn", "trợ giúp", "support" }, "Yêu cầu trợ giúp"),
+                    ["summary"] = (new() { "tóm tắt", "summary", "summarize", "overview", "tổng quan" }, "Yêu cầu tóm tắt"),
+                    ["comparison"] = (new() { "so sánh", "compare", "khác nhau", "giống", "difference" }, "So sánh thông tin")
+                };
+
+                var textLower = text.ToLower();
+                var scores = new Dictionary<string, double>();
+
+                foreach (var intent in intents)
+                {
+                    var matchCount = intent.Value.keywords.Count(keyword => textLower.Contains(keyword));
+                    var score = matchCount > 0 ? (double)matchCount / intent.Value.keywords.Count * 1.5 : 0;
+                    scores[intent.Key] = Math.Min(1.0, score);
+                }
+
+                var topIntent = scores.OrderByDescending(x => x.Value).First();
+                var alternatives = scores.Where(x => x.Key != topIntent.Key && x.Value > 0)
+                    .Select(x => new IntentPrediction
+                    {
+                        Intent = x.Key,
+                        Confidence = x.Value,
+                        Description = intents.ContainsKey(x.Key) ? intents[x.Key].description : x.Key
+                    })
+                    .OrderByDescending(x => x.Confidence)
+                    .Take(3)
+                    .ToList();
+
+                return new IntentResult
+                {
+                    Success = true,
+                    DetectedIntent = topIntent.Value > 0 ? topIntent.Key : "general",
+                    Confidence = topIntent.Value,
+                    AlternativeIntents = alternatives
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error detecting intent");
+                return new IntentResult
+                {
+                    Success = false,
+                    Message = ex.Message
+                };
+            }
+        }
+
+        public async Task<string> SuggestTitleAsync(string content)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(content))
+                    return "Cuộc trò chuyện mới";
+
+                var prompt = $@"Dựa vào nội dung cuộc trò chuyện sau, hãy tạo một tiêu đề ngắn gọn (tối đa 8 từ) bằng tiếng Việt:
+
+{content.Substring(0, Math.Min(content.Length, 800))}
+
+Chỉ trả về tiêu đề:";
+
+                var aiRequest = new AIRequest
+                {
+                    Prompt = prompt,
+                    UserId = "system",
+                    MaxTokens = 30,
+                    Temperature = 0.3
+                };
+
+                var response = await GenerateAnswerAsync(aiRequest);
+
+                if (response.Success && !string.IsNullOrEmpty(response.Content))
+                {
+                    var title = response.Content.Trim().Replace("\"", "").Trim();
+                    return string.IsNullOrEmpty(title) ? "Cuộc trò chuyện mới" : title;
+                }
+
+                return CreateFallbackTitle(content);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error suggesting title");
+                return "Cuộc trò chuyện mới";
+            }
+        }
+
+        #endregion
+
+        #region Embedding Generation
         public async Task<EmbeddingResponse> GenerateEmbeddingAsync(EmbeddingRequest request, CancellationToken cancellationToken = default)
         {
             var requestId = Guid.NewGuid().ToString("N")[..8];
@@ -414,6 +851,8 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                 };
             }
         }
+        #endregion
+        #region Model Validation
 
         public async Task<bool> ValidateModelAvailabilityAsync(string modelType, CancellationToken cancellationToken = default)
         {
@@ -426,7 +865,6 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                     switch (type)
                     {
                         case ModelType.Chat:
-                            // Test dynamic text generation service
                             var textService = await GetTextGenerationServiceAsync();
                             var testPrompt = "Xin chào";
                             var settings = new PromptExecutionSettings
@@ -437,7 +875,6 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                             return result?.Any() == true;
 
                         case ModelType.Embedding:
-                            // Test fixed OpenAI embedding service
                             var testResult = await _embeddingService.GenerateAsync(new[] { "test" }, null, cancellationToken);
                             return testResult != null && testResult.Any();
 
@@ -455,20 +892,19 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
             }
         }
 
-        #region Private Methods
+        #endregion
+        #region  Private Methods
 
         private async Task<ITextGenerationService> GetTextGenerationServiceAsync()
         {
             try
             {
-                // 1. Truy vấn danh sách model từ DB
                 var modelRepository = _unitOfWork.GetRepository<AIModelConfiguration>();
                 var modelConfigs = await modelRepository.GetListAsync(
                     predicate: m => m.IsEnabled == true,
                     orderBy: null,
                     include: null);
 
-                // 2. Ưu tiên chọn IsActive = true và IsTestedSuccessfully = true
                 var activeModel = modelConfigs.FirstOrDefault(m => m.IsActive && m.IsTestedSuccessfully);
 
                 if (activeModel != null && !string.IsNullOrEmpty(activeModel.ApiKey))
@@ -477,7 +913,6 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
 
                     var textService = await _kernelProviderService.CreateTextGenerationServiceAsync(activeModel);
 
-                    // Update last used time
                     activeModel.LastUsedAt = DateTime.UtcNow;
                     modelRepository.UpdateAsync(activeModel);
                     await _unitOfWork.CommitAsync();
@@ -485,8 +920,7 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                     return textService;
                 }
 
-                // 3. Fallback về HuggingFace từ appsettings.json (fallback duy nhất)
-                _logger.LogDebug("No active model found, using HuggingFace fallback from appsettings");
+                _logger.LogDebug("No active model found, using default service");
                 return _defaultTextService;
             }
             catch (Exception ex)
@@ -495,6 +929,106 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                 return _defaultTextService;
             }
         }
+        private string CreateContextualPrompt(AIContextRequest request)
+        {
+            var promptBuilder = new StringBuilder();
+
+            promptBuilder.AppendLine(VIETNAMESE_SYSTEM_PROMPT);
+            promptBuilder.AppendLine();
+
+            if (request.ConversationHistory?.Any() == true)
+            {
+                promptBuilder.AppendLine("Lịch sử cuộc trò chuyện:");
+                foreach (var message in request.ConversationHistory.TakeLast(5))
+                {
+                    promptBuilder.AppendLine(message);
+                }
+                promptBuilder.AppendLine();
+            }
+
+            if (request.DocumentContext?.Any() == true)
+            {
+                promptBuilder.AppendLine("Thông tin từ tài liệu liên quan:");
+                promptBuilder.AppendLine();
+
+                for (int i = 0; i < request.DocumentContext.Count; i++)
+                {
+                    var doc = request.DocumentContext[i];
+                    promptBuilder.AppendLine($"[Tài liệu {i + 1}] {doc.Title}");
+                    if (!string.IsNullOrEmpty(doc.Summary))
+                    {
+                        promptBuilder.AppendLine($"Tóm tắt: {doc.Summary}");
+                    }
+                    promptBuilder.AppendLine($"Nội dung: {doc.Content}");
+                    promptBuilder.AppendLine($"Độ liên quan: {doc.RelevanceScore:F2}");
+                    promptBuilder.AppendLine();
+                }
+                promptBuilder.AppendLine("---");
+                promptBuilder.AppendLine();
+            }
+
+            promptBuilder.AppendLine($"Câu hỏi của người dùng: {request.Prompt}");
+            promptBuilder.AppendLine();
+
+            if (request.DocumentContext?.Any() == true)
+            {
+                promptBuilder.AppendLine("Hãy trả lời dựa trên thông tin từ các tài liệu trên. Nếu không tìm thấy thông tin liên quan, hãy nói rõ và đưa ra gợi ý tìm kiếm khác.");
+            }
+
+            return promptBuilder.ToString();
+        }
+        private string CreateContextPrompt(AIRequest request)
+        {
+            var promptBuilder = new StringBuilder();
+            promptBuilder.AppendLine(VIETNAMESE_SYSTEM_PROMPT);
+
+            if (request.ConversationHistory?.Any() == true)
+            {
+                promptBuilder.AppendLine("Lịch sử cuộc trò chuyện:");
+                foreach (var message in request.ConversationHistory.TakeLast(5))
+                {
+                    promptBuilder.AppendLine(message);
+                }
+                promptBuilder.AppendLine();
+            }
+
+            if (request.Context?.Any() == true)
+            {
+                promptBuilder.AppendLine("Thông tin từ tài liệu liên quan:");
+                for (int i = 0; i < request.Context.Count; i++)
+                {
+                    var doc = request.Context[i];
+                    promptBuilder.AppendLine($"[Tài liệu {i + 1}] {doc.Title}");
+                    promptBuilder.AppendLine($"Nội dung: {doc.Content}");
+                    promptBuilder.AppendLine();
+                }
+                promptBuilder.AppendLine("---");
+            }
+
+            promptBuilder.AppendLine($"Câu hỏi: {request.Prompt}");
+            return promptBuilder.ToString();
+        }
+
+        private PromptExecutionSettings CreateContextualExecutionSettings(AIContextRequest request, AIModelConfig? aiConfig)
+        {
+            var baseMaxTokens = request.MaxTokens ?? aiConfig?.MaxTokens ?? 2048;
+            var contextTokens = EstimateTokens(CreateContextualPrompt(request)) - EstimateTokens(request.Prompt);
+            var adjustedMaxTokens = Math.Max(512, baseMaxTokens - contextTokens);
+
+            return new PromptExecutionSettings
+            {
+                ExtensionData = new Dictionary<string, object>
+                {
+                    ["max_tokens"] = adjustedMaxTokens,
+                    ["temperature"] = request.Temperature ?? aiConfig?.Temperature ?? 0.7,
+                    ["top_p"] = request.TopP ?? aiConfig?.TopP ?? 0.9,
+                    ["context_aware"] = true,
+                    ["has_documents"] = request.DocumentContext?.Any() == true,
+                    ["has_history"] = request.ConversationHistory?.Any() == true
+                }
+            };
+        }
+
 
         private void ValidateRequest(AIRequest request, AIModelConfig aiConfig)
         {
@@ -536,9 +1070,24 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
             };
         }
 
+        private PromptExecutionSettings CreateModelSpecificSettings(AIRequest request, AIModelConfiguration modelConfig)
+        {
+            return new PromptExecutionSettings
+            {
+                ExtensionData = new Dictionary<string, object>
+                {
+                    ["max_tokens"] = Math.Min(request.MaxTokens ?? 2048, GetModelMaxTokens(modelConfig)),
+                    ["temperature"] = request.Temperature ?? 0.7,
+                    ["top_p"] = request.TopP ?? 0.9,
+                    ["system_prompt"] = VIETNAMESE_SYSTEM_PROMPT,
+                    ["model_id"] = modelConfig.ModelId,
+                    ["provider"] = modelConfig.ProviderType.ToString()
+                }
+            };
+        }
+
         private string PrepareVietnamesePrompt(string userPrompt)
         {
-            // Create a conversation format with system message for Vietnamese response
             return $"{VIETNAMESE_SYSTEM_PROMPT}\n\nNgười dùng: {userPrompt}\n\nTrợ lý AI:";
         }
 
@@ -564,6 +1113,46 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
             return string.Join("\n", parts);
         }
 
+        private string CreateFallbackTitle(string content)
+        {
+            try
+            {
+                var words = content.Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Where(w => w.Length > 2 && !IsStopWord(w))
+                    .Take(5)
+                    .ToArray();
+
+                if (words.Length > 0)
+                {
+                    return string.Join(" ", words);
+                }
+
+                return "Cuộc trò chuyện mới";
+            }
+            catch
+            {
+                return "Cuộc trò chuyện mới";
+            }
+        }
+
+        private bool IsStopWord(string word)
+        {
+            var stopWords = new[] { "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "là", "của", "và", "hoặc", "nhưng", "trong", "trên", "tại", "cho", "với", "bởi" };
+            return stopWords.Contains(word.ToLower());
+        }
+
+        private int GetModelMaxTokens(AIModelConfiguration modelConfig)
+        {
+            return modelConfig.ProviderType switch
+            {
+                AIProviderType.OpenAI when modelConfig.ModelId.Contains("gpt-4") => 8192,
+                AIProviderType.OpenAI => 4096,
+                AIProviderType.GoogleGemini => 32768,
+                AIProviderType.MistralAI => 8192,
+                _ => 4096
+            };
+        }
+
         private int? ExtractTokenCount(IReadOnlyDictionary<string, object> metadata)
         {
             if (metadata == null) return null;
@@ -581,11 +1170,70 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
         {
             if (string.IsNullOrEmpty(text)) return 0;
 
-            // Improved estimation for Vietnamese and mixed content
             var charCount = text.Length;
             var wordCount = text.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries).Length;
 
             return Math.Max(1, (int)Math.Ceiling((charCount / 3.5) + (wordCount / 0.75)));
+        }
+
+        private async Task EnhanceModelWithCapabilitiesAndPerformance(AIModel model, AIModelConfiguration config)
+        {
+            // Set capabilities based on provider type
+            model.SupportsTextGeneration = true;
+            model.SupportsStreaming = true;
+            model.SupportsEmbedding = false;
+            model.SupportsSystemPrompt = true;
+            model.SupportsDocumentAnalysis = true;
+            model.SupportedLanguages = "vi,en,zh,ja,ko,fr,de,es";
+
+            model.MaxTokens = config.ProviderType switch
+            {
+                AIProviderType.OpenAI => config.ModelId.Contains("gpt-4") ? 8192 : 4096,
+                AIProviderType.HuggingFace => 4096,
+                AIProviderType.MistralAI => 8192,
+                AIProviderType.GoogleGemini => 32768,
+                AIProviderType.AzureAIInference => 4096,
+                _ => 2048
+            };
+
+            model.SupportsFunctionCalling = config.ProviderType == AIProviderType.OpenAI ||
+                                           config.ProviderType == AIProviderType.MistralAI;
+
+            // Set performance metrics
+            try
+            {
+                var usageRepo = _unitOfWork.GetRepository<UsageMetric>();
+                var last30Days = DateTime.UtcNow.AddDays(-30);
+
+                var modelUsage = await usageRepo.GetListAsync(
+                    predicate: u => u.CreatedAt >= last30Days,
+                    orderBy: null);
+
+                var relevantUsage = modelUsage.Where(u => u.RequestId.Contains(config.ModelId)).ToList();
+
+                if (relevantUsage.Any())
+                {
+                    model.AverageResponseTime = relevantUsage.Average(u => u.ResponseTimeMs);
+                    model.TotalRequests = relevantUsage.Count;
+                    model.SuccessRate = relevantUsage.Count(u => u.Status == RequestStatus.Completed) * 100.0 / relevantUsage.Count;
+                }
+                else
+                {
+                    model.AverageResponseTime = config.AverageResponseTime ?? 0;
+                    model.TotalRequests = 0;
+                    model.SuccessRate = config.IsTestedSuccessfully ? 100.0 : 0.0;
+                }
+
+                model.LastUsed = config.LastUsedAt;
+                model.LastTested = config.LastTestedAt;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error setting performance for model {ModelId}", config.ModelId);
+                model.AverageResponseTime = 0;
+                model.TotalRequests = 0;
+                model.SuccessRate = 0;
+            }
         }
 
         private async Task LogMetricsAsync(
@@ -624,6 +1272,7 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                 var requestLog = new AIRequestLog
                 {
                     RequestId = requestId,
+                    UserId = request.UserId,
                     SourceService = "AIService",
                     ModelType = modelType,
                     RequestContent = JsonSerializer.Serialize(new

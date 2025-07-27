@@ -13,16 +13,13 @@ namespace ChatBox.API.Middlewares
     public class RateLimitingMiddleware
     {
         private readonly RequestDelegate _next;
-        private readonly IRateLimitingService _rateLimitingService;
         private readonly ILogger<RateLimitingMiddleware> _logger;
 
         public RateLimitingMiddleware(
             RequestDelegate next,
-            IRateLimitingService rateLimitingService,
             ILogger<RateLimitingMiddleware> logger)
         {
             _next = next;
-            _rateLimitingService = rateLimitingService;
             _logger = logger;
         }
 
@@ -46,8 +43,17 @@ namespace ChatBox.API.Middlewares
                     return;
                 }
 
+                // Create scope to get scoped service
+                using var scope = context.RequestServices.CreateScope();
+                var rateLimitingService = scope.ServiceProvider.GetService<IRateLimitingService>();
+                if (rateLimitingService == null)
+                {
+                    await _next(context);
+                    return;
+                }
+
                 // Check rate limit
-                var isWithinLimit = await _rateLimitingService.IsWithinLimitAsync(userId, action);
+                var isWithinLimit = await rateLimitingService.IsWithinLimitAsync(userId, action);
 
                 if (!isWithinLimit)
                 {
@@ -60,7 +66,7 @@ namespace ChatBox.API.Middlewares
                 }
 
                 // Record the request
-                await _rateLimitingService.RecordRequestAsync(userId, action);
+                await rateLimitingService.RecordRequestAsync(userId, action);
 
                 // Continue to next middleware
                 await _next(context);

@@ -7,8 +7,10 @@ using ChatBox.API.Payload.Response;
 using ChatBox.API.Payload.Response.AIServiceResponse;
 using ChatBox.API.Payload.Response.ChatServiceResponse;
 using ChatBox.API.Payload.Response.ConversationOrchestrationServiceResponse;
-using ChatBox.API.Payload.Response.HealthMonitoringResponses;
 using ChatBox.API.Services.Interfaces;
+using Polly.CircuitBreaker;
+using Polly;
+using Microsoft.Extensions.Options;
 
 namespace ChatBox.API.Services.Implement
 {
@@ -17,29 +19,26 @@ namespace ChatBox.API.Services.Implement
         private readonly HttpClient _httpClient;
         private readonly ILogger<AiServiceClient> _logger;
         private readonly IConfiguration _configuration;
-        private readonly string _aiServiceBaseUrl;
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly IMapper _mapper;
 
         public AiServiceClient(
-            HttpClient httpClient,
-            ILogger<AiServiceClient> logger,
-            IConfiguration configuration,
-            IMapper mapper)
+             HttpClient httpClient,
+             ILogger<AiServiceClient> logger,
+             IConfiguration configuration,
+             IMapper mapper)
         {
-            _httpClient = httpClient;
-            _logger = logger;
-            _configuration = configuration;
-            _mapper = mapper;
-            _aiServiceBaseUrl = configuration["Services:AIService:BaseUrl"] ?? "http://localhost:5002";
+            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
 
             _jsonOptions = new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                WriteIndented = false
+                WriteIndented = false,
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
             };
-
-            ConfigureHttpClient();
         }
 
         public async Task<AiGenerationResult> GenerateResponseAsync(AdvancedAiGenerationRequest request)
@@ -48,32 +47,59 @@ namespace ChatBox.API.Services.Implement
             {
                 _logger.LogInformation("Generating AI response for query length: {QueryLength}", request.Query?.Length ?? 0);
 
-                var response = await PostAsync<AiGenerationResult>("/api/ai/generate", request);
-
-                if (response.Success)
+                var aiRequest = new
                 {
-                    _logger.LogInformation("AI response generated successfully, TokensUsed: {TokensUsed}", response.TokensUsed);
-                }
-                else
+                    prompt = request.Query,
+                    userId = "chatbox-service", // Service identifier for AI service
+                    context = ConvertContextToAiFormat(request.Context),
+                    conversationHistory = request.ConversationHistory ?? new List<string>(),
+                    maxTokens = request.MaxTokens ,
+                    temperature = request.Temperature ,
+                    modelId = request.Model
+                };
+                var response = await PostAsync<AIServiceResponse>("/api/ai/generate", aiRequest);
+
+
+                if (response != null && response.Success)
                 {
-                    _logger.LogWarning("AI generation failed: {Response}", response.Response);
+                    _logger.LogInformation("AI response received successfully, TokensUsed: {TokensUsed}",
+                        response.TokensUsed);
+
+                    return new AiGenerationResult
+                    {
+                        Success = true,
+                        Response = response.Content,
+                        TokensUsed = response.TokensUsed,
+                        Model = response.ModelUsed ?? "unknown",
+                        ConfidenceScore = response.IntentConfidence,
+                        ProcessingTime = TimeSpan.FromMilliseconds(response.ResponseTimeMs),
+                        Metadata = new Dictionary<string, object>
+                        {
+                            { "RequestId", response.RequestId },
+                            { "DocumentsUsed", response.DocumentsUsed },
+                            { "ContextTokens", response.ContextTokens },
+                            { "DetectedIntent", response.DetectedIntent ?? "general" }
+                        }
+                    };
                 }
 
-                return response;
+                _logger.LogWarning("AI generation failed or returned empty response");
+                return CreateFallbackGenerationResult(request.Query);
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError(httpEx, "HTTP error calling AI service for generation");
+                return CreateFallbackGenerationResult(request.Query, $"AI service unavailable: {httpEx.Message}");
+            }
+            catch (TaskCanceledException tcEx)
+            {
+                _logger.LogError(tcEx, "Timeout calling AI service for generation");
+                return CreateFallbackGenerationResult(request.Query, "AI service timeout");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error generating AI response");
-                return new AiGenerationResult
-                {
-                    Success = false,
-                    Response = "I apologize, but I'm unable to generate a response at this time. Please try again later.",
-                    TokensUsed = 0,
-                    Model = "fallback",
-                    ConfidenceScore = 0.0,
-                    ProcessingTime = TimeSpan.Zero,
-                    Metadata = new Dictionary<string, object> { { "Error", ex.Message } }
-                };
+                _logger.LogError(ex, "Error calling AI service for generation");
+                return CreateFallbackGenerationResult(request.Query, ex.Message);
             }
         }
 
@@ -81,7 +107,8 @@ namespace ChatBox.API.Services.Implement
         {
             try
             {
-                _logger.LogInformation("Starting streaming response for StreamId: {StreamId}", request.StreamId);
+                _logger.LogInformation("Starting streaming request to AI service, StreamId: {StreamId}",
+                    request.StreamId);
 
                 return StreamResponseInternalAsync(request);
             }
@@ -96,10 +123,21 @@ namespace ChatBox.API.Services.Implement
         {
             try
             {
-                var requestObj = new { Text = text, Model = model };
-                var response = await PostAsync<TokenCountResponse>("/api/ai/tokens/count", requestObj);
+                var request = new
+                {
+                    text = text,
+                    model = model
+                };
 
-                return response?.TokenCount ?? EstimateTokenCount(text);
+                var response = await PostAsync<TokenCountServiceResponse>("/api/ai/tokens/count", request);
+
+                if (response != null && response.Success)
+                {
+                    return response.TokenCount;
+                }
+
+                _logger.LogWarning("Token count API failed, using estimation");
+                return EstimateTokenCount(text);
             }
             catch (Exception ex)
             {
@@ -108,117 +146,24 @@ namespace ChatBox.API.Services.Implement
             }
         }
 
-        public async Task<TokenBreakdown> EstimateFullTokenUsageAsync(EstimateTokenRequest request)
-        {
-            try
-            {
-                _logger.LogDebug("Estimating token usage for input length: {InputLength}", request.Input?.Length ?? 0);
-
-                var response = await PostAsync<TokenBreakdown>("/api/ai/tokens/estimate", request);
-
-                if (response != null)
-                {
-                    return response;
-                }
-
-                // Fallback estimation using AutoMapper
-                var fallbackResponse = _mapper.Map<TokenBreakdown>(new object());
-                fallbackResponse.InputTokens = EstimateTokenCount(request.Input ?? string.Empty);
-                fallbackResponse.OutputTokens = EstimateTokenCount(string.Join(" ", request.ConversationHistory ?? new List<string>()));
-                fallbackResponse.TotalTokens = fallbackResponse.InputTokens + fallbackResponse.OutputTokens;
-                fallbackResponse.EstimatedCost = 0.0m;
-
-                return fallbackResponse;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error estimating token usage");
-                return new TokenBreakdown
-                {
-                    InputTokens = EstimateTokenCount(request.Input),
-                    OutputTokens = 0,
-                    TotalTokens = EstimateTokenCount(request.Input),
-                    EstimatedCost = 0.0m
-                };
-            }
-        }
 
         public async Task<string> TruncateToTokenLimitAsync(string text, int maxTokens)
         {
             try
             {
-                var request = new { Text = text, MaxTokens = maxTokens };
-                var response = await PostAsync<TruncateResponse>("/api/ai/tokens/truncate", request);
+                // AI service doesn't have truncate endpoint, so we implement client-side
+                var currentTokens = await CountTokensAsync(text);
+                if (currentTokens <= maxTokens)
+                {
+                    return text;
+                }
 
-                return response?.TruncatedText ?? TruncateByEstimation(text, maxTokens);
+                return TruncateByEstimation(text, maxTokens);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error truncating text, using estimation");
                 return TruncateByEstimation(text, maxTokens);
-            }
-        }
-
-        public async Task<MessageAnalysisResult> AnalyzeContentAsync(ContentAnalysisRequest request)
-        {
-            try
-            {
-                _logger.LogDebug("Analyzing content of length: {ContentLength}", request.Content?.Length ?? 0);
-
-                var response = await PostAsync<MessageAnalysisResult>("/api/ai/analyze", request);
-
-                if (response != null)
-                {
-                    return response;
-                }
-
-                // Fallback analysis
-                return CreateFallbackAnalysis(request.Content);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error analyzing content");
-                return CreateFallbackAnalysis(request.Content);
-            }
-        }
-
-        public async Task<string> DetectLanguageAsync(string content)
-        {
-            try
-            {
-                var request = new { Content = content };
-                var response = await PostAsync<LanguageDetectionResponse>("/api/ai/language/detect", request);
-
-                return response?.Language ?? "en";
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error detecting language, defaulting to English");
-                return "en";
-            }
-        }
-
-        public async Task<ConversationSummaryResult> GenerateConversationSummaryAsync(ConversationSummaryRequest request)
-        {
-            try
-            {
-                _logger.LogInformation("Generating conversation summary for {MessageCount} messages",
-                    request.ConversationHistory?.Count ?? 0);
-
-                var response = await PostAsync<ConversationSummaryResult>("/api/ai/summarize/conversation", request);
-
-                if (response != null)
-                {
-                    return response;
-                }
-
-                // Fallback summary
-                return CreateFallbackSummary(request);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating conversation summary");
-                return CreateFallbackSummary(request);
             }
         }
 
@@ -229,14 +174,32 @@ namespace ChatBox.API.Services.Implement
                 _logger.LogDebug("Detecting intent for text: {TextPreview}",
                     request.Text?.Length > 50 ? request.Text.Substring(0, 50) + "..." : request.Text);
 
-                var response = await PostAsync<IntentDetectionResult>("/api/ai/intent/detect", request);
-
-                if (response != null)
+                var aiRequest = new
                 {
-                    return response;
+                    text = request.Text
+                };
+
+                var response = await PostAsync<IntentServiceResponse>("/api/ai/intent/detect", aiRequest);
+
+                if (response != null && response.Success)
+                {
+                    return new IntentDetectionResult
+                    {
+                        PredictedIntent = response.DetectedIntent ?? "general",
+                        Confidence = response.Confidence,
+                        AllIntentScores = response.AlternativeIntents?.Select(a => new IntentScore
+                        {
+                            Intent = a.Intent,
+                            Score = a.Confidence
+                        }).ToList() ?? new List<IntentScore>(),
+                        ExtractedParameters = new Dictionary<string, object>(),
+                        RequiresClarification = response.Confidence < 0.7,
+                        ClarificationQuestions = response.Confidence < 0.7
+                            ? new List<string> { "Bạn có thể cung cấp thêm thông tin chi tiết về yêu cầu của mình không?" }
+                            : new List<string>()
+                    };
                 }
 
-                // Fallback intent detection
                 return CreateFallbackIntentDetection(request.Text, request.PossibleIntents);
             }
             catch (Exception ex)
@@ -250,9 +213,37 @@ namespace ChatBox.API.Services.Implement
         {
             try
             {
-                var response = await PostAsync<TitleSuggestionResponse>("/api/ai/title/suggest", request);
+                var aiRequest = new
+                {
+                    content = request.Content,
+                    maxLength = request.MaxLength
+                };
 
-                return response?.Title ?? GenerateFallbackTitle(request.Content);
+                var response = await PostAsync<object>("/api/ai/title/suggest", aiRequest);
+
+                if (response != null)
+                {
+                    // Parse the response - AI service returns different format
+                    var responseStr = response.ToString();
+                    if (!string.IsNullOrEmpty(responseStr) && responseStr != "{}")
+                    {
+                        try
+                        {
+                            var titleObj = JsonSerializer.Deserialize<Dictionary<string, object>>(responseStr, _jsonOptions);
+                            if (titleObj != null && titleObj.ContainsKey("title"))
+                            {
+                                return titleObj["title"]?.ToString() ?? GenerateFallbackTitle(request.Content);
+                            }
+                        }
+                        catch
+                        {
+                            // If JSON parsing fails, treat as plain string
+                            return responseStr.Length > 50 ? responseStr.Substring(0, 50) : responseStr;
+                        }
+                    }
+                }
+
+                return GenerateFallbackTitle(request.Content);
             }
             catch (Exception ex)
             {
@@ -261,136 +252,199 @@ namespace ChatBox.API.Services.Implement
             }
         }
 
-        public async Task<string> TranslateTextAsync(TranslationRequest request)
+        private async Task<T?> PostAsync<T>(string endpoint, object request)
         {
             try
             {
-                _logger.LogDebug("Translating text to {TargetLanguage}", request.TargetLanguage);
+                var json = JsonSerializer.Serialize(request, _jsonOptions);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                var response = await PostAsync<TranslationResponse>("/api/ai/translate", request);
+                _logger.LogDebug("Calling AI service endpoint: {Endpoint} with payload: {Payload}",
+                    endpoint, json.Length > 1000 ? json.Substring(0, 1000) + "..." : json);
 
-                return response?.TranslatedText ?? request.Text; // Return original if translation fails
+                var response = await _httpClient.PostAsync(endpoint, content);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var responseJson = await response.Content.ReadAsStringAsync();
+
+                    if (string.IsNullOrEmpty(responseJson))
+                    {
+                        _logger.LogWarning("AI Service returned empty response for endpoint: {Endpoint}", endpoint);
+                        return default(T);
+                    }
+
+                    _logger.LogDebug("AI Service response: {Response}",
+                        responseJson.Length > 1000 ? responseJson.Substring(0, 1000) + "..." : responseJson);
+
+                    return JsonSerializer.Deserialize<T>(responseJson, _jsonOptions);
+                }
+
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("AI Service API call failed. Endpoint: {Endpoint}, Status: {StatusCode}, Content: {Content}",
+                    endpoint, response.StatusCode, errorContent);
+
+                return default(T);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error translating text");
-                return request.Text; // Return original text on error
+                _logger.LogError(ex, "Error calling AI service endpoint: {Endpoint}", endpoint);
+                return default(T);
             }
         }
-
-        public async Task<string> SummarizeTextAsync(string text, int maxLength = 200)
+        private async IAsyncEnumerable<StreamingChunk> StreamResponseInternalAsync(StreamingRequest request,
+          [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/api/ai/stream");
+
+            // Map to AI service stream request format
+            var aiRequest = new
+            {
+                prompt = request.Query,
+                userId = "chatbox-service",
+                context = ConvertContextToAiFormat(request.Context),
+                conversationHistory = request.ConversationHistory ?? new List<string>(),
+                maxTokens = request.MaxTokens,
+                temperature = request.Temperature,
+                modelId = request.Model
+            };
+
+            var json = JsonSerializer.Serialize(aiRequest, _jsonOptions);
+            httpRequest.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            HttpResponseMessage? response = null;
+            Stream? stream = null;
+            StreamReader? reader = null;
+            bool hasError = false;
+            string? errorMessage = null;
+            var chunks = new List<StreamingChunk>();
+
+            // Execute HTTP request and collect all chunks first
             try
             {
-                var request = new { Text = text, MaxLength = maxLength };
-                var response = await PostAsync<SummarizationResponse>("/api/ai/summarize", request);
+                response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
-                return response?.Summary ?? CreateFallbackTextSummary(text, maxLength);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogError("AI service streaming failed: {StatusCode} - {Content}", response.StatusCode, errorContent);
+
+                    hasError = true;
+                    errorMessage = $"AI service returned {response.StatusCode}";
+                }
+                else
+                {
+                    stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                    reader = new StreamReader(stream);
+
+                    var chunkIndex = 0;
+                    string? line;
+
+                    while ((line = await reader.ReadLineAsync()) != null && !cancellationToken.IsCancellationRequested)
+                    {
+                        if (line.StartsWith("data: "))
+                        {
+                            var data = line.Substring(6); // Remove "data: " prefix
+
+                            if (string.IsNullOrWhiteSpace(data) || data == "[DONE]")
+                                continue;
+
+                            try
+                            {
+                                var streamChunk = JsonSerializer.Deserialize<AIStreamChunk>(data, _jsonOptions);
+
+                                if (streamChunk != null)
+                                {
+                                    chunks.Add(new StreamingChunk
+                                    {
+                                        StreamId = request.StreamId,
+                                        Content = streamChunk.Content,
+                                        ChunkIndex = chunkIndex++,
+                                        IsComplete = streamChunk.IsComplete,
+                                        ChunkType = streamChunk.IsComplete ? "completion" : "text",
+                                        Metadata = new Dictionary<string, object>
+                                        {
+                                            { "TokenCount", streamChunk.TokenCount },
+                                            { "HasContext", streamChunk.HasContext },
+                                            { "DocumentsCount", streamChunk.DocumentsCount }
+                                        },
+                                        Timestamp = DateTime.UtcNow
+                                    });
+
+                                    if (streamChunk.IsComplete)
+                                        break;
+                                }
+                            }
+                            catch (JsonException ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to parse streaming chunk: {Data}", data);
+                                // Continue processing other chunks
+                            }
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Streaming cancelled for StreamId: {StreamId}", request.StreamId);
+                chunks.Clear();
+                chunks.Add(new StreamingChunk
+                {
+                    StreamId = request.StreamId,
+                    Content = "",
+                    ChunkIndex = 0,
+                    IsComplete = true,
+                    ChunkType = "cancelled",
+                    Timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error summarizing text");
-                return CreateFallbackTextSummary(text, maxLength);
+                _logger.LogError(ex, "Error during streaming");
+                hasError = true;
+                errorMessage = ex.Message;
             }
-        }
-
-        public async Task<List<AvailableModel>> GetAvailableModelsAsync()
-        {
-            try
+            finally
             {
-                var response = await GetAsync<List<AvailableModel>>("/api/ai/models");
-
-                return response ?? CreateFallbackModelList();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting available models");
-                return CreateFallbackModelList();
-            }
-        }
-
-        // Private helper methods
-        private void ConfigureHttpClient()
-        {
-            _httpClient.BaseAddress = new Uri(_aiServiceBaseUrl);
-            _httpClient.Timeout = TimeSpan.FromMinutes(5);
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "ChatBox-Service/1.0");
-
-            // Add API key if configured
-            var apiKey = _configuration["Services:AIService:ApiKey"];
-            if (!string.IsNullOrEmpty(apiKey))
-            {
-                _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
-            }
-        }
-
-        private async Task<T> PostAsync<T>(string endpoint, object request)
-        {
-            var json = JsonSerializer.Serialize(request, _jsonOptions);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await _httpClient.PostAsync(endpoint, content);
-
-            if (response.IsSuccessStatusCode)
-            {
-                var responseJson = await response.Content.ReadAsStringAsync();
-                return JsonSerializer.Deserialize<T>(responseJson, _jsonOptions);
+                // Clean up resources
+                reader?.Dispose();
+                stream?.Dispose();
+                response?.Dispose();
             }
 
-            var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("AI Service API call failed. Status: {StatusCode}, Content: {Content}",
-                response.StatusCode, errorContent);
-
-            return default(T);
-        }
-
-        private async Task<T> GetAsync<T>(string endpoint)
-        {
-            var response = await _httpClient.GetAsync(endpoint);
-
-            if (response.IsSuccessStatusCode)
-            {
-                var responseJson = await response.Content.ReadAsStringAsync();
-                return JsonSerializer.Deserialize<T>(responseJson, _jsonOptions);
-            }
-
-            var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("AI Service API call failed. Status: {StatusCode}, Content: {Content}",
-                response.StatusCode, errorContent);
-
-            return default(T);
-        }
-
-        private async IAsyncEnumerable<StreamingChunk> StreamResponseInternalAsync(StreamingRequest request)
-        {
-            var chunkIndex = 0;
-            var chunks = await SimulateStreamingChunks(request);
-
-            foreach (var chunk in chunks)
+            // Now yield return all collected chunks (outside try-catch)
+            if (hasError)
             {
                 yield return new StreamingChunk
                 {
                     StreamId = request.StreamId,
-                    Content = chunk,
-                    ChunkIndex = chunkIndex++,
-                    IsComplete = false,
-                    ChunkType = "text",
+                    Content = $"Lỗi streaming: {errorMessage}",
+                    ChunkIndex = 0,
+                    IsComplete = true,
+                    ChunkType = "error",
                     Timestamp = DateTime.UtcNow
                 };
-
-                await Task.Delay(100); // Simulate streaming delay
             }
-
-            // Final chunk to indicate completion
-            yield return new StreamingChunk
+            else
             {
-                StreamId = request.StreamId,
-                Content = "",
-                ChunkIndex = chunkIndex,
-                IsComplete = true,
-                ChunkType = "completion",
-                Timestamp = DateTime.UtcNow
-            };
+                foreach (var chunk in chunks)
+                {
+                    yield return chunk;
+                }
+
+                // Ensure we have a completion chunk if not already present
+                if (chunks.Count == 0 || !chunks.Last().IsComplete)
+                {
+                    yield return new StreamingChunk
+                    {
+                        StreamId = request.StreamId,
+                        Content = "",
+                        ChunkIndex = chunks.Count,
+                        IsComplete = true,
+                        ChunkType = "completion",
+                        Timestamp = DateTime.UtcNow
+                    };
+                }
+            }
         }
 
         private async IAsyncEnumerable<StreamingChunk> CreateErrorStream(string streamId, string error)
@@ -398,7 +452,7 @@ namespace ChatBox.API.Services.Implement
             yield return new StreamingChunk
             {
                 StreamId = streamId,
-                Content = "I apologize, but I encountered an error while processing your request.",
+                Content = "Xin lỗi, đã xảy ra lỗi khi xử lý yêu cầu của bạn.",
                 ChunkIndex = 0,
                 IsComplete = true,
                 ChunkType = "error",
@@ -406,51 +460,60 @@ namespace ChatBox.API.Services.Implement
                 Timestamp = DateTime.UtcNow
             };
         }
-
-        private async Task<List<string>> SimulateStreamingChunks(StreamingRequest request)
+        private List<object>? ConvertContextToAiFormat(string? context)
         {
-            // In a real implementation, this would call the actual AI service streaming endpoint
-            // For now, simulate by breaking down a generated response
+            if (string.IsNullOrEmpty(context))
+                return null;
 
             try
             {
-                var generationRequest = new AdvancedAiGenerationRequest
+                // Try to parse as JSON array first
+                var contextArray = JsonSerializer.Deserialize<List<DocumentContext>>(context, _jsonOptions);
+                if (contextArray != null)
                 {
-                    Query = request.Query,
-                    Context = request.Context,
-                    ConversationHistory = request.ConversationHistory,
-                    UserPreferences = request.UserPreferences,
-                    MaxTokens = request.MaxTokens,
-                    Temperature = request.Temperature,
-                    Model = request.Model
-                };
-
-                var result = await GenerateResponseAsync(generationRequest);
-
-                if (result.Success)
-                {
-                    return SplitIntoChunks(result.Response, 50);
-                }
-                else
-                {
-                    return new List<string> { "I apologize, but I couldn't generate a response." };
+                    return contextArray.Select(doc => new
+                    {
+                        title = doc.Title,
+                        content = doc.Content,
+                        relevanceScore = doc.RelevanceScore,
+                        summary = doc.Summary
+                    }).Cast<object>().ToList();
                 }
             }
             catch
             {
-                return new List<string> { "An error occurred while generating the response." };
+                // If not JSON, treat as single text context
+                return new List<object>
+                {
+                    new
+                    {
+                        title = "Context",
+                        content = context,
+                        relevanceScore = 1.0
+                    }
+                };
             }
+
+            return null;
         }
 
-        private List<string> SplitIntoChunks(string text, int chunkSize)
+        private AiGenerationResult CreateFallbackGenerationResult(string query, string? error = null)
         {
-            var chunks = new List<string>();
-            for (int i = 0; i < text.Length; i += chunkSize)
+            return new AiGenerationResult
             {
-                var length = Math.Min(chunkSize, text.Length - i);
-                chunks.Add(text.Substring(i, length));
-            }
-            return chunks;
+                Success = false,
+                Response = "Xin lỗi, tôi không thể tạo phản hồi lúc này. Vui lòng thử lại sau.",
+                TokensUsed = 0,
+                Model = "fallback",
+                ConfidenceScore = 0.0,
+                ProcessingTime = TimeSpan.Zero,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "Error", error ?? "AI service unavailable" },
+                    { "QueryLength", query?.Length ?? 0 },
+                    { "FallbackUsed", true }
+                }
+            };
         }
 
         private int EstimateTokenCount(string text)
@@ -458,8 +521,8 @@ namespace ChatBox.API.Services.Implement
             if (string.IsNullOrEmpty(text))
                 return 0;
 
-            // Rough estimation: 1 token ≈ 4 characters
-            return (int)Math.Ceiling(text.Length / 4.0);
+            // Estimate for Vietnamese/English mix: ~3.5 characters per token
+            return (int)Math.Ceiling(text.Length / 3.5);
         }
 
         private string TruncateByEstimation(string text, int maxTokens)
@@ -467,113 +530,32 @@ namespace ChatBox.API.Services.Implement
             if (string.IsNullOrEmpty(text))
                 return text;
 
-            var estimatedMaxChars = maxTokens * 4;
+            var estimatedMaxChars = maxTokens * 3; // Conservative estimate
             if (text.Length <= estimatedMaxChars)
                 return text;
 
-            return text.Substring(0, estimatedMaxChars - 3) + "...";
-        }
+            // Find a good breaking point (sentence or word boundary)
+            var truncateAt = estimatedMaxChars - 3;
+            var breakPoint = text.LastIndexOfAny(new[] { '.', '!', '?', '\n' }, truncateAt);
 
-        private MessageAnalysisResult CreateFallbackAnalysis(string content)
-        {
-            var intent = DetectBasicIntent(content);
-            var sentiment = DetectBasicSentiment(content);
-
-            return new MessageAnalysisResult
+            if (breakPoint > truncateAt / 2) // If we found a good break point
             {
-                Intent = intent,
-                IntentConfidence = 0.5,
-                Sentiment = sentiment,
-                SentimentScore = 0.5,
-                DetectedEntities = new List<string>(),
-                DetectedTopics = ExtractBasicTopics(content),
-                Language = "en",
-                LanguageConfidence = 0.8,
-                AdditionalMetadata = new Dictionary<string, object>
-                {
-                    { "FallbackAnalysis", true }
-                }
-            };
-        }
-
-        private string DetectBasicIntent(string content)
-        {
-            var lowerContent = content.ToLower();
-
-            if (lowerContent.Contains("?"))
-                return "question";
-            else if (lowerContent.Contains("help") || lowerContent.Contains("assist"))
-                return "help_request";
-            else if (lowerContent.Contains("thank") || lowerContent.Contains("thanks"))
-                return "gratitude";
-            else if (lowerContent.Contains("sorry") || lowerContent.Contains("apologize"))
-                return "apology";
-            else
-                return "general";
-        }
-
-        private string DetectBasicSentiment(string content)
-        {
-            var lowerContent = content.ToLower();
-            var positiveWords = new[] { "good", "great", "excellent", "amazing", "wonderful", "fantastic" };
-            var negativeWords = new[] { "bad", "terrible", "awful", "horrible", "disappointing", "frustrating" };
-
-            var positiveCount = positiveWords.Count(word => lowerContent.Contains(word));
-            var negativeCount = negativeWords.Count(word => lowerContent.Contains(word));
-
-            if (positiveCount > negativeCount)
-                return "positive";
-            else if (negativeCount > positiveCount)
-                return "negative";
-            else
-                return "neutral";
-        }
-
-        private List<string> ExtractBasicTopics(string content)
-        {
-            var topics = new List<string>();
-            var lowerContent = content.ToLower();
-
-            var topicKeywords = new Dictionary<string, string[]>
-            {
-                { "HR", new[] { "hr", "human resources", "employee", "policy", "benefits" } },
-                { "IT", new[] { "it", "computer", "software", "technical", "system" } },
-                { "Finance", new[] { "finance", "budget", "money", "cost", "payment" } },
-                { "Legal", new[] { "legal", "contract", "compliance", "regulation" } }
-            };
-
-            foreach (var topic in topicKeywords)
-            {
-                if (topic.Value.Any(keyword => lowerContent.Contains(keyword)))
-                {
-                    topics.Add(topic.Key);
-                }
+                return text.Substring(0, breakPoint + 1).Trim();
             }
 
-            return topics;
-        }
-
-        private ConversationSummaryResult CreateFallbackSummary(ConversationSummaryRequest request)
-        {
-            var messageCount = request.ConversationHistory?.Count ?? 0;
-            var totalLength = request.ConversationHistory?.Sum(m => m.Length) ?? 0;
-
-            return new ConversationSummaryResult
+            // Otherwise, break at word boundary
+            breakPoint = text.LastIndexOf(' ', truncateAt);
+            if (breakPoint > truncateAt / 2)
             {
-                Summary = $"This conversation contained {messageCount} messages discussing various topics.",
-                KeyPoints = new List<string> { "General discussion", "Information exchange" },
-                ActionItems = new List<string>(),
-                Topics = new List<string> { "General" },
-                OriginalLength = totalLength,
-                SummaryLength = 50,
-                CompressionRatio = totalLength > 0 ? 50.0 / totalLength : 0,
-                SummaryType = request.SummaryType
-            };
+                return text.Substring(0, breakPoint).Trim() + "...";
+            }
+
+            return text.Substring(0, truncateAt) + "...";
         }
 
-        private IntentDetectionResult CreateFallbackIntentDetection(string text, List<string> possibleIntents)
+        private IntentDetectionResult CreateFallbackIntentDetection(string? text, List<string>? possibleIntents)
         {
-            var intent = possibleIntents?.FirstOrDefault() ?? DetectBasicIntent(text);
+            var intent = possibleIntents?.FirstOrDefault() ?? DetectBasicIntent(text ?? "");
 
             return new IntentDetectionResult
             {
@@ -586,10 +568,34 @@ namespace ChatBox.API.Services.Implement
             };
         }
 
+        private string DetectBasicIntent(string content)
+        {
+            var lowerContent = content.ToLower();
+
+            // Vietnamese patterns
+            if (lowerContent.Contains("?") || lowerContent.Contains("gì") || lowerContent.Contains("sao") ||
+                lowerContent.Contains("như thế nào") || lowerContent.Contains("tại sao"))
+                return "question";
+            else if (lowerContent.Contains("help") || lowerContent.Contains("giúp") ||
+                     lowerContent.Contains("hướng dẫn") || lowerContent.Contains("trợ giúp"))
+                return "help_request";
+            else if (lowerContent.Contains("thank") || lowerContent.Contains("cảm ơn") ||
+                     lowerContent.Contains("thanks") || lowerContent.Contains("cám ơn"))
+                return "gratitude";
+            else if (lowerContent.Contains("tìm") || lowerContent.Contains("search") ||
+                     lowerContent.Contains("tìm kiếm") || lowerContent.Contains("tài liệu"))
+                return "document_search";
+            else if (lowerContent.Contains("xin chào") || lowerContent.Contains("hello") ||
+                     lowerContent.Contains("hi") || lowerContent.Contains("chào"))
+                return "greeting";
+            else
+                return "general";
+        }
+
         private string GenerateFallbackTitle(string content)
         {
             if (string.IsNullOrEmpty(content))
-                return "New Conversation";
+                return "Cuộc trò chuyện mới";
 
             var words = content.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             var title = string.Join(" ", words.Take(5));
@@ -600,68 +606,71 @@ namespace ChatBox.API.Services.Implement
             return title;
         }
 
-        private string CreateFallbackTextSummary(string text, int maxLength)
+        public void Dispose()
         {
-            if (string.IsNullOrEmpty(text))
-                return "";
-
-            if (text.Length <= maxLength)
-                return text;
-
-            return text.Substring(0, maxLength - 3) + "...";
-        }
-
-        private List<AvailableModel> CreateFallbackModelList()
-        {
-            return new List<AvailableModel>
-            {
-                new AvailableModel
-                {
-                    Id = "default",
-                    Name = "Default Model",
-                    Description = "Default AI model for text generation",
-                    Type = "generation",
-                    MaxTokens = 4000,
-                    SupportsStreaming = true,
-                    Status = "available"
-                }
-            };
+            _httpClient?.Dispose();
         }
     }
 
-    // Response DTOs for internal API calls
-    public class TokenCountResponse
+    public class AIServiceResponse
     {
+        public bool Success { get; set; }
+        public string RequestId { get; set; }
+        public string Content { get; set; }
+        public int TokensUsed { get; set; }
+        public int ResponseTimeMs { get; set; }
+        public string? ModelUsed { get; set; }
+        public string? Message { get; set; }
+        public int DocumentsUsed { get; set; }
+        public int ConversationHistoryLength { get; set; }
+        public string? DetectedIntent { get; set; }
+        public double IntentConfidence { get; set; }
+        public int ContextTokens { get; set; }
+    }
+
+    public class AIStreamChunk
+    {
+        public string Content { get; set; }
+        public bool IsComplete { get; set; }
+        public int? TokenCount { get; set; }
+        public string RequestId { get; set; }
+        public string? Error { get; set; }
+        public bool HasContext { get; set; }
+        public int DocumentsCount { get; set; }
+    }
+
+    public class TokenCountServiceResponse
+    {
+        public bool Success { get; set; }
         public int TokenCount { get; set; }
+        public string? Message { get; set; }
     }
 
-    public class TruncateResponse
+    public class IntentServiceResponse
     {
-        public string TruncatedText { get; set; }
-    }
-
-    public class LanguageDetectionResponse
-    {
-        public string Language { get; set; }
+        public bool Success { get; set; }
+        public string? DetectedIntent { get; set; }
         public double Confidence { get; set; }
+        public List<AlternativeIntent>? AlternativeIntents { get; set; }
+        public string? Message { get; set; }
     }
 
-    public class TitleSuggestionResponse
+    public class AlternativeIntent
     {
+        public string Intent { get; set; } = string.Empty;
+        public double Confidence { get; set; }
+        public string? Description { get; set; }
+    }
+    public class DocumentContext
+    {
+        public string DocumentId { get; set; }
         public string Title { get; set; }
-    }
-
-    public class TranslationResponse
-    {
-        public string TranslatedText { get; set; }
-        public string DetectedSourceLanguage { get; set; }
-        public double Confidence { get; set; }
-    }
-
-    public class SummarizationResponse
-    {
-        public string Summary { get; set; }
-        public int OriginalLength { get; set; }
-        public int SummaryLength { get; set; }
+        public string Content { get; set; }
+        public string? Summary { get; set; }
+        public double RelevanceScore { get; set; }
+        public string? DocumentType { get; set; }
+        public string? DepartmentId { get; set; }
+        public DateTime? CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 }

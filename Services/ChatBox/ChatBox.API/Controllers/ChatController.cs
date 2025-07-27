@@ -2,8 +2,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ChatBox.API.Services.Interfaces;
 using ChatBox.API.Payload.Request.ChatService;
+using ChatBox.API.Payload.Request.AIClientService;
 using ChatBox.API.Payload.Response.ChatServiceResponse;
 using ChatBox.API.Payload.Response;
+using ChatBox.API.Payload.Response.AIServiceResponse;
 using ChatBox.Infrastructure.Paginate;
 using System.Security.Claims;
 
@@ -15,11 +17,16 @@ namespace ChatBox.API.Controllers
     public class ChatController : ControllerBase
     {
         private readonly IChatService _chatService;
+        private readonly ITokenValidationService _tokenValidationService;
         private readonly ILogger<ChatController> _logger;
 
-        public ChatController(IChatService chatService, ILogger<ChatController> logger)
+        public ChatController(
+            IChatService chatService, 
+            ITokenValidationService tokenValidationService,
+            ILogger<ChatController> logger)
         {
             _chatService = chatService;
+            _tokenValidationService = tokenValidationService;
             _logger = logger;
         }
 
@@ -126,107 +133,7 @@ namespace ChatBox.API.Controllers
             }
         }
 
-        [HttpPost("feedback")]
-        public async Task<ActionResult<bool>> AddFeedback([FromBody] FeedbackRequest request)
-        {
-            try
-            {
-                var userId = GetUserId();
-                var result = await _chatService.AddFeedbackAsync(userId, request);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error adding feedback");
-                return StatusCode(500, new { message = "Internal server error" });
-            }
-        }
-
         // Session Management
-        [HttpPost("sessions")]
-        public async Task<ActionResult<AdvancedSessionResponse>> CreateSession([FromBody] CreateSessionRequest request)
-        {
-            try
-            {
-                var userId = GetUserId();
-                var ipAddress = GetIpAddress();
-                var userAgent = GetUserAgent();
-
-                var response = await _chatService.CreateSessionAsync(userId, request, ipAddress, userAgent);
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error creating session");
-                return StatusCode(500, new { message = "Internal server error" });
-            }
-        }
-
-        [HttpGet("sessions/{sessionId}")]
-        public async Task<ActionResult<AdvancedSessionResponse>> GetSession(Guid sessionId)
-        {
-            try
-            {
-                var userId = GetUserId();
-                var response = await _chatService.GetSessionAsync(userId, sessionId);
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting session {SessionId}", sessionId);
-                return StatusCode(500, new { message = "Internal server error" });
-            }
-        }
-
-        [HttpGet("sessions")]
-        public async Task<ActionResult<IPaginate<SessionSummaryResponse>>> GetSessions([FromQuery] GetSessionsRequest request)
-        {
-            try
-            {
-                var userId = GetUserId();
-                var response = await _chatService.GetSessionsAsync(userId, request);
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting sessions");
-                return StatusCode(500, new { message = "Internal server error" });
-            }
-        }
-
-        [HttpDelete("sessions/{sessionId}")]
-        public async Task<ActionResult<bool>> DeleteSession(Guid sessionId, [FromQuery] string reason = "user_request")
-        {
-            try
-            {
-                var userId = GetUserId();
-                var result = await _chatService.DeleteSessionAsync(userId, sessionId, reason);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deleting session {SessionId}", sessionId);
-                return StatusCode(500, new { message = "Internal server error" });
-            }
-        }
-
-        // Advanced Features
-        [HttpPost("sessions/{sessionId}/summary")]
-        public async Task<ActionResult<ConversationSummaryResponse>> GenerateSummary(Guid sessionId)
-        {
-            try
-            {
-                var userId = GetUserId();
-                var response = await _chatService.GenerateSummaryAsync(userId, sessionId);
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating summary for session {SessionId}", sessionId);
-                return StatusCode(500, new { message = "Internal server error" });
-            }
-        }
-
-
+    
     }
 }

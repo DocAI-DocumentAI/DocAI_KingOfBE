@@ -1,4 +1,4 @@
-
+﻿
 using NSwag;
 using NSwag.Generation.Processors.Security;
 using Serilog;
@@ -74,10 +74,19 @@ try
     builder.Services.AddOpenApi();
 
     builder.Services.AddHostedService<MetricsCleanupService>();
- 
 
-    // CORS policy configured in DependencyService.AddCorsPolicy()
 
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("AllowFrontend",
+            policy =>
+            {
+                policy.WithOrigins("https://localhost:5003")
+                      .AllowAnyHeader()
+                      .AllowAnyMethod()
+                      .AllowCredentials(); // Nếu frontend có gửi cookie/token qua header
+            });
+    });
 
     var app = builder.Build();
     if (app.Environment.IsDevelopment())
@@ -94,7 +103,7 @@ try
 
 
     app.UseHttpsRedirection();
-    app.UseCors();
+    app.UseCors("AllowFrontend");
 
     // Add rate limiting middleware
     app.UseMiddleware<AI.API.Middlewares.SimpleRateLimitMiddleware>();

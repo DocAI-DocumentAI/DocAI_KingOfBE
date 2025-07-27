@@ -14,3 +14,4 @@ namespace ChatBox.API.Services.Interfaces
         Task CleanupOldLogsAsync(int retentionDays = 90);
     }
 }
+    

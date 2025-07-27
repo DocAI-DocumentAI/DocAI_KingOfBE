@@ -4,15 +4,15 @@ namespace ChatBox.API.Payload.Request.ConversationOrchestrationService
 {
     public class RAGRequest
     {
-        [Required]
         public string Query { get; set; }
-
-        [Required]
         public Guid UserId { get; set; }
-
-        public List<string> ConversationHistory { get; set; } = new();
-        public Dictionary<string, object> UserPreferences { get; set; } = new();
-        public int MaxDocuments { get; set; } = 5;
-        public int MaxTokens { get; set; } = 4000;
+        public List<string> ConversationHistory { get; set; }
+        public Dictionary<string, object> UserPreferences { get; set; }
+        public string AIModelId { get; set; }
+        public double Temperature { get; set; }
+        public int MaxTokens { get; set; }
+        public int MaxDocuments { get; set; }
+        public double MinRelevance { get; set; }
+        public string DetectedIntent { get; set; }
     }
 }

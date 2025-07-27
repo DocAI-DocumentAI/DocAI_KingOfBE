@@ -22,7 +22,6 @@ namespace ChatBox.Domain.Models
         public string Source { get; set; } // web, api, system
         public string Category { get; set; } // user_action, system_event, security_event
         public string Severity { get; set; } // low, medium, high, critical
-        public Dictionary<string, object> Metadata { get; set; } = new();
         public bool IsDeleted { get; set; }
         public DateTime? RetentionDate { get; set; }
     }

@@ -4,13 +4,20 @@ namespace ChatBox.API.Payload.Request.AIClientService
 {
     public class EstimateTokenRequest
     {
+        /// <summary>
+        /// The user's message/query
+        /// </summary>
         [Required]
-        public string Input { get; set; }
+        public string Message { get; set; }
 
+        /// <summary>
+        /// The system prompt/instructions
+        /// </summary>
         public string SystemPrompt { get; set; }
-        public List<string> ConversationHistory { get; set; } = new();
-        public string Model { get; set; } = "default";
-        public int MaxResponseTokens { get; set; } = 1000;
-        public bool IncludeSpecialTokens { get; set; } = true;
+
+        /// <summary>
+        /// Previous conversation history for context
+        /// </summary>
+        public List<string> ConversationHistory { get; set; } = new List<string>();
     }
 }
