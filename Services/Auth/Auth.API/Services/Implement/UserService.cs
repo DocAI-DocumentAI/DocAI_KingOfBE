@@ -208,42 +208,42 @@ public class UserService : BaseService<UserService>, IUserService
             throw new ArgumentNullException(nameof(request), "Register request cannot be null");
 
         await ValidateUniqueFieldsAsync(request);
-        // await ValidateOtpAsync(request.Email, request.Otp);
 
         var user = CreateUserEntity(request);
         var userSetting = CreateUserSettingEntity(user);
-        // var activeKey = await GetActiveKeyFromActivationCodeAsync(request.ActivationCode);
 
-        // activeKey.UsedByUserId = user.Id;
-        // activeKey.Status = "Off";
-        // activeKey.UpdatedAt = DateTime.UtcNow;
-
-        using (var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled))
+        try
         {
-            try
-            {
-                await _unitOfWork.GetRepository<User>().InsertAsync(user);
-                await _unitOfWork.GetRepository<UserSetting>().InsertAsync(userSetting);
+            await _unitOfWork.GetRepository<User>().InsertAsync(user);
+            await _unitOfWork.GetRepository<UserSetting>().InsertAsync(userSetting);
 
-                var isSuccessful = await _unitOfWork.CommitAsync() > 0;
-                if (!isSuccessful)
-                    throw new InvalidOperationException("Failed to save user, role, department and permissions.");
+            var isSuccessful = await _unitOfWork.CommitAsync() > 0;
+            if (!isSuccessful)
+                throw new InvalidOperationException("Failed to save user and user settings.");
 
-                transaction.Complete();
-
-                return await CreateRegisterResponse(user, userSetting);
-            }
-            catch (DbUpdateException ex)
+            return await CreateRegisterResponse(user, userSetting);
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database error during user registration: {Message}. Inner: {InnerMessage}",
+                ex.Message, ex.InnerException?.Message);
+            throw new BadHttpRequestException("Failed to register due to database error");
+        }
+        catch (TransactionInDoubtException ex)
+        {
+            _logger.LogError(ex, "Transaction in doubt during user registration: {Message}", ex.Message);
+            throw new BadHttpRequestException("Registration failed due to connection issues. Please try again.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during user registration: {ExceptionType} - {Message}. StackTrace: {StackTrace}",
+                ex.GetType().Name, ex.Message, ex.StackTrace);
+            if (ex.InnerException != null)
             {
-                _logger.LogError(ex, "Database error during user registration: {Message}. Inner: {InnerMessage}",
-                    ex.Message, ex.InnerException?.Message);
-                throw new BadHttpRequestException("Failed to register due to database error");
+                _logger.LogError("Inner exception: {InnerExceptionType} - {InnerMessage}",
+                    ex.InnerException.GetType().Name, ex.InnerException.Message);
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Unexpected error during user registration: {Message}", ex.Message);
-                throw new BadHttpRequestException("An unexpected error occurred during registration");
-            }
+            throw new BadHttpRequestException($"Registration failed: {ex.Message}");
         }
     }
 
@@ -282,7 +282,7 @@ public class UserService : BaseService<UserService>, IUserService
 
     private UserSetting CreateUserSettingEntity(User user)
     {
-        UserSetting userSetting = null;
+        var userSetting = new UserSetting();
         userSetting.Id = Guid.NewGuid();
         userSetting.TwoFactorEnabled = false;
         userSetting.TwoFactorMethod = "Email";
@@ -324,30 +324,41 @@ public class UserService : BaseService<UserService>, IUserService
 
     private async Task<RegisterResponse> CreateRegisterResponse(User user, UserSetting userSetting)
     {
-        var response = _mapper.Map<RegisterResponse>(user);
+        // Load user with related data if not already loaded
+        var userWithDetails = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Id == user.Id,
+            include: u => u.Include(x => x.Role)
+                         .Include(x => x.Department)
+        );
+
+        var response = _mapper.Map<RegisterResponse>(userWithDetails ?? user);
+        response.UserId = userWithDetails?.Id ?? Guid.Empty;
         response.Department = new DepartmentResponse
         {
-            Name = user.Department.Name,
-            Description = user.Department.Description,
-            CreateAt = user.Department.CreateAt,
-            UpdateAt = user.Department.UpdateAt
+            Id = userWithDetails?.Department?.Id ?? Guid.Empty,
+            Name = userWithDetails?.Department?.Name ?? "Unknown",
+            Description = userWithDetails?.Department?.Description ?? "",
+            CreateAt = userWithDetails?.Department?.CreateAt ?? DateTime.UtcNow,
+            UpdateAt = userWithDetails?.Department?.UpdateAt ?? DateTime.UtcNow
         };
         response.Role = new RoleResponse
         {
-            RoleName = user.Role.RoleName,
-            Description = user.Role.Description,
-            CreateAt = user.Role.CreateAt,
-            UpdateAt = user.Role.UpdateAt
+            Id = userWithDetails?.Role?.Id ?? Guid.Empty,
+            RoleName = userWithDetails?.Role?.RoleName ?? "Unknown",
+            Description = userWithDetails?.Role?.Description ?? "",
+            CreateAt = userWithDetails?.Role?.CreateAt ?? DateTime.UtcNow,
+            UpdateAt = userWithDetails?.Role?.UpdateAt ?? DateTime.UtcNow
         };
         response.UserSetting = new UserSettingResponse()
         {
+            Id = userSetting.Id,
             TwoFactorEnabled = userSetting.TwoFactorEnabled,
             TwoFactorMethod = userSetting.TwoFactorMethod,
             NotificationsEnabled = userSetting.NotificationsEnabled,
-            UpdateAt = user.UpdateAt
+            UpdateAt = userSetting.UpdateAt
         };
-        response.DocaiToken = JwtUtil.GenerateJwtToken(user, _configuration);
-        response.DocaiRefreshToken = JwtUtil.GenerateJwtRefreshToken(user, _configuration);
+        response.DocaiToken = JwtUtil.GenerateJwtToken(userWithDetails ?? user, _configuration);
+        response.DocaiRefreshToken = JwtUtil.GenerateJwtRefreshToken(userWithDetails ?? user, _configuration);
 
         // Check if user has Google tokens in Redis
         var googleTokens = await _redisService.GetGoogleTokensAsync(user.Id.ToString());
