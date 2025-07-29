@@ -202,7 +202,7 @@ public class UserService : BaseService<UserService>, IUserService
     }
 
 
-    public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
+    public async Task<RegisterResponse> CreateUserAsync(RegisterRequest request)
     {
         if (request == null)
             throw new ArgumentNullException(nameof(request), "Register request cannot be null");
@@ -217,33 +217,19 @@ public class UserService : BaseService<UserService>, IUserService
             await _unitOfWork.GetRepository<User>().InsertAsync(user);
             await _unitOfWork.GetRepository<UserSetting>().InsertAsync(userSetting);
 
+            // Handle permissions
+            await AssignPermissionsToUserAsync(user.Id, request.PermissionIds);
+
             var isSuccessful = await _unitOfWork.CommitAsync() > 0;
             if (!isSuccessful)
                 throw new InvalidOperationException("Failed to save user and user settings.");
 
             return await CreateRegisterResponse(user, userSetting);
         }
-        catch (DbUpdateException ex)
+        catch
         {
-            _logger.LogError(ex, "Database error during user registration: {Message}. Inner: {InnerMessage}",
-                ex.Message, ex.InnerException?.Message);
-            throw new BadHttpRequestException("Failed to register due to database error");
-        }
-        catch (TransactionInDoubtException ex)
-        {
-            _logger.LogError(ex, "Transaction in doubt during user registration: {Message}", ex.Message);
-            throw new BadHttpRequestException("Registration failed due to connection issues. Please try again.");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error during user registration: {ExceptionType} - {Message}. StackTrace: {StackTrace}",
-                ex.GetType().Name, ex.Message, ex.StackTrace);
-            if (ex.InnerException != null)
-            {
-                _logger.LogError("Inner exception: {InnerExceptionType} - {InnerMessage}",
-                    ex.InnerException.GetType().Name, ex.InnerException.Message);
-            }
-            throw new BadHttpRequestException($"Registration failed: {ex.Message}");
+            // Rollback logic if needed
+            throw;
         }
     }
 
@@ -324,11 +310,12 @@ public class UserService : BaseService<UserService>, IUserService
 
     private async Task<RegisterResponse> CreateRegisterResponse(User user, UserSetting userSetting)
     {
-        // Load user with related data if not already loaded
         var userWithDetails = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
             predicate: u => u.Id == user.Id,
             include: u => u.Include(x => x.Role)
                          .Include(x => x.Department)
+                         .Include(x => x.UserPermissions)
+                         .ThenInclude(up => up.Permission)
         );
 
         var response = _mapper.Map<RegisterResponse>(userWithDetails ?? user);
@@ -341,15 +328,8 @@ public class UserService : BaseService<UserService>, IUserService
             CreateAt = userWithDetails?.Department?.CreateAt ?? DateTime.UtcNow,
             UpdateAt = userWithDetails?.Department?.UpdateAt ?? DateTime.UtcNow
         };
-        response.Role = new RoleResponse
-        {
-            Id = userWithDetails?.Role?.Id ?? Guid.Empty,
-            RoleName = userWithDetails?.Role?.RoleName ?? "Unknown",
-            Description = userWithDetails?.Role?.Description ?? "",
-            CreateAt = userWithDetails?.Role?.CreateAt ?? DateTime.UtcNow,
-            UpdateAt = userWithDetails?.Role?.UpdateAt ?? DateTime.UtcNow
-        };
-        response.UserSetting = new UserSettingResponse()
+
+        response.UserSetting = new UserSettingResponse
         {
             Id = userSetting.Id,
             TwoFactorEnabled = userSetting.TwoFactorEnabled,
@@ -357,6 +337,18 @@ public class UserService : BaseService<UserService>, IUserService
             NotificationsEnabled = userSetting.NotificationsEnabled,
             UpdateAt = userSetting.UpdateAt
         };
+
+        // Map permissions
+        response.Permissions = userWithDetails?.UserPermissions?
+            .Select(up => new PermissionResponse
+            {
+                Id = up.Permission.Id,
+                Name = up.Permission.Name,
+                Description = up.Permission.Description,
+                CreateAt = up.Permission.CreateAt,
+                UpdateAt = up.Permission.UpdateAt
+            }).ToList() ?? new List<PermissionResponse>();
+
         response.DocaiToken = JwtUtil.GenerateJwtToken(userWithDetails ?? user, _configuration);
         response.DocaiRefreshToken = JwtUtil.GenerateJwtRefreshToken(userWithDetails ?? user, _configuration);
 
@@ -1120,6 +1112,33 @@ public class UserService : BaseService<UserService>, IUserService
         {
             _logger.LogError(ex, "Error revoking Google token for user: {UserId}", userId);
             return false;
+        }
+    }
+
+    private async Task AssignPermissionsToUserAsync(Guid userId, List<Guid>? permissionIds)
+    {
+        var permissionsToAssign = new List<Guid>();
+
+        if (permissionIds == null || !permissionIds.Any())
+        {
+            // Assign default permission: VIEW_OWN_DEPARTMENT_DOCUMENT
+            permissionsToAssign.Add(Guid.Parse("e72214a0-24bc-471a-aca5-d897f4da0aad"));
+        }
+        else
+        {
+            permissionsToAssign = permissionIds;
+        }
+
+        foreach (var permissionId in permissionsToAssign)
+        {
+            var userPermission = new UserPermission
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                PermissionId = permissionId
+            };
+
+            await _unitOfWork.GetRepository<UserPermission>().InsertAsync(userPermission);
         }
     }
 }

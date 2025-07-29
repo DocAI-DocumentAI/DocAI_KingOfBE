@@ -60,14 +60,14 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
-    [HttpPost(ApiEndPointConstant.User.Register)]
+    [HttpPost(ApiEndPointConstant.User.CreateUser)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
-        var response = await _userService.RegisterAsync(request);
+        var response = await _userService.CreateUserAsync(request);
         if (response == null)
         {
             _logger.LogError($"Register failed with {request.Email}");
@@ -204,7 +204,7 @@ public class AuthController : ControllerBase
         }
     }
 
-    [HttpPost("logout")]
+    [HttpPost(ApiEndPointConstant.User.Logout)]
     [CustomAuthorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> Logout()

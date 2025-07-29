@@ -16,7 +16,7 @@ public class ApiEndPointConstant
         public const string GoogleAuthUrl = "google/auth-url";
         public const string RevokeGoogleToken = "google/revoke";
         public const string GoogleRefreshToken = "google/refresh-token";
-        public const string Register = "register";
+        public const string CreateUser = "create-user";
         public const string RefreshToken = "refresh-token";
         public const string Logout = "logout";
         public const string ChangePassword = "change-password";

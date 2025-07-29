@@ -19,26 +19,13 @@ namespace Auth.API.Services.Interface;
 public interface IUserService
 {
     public Task<LoginResponse> LoginAsync(LoginRequest request);
-
-    public Task<RegisterResponse> RegisterAsync(RegisterRequest request);
-
+    public Task<RegisterResponse> CreateUserAsync(RegisterRequest request);
     public Task<string> GenerateOtpAsync(GenerateEmailOtpRequest request);
-
     public Task<UserRoleChangeResponse> ChangeUserRoleAsync(Guid roleId);
-
     public Task<ChangeDepartmentResponse> ChangeDepartmentForUserAsync(ChangeDepartmentRequest request);
-
     public Task<List<GetUserByDeparAndRoleResponse>> GetUserByDeparAndRoleAsync(GetUserByDeparAndRole request);
-
     public Task<IPaginate<UserResponse>> GetAllUsersAsync(int page, int size, UserFilter? filter, string? sortBy, bool isAsc);
-
     public Task<bool> LogoutAsync();
-
-    /// <summary>
-    /// Get user names by their IDs for bulk lookup
-    /// </summary>
-    /// <param name="userIds">List of user IDs</param>
-    /// <returns>Dictionary mapping user IDs to user names</returns>
     public Task<Dictionary<string, string>> GetUserNamesByIdsAsync(List<string> userIds);
     public Task<RefreshTokenResponse> RefreshTokenAsync(RefreshTokenRequest request);
     public Task<GoogleOAuthResponse> GoogleLoginAsync(GoogleLoginRequest request);
