@@ -55,10 +55,10 @@ namespace AI.API.Controllers
                     var contextRequest = _mapper.Map<AIContextRequest>(request);
                     response = await _aiService.GenerateWithContextAsync(contextRequest, cancellationToken);
                 }
-                else if (!string.IsNullOrEmpty(request.ModelId))
+                else if (!string.IsNullOrEmpty(request.Model))
                 {
                     var aiRequest = _mapper.Map<AIRequest>(request);
-                    response = await _aiService.GenerateWithModelAsync(request.ModelId, aiRequest, cancellationToken);
+                    response = await _aiService.GenerateWithModelAsync(request.Model, aiRequest, cancellationToken);
                 }
                 else
                 {
@@ -75,7 +75,7 @@ namespace AI.API.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error generating answer for user: {UserId}, prompt: {Prompt}", request?.UserId, request?.Prompt?.Substring(0, Math.Min(100, request?.Prompt?.Length ?? 0)));
+                _logger.LogError(ex, "Error generating answer for user: {UserId}", request?.UserId);
                 return StatusCode(500, new ErrorResponse { Message = "Internal server error occurred" });
             }
         }

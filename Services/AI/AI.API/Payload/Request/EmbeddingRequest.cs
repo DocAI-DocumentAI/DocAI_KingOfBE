@@ -15,7 +15,5 @@ namespace AI.API.Payload.Request
         public string? TypeName { get; set; }
         public int? DepartmentId { get; set; }
         public string? UserId { get; set; }
-        public string? SessionId { get; set; }
-        public string? Source { get; set; }
     }
 }

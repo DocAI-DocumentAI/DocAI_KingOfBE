@@ -11,27 +11,53 @@ namespace ChatBox.Domain.Models
     {
         public ChatBoxDbContext(DbContextOptions<ChatBoxDbContext> options) : base(options) { }
 
-        // ✅ Core chat entities
         public DbSet<ChatSession> ChatSessions { get; set; }
         public DbSet<ChatMessage> ChatMessages { get; set; }
-        public DbSet<UserPreference> UserChatPreferences { get; set; }
-
-        // ✅ ADD MISSING DbSets for your services to work
-        public DbSet<AuditLog> AuditLogs { get; set; }
-        public DbSet<SecurityAuditLog> SecurityAuditLogs { get; set; }
-        public DbSet<ContentModerationRule> ContentModerationRules { get; set; }
-        public DbSet<ModerationLog> ModerationLogs { get; set; }
-        public DbSet<UserModerationHistory> UserModerationHistory { get; set; }
-        public DbSet<RateLimitRule> RateLimitRules { get; set; }
-        public DbSet<UserRateLimitStatus> UserRateLimitStatuses { get; set; }
-        public DbSet<RateLimitViolation> RateLimitViolations { get; set; }
-        public DbSet<SecurityIncident> SecurityIncidents { get; set; }
-        public DbSet<UserSecurityProfile> UserSecurityProfiles { get; set; }
-        public DbSet<MessageFeedback> MessageFeedbacks { get; set; }
-        public DbSet<SystemPreference> SystemPreferences { get; set; }
-
+        public DbSet<SessionPreference> SessionPreferences { get; set; }
+        public DbSet<ProhibitedWord> ProhibitedWords { get; set; }
+        public DbSet<AIConfiguration> AIConfigurations { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.Entity<ChatSession>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Title).HasMaxLength(500);
+                entity.Property(e => e.UserId).IsRequired();
+                entity.Property(e => e.ModelName).HasMaxLength(100);
+            });
+
+            modelBuilder.Entity<ChatMessage>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Content).IsRequired();
+                entity.HasOne(d => d.Session)
+                    .WithMany(p => p.Messages)
+                    .HasForeignKey(d => d.SessionId);
+            });
+
+            modelBuilder.Entity<SessionPreference>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Key).HasMaxLength(100);
+                entity.HasOne(d => d.Session)
+                    .WithMany(p => p.Preferences)
+                    .HasForeignKey(d => d.SessionId);
+            });
+
+            modelBuilder.Entity<ProhibitedWord>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Word).IsRequired().HasMaxLength(200);
+                entity.HasIndex(e => e.Word).IsUnique();
+            });
+
+            modelBuilder.Entity<AIConfiguration>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Provider).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.ModelName).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.ApiKey).IsRequired();
+            });
             base.OnModelCreating(modelBuilder);
         }
     }

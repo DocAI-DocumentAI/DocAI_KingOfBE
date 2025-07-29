@@ -1,200 +1,64 @@
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+﻿using ChatBox.API.Payload.Request;
+using ChatBox.API.Payload.Response;
 using ChatBox.API.Services.Interfaces;
-using ChatBox.API.Payload.Request.UserPreferenceService;
-using ChatBox.API.Payload.Response.UserPreferenceResponse;
-using ChatBox.Domain.Models;
-using System.Security.Claims;
+using Microsoft.AspNetCore.Mvc;
 
 namespace ChatBox.API.Controllers
 {
-    [ApiController]
-    [Route("api/v1/users/preferences")]
-    [Authorize]
     public class UserPreferenceController : ControllerBase
     {
         private readonly IUserPreferenceService _userPreferenceService;
-        private readonly ILogger<UserPreferenceController> _logger;
 
-        public UserPreferenceController(
-            IUserPreferenceService userPreferenceService, 
-            ILogger<UserPreferenceController> logger)
+        public UserPreferenceController(IUserPreferenceService userPreferenceService)
         {
             _userPreferenceService = userPreferenceService;
-            _logger = logger;
         }
 
-        private Guid GetUserId()
-        {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            return Guid.TryParse(userIdClaim, out var userId) ? userId : Guid.Empty;
-        }
-
-        /// <summary>
-        /// Get user preferences
-        /// </summary>
-        [HttpGet]
-        public async Task<ActionResult<UserPreferenceResponse>> GetPreferences()
+        [HttpGet("sessions/{sessionId}")]
+        public async Task<ActionResult<ApiResponse<UserPreferenceResponse>>> GetUserPreferences(string sessionId)
         {
             try
             {
-                var userId = GetUserId();
-                if (userId == Guid.Empty)
-                {
-                    return Unauthorized(new { message = "Invalid user ID" });
-                }
-
-                var response = await _userPreferenceService.GetPreferenceResponseAsync(userId);
-                return Ok(response);
+                var preferences = await _userPreferenceService.GetUserPreferencesAsync(sessionId);
+                return Ok(ApiResponse<UserPreferenceResponse>.Ok(preferences));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting user preferences for user {UserId}", GetUserId());
-                return StatusCode(500, new { message = "Internal server error" });
+                return StatusCode(500, ApiResponse<UserPreferenceResponse>.Fail("Đã xảy ra lỗi khi lấy tùy chọn người dùng."));
             }
         }
 
-        /// <summary>
-        /// Get raw user preference entity
-        /// </summary>
-        [HttpGet("raw")]
-        public async Task<ActionResult<UserPreference>> GetRawPreferences()
+        [HttpPut("sessions/{sessionId}")]
+        public async Task<ActionResult<ApiResponse<UserPreferenceResponse>>> UpdateUserPreferences(
+            string sessionId,
+            [FromBody] UserPreferenceRequest request)
         {
             try
             {
-                var userId = GetUserId();
-                if (userId == Guid.Empty)
-                {
-                    return Unauthorized(new { message = "Invalid user ID" });
-                }
-
-                var preference = await _userPreferenceService.GetPreferenceAsync(userId);
-                return Ok(preference);
+                var preferences = await _userPreferenceService.UpdateUserPreferencesAsync(sessionId, request);
+                return Ok(ApiResponse<UserPreferenceResponse>.Ok(preferences, "Cập nhật tùy chọn thành công."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse<UserPreferenceResponse>.Fail(ex.Message));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting raw user preferences for user {UserId}", GetUserId());
-                return StatusCode(500, new { message = "Internal server error" });
+                return StatusCode(500, ApiResponse<UserPreferenceResponse>.Fail("Đã xảy ra lỗi khi cập nhật tùy chọn."));
             }
         }
 
-        /// <summary>
-        /// Update user preferences
-        /// </summary>
-        [HttpPut]
-        public async Task<ActionResult<bool>> UpdatePreferences([FromBody] UpdatePreferencesRequest request)
+        [HttpGet("characteristics")]
+        public async Task<ActionResult<ApiResponse<List<CharacteristicOption>>>> GetAvailableCharacteristics()
         {
             try
             {
-                if (!ModelState.IsValid)
-                {
-                    return BadRequest(ModelState);
-                }
-
-                var userId = GetUserId();
-                if (userId == Guid.Empty)
-                {
-                    return Unauthorized(new { message = "Invalid user ID" });
-                }
-
-                var result = await _userPreferenceService.UpdatePreferenceAsync(userId, request);
-                
-                if (result)
-                {
-                    return Ok(new { success = true, message = "Preferences updated successfully" });
-                }
-                else
-                {
-                    return BadRequest(new { success = false, message = "Failed to update preferences" });
-                }
+                var characteristics = await _userPreferenceService.GetAvailableCharacteristicsAsync();
+                return Ok(ApiResponse<List<CharacteristicOption>>.Ok(characteristics));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating user preferences for user {UserId}", GetUserId());
-                return StatusCode(500, new { message = "Internal server error" });
-            }
-        }
-
-        /// <summary>
-        /// Reset user preferences to default
-        /// </summary>
-        [HttpPost("reset")]
-        public async Task<ActionResult<bool>> ResetPreferences()
-        {
-            try
-            {
-                var userId = GetUserId();
-                if (userId == Guid.Empty)
-                {
-                    return Unauthorized(new { message = "Invalid user ID" });
-                }
-
-                var result = await _userPreferenceService.ResetPreferencesAsync(userId);
-                
-                if (result)
-                {
-                    return Ok(new { success = true, message = "Preferences reset successfully" });
-                }
-                else
-                {
-                    return BadRequest(new { success = false, message = "Failed to reset preferences" });
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error resetting user preferences for user {UserId}", GetUserId());
-                return StatusCode(500, new { message = "Internal server error" });
-            }
-        }
-
-        /// <summary>
-        /// Get default preferences (public endpoint)
-        /// </summary>
-        [HttpGet("defaults")]
-        [AllowAnonymous]
-        public async Task<ActionResult<UserPreferenceResponse>> GetDefaultPreferences()
-        {
-            try
-            {
-                var response = await _userPreferenceService.GetDefaultPreferencesAsync();
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting default preferences");
-                return StatusCode(500, new { message = "Internal server error" });
-            }
-        }
-
-        /// <summary>
-        /// Set default preferences (Admin only)
-        /// </summary>
-        [HttpPost("defaults")]
-        [Authorize(Roles = "Admin")]
-        public async Task<ActionResult<bool>> SetDefaultPreferences([FromBody] SetDefaultPreferencesRequest request)
-        {
-            try
-            {
-                if (!ModelState.IsValid)
-                {
-                    return BadRequest(ModelState);
-                }
-
-                var result = await _userPreferenceService.SetDefaultPreferencesAsync(request);
-                
-                if (result)
-                {
-                    return Ok(new { success = true, message = "Default preferences set successfully" });
-                }
-                else
-                {
-                    return BadRequest(new { success = false, message = "Failed to set default preferences" });
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error setting default preferences");
-                return StatusCode(500, new { message = "Internal server error" });
+                return StatusCode(500, ApiResponse<List<CharacteristicOption>>.Fail("Đã xảy ra lỗi khi lấy danh sách đặc điểm."));
             }
         }
     }

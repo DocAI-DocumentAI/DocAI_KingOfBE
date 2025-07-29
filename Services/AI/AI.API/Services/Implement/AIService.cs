@@ -84,7 +84,7 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
 
                 // Create execution settings
                 var settings = CreateExecutionSettings(request, aiConfig);
-                var enhancedPrompt = PrepareVietnamesePrompt(request.Prompt);
+                var enhancedPrompt = PrepareVietnamesePrompt(request.Query); 
 
                 // Generate response
                 var result = await textService.GetTextContentsAsync(
@@ -115,11 +115,11 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                     TokensUsed = tokensUsed,
                     ResponseTimeMs = (int)stopwatch.ElapsedMilliseconds,
                     ModelUsed = aiConfig?.ModelId ?? "default",
-                    DocumentsUsed = request.Context?.Count ?? 0,
+                    DocumentsUsed = ParseContextCount(request.Context),
                     ConversationHistoryLength = request.ConversationHistory?.Count ?? 0,
                     DetectedIntent = request.Intent ?? "general",
                     IntentConfidence = !string.IsNullOrEmpty(request.Intent) ? 0.85 : 0.0,
-                    ContextTokens = EstimateTokens(CreateContextPrompt(request)) - EstimateTokens(request.Prompt)
+                    ContextTokens = EstimateTokens(CreateContextPrompt(request)) - EstimateTokens(request.Query)
                 };
             }
             catch (Exception ex)
@@ -177,7 +177,7 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
 
                 // Create execution settings
                 var settings = CreateExecutionSettings(request, aiConfig);
-                var enhancedPrompt = PrepareVietnamesePrompt(request.Prompt);
+                var enhancedPrompt = PrepareVietnamesePrompt(request.Query);
 
                 // Generate streaming response
                 await foreach (var streamContent in textService.GetStreamingTextContentsAsync(
@@ -196,7 +196,7 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                             TokenCount = tokenCount,
                             RequestId = requestId,
                             HasContext = request.Context?.Any() == true || request.ConversationHistory?.Any() == true,
-                            DocumentsCount = request.Context?.Count ?? 0
+                            DocumentsCount = ParseContextCount(request.Context)
                         });
                     }
                 }
@@ -209,7 +209,8 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                     TokenCount = totalTokens,
                     RequestId = requestId,
                     HasContext = request.Context?.Any() == true || request.ConversationHistory?.Any() == true,
-                    DocumentsCount = request.Context?.Count ?? 0
+                    DocumentsCount = ParseContextCount(request.Context)
+
                 });
             }
             catch (Exception ex)
@@ -423,7 +424,7 @@ Cung cấp thông tin chi tiết, hữu ích và dễ hiểu.";
                     // Create text service for specific model
                     var textService = await _kernelProviderService.CreateTextGenerationServiceAsync(modelConfig);
                     var settings = CreateModelSpecificSettings(request, modelConfig);
-                    var enhancedPrompt = PrepareVietnamesePrompt(request.Prompt);
+                    var enhancedPrompt = PrepareVietnamesePrompt(request.Query);
 
                     // Generate response
                     var result = await textService.GetTextContentsAsync(enhancedPrompt, settings, cancellationToken: cancellationToken);
@@ -656,7 +657,7 @@ Chỉ trả về tiêu đề:";
 
                 var aiRequest = new AIRequest
                 {
-                    Prompt = prompt,
+                    Query = prompt,
                     UserId = "system",
                     MaxTokens = 30,
                     Temperature = 0.3
@@ -995,17 +996,17 @@ Chỉ trả về tiêu đề:";
             if (request.Context?.Any() == true)
             {
                 promptBuilder.AppendLine("Thông tin từ tài liệu liên quan:");
-                for (int i = 0; i < request.Context.Count; i++)
+                for (int i = 0; i < request.Context.Count(); i++)
                 {
                     var doc = request.Context[i];
-                    promptBuilder.AppendLine($"[Tài liệu {i + 1}] {doc.Title}");
-                    promptBuilder.AppendLine($"Nội dung: {doc.Content}");
+                    //promptBuilder.AppendLine($"[Tài liệu {i + 1}] {doc.Title}");
+                    //promptBuilder.AppendLine($"Nội dung: {doc.}");
                     promptBuilder.AppendLine();
                 }
                 promptBuilder.AppendLine("---");
             }
 
-            promptBuilder.AppendLine($"Câu hỏi: {request.Prompt}");
+            promptBuilder.AppendLine($"Câu hỏi: {request.Query}");
             return promptBuilder.ToString();
         }
 
@@ -1032,7 +1033,7 @@ Chỉ trả về tiêu đề:";
 
         private void ValidateRequest(AIRequest request, AIModelConfig aiConfig)
         {
-            if (string.IsNullOrWhiteSpace(request.Prompt))
+            if (string.IsNullOrWhiteSpace(request.Query))
                 throw new ArgumentException("Prompt không được để trống");
 
             if (string.IsNullOrWhiteSpace(request.UserId))
@@ -1042,7 +1043,7 @@ Chỉ trả về tiêu đề:";
             if (request.MaxTokens.HasValue && request.MaxTokens.Value > maxTokens)
                 throw new ArgumentException($"Max tokens {request.MaxTokens} vượt quá giới hạn {maxTokens}");
 
-            var estimatedTokens = EstimateTokens(request.Prompt);
+            var estimatedTokens = EstimateTokens(request.Query);
             if (estimatedTokens > maxTokens / 2)
                 throw new ArgumentException($"Prompt quá dài: {estimatedTokens} tokens (giới hạn: {maxTokens / 2})");
         }
@@ -1277,8 +1278,8 @@ Chỉ trả về tiêu đề:";
                     ModelType = modelType,
                     RequestContent = JsonSerializer.Serialize(new
                     {
-                        prompt = request.Prompt.Length > 1000 ? request.Prompt.Substring(0, 1000) + "..." : request.Prompt,
-                        promptLength = request.Prompt.Length,
+                        prompt = request.Query.Length > 1000 ? request.Query.Substring(0, 1000) + "..." : request.Query,
+                        promptLength = request.Query.Length,
                         userId = request.UserId,
                         maxTokens = request.MaxTokens,
                         temperature = request.Temperature,
@@ -1328,7 +1329,25 @@ Chỉ trả về tiêu đề:";
                 _logger.LogError(ex, "Failed to log request completion for {RequestId}", requestLog.RequestId);
             }
         }
+        private int ParseContextCount(string? context)
+        {
+            if (string.IsNullOrEmpty(context))
+                return 0;
 
+            try
+            {
+                if (context.StartsWith("["))
+                {
+                    var contexts = JsonSerializer.Deserialize<List<DocumentContext>>(context);
+                    return contexts?.Count ?? 0;
+                }
+                return 1; // Plain text context
+            }
+            catch
+            {
+                return 1; // Fallback to 1 if parsing fails
+            }
+        }
         #endregion
 
         public void Dispose()

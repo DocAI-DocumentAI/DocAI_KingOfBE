@@ -1,139 +1,174 @@
+﻿using Azure;
+using ChatBox.API.Payload.Request;
+using ChatBox.API.Payload.Response;
+using ChatBox.API.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using ChatBox.API.Services.Interfaces;
-using ChatBox.API.Payload.Request.ChatService;
-using ChatBox.API.Payload.Request.AIClientService;
-using ChatBox.API.Payload.Response.ChatServiceResponse;
-using ChatBox.API.Payload.Response;
-using ChatBox.API.Payload.Response.AIServiceResponse;
-using ChatBox.Infrastructure.Paginate;
 using System.Security.Claims;
 
 namespace ChatBox.API.Controllers
 {
+
     [ApiController]
-    [Route("api/v1/[controller]")]
+    [Route("api/[controller]")]
     [Authorize]
     public class ChatController : ControllerBase
     {
         private readonly IChatService _chatService;
-        private readonly ITokenValidationService _tokenValidationService;
-        private readonly ILogger<ChatController> _logger;
 
-        public ChatController(
-            IChatService chatService, 
-            ITokenValidationService tokenValidationService,
-            ILogger<ChatController> logger)
+        public ChatController(IChatService chatService)
         {
             _chatService = chatService;
-            _tokenValidationService = tokenValidationService;
-            _logger = logger;
         }
 
-        private Guid GetUserId()
-        {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            return Guid.TryParse(userIdClaim, out var userId) ? userId : Guid.Empty;
-        }
-
-        private string GetIpAddress()
-        {
-            return HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        }
-
-        private string GetUserAgent()
-        {
-            return HttpContext.Request.Headers["User-Agent"].ToString() ?? "unknown";
-        }
-
-        // Core Messaging
-        [HttpPost("messages")]
-        public async Task<ActionResult<SendMessageResponse>> SendMessage([FromBody] SendMessageRequest request)
+        [HttpPost("send")]
+        public async Task<ActionResult<ApiResponse<ChatResponse>>> SendMessage([FromBody] ChatRequest request)
         {
             try
             {
-                var userId = GetUserId();
-                var ipAddress = GetIpAddress();
-                var userAgent = GetUserAgent();
-
-                var response = await _chatService.SendMessageAsync(userId, request, ipAddress, userAgent);
-                return Ok(response);
+                var userId = GetCurrentUserId();
+                var response = await _chatService.SendMessageAsync(request, userId);
+                return Ok(ApiResponse<ChatResponse>.Ok(response));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse<ChatResponse>.Fail(ex.Message));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending message");
-                return StatusCode(500, new { message = "Internal server error" });
+                return StatusCode(500, ApiResponse<ChatResponse>.Fail("Đã xảy ra lỗi khi xử lý tin nhắn."));
             }
         }
 
-        [HttpPost("streaming")]
-        public async Task<ActionResult<StreamingResponse>> StartStreaming([FromBody] StreamChatRequest request)
+        [HttpPost("send-stream")]
+        public async Task<IActionResult> SendMessageStream([FromBody] ChatRequest request)
         {
             try
             {
-                var userId = GetUserId();
-                var connectionId = HttpContext.Connection.Id ?? Guid.NewGuid().ToString();
+                var userId = GetCurrentUserId();
+                var responseStream = await _chatService.SendMessageStreamAsync(request, userId);
 
-                var response = await _chatService.StartStreamingAsync(userId, request, connectionId);
-                return Ok(response);
+                Response.Headers.Add("Content-Type", "text/plain; charset=utf-8");
+                Response.Headers.Add("Cache-Control", "no-cache");
+                Response.Headers.Add("Connection", "keep-alive");
+
+                await foreach (var token in responseStream)
+                {
+                    await Response.WriteAsync(token);
+                    await Response.Body.FlushAsync();
+                }
+
+                return new EmptyResult();
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse<string>.Fail(ex.Message));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error starting streaming");
-                return StatusCode(500, new { message = "Internal server error" });
+                return StatusCode(500, ApiResponse<string>.Fail("Đã xảy ra lỗi khi xử lý tin nhắn."));
             }
         }
 
-        [HttpPost("streaming/{messageId}/cancel")]
-        public async Task<ActionResult<bool>> CancelStreaming(Guid messageId)
+        [HttpPost("sessions")]
+        public async Task<ActionResult<ApiResponse<SessionResponse>>> CreateSession([FromBody] CreateSessionRequest request)
         {
             try
             {
-                var userId = GetUserId();
-                var result = await _chatService.CancelStreamingAsync(userId, messageId);
+                var userId = GetCurrentUserId();
+                var response = await _chatService.CreateSessionAsync(request, userId);
+                return Ok(ApiResponse<SessionResponse>.Ok(response, "Tạo phiên chat thành công."));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<SessionResponse>.Fail("Đã xảy ra lỗi khi tạo phiên chat."));
+            }
+        }
+
+        [HttpGet("sessions")]
+        public async Task<ActionResult<ApiResponse<List<SessionResponse>>>> GetUserSessions()
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var sessions = await _chatService.GetUserSessionsAsync(userId);
+                return Ok(ApiResponse<List<SessionResponse>>.Ok(sessions));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<List<SessionResponse>>.Fail("Đã xảy ra lỗi khi lấy danh sách phiên chat."));
+            }
+        }
+
+        [HttpGet("sessions/{sessionId}")]
+        public async Task<ActionResult<ApiResponse<SessionDetailResponse>>> GetSession(string sessionId)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var session = await _chatService.GetSessionAsync(sessionId, userId);
+                return Ok(ApiResponse<SessionDetailResponse>.Ok(session));
+            }
+            catch (ArgumentException ex)
+            {
+                return NotFound(ApiResponse<SessionDetailResponse>.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<SessionDetailResponse>.Fail("Đã xảy ra lỗi khi lấy thông tin phiên chat."));
+            }
+        }
+
+        [HttpDelete("sessions/{sessionId}")]
+        public async Task<ActionResult<ApiResponse<bool>>> DeleteSession(string sessionId)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var result = await _chatService.DeleteSessionAsync(sessionId, userId);
+
+                if (result)
+                    return Ok(ApiResponse<bool>.Ok(true, "Xóa phiên chat thành công."));
+                else
+                    return NotFound(ApiResponse<bool>.Fail("Không tìm thấy phiên chat."));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<bool>.Fail("Đã xảy ra lỗi khi xóa phiên chat."));
+            }
+        }
+
+        [HttpPost("suggest-title")]
+        public async Task<ActionResult<ApiResponse<string>>> SuggestTitle([FromBody] string message)
+        {
+            try
+            {
+                var title = await _chatService.SuggestTitleAsync(message);
+                return Ok(ApiResponse<string>.Ok(title));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<string>.Fail("Đã xảy ra lỗi khi tạo tiêu đề."));
+            }
+        }
+        [HttpPost("validate")]
+        public async Task<ActionResult<ApiResponse<object>>> ValidateMessage([FromBody] string message)
+        {
+            try
+            {
+                var result = await _chatService.ValidateMessageAsync(message);
                 return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error canceling streaming for message {MessageId}", messageId);
-                return StatusCode(500, new { message = "Internal server error" });
+                return StatusCode(500, ApiResponse<object>.Fail("Đã xảy ra lỗi khi kiểm tra tin nhắn."));
             }
         }
-
-        // Message Management
-        [HttpGet("messages/{messageId}")]
-        public async Task<ActionResult<AdvancedMessageResponse>> GetMessage(Guid messageId)
+        private string GetCurrentUserId()
         {
-            try
-            {
-                var userId = GetUserId();
-                var response = await _chatService.GetMessageAsync(userId, messageId);
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting message {MessageId}", messageId);
-                return StatusCode(500, new { message = "Internal server error" });
-            }
+            return User.FindFirst("userId")?.Value ??
+                   throw new UnauthorizedAccessException("Không thể xác định người dùng.");
         }
-
-        [HttpDelete("messages/{messageId}")]
-        public async Task<ActionResult<bool>> DeleteMessage(Guid messageId, [FromQuery] string reason = "user_request")
-        {
-            try
-            {
-                var userId = GetUserId();
-                var result = await _chatService.DeleteMessageAsync(userId, messageId, reason);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deleting message {MessageId}", messageId);
-                return StatusCode(500, new { message = "Internal server error" });
-            }
-        }
-
-        // Session Management
-    
     }
 }
+

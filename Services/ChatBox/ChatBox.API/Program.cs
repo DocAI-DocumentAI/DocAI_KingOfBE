@@ -46,12 +46,6 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddServices(builder.Configuration);
     builder.Services.AddJwtAuthentication(builder.Configuration);
-    builder.Services.AddSignalR(options =>
-    {
-        options.EnableDetailedErrors = builder.Environment.IsDevelopment();
-        options.ClientTimeoutInterval = TimeSpan.FromMinutes(1);
-        options.KeepAliveInterval = TimeSpan.FromSeconds(15);
-    });
 
     builder.Services.AddCors(options =>
     {
@@ -65,7 +59,6 @@ try
 
 
     builder.Services.AddHttpContextAccessor();
-
     builder.Services.AddAuthorization();
 
     builder.Services.AddOpenApiDocument(options =>
@@ -89,14 +82,12 @@ try
 
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 
-    builder.Services.AddEndpointsApiExplorer();
 
     builder.Services.Configure<HostOptions>(hostOptions =>
     {
         hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
     });
     var app = builder.Build();
-    app.UseExceptionHandling();
 
     app.MapOpenApi();
     app.UseOpenApi();
@@ -117,11 +108,8 @@ try
 
     app.UseHttpsRedirection();
     app.UseSerilogRequestLogging();
-
     app.UseCors(CorConstant.PolicyName);
-
-    app.UseCustomMiddlewares();
-
+    //app.UseCustomMiddlewares();
     app.UseAuthentication();
 
     app.UseAuthorization();
@@ -129,7 +117,7 @@ try
     app.MapControllers();
 
     // Map SignalR Hub
-    app.MapHub<ChatHub>("/chatHub");
+    //app.MapHub<ChatHub>("/chatHub");
 
     app.Run();
 
