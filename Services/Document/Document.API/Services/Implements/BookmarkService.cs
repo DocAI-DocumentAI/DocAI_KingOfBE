@@ -17,12 +17,14 @@ namespace Document.API.Services.Implements
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
         private readonly ILogger<BookmarkService> _logger;
+        private readonly IDocumentEnrichmentService _enrichmentService;
 
-        public BookmarkService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<BookmarkService> logger)
+        public BookmarkService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<BookmarkService> logger, IDocumentEnrichmentService enrichmentService)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _logger = logger;
+            _enrichmentService = enrichmentService;
         }
 
         public async Task AddBookmarkAsync(string documentId, string userId)
@@ -93,7 +95,21 @@ namespace Document.API.Services.Implements
                 size: pageSize
             );
 
-            return bookmarks;
+            // Enrich all bookmarks with names in bulk for better performance
+            var enrichedBookmarks = await _enrichmentService.EnrichBookmarkResponsesAsync(bookmarks.Items.ToList());
+
+            // Create new paginated result with enriched bookmarks
+            var enrichedPaginated = new Paginate<BookmarkResponse>
+            {
+                Items = enrichedBookmarks,
+                Page = bookmarks.Page,
+                Size = bookmarks.Size,
+                Total = bookmarks.Total,
+                TotalPages = bookmarks.TotalPages
+            };
+
+            _logger.LogInformation("Enriched {Count} bookmarks with names for user {UserId}", enrichedBookmarks.Count, userId);
+            return enrichedPaginated;
         }
     }
 }

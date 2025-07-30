@@ -9,6 +9,7 @@ namespace Document.API.Payload.Response
         public string VersionName { get; set; }
         public string Title { get; set; }
         public string SubmittedBy { get; set; }
+        public string? SubmittedByName { get; set; }
         public DateTime LastSubmitted { get; set; }
         public string Status { get; set; }
         public string DepartmentId { get; set; }

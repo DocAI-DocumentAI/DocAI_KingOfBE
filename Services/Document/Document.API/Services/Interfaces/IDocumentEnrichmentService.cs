@@ -41,4 +41,39 @@ public interface IDocumentEnrichmentService
     /// <param name="responses">List of SemanticSearchResponse objects to enrich</param>
     /// <returns>List of enriched SemanticSearchResponse objects</returns>
     Task<List<SemanticSearchResponse>> EnrichSemanticSearchResponsesAsync(List<SemanticSearchResponse> responses);
+
+    /// <summary>
+    /// Enrich a single bookmark response with names
+    /// </summary>
+    Task<BookmarkResponse> EnrichBookmarkResponseAsync(BookmarkResponse bookmark);
+
+    /// <summary>
+    /// Enrich multiple bookmark responses with names (bulk operation for better performance)
+    /// </summary>
+    Task<List<BookmarkResponse>> EnrichBookmarkResponsesAsync(List<BookmarkResponse> bookmarks);
+
+    /// <summary>
+    /// Enrich a single tag response with names
+    /// </summary>
+    Task<TagResponse> EnrichTagResponseAsync(TagResponse tag);
+
+    /// <summary>
+    /// Enrich multiple tag responses with names (bulk operation for better performance)
+    /// </summary>
+    Task<List<TagResponse>> EnrichTagResponsesAsync(List<TagResponse> tags);
+
+    /// <summary>
+    /// Enrich a single pending document response with names
+    /// </summary>
+    Task<PendingDocumentResponse> EnrichPendingDocumentResponseAsync(PendingDocumentResponse pendingDocument);
+
+    /// <summary>
+    /// Enrich multiple pending document responses with names (bulk operation for better performance)
+    /// </summary>
+    Task<List<PendingDocumentResponse>> EnrichPendingDocumentResponsesAsync(List<PendingDocumentResponse> pendingDocuments);
+
+    /// <summary>
+    /// Enrich a single approval queue detail response with names
+    /// </summary>
+    Task<ApprovalQueueDetailResponse> EnrichApprovalQueueDetailResponseAsync(ApprovalQueueDetailResponse approvalDetail);
 }

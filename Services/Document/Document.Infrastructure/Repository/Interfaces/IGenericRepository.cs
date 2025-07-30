@@ -20,6 +20,11 @@ public abstract class IGenericRepository<T> : IDisposable where T : class
         Func<IQueryable<T>, IIncludableQueryable<T, object>> include =
             default(Func<IQueryable<T>, IIncludableQueryable<T, object>>));
 
+    public abstract Task<T> SingleOrDefaultWithTrackingAsync(Expression<Func<T, bool>> predicate = default(Expression<Func<T, bool>>),
+        Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = default(Func<IQueryable<T>, IOrderedQueryable<T>>),
+        Func<IQueryable<T>, IIncludableQueryable<T, object>> include =
+            default(Func<IQueryable<T>, IIncludableQueryable<T, object>>));
+
     public abstract Task<TResult> SingleOrDefaultAsync<TResult>(Expression<Func<T, TResult>> selector,
         Expression<Func<T, bool>> predicate = default(Expression<Func<T, bool>>),
         Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = default(Func<IQueryable<T>, IOrderedQueryable<T>>),

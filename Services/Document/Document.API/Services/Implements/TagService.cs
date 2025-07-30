@@ -15,11 +15,13 @@ namespace Document.API.Services.Implements
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly IDocumentEnrichmentService _enrichmentService;
 
-        public TagService(IUnitOfWork unitOfWork, IMapper mapper)
+        public TagService(IUnitOfWork unitOfWork, IMapper mapper, IDocumentEnrichmentService enrichmentService)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _enrichmentService = enrichmentService;
         }
 
         public async Task<TagResponse> CreateTagAsync(CreateTagRequest request, string userId)
@@ -47,7 +49,8 @@ namespace Document.API.Services.Implements
             await _unitOfWork.GetRepository<Tag>().InsertAsync(tag);
             await _unitOfWork.CommitAsync();
 
-            return _mapper.Map<TagResponse>(tag);
+            var response = _mapper.Map<TagResponse>(tag);
+            return await _enrichmentService.EnrichTagResponseAsync(response);
         }
 
         public async Task<TagResponse> GetTagByIdAsync(string tagId)
@@ -56,7 +59,8 @@ namespace Document.API.Services.Implements
                 .SingleOrDefaultAsync(predicate: t => t.Id == tagId)
                 ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.TagNotFound);
 
-            return _mapper.Map<TagResponse>(tag);
+            var response = _mapper.Map<TagResponse>(tag);
+            return await _enrichmentService.EnrichTagResponseAsync(response);
         }
 
         public async Task<IPaginate<TagResponse>> GetAllTagsAsync(int pageNumber, int pageSize)
@@ -69,7 +73,20 @@ namespace Document.API.Services.Implements
                 size: pageSize
             );
 
-            return tags;
+            // Enrich all tags with names in bulk for better performance
+            var enrichedTags = await _enrichmentService.EnrichTagResponsesAsync(tags.Items.ToList());
+
+            // Create new paginated result with enriched tags
+            var enrichedPaginated = new Paginate<TagResponse>
+            {
+                Items = enrichedTags,
+                Page = tags.Page,
+                Size = tags.Size,
+                Total = tags.Total,
+                TotalPages = tags.TotalPages
+            };
+
+            return enrichedPaginated;
         }
 
         public async Task<TagResponse> UpdateTagAsync(string tagId, UpdateTagRequest request, string userId)
@@ -101,7 +118,8 @@ namespace Document.API.Services.Implements
             await _unitOfWork.GetRepository<Tag>().UpdateAsync(tagToUpdate);
             await _unitOfWork.CommitAsync();
 
-            return _mapper.Map<TagResponse>(tagToUpdate);
+            var response = _mapper.Map<TagResponse>(tagToUpdate);
+            return await _enrichmentService.EnrichTagResponseAsync(response);
         }
 
         public async Task DeleteTagAsync(string tagId)
