@@ -1,6 +1,8 @@
 ﻿using ChatBox.API.Services.Interfaces;
+using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using System.ComponentModel;
+using System.Text;
 
 namespace ChatBox.API.Plugins
 {
@@ -8,36 +10,52 @@ namespace ChatBox.API.Plugins
     {
         private readonly IDocumentSearchService _documentSearchService;
 
-        public DocumentSearchPlugin(IDocumentSearchService documentSearchService)
+        public DocumentSearchPlugin(
+            IDocumentSearchService documentSearchService)
         {
             _documentSearchService = documentSearchService;
         }
 
         [KernelFunction]
-        [Description("Tìm kiếm tài liệu nội bộ dựa trên từ khóa")]
+        [Description("Tìm kiếm thông tin trong tài liệu nội bộ để trả lời câu hỏi của người dùng")]
         public async Task<string> SearchDocuments(
-            [Description("Từ khóa tìm kiếm")] string query,
-            [Description("Số lượng kết quả tối đa")] int limit = 5)
+            [Description("Câu hỏi hoặc thông tin cần tìm kiếm")] string query,
+            [Description("ID người dùng")] string userId)
         {
-            var documents = await _documentSearchService.SearchDocumentsAsync(query, limit);
+            try
+            {
+                // ✅ Get RAG answer from Document microservice
+                var answer = await _documentSearchService.GetRAGAnswerWithSourcesAsync(query, userId);
 
-            if (!documents.Any())
-                return "Không tìm thấy tài liệu nào phù hợp.";
-
-            return $"Tìm thấy {documents.Count} tài liệu:\n" + string.Join("\n", documents);
+                return answer;
+            }
+            catch (Exception ex)
+            {
+                return "Đã xảy ra lỗi khi tìm kiếm tài liệu. Vui lòng thử lại sau.";
+            }
         }
 
         [KernelFunction]
-        [Description("Lấy nội dung chi tiết của tài liệu")]
-        public async Task<string> GetDocumentContent(
-            [Description("ID của tài liệu")] string documentId)
+        [Description("Tìm kiếm thông tin trong tài liệu chính thức/official của công ty")]
+        public async Task<string> SearchOfficialDocuments(
+            [Description("Câu hỏi cần tìm trong tài liệu chính thức")] string query,
+            [Description("ID người dùng")] string userId)
         {
-            var content = await _documentSearchService.GetDocumentContentAsync(documentId);
+            try
+            {
+                var result = await _documentSearchService.SearchOfficialDocumentsAsync(query, userId);
 
-            if (string.IsNullOrEmpty(content))
-                return "Không thể lấy nội dung tài liệu.";
+                if (result?.Success == true && !string.IsNullOrEmpty(result.Answer))
+                {
+                    return $"📋 **Thông tin chính thức:**\n{result.Answer}";
+                }
 
-            return content;
+                return "Không tìm thấy thông tin chính thức nào liên quan đến câu hỏi này.";
+            }
+            catch (Exception ex)
+            {
+                return "Đã xảy ra lỗi khi tìm kiếm tài liệu chính thức.";
+            }
         }
     }
 }

@@ -93,9 +93,8 @@ public static class DependencyService
         services.AddScoped<IChatService, ChatService>();
         services.AddScoped<ISemanticKernelService, SemanticKernelService>();
         services.AddScoped<ITokenCountService, TokenCountService>();
-        services.AddScoped<IContentFilterService, ContentFilterService>();
         services.AddScoped<IPreferenceService, PreferenceService>();
-        services.AddScoped<IUserPreferenceService, UserPreferenceService>();
+        services.AddSingleton<IDocumentSearchService, DocumentSearchService>();
         services.AddScoped<IAdminService, AdminService>();
 
         // Semantic Kernel plugins

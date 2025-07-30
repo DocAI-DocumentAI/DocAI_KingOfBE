@@ -1,8 +1,13 @@
-﻿namespace ChatBox.API.Services.Interfaces
+﻿using ChatBox.API.Payload.Response;
+
+namespace ChatBox.API.Services.Interfaces
 {
     public interface IDocumentSearchService
     {
-        Task<List<string>> SearchDocumentsAsync(string query, int limit = 5);
-        Task<string> GetDocumentContentAsync(string documentId);
+        Task<DocumentResponse?> SearchDocumentsWithRAGAsync(string query, string userId, int maxResults = 5);
+        Task<string> GetRAGAnswerAsync(string query, string userId);
+        Task<string> GetRAGAnswerWithSourcesAsync(string query, string userId);
+
+        Task<DocumentResponse?> SearchOfficialDocumentsAsync(string query, string userId);
     }
 }

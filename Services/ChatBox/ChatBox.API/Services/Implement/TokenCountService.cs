@@ -7,10 +7,13 @@ namespace ChatBox.API.Services.Implement
 {
     public class TokenCountService : ITokenCountService
     {
+        private readonly IConfiguration _configuration;
         private readonly Encoder _tokenizer;
-        public TokenCountService()
+        public TokenCountService(IConfiguration configuration)
         {
-            _tokenizer = ModelToEncoder.For("gpt-4");
+            _configuration = configuration;
+            var tokenizerModel = _configuration["ChatService:TokenizerModel"];
+            _tokenizer = ModelToEncoder.For(tokenizerModel);
         }
 
         public int CountTokens(string text)
@@ -22,9 +25,10 @@ namespace ChatBox.API.Services.Implement
             return tokens.Count;
         }
 
-        public bool IsWithinLimit(string text, int maxTokens = 4000)
+        public bool IsWithinLimit(string text, int? maxTokens = null)
         {
-            return CountTokens(text) <= maxTokens;
+            var limit = maxTokens ?? _configuration.GetValue<int>("ChatService:DefaultMaxTokens");
+            return CountTokens(text) <= limit;
         }
     }
 }

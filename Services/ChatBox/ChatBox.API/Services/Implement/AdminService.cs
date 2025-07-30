@@ -63,35 +63,5 @@ namespace ChatBox.API.Services.Implement
             await _unitOfWork.CommitAsync();
             return true;
         }
-
-        public async Task<List<ProhibitedWordResponse>> GetProhibitedWordsAsync()
-        {
-            var words = await _unitOfWork.GetRepository<ProhibitedWord>().GetListAsync();
-            return _mapper.Map<List<ProhibitedWordResponse>>(words);
-        }
-
-        public async Task<ProhibitedWordResponse> CreateProhibitedWordAsync(ProhibitedWordRequest request, string userId)
-        {
-            var word = _mapper.Map<ProhibitedWord>(request);
-            word.CreatedBy = userId;
-            word.UpdatedBy = userId;
-            word.CreatedAt = DateTime.UtcNow;
-            word.UpdatedAt = DateTime.UtcNow;
-            await _unitOfWork.GetRepository<ProhibitedWord>().InsertAsync(word);
-            await _unitOfWork.CommitAsync();
-
-            return _mapper.Map<ProhibitedWordResponse>(word);
-        }
-
-        public async Task<bool> DeleteProhibitedWordAsync(string id)
-        {
-            var word = await _unitOfWork.GetRepository<ProhibitedWord>().SingleOrDefaultAsync(predicate: x => x.Id == id);
-            if (word == null)
-                return false;
-
-            _unitOfWork.GetRepository<ProhibitedWord>().DeleteAsync(word);
-            await _unitOfWork.CommitAsync();
-            return true;
-        }
     }
 }

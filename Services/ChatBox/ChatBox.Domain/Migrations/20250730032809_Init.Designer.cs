@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ChatBox.Domain.Migrations
 {
     [DbContext(typeof(ChatBoxDbContext))]
-    [Migration("20250729191557_Init")]
+    [Migration("20250730032809_Init")]
     partial class Init
     {
         /// <inheritdoc />
@@ -166,40 +166,6 @@ namespace ChatBox.Domain.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("ChatSessions");
-                });
-
-            modelBuilder.Entity("ChatBox.Domain.Models.ProhibitedWord", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Word")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Word")
-                        .IsUnique();
-
-                    b.ToTable("ProhibitedWords");
                 });
 
             modelBuilder.Entity("ChatBox.Domain.Models.SessionPreference", b =>

@@ -13,8 +13,7 @@ namespace ChatBox.Domain.Models
 
         public DbSet<ChatSession> ChatSessions { get; set; }
         public DbSet<ChatMessage> ChatMessages { get; set; }
-        public DbSet<SessionPreference> SessionPreferences { get; set; }
-        public DbSet<ProhibitedWord> ProhibitedWords { get; set; }
+        public DbSet<UserPreference> UserPreferences { get; set; }
         public DbSet<AIConfiguration> AIConfigurations { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -35,21 +34,6 @@ namespace ChatBox.Domain.Models
                     .HasForeignKey(d => d.SessionId);
             });
 
-            modelBuilder.Entity<SessionPreference>(entity =>
-            {
-                entity.HasKey(e => e.Id);
-                entity.Property(e => e.Key).HasMaxLength(100);
-                entity.HasOne(d => d.Session)
-                    .WithMany(p => p.Preferences)
-                    .HasForeignKey(d => d.SessionId);
-            });
-
-            modelBuilder.Entity<ProhibitedWord>(entity =>
-            {
-                entity.HasKey(e => e.Id);
-                entity.Property(e => e.Word).IsRequired().HasMaxLength(200);
-                entity.HasIndex(e => e.Word).IsUnique();
-            });
 
             modelBuilder.Entity<AIConfiguration>(entity =>
             {

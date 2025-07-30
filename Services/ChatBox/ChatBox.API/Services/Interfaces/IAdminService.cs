@@ -9,9 +9,5 @@ namespace ChatBox.API.Services.Interfaces
         Task<AIConfigurationResponse> CreateAIConfigurationAsync(AIConfigurationRequest request, string userId);
         Task<AIConfigurationResponse> UpdateAIConfigurationAsync(string id, AIConfigurationRequest request, string userId);
         Task<bool> DeleteAIConfigurationAsync(string id);
-
-        Task<List<ProhibitedWordResponse>> GetProhibitedWordsAsync();
-        Task<ProhibitedWordResponse> CreateProhibitedWordAsync(ProhibitedWordRequest request, string userId);
-        Task<bool> DeleteProhibitedWordAsync(string id);
     }
 }

@@ -1,4 +1,5 @@
-﻿using AutoMapper;
+﻿using System.Text.Json;
+using AutoMapper;
 using ChatBox.API.Payload.Request;
 using ChatBox.API.Payload.Response;
 using ChatBox.API.Services.Interfaces;
@@ -18,61 +19,259 @@ namespace ChatBox.API.Services.Implement
             _mapper = mapper;
         }
 
-        public async Task<List<PreferenceResponse>> GetSessionPreferencesAsync(string sessionId)
+        public async Task<UserPreferenceResponse> GetUserChatPreferencesAsync(string userId)
         {
-            var preferences = await _unitOfWork.GetRepository<SessionPreference>()
-                .GetListAsync(predicate: p => p.SessionId == sessionId);
+            var userPreference = await _unitOfWork.GetRepository<UserPreference>()
+                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null && p.ApplyToNewChats == true);
 
-            return _mapper.Map<List<PreferenceResponse>>(preferences);
+            if (userPreference == null)
+            {
+                return new UserPreferenceResponse { UserId = userId };
+            }
+
+            return new UserPreferenceResponse
+            {
+                UserId = userId,
+                UserName = userPreference.UserName ?? "",
+                ChatbotCharacteristics = ParseChatbotCharacteristics(userPreference.ChatbotCharacteristics),
+                AdditionalInfo = userPreference.AdditionalInfo ?? "",
+                ApplyToNewChats = userPreference.ApplyToNewChats,
+                HasAnyPreferences = !string.IsNullOrEmpty(userPreference.UserName) ||
+                                  !string.IsNullOrEmpty(userPreference.ChatbotCharacteristics) ||
+                                  !string.IsNullOrEmpty(userPreference.AdditionalInfo)
+            };
         }
-
-        public async Task<PreferenceResponse> UpdatePreferenceAsync(string sessionId, UpdatePreferenceRequest request)
+        public async Task<UserPreferenceResponse> UpdateUserChatPreferencesAsync(string userId, UpdatePreferenceRequest request)
         {
-            var existingPreference = await _unitOfWork.GetRepository<SessionPreference>()
-                .SingleOrDefaultAsync(predicate: p => p.SessionId == sessionId && p.Key == request.Key);
+            var existingPreference = await _unitOfWork.GetRepository<UserPreference>()
+                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null && p.ApplyToNewChats == true);
 
             if (existingPreference != null)
             {
-                existingPreference.Value = request.Value;
+                // ✅ Update existing user-level preference
+                if (!string.IsNullOrEmpty(request.UserName))
+                    existingPreference.UserName = request.UserName;
+
+                if (request.ChatbotCharacteristics?.Any() == true)
+                    existingPreference.ChatbotCharacteristics = JsonSerializer.Serialize(request.ChatbotCharacteristics);
+
+                if (!string.IsNullOrEmpty(request.AdditionalInfo))
+                    existingPreference.AdditionalInfo = request.AdditionalInfo;
+
+                existingPreference.ApplyToNewChats = request.ApplyToNewChats;
                 existingPreference.UpdatedAt = DateTime.UtcNow;
-                _unitOfWork.GetRepository<SessionPreference>().UpdateAsync(existingPreference);
+                existingPreference.UpdatedBy = userId;
+
+                _unitOfWork.GetRepository<UserPreference>().UpdateAsync(existingPreference);
             }
             else
             {
-                var newPreference = new SessionPreference
+                // ✅ Create new user-level preference
+                var newPreference = new UserPreference
                 {
-                    SessionId = sessionId,
-                    Key = request.Key,
-                    Value = request.Value
+                    UserId = userId,
+                    SessionId = null, // User-level
+                    UserName = request.UserName,
+                    ChatbotCharacteristics = request.ChatbotCharacteristics?.Any() == true
+                        ? JsonSerializer.Serialize(request.ChatbotCharacteristics)
+                        : null,
+                    AdditionalInfo = request.AdditionalInfo,
+                    ApplyToNewChats = request.ApplyToNewChats,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    CreatedBy = userId,
+                    UpdatedBy = userId
                 };
-                await _unitOfWork.GetRepository<SessionPreference>().InsertAsync(newPreference);
-                existingPreference = newPreference;
+
+                await _unitOfWork.GetRepository<UserPreference>().InsertAsync(newPreference);
             }
 
             await _unitOfWork.CommitAsync();
-            return _mapper.Map<PreferenceResponse>(existingPreference);
+            return await GetUserChatPreferencesAsync(userId);
         }
 
-        public async Task<bool> DeletePreferenceAsync(string sessionId, string key)
+        public async Task<UserPreferenceResponse> GetSessionPreferencesAsync(string sessionId, string userId)
         {
-            var preference = await _unitOfWork.GetRepository<SessionPreference>()
-                .SingleOrDefaultAsync(predicate: p => p.SessionId == sessionId && p.Key == key);
+            var sessionPreference = await _unitOfWork.GetRepository<UserPreference>()
+                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == sessionId);
+
+            if (sessionPreference == null)
+            {
+                return new UserPreferenceResponse { UserId = userId, SessionId = sessionId };
+            }
+
+            return new UserPreferenceResponse
+            {
+                UserId = userId,
+                SessionId = sessionId,
+                UserName = sessionPreference.UserName ?? "",
+                ChatbotCharacteristics = ParseChatbotCharacteristics(sessionPreference.ChatbotCharacteristics),
+                AdditionalInfo = sessionPreference.AdditionalInfo ?? "",
+                ApplyToNewChats = sessionPreference.ApplyToNewChats,
+                HasAnyPreferences = !string.IsNullOrEmpty(sessionPreference.UserName) ||
+                                  !string.IsNullOrEmpty(sessionPreference.ChatbotCharacteristics) ||
+                                  !string.IsNullOrEmpty(sessionPreference.AdditionalInfo)
+            };
+        }
+
+        public async Task<UserPreferenceResponse> UpdateSessionPreferencesAsync(string sessionId, string userId, UpdatePreferenceRequest request)
+        {
+            var existingPreference = await _unitOfWork.GetRepository<UserPreference>()
+                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == sessionId);
+
+            if (existingPreference != null)
+            {
+                if (!string.IsNullOrEmpty(request.UserName))
+                    existingPreference.UserName = request.UserName;
+
+                if (request.ChatbotCharacteristics?.Any() == true)
+                    existingPreference.ChatbotCharacteristics = JsonSerializer.Serialize(request.ChatbotCharacteristics);
+
+                if (!string.IsNullOrEmpty(request.AdditionalInfo))
+                    existingPreference.AdditionalInfo = request.AdditionalInfo;
+
+                existingPreference.ApplyToNewChats = request.ApplyToNewChats;
+                existingPreference.UpdatedAt = DateTime.UtcNow;
+                existingPreference.UpdatedBy = userId;
+
+                _unitOfWork.GetRepository<UserPreference>().UpdateAsync(existingPreference);
+            }
+            else
+            {
+                // ✅ Create new session preference
+                var newPreference = new UserPreference
+                {
+                    UserId = userId,
+                    SessionId = sessionId, // Session-specific
+                    UserName = request.UserName,
+                    ChatbotCharacteristics = request.ChatbotCharacteristics?.Any() == true
+                        ? JsonSerializer.Serialize(request.ChatbotCharacteristics)
+                        : null,
+                    AdditionalInfo = request.AdditionalInfo,
+                    ApplyToNewChats = request.ApplyToNewChats,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    CreatedBy = userId,
+                    UpdatedBy = userId
+                };
+
+                await _unitOfWork.GetRepository<UserPreference>().InsertAsync(newPreference);
+            }
+
+            await _unitOfWork.CommitAsync();
+            return await GetSessionPreferencesAsync(sessionId, userId);
+        }
+        public async Task<UserPreferenceResponse> GetEffectivePreferencesAsync(string sessionId, string userId)
+        {
+            // Priority 1: Session-specific preferences
+            var sessionPreference = await _unitOfWork.GetRepository<UserPreference>()
+                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == sessionId);
+
+            // Priority 2: User-level preferences with ApplyToNewChats = true
+            var userPreference = await _unitOfWork.GetRepository<UserPreference>()
+                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null && p.ApplyToNewChats == true);
+
+            // ✅ Merge preferences với session override user
+            var effectivePreference = new UserPreferenceResponse
+            {
+                UserId = userId,
+                SessionId = sessionId,
+                UserName = sessionPreference?.UserName ?? userPreference?.UserName ?? "",
+                ChatbotCharacteristics = sessionPreference?.ChatbotCharacteristics != null
+                    ? ParseChatbotCharacteristics(sessionPreference.ChatbotCharacteristics)
+                    : ParseChatbotCharacteristics(userPreference?.ChatbotCharacteristics),
+                AdditionalInfo = sessionPreference?.AdditionalInfo ?? userPreference?.AdditionalInfo ?? "",
+                ApplyToNewChats = sessionPreference?.ApplyToNewChats ?? userPreference?.ApplyToNewChats ?? false
+            };
+
+            effectivePreference.HasAnyPreferences =
+                !string.IsNullOrEmpty(effectivePreference.UserName) ||
+                effectivePreference.ChatbotCharacteristics.Any() ||
+                !string.IsNullOrEmpty(effectivePreference.AdditionalInfo);
+
+            return effectivePreference;
+        }
+        public async Task<bool> DeleteUserPreferencesAsync(string userId)
+        {
+            var preference = await _unitOfWork.GetRepository<UserPreference>()
+                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null && p.ApplyToNewChats == true);
 
             if (preference == null)
                 return false;
 
-            _unitOfWork.GetRepository<SessionPreference>().DeleteAsync(preference);
+            _unitOfWork.GetRepository<UserPreference>().DeleteAsync(preference);
             await _unitOfWork.CommitAsync();
             return true;
         }
 
-        public async Task<string> GetPreferenceValueAsync(string sessionId, string key)
+        public async Task<bool> DeleteSessionPreferencesAsync(string sessionId, string userId)
         {
-            var preference = await _unitOfWork.GetRepository<SessionPreference>()
-                .SingleOrDefaultAsync(predicate: p => p.SessionId == sessionId && p.Key == key);
+            var preference = await _unitOfWork.GetRepository<UserPreference>()
+                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == sessionId);
 
-            return preference?.Value;
+            if (preference == null)
+                return false;
+
+            _unitOfWork.GetRepository<UserPreference>().DeleteAsync(preference);
+            await _unitOfWork.CommitAsync();
+            return true;
+        }
+
+
+        public async Task<bool> HasUserPreferencesAsync(string userId)
+        {
+            var preference = await _unitOfWork.GetRepository<UserPreference>()
+                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null && p.ApplyToNewChats == true);
+
+            return preference != null && (
+                !string.IsNullOrEmpty(preference.UserName) ||
+                !string.IsNullOrEmpty(preference.ChatbotCharacteristics) ||
+                !string.IsNullOrEmpty(preference.AdditionalInfo)
+            );
+        }
+
+        // ✅ HELPER METHODS
+
+        private List<string> ParseChatbotCharacteristics(string? characteristicsJson)
+        {
+            if (string.IsNullOrEmpty(characteristicsJson))
+                return new List<string>();
+
+            try
+            {
+                return JsonSerializer.Deserialize<List<string>>(characteristicsJson) ?? new List<string>();
+            }
+            catch
+            {
+                return characteristicsJson.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim())
+                    .ToList();
+            }
+        }
+
+        public async Task<List<PreferenceResponse>> GetSessionPreferencesAsync(string sessionId)
+        {
+            var session = await _unitOfWork.GetRepository<ChatSession>()
+                .SingleOrDefaultAsync(predicate: s => s.Id == sessionId);
+
+            if (session == null) return new List<PreferenceResponse>();
+
+            var preferences = await GetEffectivePreferencesAsync(sessionId, session.UserId);
+
+            var result = new List<PreferenceResponse>();
+
+            if (!string.IsNullOrEmpty(preferences.UserName))
+                result.Add(new PreferenceResponse { Key = "UserName", Value = preferences.UserName });
+
+            if (preferences.ChatbotCharacteristics.Any())
+                result.Add(new PreferenceResponse { Key = "ChatbotCharacter", Value = JsonSerializer.Serialize(preferences.ChatbotCharacteristics) });
+
+            if (!string.IsNullOrEmpty(preferences.AdditionalInfo))
+                result.Add(new PreferenceResponse { Key = "AdditionalInfo", Value = preferences.AdditionalInfo });
+
+            return result;
         }
     }
+
 }
 

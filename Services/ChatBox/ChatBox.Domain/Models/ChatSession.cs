@@ -13,7 +13,7 @@ namespace ChatBox.Domain.Models
         public bool IsActive { get; set; } = true;
         public DateTime LastActiveAt { get; set; } = DateTime.UtcNow;
         public virtual ICollection<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
-        public virtual ICollection<SessionPreference> Preferences { get; set; } = new List<SessionPreference>();
+        public virtual ICollection<UserPreference> Preferences { get; set; } = new List<UserPreference>();
 
     }
 }
