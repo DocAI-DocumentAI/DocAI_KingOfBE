@@ -23,14 +23,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Build AI.API (test only)
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: Services/AI/AI.API/Dockerfile
-          push: false # Chỉ build, không push
-          tags: docai-ai-api:test
-
       - name: Build Auth.API (test only)
         uses: docker/build-push-action@v4
         with:
@@ -87,14 +79,6 @@ jobs:
         with:
           username: ${{ env.DOCKER_HUB_USERNAME }}
           password: ${{ env.DOCKER_HUB_ACCESS_TOKEN }}
-      # Build and push AI.API
-      - name: Build and push AI.API
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: Services/AI/AI.API/Dockerfile
-          push: true
-          tags: magicflexing/docai-ai-api:latest
 
       # Build and push Auth.API
       - name: Build and push Auth.API
