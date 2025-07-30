@@ -2,6 +2,8 @@
 using System.Security.Claims;
 using System.Text;
 using ChatBox.API.Mappers;
+using ChatBox.API.Middlewares;
+using ChatBox.API.Plugins;
 using ChatBox.API.Services.Implement;
 using ChatBox.API.Services.Interfaces;
 using ChatBox.Domain.Models;
@@ -46,60 +48,59 @@ public static class DependencyService
     private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(IServiceProvider serviceProvider)
     {
         return HttpPolicyExtensions
-            .HandleTransientHttpError()
-            .OrResult(msg => msg.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
-            .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
-                onRetry: (outcome, timespan, retryAttempt, context) =>
-                {
-                    var logger = serviceProvider.GetService<ILogger<AIClient>>();
-                    logger?.LogWarning("Retrying HTTP request. Attempt {RetryAttempt} after {Timespan} due to {Reason}",
-                        retryAttempt, timespan, outcome.Exception?.Message ?? outcome.Result?.ReasonPhrase);
-                });
+              .HandleTransientHttpError()
+              .OrResult(msg => msg.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+              .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
+                  onRetry: (outcome, timespan, retryAttempt, context) =>
+                  {
+                      var logger = serviceProvider.GetService<ILogger<DocumentSearchService>>();
+                      logger?.LogWarning("Retrying HTTP request. Attempt {RetryAttempt} after {Timespan} due to {Reason}",
+                          retryAttempt, timespan, outcome.Exception?.Message ?? outcome.Result?.ReasonPhrase);
+                  });
     }
-
-    private static IAsyncPolicy<HttpResponseMessage> GetCircuitBreakerPolicy(IServiceProvider serviceProvider)
-    {
-        return HttpPolicyExtensions
-            .HandleTransientHttpError()
-            .CircuitBreakerAsync(5, TimeSpan.FromSeconds(30),
-                onBreak: (outcome, timespan, context) =>
-                {
-                    var logger = serviceProvider.GetService<ILogger<AIClient>>();
-                    logger?.LogError("Circuit breaker opened for {Timespan} due to {Reason}",
-                        timespan, outcome.Exception?.Message);
-                },
-                onReset: context =>
-                {
-                    var logger = serviceProvider.GetService<ILogger<AIClient>>();
-                    logger?.LogInformation("Circuit breaker reset");
-                });
-    }
-
     public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddDatabase();
         services.AddUnitOfWork();
 
-        services.AddHttpClient<IAIClient, AIClient>(client =>
-        {
-            client.BaseAddress = new Uri(configuration["ChatService:AIMicroserviceBaseUrl"]
-                ?? throw new InvalidOperationException("AI Microservice Base URL is missing."));
-        })
-             .SetHandlerLifetime(TimeSpan.FromMinutes(5))
-             .AddPolicyHandler((serviceProvider, request) => GetRetryPolicy(serviceProvider))
-             .AddPolicyHandler((serviceProvider, request) => GetCircuitBreakerPolicy(serviceProvider));
-
         services.AddHttpContextAccessor();
         services.AddAutoMapper(typeof(MappingProfile).Assembly);
 
-        services.AddHttpClient<IDocumentClient, DocumentClient>(client =>
+        services.AddMemoryCache();
+        var redisConnection = configuration.GetConnectionString("Redis");
+        if (!string.IsNullOrEmpty(redisConnection))
         {
-            client.BaseAddress = new Uri(configuration["ChatService:DocumentMicroserviceBaseUrl"] ?? throw new InvalidOperationException("Document Microservice Base URL is missing."));
-        })
-        .SetHandlerLifetime(TimeSpan.FromMinutes(5));
+            services.AddStackExchangeRedisCache(options =>
+            {
+                options.Configuration = redisConnection;
+                options.InstanceName = "ChatBox";
+            });
+        }
 
-        services.AddScoped<IDocumentClient, MockDocumentClient>();
+        services.AddHttpClient<IDocumentSearchService, DocumentSearchService>(client =>
+        {
+            var documentServiceUrl = configuration["ChatService:DocumentMicroserviceBaseUrl"];
+            if (!string.IsNullOrEmpty(documentServiceUrl))
+            {
+                client.BaseAddress = new Uri(documentServiceUrl);
+            }
+            var timeout = configuration.GetValue("ChatService:RequestTimeoutSeconds", 120);
+            client.Timeout = TimeSpan.FromSeconds(timeout);
+        })
+             .AddPolicyHandler((serviceProvider, request) => GetRetryPolicy(serviceProvider));
+
+        // Application services
         services.AddScoped<IChatService, ChatService>();
+        services.AddScoped<ISemanticKernelService, SemanticKernelService>();
+        services.AddScoped<ITokenCountService, TokenCountService>();
+        services.AddScoped<IContentFilterService, ContentFilterService>();
+        services.AddScoped<IPreferenceService, PreferenceService>();
+        services.AddScoped<IUserPreferenceService, UserPreferenceService>();
+        services.AddScoped<IAdminService, AdminService>();
+
+        // Semantic Kernel plugins
+        services.AddScoped<DocumentSearchPlugin>();
+        services.AddScoped<TimePlugin>();
 
         return services;
     }

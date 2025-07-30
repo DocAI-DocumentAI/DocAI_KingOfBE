@@ -53,7 +53,6 @@ try
 
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 
-    builder.Services.AddAuthentication();
     builder.Services.AddAuthorization();
 
     builder.Services.AddControllers();
@@ -96,7 +95,6 @@ try
 
     app.UseSerilogRequestLogging();
     app.UseCors(CorConstant.PolicyName);
-    app.UseHttpsRedirection();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseAuthentication();
     app.UseAuthorization();

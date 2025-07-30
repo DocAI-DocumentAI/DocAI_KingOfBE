@@ -265,41 +265,38 @@ public class NotificationService : INotificationService
     }
     public async Task SendGeneralNotificationAsync(SendGeneralNotificationCommand command)
     {
-        // 1. Lấy mẫu template
+        _logger.LogInformation("[START] Processing SendGeneralNotificationCommand for template: {TemplateName}", command.TemplateName);
         var template = await _emailTemplateService.GetEmailTemplateByNameAsync(command.TemplateName);
         if (template == null)
         {
-            _logger.LogWarning("Could not find email template with name: {TemplateName}. Aborting notification.", command.TemplateName);
+            _logger.LogWarning("[EXIT] Template not found: {TemplateName}. Aborting.", command.TemplateName);
             return;
         }
+        _logger.LogInformation("Step 1/4: Template '{TemplateName}' found successfully.", command.TemplateName);
 
-        // 2. Tìm kiếm và tổng hợp người nhận
         var (uniqueUsers, directEmails) = await ResolveRecipientsAsync(command.Recipients);
         if (!uniqueUsers.Any() && !directEmails.Any())
         {
             _logger.LogWarning("No recipients found for notification with template: {TemplateName}", command.TemplateName);
             return;
         }
+        _logger.LogInformation("Step 2/4: Resolved {UserCount} unique users and {EmailCount} direct emails.", uniqueUsers.Count, directEmails.Count);
 
         // 3. Render nội dung
         var subject = _templateRenderer.Render(template.Subject, command.TemplateData);
         var body = _templateRenderer.Render(template.BodyHtml, command.TemplateData);
+        _logger.LogInformation("Step 3/4: Content rendered successfully. Subject: '{Subject}'", subject);
 
         // 4. Gửi thông báo theo các kênh được chọn
         if (command.Channels.HasFlag(DeliveryChannel.Email))
         {
             var emailRecipients = uniqueUsers.Select(u => u.Email).Concat(directEmails).Distinct();
-            foreach (var email in emailRecipients)
-            {
-                await _emailService.SendEmailAsync(email, subject, body);
-                // (Tùy chọn) Ghi log cho từng email
-            }
+            await SendEmailsToRecipientsAsync(emailRecipients, subject, body);
         }
 
         if (command.Channels.HasFlag(DeliveryChannel.SystemAlert) && uniqueUsers.Any())
         {
-            var userIds = uniqueUsers.Select(u => u.UserId.ToString()).ToList();
-            await _hubContext.Clients.Users(userIds).SendAsync("ReceiveNotification", new { Subject = subject, Message = body });
+            await SendSystemAlertsToRecipientsAsync(uniqueUsers, subject, body);
         }
 
         _logger.LogInformation("Successfully processed notification command for template {TemplateName}", command.TemplateName);
@@ -350,6 +347,83 @@ public class NotificationService : INotificationService
         // - Danh sách người dùng duy nhất đã được phân giải.
         // - Danh sách email trực tiếp được gửi kèm (nếu có).
         return (uniqueUserSet.Values.ToList(), recipients.EmailAddresses ?? new List<string>());
+    }
+    private async Task SendEmailsToRecipientsAsync(IEnumerable<string> emailAddresses, string subject, string body)
+    {
+        if (!emailAddresses.Any())
+        {
+            _logger.LogInformation("Step 4a/4: No email recipients to send to.");
+            return;
+        }
+
+        _logger.LogInformation("Step 4a/4: Preparing to send emails to {Count} recipients.", emailAddresses.Count());
+
+        foreach (var email in emailAddresses)
+        {
+            _logger.LogInformation("Attempting to send email to: {Email}", email);
+
+            bool success = await _emailService.SendEmailAsync(email, subject, body);
+            var emailLog = new NotificationLog
+            {
+                // Vì đây là thông báo chung, không gắn với tài liệu nào cụ thể.
+                DocumentId = Guid.Empty,
+                DocumentVersion = null,
+                NotificationType = NotificationType.General,
+                RecipientType = RecipientType.Email,
+                RecipientAddress = email,
+                Subject = subject,
+                Message = body,
+                IsSent = success,
+                SentAt = success ? DateTime.UtcNow : null,
+                ErrorMessage = success ? null : "Failed to send via the configured email provider.",
+                IsDismissed = false,
+                DismissedAt = null,
+                DismissedByUserId = null,
+                DismissToken = null
+            };
+
+            // Gọi đến service log để lưu
+            await _logService.CreateLogAsync(emailLog);
+        }
+    }
+    private async Task SendSystemAlertsToRecipientsAsync(IEnumerable<UserDetailResponseExternal> users, string subject, string message)
+    {
+        if (!users.Any())
+        {
+            return;
+        }
+
+        var userIds = users.Select(u => u.UserId.ToString()).ToList();
+        _logger.LogInformation("Step 4b/4: Preparing to send system alerts to {Count} users.", userIds.Count);
+
+        // 1. Gửi thông báo qua SignalR Hub
+        // .Clients.Users(userIds) sẽ chỉ gửi đến các kết nối của những user ID này.
+        // "ReceiveNotification" là tên sự kiện mà client (frontend) sẽ lắng nghe.
+        await _hubContext.Clients.Users(userIds).SendAsync("ReceiveNotification", new
+        {
+            Type = NotificationType.General.ToString(),
+            Subject = subject,
+            Message = message, // Có thể là một phiên bản rút gọn của nội dung email
+            Timestamp = DateTime.UtcNow
+        });
+
+        // 2. Tạo một bản ghi log cho hành động này
+        var alertLog = new NotificationLog
+        {
+            DocumentId = Guid.Empty, // Không gắn với tài liệu cụ thể
+            NotificationType = NotificationType.General,
+            RecipientType = RecipientType.SystemAlert, // Đánh dấu kênh gửi là SystemAlert
+            RecipientAddress = string.Join(",", userIds), // Lưu danh sách user ID đã nhận
+            Subject = subject,
+            Message = message,
+            IsSent = true, // SendAsync của SignalR là "fire-and-forget", ta mặc định là đã gửi thành công
+            SentAt = DateTime.UtcNow,
+            ErrorMessage = null,
+            IsDismissed = false
+        };
+
+        // 3. Lưu bản ghi log vào database
+        await _logService.CreateLogAsync(alertLog);
     }
 }
 

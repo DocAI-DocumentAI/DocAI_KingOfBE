@@ -7,11 +7,13 @@ using System.Threading.Tasks;
 
 namespace ChatBox.Domain.Models
 {
-    public abstract class BaseEntity
+    public class BaseEntity
     {
         [Key]
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
-        public DateTime CreateAt { get; set; } = DateTime.UtcNow;
-        public DateTime UpdateAt { get; set; } = DateTime.UtcNow;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime? UpdatedAt { get; set; } = DateTime.UtcNow;
+        public string? CreatedBy { get; set; }
+        public string? UpdatedBy { get; set; }
     }
 }

@@ -1,169 +1,392 @@
-﻿using System.Text;
-using AI.API.Constants;
+﻿using System;
+using System.ComponentModel.DataAnnotations;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Linq;
+using AI.API.Atributte;
+using AI.API.Extensions;
 using AI.API.Payload.Request;
 using AI.API.Payload.Response;
+using AI.API.Services.Interface;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.KernelMemory.AI;
+using Microsoft.Extensions.Logging;
+using AutoMapper;
+using System.Security.Claims;
+using System.Text.Json;
+using AI.Domain.Models;
 
 namespace AI.API.Controllers
 {
     [ApiController]
-    [Route(ApiEndPointConstant.ApiEndpoint)]
-    [Authorize] 
+    [Route("api/ai")]
+    [Produces("application/json")]
     public class AIController : ControllerBase
     {
-        private readonly ITextGenerator _textGenerator; // REVIEW POINT: Inject ITextGenerator của KM
-        private readonly ITextEmbeddingGenerator _embeddingGenerator; // REVIEW POINT: Inject ITextEmbeddingGenerator của KM
+        private readonly IAIService _aiService;
+        private readonly IMapper _mapper;
         private readonly ILogger<AIController> _logger;
-
         public AIController(
-                          ILogger<AIController> logger,
-                          ITextGenerator textGenerator,
-                          ITextEmbeddingGenerator embeddingGenerator)
+           IAIService aiService,
+           IMapper mapper,
+           ILogger<AIController> logger)
         {
+            _aiService = aiService ?? throw new ArgumentNullException(nameof(aiService));
+            _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _textGenerator = textGenerator ?? throw new ArgumentNullException(nameof(textGenerator));
-            _embeddingGenerator = embeddingGenerator ?? throw new ArgumentNullException(nameof(embeddingGenerator));
         }
+        #region Text Generation
 
-        [HttpPost("generate")] // Endpoint cho Chat Completion
-        [ProducesResponseType(typeof(AIResponse), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(IAsyncEnumerable<string>), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> Generate([FromBody] AIRequest request)
+        [HttpPost("generate")]
+        [RateLimit(MaxRequests = 30, WindowInMinutes = 1)]
+        public async Task<IActionResult> GenerateAsync(
+              [FromBody] GenerateRequest request,
+              CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrEmpty(request.Question))
-            {
-                _logger.LogError("Generate request received with empty question.");
-                return BadRequest("Question cannot be empty.");
-            }
-
             try
             {
-                // Xây dựng prompt tương tự như ChatService sẽ làm
-                // AI Microservice này chỉ đóng vai trò là connector,
-                // nên nó mong đợi prompt đã được xây dựng sẵn từ Chat Service.
-                // Tuy nhiên, để API này có thể test độc lập hoặc dùng cho mục đích khác,
-                // chúng ta vẫn xây dựng prompt tại đây nếu Documents được cung cấp.
-                var promptBuilder = new StringBuilder();
-                if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
-                {
-                    promptBuilder.AppendLine(request.SystemPrompt);
-                }
-                promptBuilder.AppendLine("User's question: " + request.Question);
-                if (request.Documents != null && request.Documents.Any())
-                {
-                    promptBuilder.AppendLine("\n--- Relevant Documents ---");
-                    foreach (var doc in request.Documents.OrderBy(d => d.DocumentName).ThenBy(d => d.ChunkId))
-                    {
-                        promptBuilder.AppendLine($"Document: {doc.DocumentName ?? "N/A"} (Title: {doc.Title ?? "N/A"})");
-                        promptBuilder.AppendLine($"Chunk ID: {doc.ChunkId}");
-                        promptBuilder.AppendLine($"Content:\n{doc.Content}");
-                        promptBuilder.AppendLine("---");
-                    }
-                    promptBuilder.AppendLine("--- End of Relevant Documents ---");
-                }
-                var fullPrompt = promptBuilder.ToString();
+                var userId = User.FindFirstValue("userId") ?? "anonymous";
+                request.UserId = userId;
 
-                // Lấy các tùy chọn từ IConfiguration
-                var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>(); // Lấy IConfiguration qua ServiceProvider
-                var textGenerationOptions = new TextGenerationOptions // Options của KM
-                {
-                    Temperature = config.GetValue<double>("Ollama:Temperature", 0.7),
-                    NucleusSampling = config.GetValue<double>("Ollama:TopP", 0.9), // NucleusSampling tương ứng với TopP
-                    MaxTokens = config.GetValue<int?>("Ollama:NumPredict", 1024) // MaxTokens tương ứng với NumPredict
-                };
+                AIResponse response;
 
-                if (request.StreamResponse)
+                if (request.Context?.Any() == true || request.ConversationHistory?.Any() == true)
                 {
-                    _logger.LogInformation("Streaming response requested for AI generation.");
-                    // REVIEW POINT: Gọi GenerateTextAsync của ITextGenerator
-                    return Ok(StreamGeneratedText(fullPrompt, textGenerationOptions));
+                    var contextRequest = _mapper.Map<AIContextRequest>(request);
+                    response = await _aiService.GenerateWithContextAsync(contextRequest, cancellationToken);
+                }
+                else if (!string.IsNullOrEmpty(request.Model))
+                {
+                    var aiRequest = _mapper.Map<AIRequest>(request);
+                    response = await _aiService.GenerateWithModelAsync(request.Model, aiRequest, cancellationToken);
                 }
                 else
                 {
-                    _logger.LogInformation("Non-streaming response requested for AI generation.");
-                    // REVIEW POINT: Gọi GenerateTextAsync của ITextGenerator và nối chuỗi
-                    var responseBuilder = new StringBuilder();
-                    await foreach (var chunk in _textGenerator.GenerateTextAsync(fullPrompt, textGenerationOptions))
-                    {
-                        responseBuilder.Append(chunk.Text);
-                    }
-                    // Tên model có thể lấy từ IConfiguration
-                    var modelUsed = config.GetValue<string>("Ollama:TextGenerationModel") ?? "unknown";
-                    return Ok(new AIResponse
-                    {
-                        Answer = responseBuilder.ToString().Trim(),
-                        ModelUsed = modelUsed
-                    });
+                    var aiRequest = _mapper.Map<AIRequest>(request);
+                    response = await _aiService.GenerateAnswerAsync(aiRequest, cancellationToken);
                 }
+
+                return Ok(response);
             }
-            catch (ApplicationException appEx)
+            catch (OperationCanceledException)
             {
-                _logger.LogError(appEx, "Application error during AI generation.");
-                return Problem(detail: appEx.Message, statusCode: StatusCodes.Status500InternalServerError, title: "AI Generation Error");
+                _logger.LogWarning("Answer generation request was cancelled for user: {UserId}", request?.UserId);
+                return BadRequest(new ErrorResponse { Message = "Request was cancelled" });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An unexpected error occurred during AI generation.");
-                return Problem(detail: "An unexpected error occurred. Please try again later.", statusCode: StatusCodes.Status500InternalServerError, title: "Unexpected Server Error");
-            }
-        }
-        // REVIEW POINT: Thêm Endpoint mới cho Embedding Generation
-        private async IAsyncEnumerable<string> StreamGeneratedText(string prompt, TextGenerationOptions options)
-        {
-            await foreach (var chunk in _textGenerator.GenerateTextAsync(prompt, options))
-            {
-                if (chunk?.Text != null)
-                {
-                    yield return chunk.Text;
-                }
+                _logger.LogError(ex, "Error generating answer for user: {UserId}", request?.UserId);
+                return StatusCode(500, new ErrorResponse { Message = "Internal server error occurred" });
             }
         }
 
-        [HttpPost("embeddings")] // Endpoint cho Embedding Generation
-        [ProducesResponseType(typeof(EmbeddingResponse), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GenerateEmbedding([FromBody] EmbeddingRequest request)
+        [HttpPost("generate/basic")]
+        [RateLimit(MaxRequests = 30, WindowInMinutes = 1)]
+        public async Task<IActionResult> GenerateBasicAsync(
+          [FromBody] AIRequest request,
+          CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrEmpty(request.Text))
-            {
-                _logger.LogError("Embedding request received with empty text.");
-                return BadRequest("Input text for embedding cannot be empty.");
-            }
-
             try
             {
-                _logger.LogInformation($"Embedding generation requested for text (length: {request.Text.Length}).");
-                // REVIEW POINT: Gọi GenerateEmbeddingAsync của ITextEmbeddingGenerator
-                var embedding = await _embeddingGenerator.GenerateEmbeddingAsync(request.Text);
+                // Enrich request with user context
+                request.UserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous";
 
-                var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-                var modelUsed = config.GetValue<string>("Ollama:EmbeddingModel") ?? "unknown";
-                return Ok(new EmbeddingResponse
-                {
-                    Embedding = embedding.Data.ToArray().ToList(), // Chuyển ReadOnlyMemory<float> sang List<float>
-                    ModelUsed = modelUsed // Lấy tên model từ IConfiguration
-                });
+                var response = await _aiService.GenerateAnswerAsync(request, cancellationToken);
+                return Ok(response);
             }
-            catch (ArgumentException argEx)
+            catch (OperationCanceledException)
             {
-                _logger.LogError(argEx, "Invalid argument for embedding generation.");
-                return BadRequest(argEx.Message);
-            }
-            catch (ApplicationException appEx)
-            {
-                _logger.LogError(appEx, "Application error during embedding generation.");
-                return Problem(detail: appEx.Message, statusCode: StatusCodes.Status500InternalServerError, title: "Embedding Generation Error");
+                _logger.LogWarning("Basic generation request was cancelled for user: {UserId}", request?.UserId);
+                return BadRequest(new ErrorResponse { Message = "Request was cancelled" });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An unexpected error occurred during embedding generation.");
-                return Problem(detail: "An unexpected error occurred. Please try again later.", statusCode: StatusCodes.Status500InternalServerError, title: "Unexpected Server Error");
+                _logger.LogError(ex, "Error in basic generation for user: {UserId}", request?.UserId);
+                return StatusCode(500, new ErrorResponse { Message = "Internal server error occurred" });
             }
         }
+
+        #endregion
+
+        #region Streaming Generation
+        [HttpPost("stream")]
+        [RateLimit(MaxRequests = 10, WindowInMinutes = 1)]
+        public async Task StreamAsync(
+           [FromBody] StreamRequest request,
+           CancellationToken cancellationToken = default)
+        {
+            try
+            {
+
+                // Enrich request with user context
+                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous";
+                request.UserId = userId;
+
+                Response.ContentType = "text/plain; charset=utf-8";
+                Response.Headers["Cache-Control"] = "no-cache";
+                Response.Headers["Connection"] = "keep-alive";
+                Response.Headers["Access-Control-Allow-Origin"] = "*";
+
+                // Check if this is a contextual request
+                if (request.Context?.Any() == true || request.ConversationHistory?.Any() == true)
+                {
+                    var contextRequest = _mapper.Map<AIContextRequest>(request);
+
+                    await foreach (var chunk in _aiService.StreamWithContextAsync(contextRequest, cancellationToken))
+                    {
+                        if (cancellationToken.IsCancellationRequested) break;
+
+                        var json = JsonSerializer.Serialize(chunk);
+                        await Response.WriteAsync($"data: {json}\n\n", cancellationToken);
+                        await Response.Body.FlushAsync(cancellationToken);
+
+                        if (chunk.IsComplete) break;
+                    }
+                }
+                else
+                {
+                    var aiRequest = _mapper.Map<AIRequest>(request);
+
+                    await foreach (var chunk in _aiService.StreamGenerateAnswerAsync(aiRequest, cancellationToken))
+                    {
+                        if (cancellationToken.IsCancellationRequested) break;
+
+                        var json = JsonSerializer.Serialize(chunk);
+                        await Response.WriteAsync($"data: {json}\n\n", cancellationToken);
+                        await Response.Body.FlushAsync(cancellationToken);
+
+                        if (chunk.IsComplete) break;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Streaming generation was cancelled for user: {UserId}", request?.UserId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in streaming generation for user: {UserId}", request?.UserId);
+                Response.StatusCode = 500;
+
+                var errorChunk = new StreamChunk
+                {
+                    Content = $"Error: {ex.Message}",
+                    IsComplete = true,
+                    RequestId = Guid.NewGuid().ToString("N")[..8]
+                };
+
+                var json = JsonSerializer.Serialize(errorChunk);
+                await Response.WriteAsync($"data: {json}\n\n", cancellationToken);
+            }
+        }
+
+        #endregion
+
+        #region Model Management
+
+        [HttpGet("models")]
+        [ProducesResponseType(typeof(List<AIModel>), 200)]
+        [ProducesResponseType(typeof(ErrorResponse), 500)]
+        public async Task<List<AIModel>> GetModelsAsync()
+        {
+            try
+            {
+                return await _aiService.GetAvailableModelsAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting available models");
+                return new List<AIModel>();
+            }
+        }
+        [HttpGet("models/{modelId}/capabilities")]
+        public async Task<IActionResult> GetModelCapabilitiesAsync(string modelId)
+        {
+            try
+            {
+                var capabilities = await _aiService.GetModelCapabilitiesAsync(modelId);
+
+                if (capabilities == null || !capabilities.SupportsTextGeneration)
+                {
+                    return NotFound($"Model {modelId} not found or not available");
+                }
+
+                return Ok(capabilities);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting model capabilities for {ModelId}", modelId);
+                return StatusCode(500, ex.Message);
+            }
+        }
+        [HttpPost("models/switch/validate")]
+        public async Task<ModelSwitchResponse> ValidateModelSwitchAsync([FromBody] ModelSwitchRequest request)
+        {
+            try
+            {
+                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous";
+                request.UserId = userId;
+
+                var models = await _aiService.GetAvailableModelsAsync();
+                var targetModel = models.FirstOrDefault(m => m.Id == request.NewModelId);
+
+                if (targetModel == null || !targetModel.IsAvailable)
+                {
+                    return new ModelSwitchResponse
+                    {
+                        Success = false,
+                        Message = "Model not available",
+                        SessionId = request.SessionId
+                    };
+                }
+
+                _logger.LogInformation("Model switch validated for user {UserId}: {ModelId}", userId, request.NewModelId);
+
+                return new ModelSwitchResponse
+                {
+                    Success = true,
+                    Message = "Model switch validated successfully",
+                    NewModel = request.NewModelId,
+                    SessionId = request.SessionId
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error validating model switch");
+                return new ModelSwitchResponse
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    SessionId = request.SessionId
+                };
+            }
+        }
+        [HttpGet("models/{modelType}/validate")]
+        public async Task<bool> ValidateModelAvailabilityAsync(string modelType, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                return await _aiService.ValidateModelAvailabilityAsync(modelType, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error validating model availability for type: {ModelType}", modelType);
+                return false;
+            }
+        }
+        #endregion
+
+        #region Utility Features
+
+        [HttpPost("tokens/count")]
+        public async Task<TokenCountResult> CountTokensAsync([FromBody] TokenCountRequest request)
+        {
+            try
+            {
+                return await _aiService.CountTokensAsync(request.Text, request.Model);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error counting tokens");
+                return new TokenCountResult
+                {
+                    Success = false,
+                    Message = ex.Message
+                };
+            }
+        }
+        [HttpPost("intent/detect")]
+        public async Task<IntentResult> DetectIntentAsync([FromBody] IntentDetectionRequest request)
+        {
+            try
+            {
+                return await _aiService.DetectIntentAsync(request.Text);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error detecting intent");
+                return new IntentResult
+                {
+                    Success = false,
+                    Message = ex.Message
+                };
+            }
+        }
+        [HttpPost("title/suggest")]
+        public async Task<string> SuggestTitleAsync([FromBody] TitleSuggestionRequest request)
+        {
+            try
+            {
+                return await _aiService.SuggestTitleAsync(request.Content);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error suggesting title");
+                return "Cuộc trò chuyện mới";
+            }
+        }
+        #endregion
+
+        #region Embeddings
+
+        [HttpPost("embeddings")]
+        public async Task<EmbeddingResponse> GenerateEmbeddingAsync([FromBody] EmbeddingRequest request, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                request.UserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "system";
+                return await _aiService.GenerateEmbeddingAsync(request, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Embedding generation cancelled");
+                return new EmbeddingResponse
+                {
+                    Success = false,
+                    Message = "Request was cancelled",
+                    RequestId = Guid.NewGuid().ToString("N")[..8]
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for document: {DocumentId}", request?.DocumentId);
+                return new EmbeddingResponse
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    RequestId = Guid.NewGuid().ToString("N")[..8]
+                };
+            }
+        }
+        [HttpPost("embeddings/batch")]
+        [RateLimit(MaxRequests = 10, WindowInMinutes = 1)]
+        public async Task<BatchEmbeddingResponse> GenerateEmbeddingsBatchAsync([FromBody] BatchEmbeddingRequest request, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                return await _aiService.GenerateEmbeddingsBatchAsync(request, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Batch embedding generation cancelled");
+                return new BatchEmbeddingResponse
+                {
+                    Success = false,
+                    Message = "Request was cancelled",
+                    RequestId = Guid.NewGuid().ToString("N")[..8]
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating batch embeddings");
+                return new BatchEmbeddingResponse
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    RequestId = Guid.NewGuid().ToString("N")[..8]
+                };
+            }
+        }
+        #endregion 
     }
 }

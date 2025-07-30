@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Notification.API.Payload.Request;
 using Notification.API.Payload.Response;
 using Notification.API.Services.Interfaces;
@@ -7,7 +8,7 @@ namespace Notification.API.Controllers
 {
     [ApiController]
     [Route("api/notification-config")]
-    // [Authorize(Roles = "Admin")] // Chỉ Admin mới có quyền quản lý cấu hình
+    [Authorize(Roles = "Admin")] 
     public class NotificationConfigController : ControllerBase
     {
         private readonly INotificationConfigService _configService;

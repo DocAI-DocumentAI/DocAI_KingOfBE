@@ -173,16 +173,32 @@ public static class DependencyService
         {
             busConfig.AddConsumer<ProcessDocumentExpirationConsumer>(); // Sẽ được tích hợp sâu hơn ở bước sau
             busConfig.AddConsumer<GeneralNotificationConsumer>();
+
             busConfig.UsingRabbitMq((context, mqConfig) =>
             {
-                mqConfig.Host("rabbitmq", h =>
+                //var host = configuration["RabbitMQ:Host"] ?? "rabbitmq";
+                var username = configuration["RabbitMQ:Username"] ?? "guest";
+                var password = configuration["RabbitMQ:Password"] ?? "guest";
+
+                mqConfig.Host("localhost", "/", h =>
                 {
-                    h.Username("guest");
-                    h.Password("guest");
+                    h.Username(username);
+                    h.Password(password);
                 });
-                mqConfig.ReceiveEndpoint("user-request-queue", e =>
+                mqConfig.UseRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+
+                mqConfig.ReceiveEndpoint("document-expiration-queue", e => 
                 {
                     e.ConfigureConsumer<ProcessDocumentExpirationConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                mqConfig.ReceiveEndpoint("general-notifications-queue", e => 
+                {
+                    e.ConfigureConsumer<GeneralNotificationConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
                 });
             });
         });

@@ -1,255 +1,174 @@
-﻿using ChatBox.API.Services.Interfaces;
-using System.Security.Claims;
-using Microsoft.AspNetCore.Mvc;
+﻿using Azure;
 using ChatBox.API.Payload.Request;
 using ChatBox.API.Payload.Response;
-using ChatBox.API.Attributes;
+using ChatBox.API.Services.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace ChatBox.API.Controllers
 {
-    [Route("api/[controller]")]
+
     [ApiController]
+    [Route("api/[controller]")]
+    [Authorize]
     public class ChatController : ControllerBase
     {
         private readonly IChatService _chatService;
-        private readonly ILogger<ChatController> _logger;
-        public ChatController(ILogger<ChatController> logger, IChatService chatService)
+
+        public ChatController(IChatService chatService)
         {
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _chatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
+            _chatService = chatService;
         }
 
-        private (string UserId, List<string> UserRoles, List<string> UserPermissions) GetUserContext()
+        [HttpPost("send")]
+        public async Task<ActionResult<ApiResponse<ChatResponse>>> SendMessage([FromBody] ChatRequest request)
         {
-            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrEmpty(userId))
-            {
-                _logger.LogError("User ID claim not found in JWT token for authenticated user. This indicates a misconfiguration in JWT claims.");
-                throw new UnauthorizedAccessException("User is authenticated but user ID claim is missing.");
-            }
-
-            var userRoles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-            var userPermissions = User.FindAll("permissions").Select(c => c.Value).ToList();
-
-            return (userId, userRoles, userPermissions);
-        }
-
-        [HttpPost("start")]
-        [CusTomAuthorize]
-        [ProducesResponseType(typeof(ConversationResponse), StatusCodes.Status201Created)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status401Unauthorized)] 
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> StartNewConversation([FromBody] ChatRequestPayload request)
-        {
-            var (userId, userRoles, userPermissions) = GetUserContext(); 
-            if (string.IsNullOrEmpty(request.Question))
-            {
-                _logger.LogWarning("StartNewConversation request received with empty question for user {UserId}.", userId);
-                return BadRequest("Initial question cannot be empty.");
-            }
-
             try
             {
-                _logger.LogInformation("Starting new conversation for user {UserId} with roles {Roles} and question: {Question}", userId, string.Join(",", userRoles), request.Question);
-                // Truyền roles xuống service
-                var response = await _chatService.StartNewConversationAsync(userId,userRoles, request); 
-                return CreatedAtAction(nameof(StartNewConversation), new { conversationId = response.Id }, response);
+                var userId = GetCurrentUserId();
+                var response = await _chatService.SendMessageAsync(request, userId);
+                return Ok(ApiResponse<ChatResponse>.Ok(response));
             }
-            catch (UnauthorizedAccessException ex)
+            catch (ArgumentException ex)
             {
-                _logger.LogError(ex, "Unauthorized access attempt for StartNewConversation.");
-                return Unauthorized("Authentication failed or user ID is missing.");
+                return BadRequest(ApiResponse<ChatResponse>.Fail(ex.Message));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error starting new conversation for user {UserId} with question: {Question}", userId, request.Question);
-                return Problem(detail: ex.Message, statusCode: StatusCodes.Status500InternalServerError, title: "Failed to start conversation");
+                return StatusCode(500, ApiResponse<ChatResponse>.Fail("Đã xảy ra lỗi khi xử lý tin nhắn."));
             }
         }
 
-        // REVIEW POINT: Endpoint để lấy danh sách các cuộc hội thoại của người dùng
-        [HttpGet("conversations")]
-        [CusTomAuthorize]
-        [ProducesResponseType(typeof(List<ConversationSummaryResponse>), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetConversations()
+        [HttpPost("send-stream")]
+        public async Task<IActionResult> SendMessageStream([FromBody] ChatRequest request)
         {
-            var (userId, userRoles, userPermissions) = GetUserContext(); 
             try
             {
-                _logger.LogInformation("Retrieving conversations for user {UserId} with roles {Roles}.", userId, string.Join(",", userRoles));
-                var conversations = await _chatService.GetUserConversationsAsync(userId);
-                return Ok(conversations);
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                _logger.LogError(ex, "Unauthorized access attempt for GetConversations.");
-                return Unauthorized("Authentication failed or user ID is missing.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving conversations for user {UserId}.", userId);
-                return Problem(detail: ex.Message, statusCode: StatusCodes.Status500InternalServerError, title: "Failed to retrieve conversations");
-            }
-        }
+                var userId = GetCurrentUserId();
+                var responseStream = await _chatService.SendMessageStreamAsync(request, userId);
 
-        [HttpGet("conversations/{conversationId}/history")]
-        [CusTomAuthorize]
-        [ProducesResponseType(typeof(List<MessageResponse>), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetConversationHistory(string conversationId)
-        {
-            var (userId, userRoles, userPermissions) = GetUserContext(); 
-            if (string.IsNullOrEmpty(conversationId))
-            {
-                return BadRequest("Conversation ID cannot be empty.");
-            }
-            try
-            {
-                _logger.LogInformation("Retrieving history for conversation {ConversationId} for user {UserId} with roles {Roles}.", conversationId, userId, string.Join(",", userRoles));
-                var history = await _chatService.GetConversationHistoryAsync(conversationId, userId);
-                if (!history.Any())
+                Response.Headers.Add("Content-Type", "text/plain; charset=utf-8");
+                Response.Headers.Add("Cache-Control", "no-cache");
+                Response.Headers.Add("Connection", "keep-alive");
+
+                await foreach (var token in responseStream)
                 {
-                    _logger.LogWarning("Conversation {ConversationId} not found or has no history for user {UserId}.", conversationId, userId);
-                    return NotFound($"Conversation {conversationId} not found or has no history.");
+                    await Response.WriteAsync(token);
+                    await Response.Body.FlushAsync();
                 }
-                return Ok(history);
+
+                return new EmptyResult();
             }
-            catch (UnauthorizedAccessException ex)
+            catch (ArgumentException ex)
             {
-                _logger.LogError(ex, "Unauthorized access attempt for GetConversationHistory for conversation {ConversationId}.", conversationId);
-                return Unauthorized("Authentication failed or user ID is missing.");
-            }
-            catch (InvalidOperationException ex)
-            {
-                _logger.LogWarning(ex, "Conversation {ConversationId} not found or unauthorized for user {UserId}.", conversationId, userId);
-                return NotFound(ex.Message);
+                return BadRequest(ApiResponse<string>.Fail(ex.Message));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting history for conversation {ConversationId} for user {UserId}.", conversationId, userId);
-                return Problem(detail: ex.Message, statusCode: StatusCodes.Status500InternalServerError, title: "Failed to retrieve conversation history");
+                return StatusCode(500, ApiResponse<string>.Fail("Đã xảy ra lỗi khi xử lý tin nhắn."));
             }
         }
 
-        // REVIEW POINT: Endpoint để tiếp tục chat (non-streaming)
-        [HttpPost("conversations/{conversationId}/chat")]
-        [CusTomAuthorize]
-        [ProducesResponseType(typeof(ChatResponse), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ContinueChat(string conversationId, [FromBody] ChatRequestPayload request)
+        [HttpPost("sessions")]
+        public async Task<ActionResult<ApiResponse<SessionResponse>>> CreateSession([FromBody] CreateSessionRequest request)
         {
-            var (userId, userRoles, userPermissions) = GetUserContext(); // REVIEW POINT: Lấy userId, roles, permissions
-            if (string.IsNullOrEmpty(conversationId) || string.IsNullOrEmpty(request.Question))
-            {
-                return BadRequest("Conversation ID and Question cannot be empty.");
-            }
-
             try
             {
-                _logger.LogInformation("Continuing chat in conversation {ConversationId} for user {UserId} with question: {Question}", conversationId, userId, request.Question);
-                var response = await _chatService.ContinueChatAsync(conversationId, request.Question, userId,userRoles);
-                return Ok(response);
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                _logger.LogError(ex, "Unauthorized access attempt for ContinueChat for conversation {ConversationId}.", conversationId);
-                return Unauthorized("Authentication failed or user ID is missing.");
-            }
-            catch (InvalidOperationException ex)
-            {
-                _logger.LogWarning(ex, "Conversation {ConversationId} not found or unauthorized for user {UserId}.", conversationId, userId);
-                return NotFound(ex.Message);
+                var userId = GetCurrentUserId();
+                var response = await _chatService.CreateSessionAsync(request, userId);
+                return Ok(ApiResponse<SessionResponse>.Ok(response, "Tạo phiên chat thành công."));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error continuing chat in conversation {ConversationId} for user {UserId}.", conversationId, userId);
-                return Problem(detail: ex.Message, statusCode: StatusCodes.Status500InternalServerError, title: "Failed to continue chat");
+                return StatusCode(500, ApiResponse<SessionResponse>.Fail("Đã xảy ra lỗi khi tạo phiên chat."));
             }
         }
 
-        // REVIEW POINT: Endpoint để tiếp tục chat (streaming)
-        [HttpPost("conversations/{conversationId}/stream-chat")]
-        [CusTomAuthorize]
-        [ProducesResponseType(typeof(IAsyncEnumerable<string>), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> StreamContinueChat(string conversationId, [FromBody] ChatRequestPayload request)
+        [HttpGet("sessions")]
+        public async Task<ActionResult<ApiResponse<List<SessionResponse>>>> GetUserSessions()
         {
-            var (userId, userRoles, userPermissions) = GetUserContext();
-            if (string.IsNullOrEmpty(conversationId) || string.IsNullOrEmpty(request.Question))
-            {
-                return BadRequest("Conversation ID and Question cannot be empty.");
-            }
-
             try
             {
-                _logger.LogInformation("Streaming chat requested for conversation {ConversationId} for user {UserId} with roles {Roles} and question: {Question}", conversationId, userId, string.Join(",", userRoles), request.Question);
-                return Ok(_chatService.StreamContinueChatAsync(conversationId, request.Question, userId, userRoles)); 
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                _logger.LogError(ex, "Unauthorized access attempt for StreamContinueChat for conversation {ConversationId}.", conversationId);
-                return Unauthorized("Authentication failed or user ID is missing.");
-            }
-            catch (InvalidOperationException ex)
-            {
-                _logger.LogWarning(ex, "Conversation {ConversationId} not found or unauthorized for user {UserId}.", conversationId, userId);
-                return NotFound(ex.Message);
+                var userId = GetCurrentUserId();
+                var sessions = await _chatService.GetUserSessionsAsync(userId);
+                return Ok(ApiResponse<List<SessionResponse>>.Ok(sessions));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error streaming chat in conversation {ConversationId} for user {UserId}.", conversationId, userId);
-                return Problem(detail: ex.Message, statusCode: StatusCodes.Status500InternalServerError, title: "Failed to stream chat");
+                return StatusCode(500, ApiResponse<List<SessionResponse>>.Fail("Đã xảy ra lỗi khi lấy danh sách phiên chat."));
             }
         }
 
-        // REVIEW POINT: Endpoint để xóa cuộc hội thoại
-        [HttpDelete("conversations/{conversationId}")]
-        [CusTomAuthorize]
-        [ProducesResponseType(StatusCodes.Status204NoContent)]
-        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> DeleteConversation(string conversationId)
+        [HttpGet("sessions/{sessionId}")]
+        public async Task<ActionResult<ApiResponse<SessionDetailResponse>>> GetSession(string sessionId)
         {
-            var (userId, userRoles, userPermissions) = GetUserContext();
-            if (string.IsNullOrEmpty(conversationId))
-            {
-                return BadRequest("Conversation ID cannot be empty.");
-            }
-
             try
             {
-                var isDeleted = await _chatService.DeleteConversationAsync(conversationId, userId);
-                if (!isDeleted)
-                {
-                    _logger.LogWarning("Conversation {ConversationId} not found or unauthorized for deletion by user {UserId}.", conversationId, userId);
-                    return NotFound($"Conversation {conversationId} not found or you are not authorized to delete it.");
-                }
-                _logger.LogInformation("Conversation {ConversationId} deleted successfully by user {UserId}.", conversationId, userId);
-                return NoContent();
+                var userId = GetCurrentUserId();
+                var session = await _chatService.GetSessionAsync(sessionId, userId);
+                return Ok(ApiResponse<SessionDetailResponse>.Ok(session));
             }
-            catch (UnauthorizedAccessException ex)
+            catch (ArgumentException ex)
             {
-                _logger.LogError(ex, "Unauthorized access attempt for DeleteConversation for conversation {ConversationId}.", conversationId);
-                return Unauthorized("Authentication failed or user ID is missing.");
+                return NotFound(ApiResponse<SessionDetailResponse>.Fail(ex.Message));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error deleting conversation {ConversationId} for user {UserId}.", conversationId, userId);
-                return Problem(detail: ex.Message, statusCode: StatusCodes.Status500InternalServerError, title: "Failed to delete conversation");
+                return StatusCode(500, ApiResponse<SessionDetailResponse>.Fail("Đã xảy ra lỗi khi lấy thông tin phiên chat."));
             }
+        }
+
+        [HttpDelete("sessions/{sessionId}")]
+        public async Task<ActionResult<ApiResponse<bool>>> DeleteSession(string sessionId)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var result = await _chatService.DeleteSessionAsync(sessionId, userId);
+
+                if (result)
+                    return Ok(ApiResponse<bool>.Ok(true, "Xóa phiên chat thành công."));
+                else
+                    return NotFound(ApiResponse<bool>.Fail("Không tìm thấy phiên chat."));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<bool>.Fail("Đã xảy ra lỗi khi xóa phiên chat."));
+            }
+        }
+
+        [HttpPost("suggest-title")]
+        public async Task<ActionResult<ApiResponse<string>>> SuggestTitle([FromBody] string message)
+        {
+            try
+            {
+                var title = await _chatService.SuggestTitleAsync(message);
+                return Ok(ApiResponse<string>.Ok(title));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<string>.Fail("Đã xảy ra lỗi khi tạo tiêu đề."));
+            }
+        }
+        [HttpPost("validate")]
+        public async Task<ActionResult<ApiResponse<object>>> ValidateMessage([FromBody] string message)
+        {
+            try
+            {
+                var result = await _chatService.ValidateMessageAsync(message);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Fail("Đã xảy ra lỗi khi kiểm tra tin nhắn."));
+            }
+        }
+        private string GetCurrentUserId()
+        {
+            return User.FindFirst("userId")?.Value ??
+                   throw new UnauthorizedAccessException("Không thể xác định người dùng.");
         }
     }
 }
+

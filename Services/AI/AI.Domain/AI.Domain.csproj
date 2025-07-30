@@ -7,7 +7,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <Folder Include="Enums\" />
+      <Folder Include="Configuration\" />
       <Folder Include="Migrations\" />
     </ItemGroup>
 

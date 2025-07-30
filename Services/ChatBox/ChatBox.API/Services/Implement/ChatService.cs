@@ -1,401 +1,470 @@
-﻿using AutoMapper;
+﻿using System.Text;
+using System.Text.Json;
+using AutoMapper;
+using ChatBox.API.Constants;
 using ChatBox.API.Payload.Request;
 using ChatBox.API.Payload.Response;
 using ChatBox.API.Services.Interfaces;
+using ChatBox.Domain.Enum;
 using ChatBox.Domain.Models;
 using ChatBox.Infrastructure.Repository.Interfaces;
-using System.Text;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ChatBox.API.Services.Implement
 {
     public class ChatService : IChatService
     {
         private readonly IUnitOfWork<ChatBoxDbContext> _unitOfWork;
-        private readonly ILogger<ChatService> _logger;
-        private readonly IAIClient _aiClient;
-        private readonly IDocumentClient _documentClient;
-        private readonly IConfiguration _configuration;
         private readonly IMapper _mapper;
-
-        private readonly string _systemPrompt;
-        private readonly string _emptyAnswerText;
-        private readonly int _contextWindowSize;
-        private readonly int _docSearchLimit;
-        private readonly double _docMinRelevance;
-        private readonly bool _streamResponseDefault;
+        private readonly ISemanticKernelService _semanticKernelService;
+        private readonly ITokenCountService _tokenCountService;
+        private readonly IContentFilterService _contentFilterService;
+        private readonly IPreferenceService _preferenceService;
 
         public ChatService(
-                 IUnitOfWork<ChatBoxDbContext> unitOfWork,
-                 ILogger<ChatService> logger,
-                 IAIClient aiClient,
-                 IDocumentClient documentClient,
-                 IConfiguration configuration,
-                 IMapper mapper)
+            IUnitOfWork<ChatBoxDbContext> unitOfWork,
+            IMapper mapper,
+            ISemanticKernelService semanticKernelService,
+            ITokenCountService tokenCountService,
+            IContentFilterService contentFilterService,
+            IPreferenceService preferenceService)
         {
-            _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _aiClient = aiClient ?? throw new ArgumentNullException(nameof(aiClient));
-            _documentClient = documentClient ?? throw new ArgumentNullException(nameof(documentClient));
-            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-            _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
-
-            _systemPrompt = _configuration["ChatService:SystemPrompt"] ?? "You are a helpful assistant. Please answer questions based only on the provided documents. If the information is not available in the documents, state that you cannot find the relevant information.";
-            _emptyAnswerText = _configuration["ChatService:EmptyAnswerText"] ?? "I'm sorry, I couldn't find relevant information in your internal documents. Could you please rephrase your question or provide more context? I can only answer based on the documents provided to me.";
-            _contextWindowSize = _configuration.GetValue<int>("ChatService:ContextWindowSize", 10);
-            _docSearchLimit = _configuration.GetValue<int>("ChatService:DocSearchLimit", 5);
-            _docMinRelevance = _configuration.GetValue<double>("ChatService:DocMinRelevance", 0.7);
-            _streamResponseDefault = _configuration.GetValue<bool>("ChatService:StreamResponseDefault", false);
-
-            _logger.LogInformation("ChatService initialized with SystemPrompt: {SystemPrompt}, ContextWindowSize: {ContextWindowSize}", _systemPrompt, _contextWindowSize);
+            _unitOfWork = unitOfWork;
+            _mapper = mapper;
+            _semanticKernelService = semanticKernelService;
+            _tokenCountService = tokenCountService;
+            _contentFilterService = contentFilterService;
+            _preferenceService = preferenceService;
         }
 
-        public async Task<ConversationResponse> StartNewConversationAsync(string userId, List<string> userRoles, ChatRequestPayload requestPayload)
+        public async Task<ChatResponse> SendMessageAsync(ChatRequest request, string userId)
         {
-            _logger.LogInformation($"Starting new conversation for user {userId} with roles {string.Join(",", userRoles)} and question: {requestPayload.Question}");
-
-            var conversation = new Conversation
+            // Validate message
+            var validation = await ValidateMessageAsync(request.Message);
+            if (!validation.Success)
             {
-                UserId = userId,
-                Title = requestPayload.Question.Substring(0, Math.Min(requestPayload.Question.Length, 50)) + (requestPayload.Question.Length > 50 ? "..." : ""),
-                LastActive = DateTime.UtcNow
-            };
-            await _unitOfWork.GetRepository<Conversation>().InsertAsync(conversation);
-            await _unitOfWork.CommitAsync();
-
-            var searchDocRequest = new SearchDocumentRequestExternal
-            {
-                Query = requestPayload.Question,
-                MinRelevance = _docMinRelevance,
-                Filters = BuildDocumentFilters(userId, userRoles) // REVIEW POINT: Truyền userId và userRoles
-            };
-            var searchDocResponse = await _documentClient.SearchRelevantDocumentsAsync(searchDocRequest);
-
-            string aiAnswer = "";
-            if (searchDocResponse.NoResult)
-            {
-                aiAnswer = _emptyAnswerText;
-                _logger.LogInformation($"No relevant documents found for conversation {conversation.Id}. Responding with empty answer text.");
-            }
-            else
-            {
-                var aiRequestExternal = BuildAIRequestExternal(requestPayload.Question, new List<MessageHistory>(), searchDocResponse.RelevantSources.ToList(), _streamResponseDefault);
-                var aiResponseExternal = await _aiClient.GenerateAIResponseAsync(aiRequestExternal);
-                aiAnswer = aiResponseExternal.Answer;
-
-                if (aiAnswer.Contains("I cannot find relevant information", StringComparison.OrdinalIgnoreCase) ||
-                    aiAnswer.Contains("not covered by my current knowledge base", StringComparison.OrdinalIgnoreCase) ||
-                    aiAnswer.Contains("I don't know", StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogInformation($"AI responded with a 'not found' message based on SystemPrompt for conversation {conversation.Id}.");
-                    aiAnswer = _emptyAnswerText;
-                }
+                throw new ArgumentException(validation.Message);
             }
 
-            var userMessage = new MessageHistory
+            // Get or create session
+            var session = await GetOrCreateSessionAsync(request.SessionId, request.ModelName, userId);
+            var userMessages = await _unitOfWork.GetRepository<ChatMessage>()
+       .GetListAsync(predicate: m => m.SessionId == session.Id && m.Role == MessageRole.User);
+            var messageCount = userMessages.Count;
+            var isFirstMessage = messageCount == 0;
+
+
+            // Save user message
+            var userMessage = new ChatMessage
             {
-                ConversationId = conversation.Id,
-                SenderRole = "user",
-                Content = requestPayload.Question,
-                Order = 0,
-                CreateAt = DateTime.UtcNow
+                Content = request.Message,
+                Role = MessageRole.User,
+                TokenCount = _tokenCountService.CountTokens(request.Message),
+                SessionId = session.Id,
+                CreatedBy = userId,
+                UpdatedBy = userId,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
             };
-            var assistantMessage = new MessageHistory
+
+            await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(userMessage);
+
+            // Build chat history
+            var chatHistory = await BuildChatHistoryAsync(session.Id);
+
+            // Get AI response
+            var aiResponse = await _semanticKernelService.GetChatResponseAsync(session.ModelName, chatHistory);
+
+            // Save AI message
+            var aiMessage = new ChatMessage
             {
-                ConversationId = conversation.Id,
-                SenderRole = "assistant",
-                Content = aiAnswer,
-                Order = 1,
-                CreateAt = DateTime.UtcNow
+                Content = aiResponse,
+                Role = MessageRole.Assistant,
+                TokenCount = _tokenCountService.CountTokens(aiResponse),
+                SessionId = session.Id,
+                CreatedBy = "system",
+                UpdatedBy = "system",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
             };
-            await _unitOfWork.GetRepository<MessageHistory>().InsertRangeAsync(new[] { userMessage, assistantMessage });
-            await _unitOfWork.CommitAsync();
 
-            conversation.LastActive = DateTime.UtcNow;
-            _unitOfWork.GetRepository<Conversation>().UpdateAsync(conversation);
-            await _unitOfWork.CommitAsync();
+            await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(aiMessage);
 
-            _logger.LogInformation($"New conversation {conversation.Id} started for user {userId}");
+            // Update session
+            session.LastActiveAt = DateTime.UtcNow;
+            session.UpdatedBy = userId;
 
-            var response = _mapper.Map<ConversationResponse>(conversation);
-            var savedMessages = new List<MessageHistory> { userMessage, assistantMessage };
-            response.Messages = _mapper.Map<List<MessageResponse>>(savedMessages);
-
-            return response;
-        }
-        public async Task<List<ConversationSummaryResponse>> GetUserConversationsAsync(string userId)
-        {
-            _logger.LogInformation($"Retrieving conversations for user {userId}");
-            var conversations = await _unitOfWork.GetRepository<Conversation>().GetListAsync(
-                predicate: c => c.UserId == userId,
-                orderBy: c => c.OrderByDescending(conv => conv.LastActive)
-            );
-            return _mapper.Map<List<ConversationSummaryResponse>>(conversations.ToList());
-        }
-        public async Task<List<MessageResponse>> GetConversationHistoryAsync(string conversationId, string userId)
-        {
-            _logger.LogInformation($"Retrieving history for conversation {conversationId} for user {userId}");
-            var conversation = await _unitOfWork.GetRepository<Conversation>().SingleOrDefaultAsync(predicate: c => c.Id == conversationId && c.UserId == userId);
-            if (conversation == null)
+            // Generate title for first message if not exists
+            if (isFirstMessage && (string.IsNullOrEmpty(session.Title) || session.Title == DefaultValues.DefaultSessionTitle))
             {
-                _logger.LogWarning($"Conversation {conversationId} not found or unauthorized for user {userId}.");
-                throw new InvalidOperationException($"Conversation with ID {conversationId} not found or you are not authorized to view it.");
+                session.Title = await _semanticKernelService.GenerateTitleAsync(request.Message);
             }
 
-            var messages = await _unitOfWork.GetRepository<MessageHistory>().GetListAsync(
-                predicate: m => m.ConversationId == conversationId,
-                orderBy: m => m.OrderBy(msg => msg.Order)
-            );
-            return _mapper.Map<List<MessageResponse>>(messages.ToList());
-        }
-        public async Task<ChatResponse> ContinueChatAsync(string conversationId, string userQuestion, string userId, List<string> userRoles) // REVIEW POINT: Thêm userRoles
-        {
-            _logger.LogInformation($"Continuing chat in conversation {conversationId} for user {userId} with question: {userQuestion}");
-
-            var conversation = await _unitOfWork.GetRepository<Conversation>().SingleOrDefaultAsync(predicate: c => c.Id == conversationId && c.UserId == userId);
-            if (conversation == null)
-            {
-                _logger.LogError($"Conversation {conversationId} not found or unauthorized for user {userId}.");
-                throw new InvalidOperationException($"Conversation with ID {conversationId} not found or you are not authorized to continue it.");
-            }
-
-            var history = await GetConversationHistoryAsync(conversationId, userId);
-            var recentHistory = LimitConversationHistory(history.Select(m => _mapper.Map<MessageHistory>(m)).ToList());
-
-            var searchDocRequest = new SearchDocumentRequestExternal
-            {
-                Query = userQuestion,
-                MinRelevance = _docMinRelevance,
-                Filters = BuildDocumentFilters(userId, userRoles) // REVIEW POINT: Truyền userId và userRoles
-            };
-            var searchDocResponse = await _documentClient.SearchRelevantDocumentsAsync(searchDocRequest);
-
-            var aiRequestExternal = BuildAIRequestExternal(userQuestion, recentHistory, searchDocResponse.RelevantSources.ToList(), _streamResponseDefault);
-
-            string aiAnswer = "";
-            if (searchDocResponse.NoResult)
-            {
-                aiAnswer = _emptyAnswerText;
-                _logger.LogInformation($"No relevant documents found for conversation {conversationId}. Responding with empty answer text.");
-            }
-            else
-            {
-                var aiResponseExternal = await _aiClient.GenerateAIResponseAsync(aiRequestExternal);
-                aiAnswer = aiResponseExternal.Answer;
-
-                if (aiAnswer.Contains("I cannot find relevant information", StringComparison.OrdinalIgnoreCase) ||
-                    aiAnswer.Contains("not covered by my current knowledge base", StringComparison.OrdinalIgnoreCase) ||
-                    aiAnswer.Contains("I don't know", StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogInformation($"AI responded with a 'not found' message based on SystemPrompt for conversation {conversation.Id}.");
-                    aiAnswer = _emptyAnswerText;
-                }
-            }
-
-            var nextOrder = history.Any() ? history.Max(m => m.Order) + 1 : 0;
-            var userMessage = new MessageHistory
-            {
-                ConversationId = conversation.Id,
-                SenderRole = "user",
-                Content = userQuestion,
-                Order = nextOrder,
-                CreateAt = DateTime.UtcNow
-            };
-            var assistantMessage = new MessageHistory
-            {
-                ConversationId = conversation.Id,
-                SenderRole = "assistant",
-                Content = aiAnswer,
-                Order = nextOrder + 1,
-                CreateAt = DateTime.UtcNow
-            };
-            await _unitOfWork.GetRepository<MessageHistory>().InsertRangeAsync(new[] { userMessage, assistantMessage });
-            await _unitOfWork.CommitAsync();
-
-            conversation.LastActive = DateTime.UtcNow;
-            _unitOfWork.GetRepository<Conversation>().UpdateAsync(conversation);
+            _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
             await _unitOfWork.CommitAsync();
 
             return new ChatResponse
             {
-                ConversationId = conversation.Id,
-                Answer = aiAnswer,
-                Timestamp = assistantMessage.CreateAt
+                SessionId = session.Id,
+                Message = aiResponse,
+                Role = MessageRole.Assistant,
+                TokenCount = aiMessage.TokenCount,
+                Timestamp = aiMessage.Timestamp,
+                ModelUsed = session.ModelName
             };
         }
 
-
-        public async IAsyncEnumerable<string> StreamContinueChatAsync(string conversationId, string userQuestion, string userId, List<string> userRoles) // REVIEW POINT: Thêm userRoles
+        public async Task<IAsyncEnumerable<string>> SendMessageStreamAsync(ChatRequest request, string userId)
         {
-            _logger.LogInformation($"Streaming chat requested for conversation {conversationId} for user {userId} with question: {userQuestion}");
-
-            var conversation = await _unitOfWork.GetRepository<Conversation>().SingleOrDefaultAsync(predicate: c => c.Id == conversationId && c.UserId == userId);
-            if (conversation == null)
+            // Validate message
+            var validation = await ValidateMessageAsync(request.Message);
+            if (!validation.Success)
             {
-                _logger.LogError($"Conversation {conversationId} not found or unauthorized for user {userId} for streaming.");
-                throw new InvalidOperationException($"Conversation with ID {conversationId} not found or you are not authorized to stream chat for it.");
+                throw new ArgumentException(validation.Message);
             }
 
-            var history = await GetConversationHistoryAsync(conversationId, userId);
-            var recentHistory = LimitConversationHistory(history.Select(m => _mapper.Map<MessageHistory>(m)).ToList());
+            // Get or create session
+            var session = await GetOrCreateSessionAsync(request.SessionId, request.ModelName, userId);
 
-            var searchDocRequest = new SearchDocumentRequestExternal
+            // Check if this is first user message
+            var userMessages = await _unitOfWork.GetRepository<ChatMessage>()
+                .GetListAsync(predicate: m => m.SessionId == session.Id && m.Role == MessageRole.User);
+            var isFirstMessage = userMessages.Count == 0;
+            // Save user message
+            var userMessage = new ChatMessage
             {
-                Query = userQuestion,
-                MinRelevance = _docMinRelevance,
-                Filters = BuildDocumentFilters(userId, userRoles) // REVIEW POINT: Truyền userId và userRoles
+                Content = request.Message,
+                Role = MessageRole.User,
+                TokenCount = _tokenCountService.CountTokens(request.Message),
+                SessionId = session.Id,    
+                CreatedBy = userId,
+                UpdatedBy = userId,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
             };
-            var searchDocResponse = await _documentClient.SearchRelevantDocumentsAsync(searchDocRequest);
 
-            var aiRequestExternal = BuildAIRequestExternal(userQuestion, recentHistory, searchDocResponse.RelevantSources.ToList(), streamResponse: true);
+            await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(userMessage);
 
-            var responseBuilder = new StringBuilder();
-            var nextOrder = history.Any() ? history.Max(m => m.Order) + 1 : 0;
-
-            if (searchDocResponse.NoResult)
-            {
-                var emptyAnswer = _emptyAnswerText;
-                _logger.LogInformation($"No relevant documents found for streaming conversation {conversation.Id}. Responding with empty answer text.");
-                yield return emptyAnswer;
-            }
-            else
-            {
-                await foreach (var chunk in _aiClient.StreamAIResponseAsync(aiRequestExternal))
-                {
-                    responseBuilder.Append(chunk);
-                    yield return chunk;
-                }
-                string fullStreamedAnswer = responseBuilder.ToString();
-                if (fullStreamedAnswer.Contains("I cannot find relevant information", StringComparison.OrdinalIgnoreCase) ||
-                    fullStreamedAnswer.Contains("not covered by my current knowledge base", StringComparison.OrdinalIgnoreCase) ||
-                    fullStreamedAnswer.Contains("I don't know", StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogInformation($"Streaming AI responded with a 'not found' message based on SystemPrompt for conversation {conversation.Id}.");
-                }
-            }
-
-            var userMessage = new MessageHistory
-            {
-                ConversationId = conversation.Id,
-                SenderRole = "user",
-                Content = userQuestion,
-                Order = nextOrder,
-                CreateAt = DateTime.UtcNow
-            };
-            var assistantMessage = new MessageHistory
-            {
-                ConversationId = conversation.Id,
-                SenderRole = "assistant",
-                Content = responseBuilder.ToString(),
-                Order = nextOrder + 1,
-                CreateAt = DateTime.UtcNow
-            };
-            await _unitOfWork.GetRepository<MessageHistory>().InsertRangeAsync(new[] { userMessage, assistantMessage });
             await _unitOfWork.CommitAsync();
 
-            conversation.LastActive = DateTime.UtcNow;
-            _unitOfWork.GetRepository<Conversation>().UpdateAsync(conversation);
-            await _unitOfWork.CommitAsync();
+            // Build chat history
+            var chatHistory = await BuildChatHistoryAsync(session.Id);
 
-            _logger.LogInformation($"Conversation {conversationId} streamed and continued for user {userId}.");
+            // Get streaming response
+            var responseStream = await _semanticKernelService.GetChatResponseStreamAsync(session.ModelName, chatHistory);
+
+            // Return wrapped stream that saves response
+            return WrapStreamWithSave(responseStream, session.Id, userId, request.Message, isFirstMessage);
+
         }
 
-        // Xóa một cuộc hội thoại
-        public async Task<bool> DeleteConversationAsync(string conversationId, string userId)
+        public async Task<SessionResponse> CreateSessionAsync(CreateSessionRequest request, string userId)
         {
-            _logger.LogInformation($"Attempting to delete conversation {conversationId} for user {userId}.");
-            var conversation = await _unitOfWork.GetRepository<Conversation>().SingleOrDefaultAsync(predicate: c => c.Id == conversationId && c.UserId == userId);
-            if (conversation == null)
+            var session = new ChatSession
             {
-                _logger.LogWarning($"Attempted to delete non-existent or unauthorized conversation {conversationId} for user {userId}");
+                Title = string.IsNullOrEmpty(request.Title) ? DefaultValues.DefaultSessionTitle : request.Title,
+                UserId = userId,
+                ModelName = request.ModelName ?? await GetDefaultModelNameAsync(),
+                               CreatedBy = userId,
+                UpdatedBy = userId,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                LastActiveAt = DateTime.UtcNow
+            };
+
+            await _unitOfWork.GetRepository<ChatSession>().InsertAsync(session);
+            await _unitOfWork.CommitAsync();
+
+            return _mapper.Map<SessionResponse>(session);
+        }
+
+        public async Task<SessionDetailResponse> GetSessionAsync(string sessionId, string userId)
+        {
+            var session = await _unitOfWork.GetRepository<ChatSession>()
+                .SingleOrDefaultAsync(predicate: s => s.Id == sessionId && s.UserId == userId,
+                    include: q => q
+                .Include(a => a.Messages)
+                .Include(a => a.Preferences));
+
+
+            if (session == null)
+                throw new ArgumentException("Không tìm thấy phiên chat.");
+
+            var response = _mapper.Map<SessionDetailResponse>(session);
+            response.Messages = response.Messages.OrderBy(m => m.Timestamp).ToList();
+
+            return response;
+        }
+
+        public async Task<List<SessionResponse>> GetUserSessionsAsync(string userId)
+        {
+            var sessions = await _unitOfWork.GetRepository<ChatSession>()
+                .GetListAsync(predicate: s => s.UserId == userId && s.IsActive,
+                    orderBy: q => q.OrderByDescending(s => s.LastActiveAt),
+                    include: query => query.Include(s => s.Messages));
+
+
+            var responses = _mapper.Map<List<SessionResponse>>(sessions);
+
+            // Add message count
+            foreach (var response in responses)
+            {
+                var session = sessions.First(s => s.Id == response.Id);
+                response.MessageCount = session.Messages.Count;
+            }
+
+            return responses;
+        }
+
+        public async Task<bool> DeleteSessionAsync(string sessionId, string userId)
+        {
+            var session = await _unitOfWork.GetRepository<ChatSession>()
+                .SingleOrDefaultAsync(predicate: s => s.Id == sessionId && s.UserId == userId);
+
+            if (session == null)
                 return false;
-            }
-            _unitOfWork.GetRepository<Conversation>().DeleteAsync(conversation);
-            var isSuccess = await _unitOfWork.CommitAsync() > 0;
-            if (isSuccess)
-            {
-                _logger.LogInformation($"Conversation {conversationId} deleted successfully for user {userId}.");
-            }
-            return isSuccess;
+
+            session.IsActive = false;
+            session.UpdatedAt = DateTime.UtcNow;
+            session.UpdatedBy = userId;
+            _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
+            await _unitOfWork.CommitAsync();
+
+            return true;
         }
 
-        // Phương thức hỗ trợ: Xây dựng AIRequestExternal
-        private AIRequestExternal BuildAIRequestExternal(
-            string userQuestion,
-            List<MessageHistory> history,
-            List<RelevantSourceResponseExternal> relevantDocuments,
-            bool streamResponse)
+        public async Task<string> SuggestTitleAsync(string firstMessage)
         {
-            var systemPrompt = _systemPrompt;
+            return await _semanticKernelService.GenerateTitleAsync(firstMessage);
+        }
 
-            var aiMessages = new List<MessageExternal>();
-
-            aiMessages.Add(new MessageExternal
+        public async Task<ApiResponse<object>> ValidateMessageAsync(string message)
+        {
+            // 1. Kiểm tra độ dài cơ bản
+            if (string.IsNullOrWhiteSpace(message))
             {
-                Role = "system",
-                Content = systemPrompt
-            });
-
-            foreach (var msg in history)
-            {
-                aiMessages.Add(new MessageExternal
-                {
-                    Role = msg.SenderRole,
-                    Content = msg.Content
-                });
+                return ApiResponse<object>.Fail("Tin nhắn không được để trống.");
             }
 
-            var documentsForAI = relevantDocuments.Select(doc => new DocumentExternal
+            if (message.Length > 8000)
             {
-                Id = doc.FileName,
-                Content = doc.TextSnippet,
-                Title = doc.FileName,
-                DocumentName = doc.FileName,
-                ChunkId = doc.FileName
-            }).ToList();
+                return ApiResponse<object>.Fail("Tin nhắn quá dài. Vui lòng rút ngắn nội dung xuống dưới 8000 ký tự.");
+            }
 
-            var aiRequest = new AIRequestExternal
+            // 2. Kiểm tra token count
+            var tokenCount = _tokenCountService.CountTokens(message);
+            if (tokenCount > DefaultValues.MaxTokenLimit)
             {
-                Question = userQuestion,
-                SystemPrompt = systemPrompt,
-                Documents = documentsForAI,
-                StreamResponse = streamResponse
+                return ApiResponse<object>.Fail(
+                    $"Tin nhắn chứa {tokenCount} token, vượt quá giới hạn {DefaultValues.MaxTokenLimit} token. " +
+                    "Vui lòng rút ngắn nội dung hoặc chia thành nhiều tin nhắn nhỏ hơn.");
+            }
+
+            // 3. Cảnh báo nếu gần giới hạn
+            if (tokenCount > DefaultValues.MaxTokenLimit * 0.8) // 80% của giới hạn
+            {
+                return ApiResponse<object>.Ok(null,
+                    $"Cảnh báo: Tin nhắn chứa {tokenCount} token, gần đạt giới hạn {DefaultValues.MaxTokenLimit} token.");
+            }
+
+            // 4. Kiểm tra từ cấm
+            if (!await _contentFilterService.IsContentAllowedAsync(message))
+            {
+                var prohibitedWords = await _contentFilterService.GetProhibitedWordsInContentAsync(message);
+                return ApiResponse<object>.Fail(
+                    $"Tin nhắn chứa từ ngữ không phù hợp: {string.Join(", ", prohibitedWords)}. Vui lòng chỉnh sửa và gửi lại.");
+            }
+
+            return ApiResponse<object>.Ok(null, "Tin nhắn hợp lệ.");
+        }
+
+        private async Task<ChatSession> GetOrCreateSessionAsync(string sessionId, string modelName, string userId)
+        {
+            var now = DateTime.UtcNow;
+            if (string.IsNullOrEmpty(sessionId))
+            {
+                // Create new session
+                var newSession = new ChatSession
+                {
+                    Title = DefaultValues.DefaultSessionTitle,
+                    UserId = userId,
+                    ModelName = modelName ?? await GetDefaultModelNameAsync(),
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                    CreatedBy = userId,
+                    UpdatedBy = userId,
+                };
+
+                await _unitOfWork.GetRepository<ChatSession>().InsertAsync(newSession);
+                await _unitOfWork.CommitAsync();
+                return newSession;
+            }
+
+            var session = await _unitOfWork.GetRepository<ChatSession>()
+                .SingleOrDefaultAsync(predicate: s => s.Id == sessionId && s.UserId == userId);
+
+            if (session == null)
+                throw new ArgumentException("Không tìm thấy phiên chat.");
+
+            // Update model if specified
+            if (!string.IsNullOrEmpty(modelName) && session.ModelName != modelName)
+            {
+                session.ModelName = modelName;
+                session.UpdatedAt = DateTime.UtcNow;
+                session.UpdatedBy = userId;
+                _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
+                await _unitOfWork.CommitAsync();
+            }
+
+            return session;
+        }
+
+        private async Task<ChatHistory> BuildChatHistoryAsync(string sessionId)
+        {
+            var messages = await _unitOfWork.GetRepository<ChatMessage>()
+                .GetListAsync(predicate: m => m.SessionId == sessionId,
+                    orderBy: q => q.OrderBy(m => m.Timestamp));
+
+            var chatHistory = new ChatHistory();
+
+            // Add system message with preferences
+            var systemPrompt = await BuildSystemPromptAsync(sessionId);
+            chatHistory.AddSystemMessage(systemPrompt);
+
+            // Add conversation messages
+            foreach (var message in messages)
+            {
+                switch (message.Role)
+                {
+                    case MessageRole.User:
+                        chatHistory.AddUserMessage(message.Content);
+                        break;
+                    case MessageRole.Assistant:
+                        chatHistory.AddAssistantMessage(message.Content);
+                        break;
+                }
+            }
+
+            // Reduce chat history if too long
+            if (chatHistory.Count > DefaultValues.MaxChatHistoryCount)
+            {
+                chatHistory = await _semanticKernelService.ReduceChatHistoryAsync(chatHistory);
+            }
+
+            return chatHistory;
+        }
+        private async Task<string> BuildSystemPromptAsync(string sessionId)
+        {
+
+
+            var aiConfig = await GetCurrentAIConfigurationAsync();
+            var systemPrompt = aiConfig?.SystemPrompt ??
+                "Bạn là trợ lý AI thông minh chuyên về tìm kiếm tài liệu nội bộ. Hãy trả lời bằng tiếng Việt chính xác.";
+
+            var preferences = await _preferenceService.GetSessionPreferencesAsync(sessionId);
+
+            // Add user name
+            var namePreference = preferences.FirstOrDefault(p => p.Key == PreferenceKeys.UserName);
+            if (namePreference != null && !string.IsNullOrEmpty(namePreference.Value))
+            {
+                systemPrompt += $" Bạn có thể gọi người dùng là {namePreference.Value}.";
+            }
+
+            // Add characteristics
+            var characteristicPreference = preferences.FirstOrDefault(p => p.Key == PreferenceKeys.ChatbotCharacter);
+            if (characteristicPreference != null && !string.IsNullOrEmpty(characteristicPreference.Value))
+            {
+                try
+                {
+                    var characteristics = JsonSerializer.Deserialize<List<string>>(characteristicPreference.Value);
+                    if (characteristics?.Any() == true)
+                    {
+                        var characteristicNames = characteristics
+                            .Select(c => ChatbotCharacteristics.GetDisplayName(c))
+                            .Where(name => !string.IsNullOrEmpty(name));
+
+                        if (characteristicNames.Any())
+                        {
+                            systemPrompt += $" Phong cách giao tiếp của bạn nên: {string.Join(", ", characteristicNames)}.";
+                        }
+                    }
+                }
+                catch
+                {
+                    // Fallback for old format
+                    systemPrompt += $" Đặc điểm của bạn: {characteristicPreference.Value}.";
+                }
+            }
+
+            // Add additional info
+            var additionalInfoPreference = preferences.FirstOrDefault(p => p.Key == PreferenceKeys.AdditionalInfo);
+            if (additionalInfoPreference != null && !string.IsNullOrEmpty(additionalInfoPreference.Value))
+            {
+                systemPrompt += $" Thông tin bổ sung về người dùng: {additionalInfoPreference.Value}.";
+            }
+
+            return systemPrompt;
+        }
+
+        private async Task<string> GetDefaultModelNameAsync()
+        {
+            var defaultConfig = await _unitOfWork.GetRepository<AIConfiguration>()
+                .SingleOrDefaultAsync(predicate: c => c.IsActive);
+
+            return defaultConfig?.ModelName ?? DefaultValues.DefaultModelName;
+        }
+        private async Task<AIConfiguration> GetCurrentAIConfigurationAsync()
+        {
+            return await _unitOfWork.GetRepository<AIConfiguration>()
+                .SingleOrDefaultAsync(predicate: c => c.IsActive);
+        }
+        private async IAsyncEnumerable<string> WrapStreamWithSave(
+            IAsyncEnumerable<string> stream,
+            string sessionId,
+            string userId,
+            string firstMessage,
+            bool isFirstMessage)
+        {
+            var fullResponse = new StringBuilder();
+
+            await foreach (var token in stream)
+            {
+                fullResponse.Append(token);
+                yield return token;
+            }
+
+            // Save complete AI response after streaming
+            var aiMessage = new ChatMessage
+            {
+                Content = fullResponse.ToString(),
+                Role = MessageRole.Assistant,
+                TokenCount = _tokenCountService.CountTokens(fullResponse.ToString()),
+                SessionId = sessionId,
+                CreatedBy = "system",
+                UpdatedBy = "system",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
             };
 
-            return aiRequest;
-        }
-        private List<MessageHistory> LimitConversationHistory(List<MessageHistory> fullHistory)
-        {
-            if (fullHistory.Count > _contextWindowSize * 2)
+            await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(aiMessage);
+            var session = await _unitOfWork.GetRepository<ChatSession>()
+           .SingleOrDefaultAsync(predicate: s => s.Id == sessionId);
+
+            if (session != null)
             {
-                return fullHistory
-                    .OrderByDescending(m => m.Order)
-                    .Take(_contextWindowSize * 2)
-                    .OrderBy(m => m.Order)
-                    .ToList();
+                session.LastActiveAt = DateTime.UtcNow;
+                session.UpdatedBy = userId;
+
+                if (isFirstMessage && (string.IsNullOrEmpty(session.Title) || session.Title == DefaultValues.DefaultSessionTitle))
+                {
+                    session.Title = await _semanticKernelService.GenerateTitleAsync(firstMessage);
+                }
+
+                _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
             }
-            return fullHistory;
-        }
 
-        private List<string> BuildDocumentFilters(string userId, List<string> userRoles) // REVIEW POINT: Nhận userRoles
-        {
-            var filters = new List<string>();
-
-            // 1. Bộ lọc quyền truy cập: Chỉ hiển thị tài liệu mà userId/roles này được phép xem
-            filters.Add($"user:{userId}"); // Mọi user thấy tài liệu của chính họ
-
-            // Giả lập logic phân quyền phức tạp hơn dựa trên userRoles (Ví dụ: từ Auth.API.Attributes.Roles)
-            if (userRoles.Contains("Admin", StringComparer.OrdinalIgnoreCase) ||
-                userRoles.Contains("Manager", StringComparer.OrdinalIgnoreCase))
-            {
-                filters.Add("access_group:management"); // Admin/Manager thấy tài liệu quản lý
-            }
-            if (userRoles.Contains("Editor", StringComparer.OrdinalIgnoreCase))
-            {
-                filters.Add("access_group:editor_docs"); // Editor thấy tài liệu chỉnh sửa
-            }
-            filters.Add("status:active"); // Chỉ tài liệu active
-
-            return filters;
+            await _unitOfWork.CommitAsync();
         }
     }
-}
+} 

@@ -18,5 +18,14 @@ namespace ChatBox.Infrastructure.Paginate
         {
             Items = Array.Empty<TResult>();
         }
+
+        public Paginate(IList<TResult> items, int pageNumber, int pageSize, int totalCount)
+        {
+            Items = items;
+            Page = pageNumber;
+            Size = pageSize;
+            Total = totalCount;
+            TotalPages = (int)Math.Ceiling((double)totalCount / pageSize);
+        }
     }
 }

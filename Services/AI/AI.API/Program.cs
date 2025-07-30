@@ -1,18 +1,12 @@
-using System;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.OpenApi.Models;
+﻿
 using NSwag;
 using NSwag.Generation.Processors.Security;
-using Scalar.AspNetCore;
 using Serilog;
-using Serilog.Events;
 using Serilog.Templates;
 using Serilog.Templates.Themes;
 using OpenApiSecurityScheme = NSwag.OpenApiSecurityScheme;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+using AI.API.Extensions;
+using AI.API.Background;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -33,19 +27,25 @@ try
             "[{@t:HH:mm:ss} {@l:u3}{#if @tr is not null} ({substring(@tr,0,4)}:{substring(@sp,0,4)}){#end}] {@m}\n{@x}",
             theme: TemplateTheme.Code)));
 
-
-    builder.Services.AddOpenApi();
-    builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
-    builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddAuthorization();
-    builder.Services.AddControllers();
+    // Add services to the container
+    builder.Services.AddHttpClient();
     builder.Services.AddHttpContextAccessor();
 
-    builder.Services.Configure<HostOptions>(hostOptions =>
-    {
-        hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
-    });
-    // Register the NSwag services
+    builder.Services
+       .AddDatabase()
+       .AddApplicationServices(builder.Configuration)
+       .AddHuggingFaceServices(builder.Configuration)
+       .AddAutoMapperProfiles()
+       .AddBackgroundServices()
+       .AddCorsPolicy(builder.Configuration)
+       .AddJwtAuthentication(builder.Configuration)
+       .AddSemanticKernel()
+       .AddOpenAIEmbeddingService(builder.Configuration);
+
+    builder.Services.AddControllers();
+
+    builder.Services.AddEndpointsApiExplorer();
+
     builder.Services.AddOpenApiDocument(options =>
     {
         options.Title = "DocAI AI API";
@@ -63,9 +63,37 @@ try
         options.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("Bearer"));
     });
 
-    var app = builder.Build();
+    //builder.Services.AddHealthChecks()
+    // .AddCheck<AIServiceHealthCheck>("ai-models");
 
-    app.MapOpenApi();
+    builder.Services.Configure<HostOptions>(hostOptions =>
+    {
+        hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
+    });
+
+    builder.Services.AddOpenApi();
+
+    builder.Services.AddHostedService<MetricsCleanupService>();
+
+
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("AllowFrontend",
+            policy =>
+            {
+                policy.WithOrigins("https://localhost:5003")
+                      .AllowAnyHeader()
+                      .AllowAnyMethod()
+                      .AllowCredentials(); // Nếu frontend có gửi cookie/token qua header
+            });
+    });
+
+    var app = builder.Build();
+    if (app.Environment.IsDevelopment())
+    {
+        app.UseDeveloperExceptionPage();
+    }
+
     app.UseOpenApi();
     app.UseSwaggerUI(options =>
     {
@@ -73,20 +101,23 @@ try
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
     });
 
-    // app.UseHttpsRedirection();
+
+    app.UseHttpsRedirection();
+    app.UseCors("AllowFrontend");
+
+    // Add rate limiting middleware
+    app.UseMiddleware<AI.API.Middlewares.SimpleRateLimitMiddleware>();
+
     app.UseAuthentication();
-    // app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseAuthorization();
-    app.UseSerilogRequestLogging();
+
+
     app.MapControllers();
 
+    app.MapHealthChecks("/health");
 
-    app.Run();
-
+    await app.RunAsync();
     Log.Information("Stopped cleanly");
-
-
-
     return 0;
 }
 catch (Exception ex)
