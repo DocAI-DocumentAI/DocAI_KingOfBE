@@ -48,6 +48,7 @@ try
     builder.Services.AddOpenApi();
 
     builder.Services.AddDatabase();
+    builder.Services.AddRedis(configuration);
     builder.Services.AddUnitOfWork();
     builder.Services.AddServices(configuration);
     builder.Services.AddEndpointsApiExplorer();
@@ -81,7 +82,6 @@ try
 
     // if (app.Environment.IsDevelopment())
     // {
-        
         app.UseSwaggerUI(options =>
         {
             options.RoutePrefix = "swagger"; 

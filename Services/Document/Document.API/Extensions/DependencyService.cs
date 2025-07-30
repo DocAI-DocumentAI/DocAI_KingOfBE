@@ -16,6 +16,8 @@ using Document.API.Models;
 
 using Microsoft.KernelMemory.AI.OpenAI;
 using Microsoft.KernelMemory.SemanticKernel;
+using Document.API.Configuration;
+using StackExchange.Redis;
 
 
 
@@ -28,12 +30,16 @@ public static class DependencyService
 
     public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
     {
+        // Configure Google Drive and Storage settings
+        services.Configure<GoogleDriveConfiguration>(configuration.GetSection(GoogleDriveConfiguration.SectionName));
+        services.Configure<StorageConfiguration>(configuration.GetSection(StorageConfiguration.SectionName));
+
         services.AddMassTransit(x =>
         {
             x.AddConsumer<UserRequestMessageConsumer>();
-            
+
             // Add request client for name lookup
-            x.AddRequestClient<NameLookupRequest>(new Uri("queue:name-lookup-queue")); 
+            x.AddRequestClient<NameLookupRequest>(new Uri("queue:name-lookup-queue"));
             x.UsingRabbitMq((context, cfg) =>
             {
                 var rabbitMqConfig = configuration.GetSection("RabbitMQ");
@@ -42,7 +48,7 @@ public static class DependencyService
                     h.Username(rabbitMqConfig["Username"]);
                     h.Password(rabbitMqConfig["Password"]);
                 });
-                
+
                 cfg.ReceiveEndpoint("user-request-queue", e =>
                 {
                     // Chỉ định consumer nào sẽ xử lý message từ queue này
@@ -50,7 +56,15 @@ public static class DependencyService
                 });
             });
         });
+
+        // Storage services
         services.AddScoped<IAzureStorageService, AzureStorageService>();
+        services.AddScoped<IRedisService, RedisService>();
+        services.AddScoped<IGoogleDriveOAuthService, GoogleDriveOAuthService>();
+        services.AddScoped<IGoogleDriveService, GoogleDriveService>();
+        services.AddScoped<IStorageService, UnifiedStorageService>();
+        services.AddScoped<IMigrationService, MigrationService>();
+        services.AddHttpClient<IGoogleDriveOAuthService, GoogleDriveOAuthService>();
         services.AddScoped<IFileConversionService, FileConversionService>();
         services.AddScoped<INameLookupService, NameLookupService>();
         services.AddScoped<IDocumentEnrichmentService, DocumentEnrichmentService>();
@@ -173,20 +187,19 @@ public static class DependencyService
     }
 
 
-    //public static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
-    //{
-    //    var redisConnectionString = configuration.GetConnectionString("Redis");
+    public static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
+    {
+        var redisConnectionString = configuration.GetConnectionString("Redis");
 
-    //    if (string.IsNullOrEmpty(redisConnectionString))
-    //    {
-    //        throw new InvalidOperationException(" Connection string cho Redis không được cấu hình.");
-    //    }
+        if (string.IsNullOrEmpty(redisConnectionString))
+        {
+            throw new InvalidOperationException("Redis connection string is not configured.");
+        }
 
-    //    services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(redisConnectionString));
-    //    services.AddScoped<IRedisService, RedisService>();
+        services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(redisConnectionString));
 
-    //    return services;
-    //}
+        return services;
+    }
 
 
 }
