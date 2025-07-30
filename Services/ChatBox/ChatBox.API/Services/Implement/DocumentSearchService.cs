@@ -30,9 +30,11 @@ namespace ChatBox.API.Services.Implement
         {
             try
             {
+
                 var factory = new ConnectionFactory()
                 {
-                    Uri = new Uri(_configuration["RabbitMQ:ConnectionString"]),
+                    //Uri = new Uri(_configuration["RabbitMQ:ConnectionString"]),
+                    HostName = _configuration["RabbitMQ:Host"],
                     UserName = _configuration["RabbitMQ:Username"],
                     Password = _configuration["RabbitMQ:Password"],
                     AutomaticRecoveryEnabled = true

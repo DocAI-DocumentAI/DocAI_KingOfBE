@@ -45,19 +45,6 @@ public static class DependencyService
 
             return services;
     }
-    private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(IServiceProvider serviceProvider)
-    {
-        return HttpPolicyExtensions
-              .HandleTransientHttpError()
-              .OrResult(msg => msg.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
-              .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
-                  onRetry: (outcome, timespan, retryAttempt, context) =>
-                  {
-                      var logger = serviceProvider.GetService<ILogger<DocumentSearchService>>();
-                      logger?.LogWarning("Retrying HTTP request. Attempt {RetryAttempt} after {Timespan} due to {Reason}",
-                          retryAttempt, timespan, outcome.Exception?.Message ?? outcome.Result?.ReasonPhrase);
-                  });
-    }
     public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddDatabase();
@@ -76,18 +63,6 @@ public static class DependencyService
                 options.InstanceName = "ChatBox";
             });
         }
-
-        services.AddHttpClient<IDocumentSearchService, DocumentSearchService>(client =>
-        {
-            var documentServiceUrl = configuration["ChatService:DocumentMicroserviceBaseUrl"];
-            if (!string.IsNullOrEmpty(documentServiceUrl))
-            {
-                client.BaseAddress = new Uri(documentServiceUrl);
-            }
-            var timeout = configuration.GetValue("ChatService:RequestTimeoutSeconds", 120);
-            client.Timeout = TimeSpan.FromSeconds(timeout);
-        })
-             .AddPolicyHandler((serviceProvider, request) => GetRetryPolicy(serviceProvider));
 
         // Application services
         services.AddScoped<IChatService, ChatService>();
