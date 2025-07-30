@@ -5,6 +5,7 @@ using Microsoft.SemanticKernel.Connectors.OpenAI;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel;
 using ChatBox.Infrastructure.Repository.Interfaces;
+using ChatBox.API.Constants;
 
 namespace ChatBox.API.Services.Implement
 {
@@ -28,14 +29,14 @@ namespace ChatBox.API.Services.Implement
         {
             var config = await GetAIConfigurationAsync(modelName);
             if (config == null)
-                throw new ArgumentException($"Không tìm thấy cấu hình cho model: {modelName}");
+                throw new ArgumentException(_configuration["ChatService:Messages:ConfigNotFound"]);
 
             var builder = Kernel.CreateBuilder();
 
             // Cấu hình các connector khác nhau
             switch (config.Provider.ToLower())
             {
-                case "openai":
+                case Providers.OPENAI:
                     builder.AddOpenAIChatCompletion(
                         modelId: config.ModelName,
                         apiKey: config.ApiKey);
@@ -50,7 +51,7 @@ namespace ChatBox.API.Services.Implement
                    }
                    break;
 
-                case "openrouter":
+                case Providers.OPENROUTER:
                     builder.AddOpenAIChatCompletion(
                         modelId: config.ModelName,
                         apiKey: config.ApiKey,
@@ -58,7 +59,7 @@ namespace ChatBox.API.Services.Implement
                     break;
 
                 default:
-                    throw new NotSupportedException($"Provider {config.Provider} chưa được hỗ trợ");
+                    throw new NotSupportedException(string.Format(_configuration["ChatService:Messages:ModelNotSupported"], config.Provider));
             }
 
             // Thêm memory storage
@@ -87,8 +88,10 @@ namespace ChatBox.API.Services.Implement
             var kernel = await GetKernelAsync(modelName);
             var config = await GetAIConfigurationAsync(modelName);
             var chatService = kernel.GetRequiredService<IChatCompletionService>();
-            var executionSettings = CreateExecutionSettings(config);
+            bool hasSystemMessage = chatHistory.Any(m => m.Role == AuthorRole.System);
 
+            // ✅ Conditional execution settings
+            var executionSettings = CreateExecutionSettings(config, hasSystemMessage);
             var result = await chatService.GetChatMessageContentAsync(chatHistory, executionSettings);
             return result.Content;
         }
@@ -99,7 +102,10 @@ namespace ChatBox.API.Services.Implement
             var config = await GetAIConfigurationAsync(modelName);
             var chatService = kernel.GetRequiredService<IChatCompletionService>();
 
-            var executionSettings = CreateExecutionSettings(config);
+            bool hasSystemMessage = chatHistory.Any(m => m.Role == AuthorRole.System);
+
+            // ✅ Conditional execution settings
+            var executionSettings = CreateExecutionSettings(config, hasSystemMessage);
             return StreamTokensAsync(chatService, chatHistory, executionSettings);
         }
 
@@ -119,21 +125,21 @@ namespace ChatBox.API.Services.Implement
 
         public async Task<ChatHistory> ReduceChatHistoryAsync(ChatHistory chatHistory)
         {
-            if (chatHistory.Count <= 10)
+            var maxHistoryCount = _configuration.GetValue<int>("ChatService:MaxChatHistoryCount");
+            if (chatHistory.Count <= maxHistoryCount)
                 return chatHistory;
 
-            // Giữ lại system message và 5 tin nhắn gần nhất
             var reducedHistory = new ChatHistory();
 
-            // Thêm system message nếu có
             var systemMessage = chatHistory.FirstOrDefault(m => m.Role == AuthorRole.System);
             if (systemMessage != null)
             {
                 reducedHistory.Add(systemMessage);
             }
 
-            // Thêm 5 tin nhắn gần nhất
-            var recentMessages = chatHistory.Skip(Math.Max(0, chatHistory.Count - 5)).ToList();
+            var recentMessagesCount = _configuration.GetValue<int>("ChatService:RecentMessagesCount");
+            var recentMessages = chatHistory.Skip(Math.Max(0, chatHistory.Count - recentMessagesCount)).ToList();
+
             foreach (var message in recentMessages)
             {
                 if (message.Role != AuthorRole.System)
@@ -200,13 +206,8 @@ namespace ChatBox.API.Services.Implement
             var config = await GetDefaultAIConfigurationAsync();
             var kernel = await GetKernelAsync(config.ModelName);
 
-            var titleFunction = kernel.CreateFunctionFromPrompt(@"
-Hãy tạo một tiêu đề ngắn gọn (tối đa 50 ký tự) cho cuộc trò chuyện dựa trên tin nhắn đầu tiên của người dùng.
-Tiêu đề phải bằng tiếng Việt, súc tích và thể hiện chủ đề chính.
-
-Tin nhắn: {{$input}}
-
-Tiêu đề:");
+            var promptTemplate = _configuration["ChatService:TitleGenerationPrompt"];
+            var titleFunction = kernel.CreateFunctionFromPrompt(promptTemplate);
 
             var result = await titleFunction.InvokeAsync(kernel, new KernelArguments { ["input"] = message });
             return result.ToString().Trim().Replace("\"", "");
@@ -229,10 +230,13 @@ Tiêu đề:");
 
         //    return settings;
         //}
-        private OpenAIPromptExecutionSettings CreateExecutionSettings(AIConfiguration config)
+        private OpenAIPromptExecutionSettings CreateExecutionSettings(AIConfiguration config, bool hasSystemMessageInHistory)
         {
+            var systemPrompt = _configuration["ChatService:SystemPrompt"];
+
             return new OpenAIPromptExecutionSettings
             {
+                ChatSystemPrompt = hasSystemMessageInHistory ? null : systemPrompt,
                 Temperature = config.Temperature,
                 TopP = config.TopP,
                 MaxTokens = config.MaxTokens,
@@ -250,9 +254,9 @@ Tiêu đề:");
         private async Task<AIConfiguration> GetDefaultAIConfigurationAsync()
         {
             var config = await _unitOfWork.GetRepository<AIConfiguration>()
-                .SingleOrDefaultAsync(predicate: c => c.IsActive);
+          .SingleOrDefaultAsync(predicate: c => c.IsActive);
 
-            return config ?? throw new InvalidOperationException("Không tìm thấy cấu hình AI nào được kích hoạt");
+            return config ?? throw new InvalidOperationException(_configuration["ChatService:Messages:NoActiveConfig"]);
         }
     }
 }

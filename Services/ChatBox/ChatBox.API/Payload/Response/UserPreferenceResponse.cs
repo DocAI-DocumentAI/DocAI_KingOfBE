@@ -2,14 +2,12 @@
 {
     public class UserPreferenceResponse
     {
-        public string UserName { get; set; }
+        public string UserId { get; set; } = string.Empty;
+        public string? SessionId { get; set; } // NULL = User-level, NOT NULL = Session-specific
+        public string UserName { get; set; } = string.Empty;
         public List<string> ChatbotCharacteristics { get; set; } = new();
-        public string AdditionalInfo { get; set; }
-        public List<CharacteristicOption> AvailableCharacteristics { get; set; } = new();
-    }
-    public class CharacteristicOption
-    {
-        public string Value { get; set; }
-        public string DisplayName { get; set; }
+        public string AdditionalInfo { get; set; } = string.Empty;
+        public bool ApplyToNewChats { get; set; } = false;
+        public bool HasAnyPreferences { get; set; }
     }
 }

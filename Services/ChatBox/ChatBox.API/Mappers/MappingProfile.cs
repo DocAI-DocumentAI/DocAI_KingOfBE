@@ -20,18 +20,14 @@ namespace ChatBox.API.Mappers
             CreateMap<ChatMessage, MessageResponse>();
 
             // Preference mappings
-            CreateMap<SessionPreference, PreferenceResponse>();
-            CreateMap<UpdatePreferenceRequest, SessionPreference>();
+            CreateMap<UserPreference, PreferenceResponse>();
+            CreateMap<UpdatePreferenceRequest, UserPreference>();
 
             // AI Configuration mappings
             CreateMap<AIConfiguration, AIConfigurationResponse>();
             CreateMap<AIConfigurationRequest, AIConfiguration>();
 
-            // Prohibited Word mappings
-            CreateMap<ProhibitedWord, ProhibitedWordResponse>();
-            CreateMap<ProhibitedWordRequest, ProhibitedWord>();
-
-            CreateMap<UserPreferenceRequest, SessionPreference>();
+            CreateMap<UserPreferenceRequest, UserPreference>();
         }
     }
 }

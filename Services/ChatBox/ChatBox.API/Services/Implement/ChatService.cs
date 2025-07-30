@@ -19,22 +19,21 @@ namespace ChatBox.API.Services.Implement
         private readonly IMapper _mapper;
         private readonly ISemanticKernelService _semanticKernelService;
         private readonly ITokenCountService _tokenCountService;
-        private readonly IContentFilterService _contentFilterService;
         private readonly IPreferenceService _preferenceService;
-
+        private readonly IConfiguration _configuration;
         public ChatService(
             IUnitOfWork<ChatBoxDbContext> unitOfWork,
             IMapper mapper,
+             IConfiguration configuration,
             ISemanticKernelService semanticKernelService,
             ITokenCountService tokenCountService,
-            IContentFilterService contentFilterService,
             IPreferenceService preferenceService)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _semanticKernelService = semanticKernelService;
             _tokenCountService = tokenCountService;
-            _contentFilterService = contentFilterService;
+            _configuration = configuration;
             _preferenceService = preferenceService;
         }
 
@@ -96,7 +95,7 @@ namespace ChatBox.API.Services.Implement
             session.UpdatedBy = userId;
 
             // Generate title for first message if not exists
-            if (isFirstMessage && (string.IsNullOrEmpty(session.Title) || session.Title == DefaultValues.DefaultSessionTitle))
+            if (isFirstMessage && (string.IsNullOrEmpty(session.Title) || session.Title == _configuration["ChatService:DefaultSessionTitle"]))
             {
                 session.Title = await _semanticKernelService.GenerateTitleAsync(request.Message);
             }
@@ -163,7 +162,7 @@ namespace ChatBox.API.Services.Implement
         {
             var session = new ChatSession
             {
-                Title = string.IsNullOrEmpty(request.Title) ? DefaultValues.DefaultSessionTitle : request.Title,
+                Title = string.IsNullOrEmpty(request.Title) ? _configuration["ChatService:DefaultSessionTitle"] : request.Title,
                 UserId = userId,
                 ModelName = request.ModelName ?? await GetDefaultModelNameAsync(),
                                CreatedBy = userId,
@@ -241,42 +240,37 @@ namespace ChatBox.API.Services.Implement
 
         public async Task<ApiResponse<object>> ValidateMessageAsync(string message)
         {
-            // 1. Kiểm tra độ dài cơ bản
             if (string.IsNullOrWhiteSpace(message))
             {
-                return ApiResponse<object>.Fail("Tin nhắn không được để trống.");
+                return ApiResponse<object>.Fail(_configuration["ChatService:Messages:EmptyMessage"]);
             }
 
-            if (message.Length > 8000)
-            {
-                return ApiResponse<object>.Fail("Tin nhắn quá dài. Vui lòng rút ngắn nội dung xuống dưới 8000 ký tự.");
-            }
-
-            // 2. Kiểm tra token count
-            var tokenCount = _tokenCountService.CountTokens(message);
-            if (tokenCount > DefaultValues.MaxTokenLimit)
+            var maxLength = _configuration.GetValue<int>("ChatService:MaxMessageLength");
+            if (message.Length > maxLength)
             {
                 return ApiResponse<object>.Fail(
-                    $"Tin nhắn chứa {tokenCount} token, vượt quá giới hạn {DefaultValues.MaxTokenLimit} token. " +
-                    "Vui lòng rút ngắn nội dung hoặc chia thành nhiều tin nhắn nhỏ hơn.");
+                    string.Format(_configuration["ChatService:Messages:MessageTooLong"], maxLength));
             }
 
-            // 3. Cảnh báo nếu gần giới hạn
-            if (tokenCount > DefaultValues.MaxTokenLimit * 0.8) // 80% của giới hạn
+            var tokenCount = _tokenCountService.CountTokens(message);
+            var maxTokens = _configuration.GetValue<int>("ChatService:MaxTokenLimit");
+
+            if (tokenCount > maxTokens)
+            {
+                return ApiResponse<object>.Fail(
+                    string.Format(_configuration["ChatService:Messages:TokenLimitExceeded"],
+                        tokenCount, maxTokens));
+            }
+
+            var warningThreshold = _configuration.GetValue<double>("ChatService:TokenWarningThreshold");
+            if (tokenCount > maxTokens * warningThreshold)
             {
                 return ApiResponse<object>.Ok(null,
-                    $"Cảnh báo: Tin nhắn chứa {tokenCount} token, gần đạt giới hạn {DefaultValues.MaxTokenLimit} token.");
+                    string.Format(_configuration["ChatService:Messages:TokenWarning"],
+                        tokenCount, maxTokens));
             }
 
-            // 4. Kiểm tra từ cấm
-            if (!await _contentFilterService.IsContentAllowedAsync(message))
-            {
-                var prohibitedWords = await _contentFilterService.GetProhibitedWordsInContentAsync(message);
-                return ApiResponse<object>.Fail(
-                    $"Tin nhắn chứa từ ngữ không phù hợp: {string.Join(", ", prohibitedWords)}. Vui lòng chỉnh sửa và gửi lại.");
-            }
-
-            return ApiResponse<object>.Ok(null, "Tin nhắn hợp lệ.");
+            return ApiResponse<object>.Ok(null, _configuration["ChatService:Messages:MessageValid"]);
         }
 
         private async Task<ChatSession> GetOrCreateSessionAsync(string sessionId, string modelName, string userId)
@@ -284,12 +278,11 @@ namespace ChatBox.API.Services.Implement
             var now = DateTime.UtcNow;
             if (string.IsNullOrEmpty(sessionId))
             {
-                // Create new session
                 var newSession = new ChatSession
                 {
-                    Title = DefaultValues.DefaultSessionTitle,
+                    Title = _configuration["ChatService:DefaultSessionTitle"],
                     UserId = userId,
-                    ModelName = modelName ?? await GetDefaultModelNameAsync(),
+                    ModelName = modelName ?? _configuration["ChatService:DefaultModelName"],
                     CreatedAt = now,
                     UpdatedAt = now,
                     CreatedBy = userId,
@@ -305,9 +298,8 @@ namespace ChatBox.API.Services.Implement
                 .SingleOrDefaultAsync(predicate: s => s.Id == sessionId && s.UserId == userId);
 
             if (session == null)
-                throw new ArgumentException("Không tìm thấy phiên chat.");
+                throw new ArgumentException(_configuration["ChatService:Messages:SessionNotFound"]);
 
-            // Update model if specified
             if (!string.IsNullOrEmpty(modelName) && session.ModelName != modelName)
             {
                 session.ModelName = modelName;
@@ -323,8 +315,8 @@ namespace ChatBox.API.Services.Implement
         private async Task<ChatHistory> BuildChatHistoryAsync(string sessionId)
         {
             var messages = await _unitOfWork.GetRepository<ChatMessage>()
-                .GetListAsync(predicate: m => m.SessionId == sessionId,
-                    orderBy: q => q.OrderBy(m => m.Timestamp));
+            .GetListAsync(predicate: m => m.SessionId == sessionId,
+                orderBy: q => q.OrderBy(m => m.Timestamp));
 
             var chatHistory = new ChatHistory();
 
@@ -347,61 +339,50 @@ namespace ChatBox.API.Services.Implement
             }
 
             // Reduce chat history if too long
-            if (chatHistory.Count > DefaultValues.MaxChatHistoryCount)
+            var maxHistoryCount = _configuration.GetValue<int>("ChatService:MaxChatHistoryCount");
+            if (chatHistory.Count > maxHistoryCount)
             {
                 chatHistory = await _semanticKernelService.ReduceChatHistoryAsync(chatHistory);
             }
+
+            systemPrompt += "\n\nBạn có thể sử dụng chức năng SearchDocuments để tìm thông tin trong tài liệu công ty khi người dùng hỏi về chính sách, quy trình, hướng dẫn.";
+
 
             return chatHistory;
         }
         private async Task<string> BuildSystemPromptAsync(string sessionId)
         {
-
-
             var aiConfig = await GetCurrentAIConfigurationAsync();
-            var systemPrompt = aiConfig?.SystemPrompt ??
-                "Bạn là trợ lý AI thông minh chuyên về tìm kiếm tài liệu nội bộ. Hãy trả lời bằng tiếng Việt chính xác.";
+            var systemPrompt = aiConfig?.SystemPrompt ?? _configuration["ChatService:SystemPrompt"];
 
-            var preferences = await _preferenceService.GetSessionPreferencesAsync(sessionId);
+            var session = await _unitOfWork.GetRepository<ChatSession>()
+           .SingleOrDefaultAsync(predicate: s => s.Id == sessionId);
 
-            // Add user name
-            var namePreference = preferences.FirstOrDefault(p => p.Key == PreferenceKeys.UserName);
-            if (namePreference != null && !string.IsNullOrEmpty(namePreference.Value))
+            if (session != null)
             {
-                systemPrompt += $" Bạn có thể gọi người dùng là {namePreference.Value}.";
-            }
+                var preferences = await _preferenceService.GetEffectivePreferencesAsync(sessionId, session.UserId);
 
-            // Add characteristics
-            var characteristicPreference = preferences.FirstOrDefault(p => p.Key == PreferenceKeys.ChatbotCharacter);
-            if (characteristicPreference != null && !string.IsNullOrEmpty(characteristicPreference.Value))
-            {
-                try
+                if (!string.IsNullOrEmpty(preferences.UserName))
                 {
-                    var characteristics = JsonSerializer.Deserialize<List<string>>(characteristicPreference.Value);
-                    if (characteristics?.Any() == true)
-                    {
-                        var characteristicNames = characteristics
-                            .Select(c => ChatbotCharacteristics.GetDisplayName(c))
-                            .Where(name => !string.IsNullOrEmpty(name));
+                    systemPrompt += $" Bạn có thể gọi người dùng là {preferences.UserName}.";
+                }
 
-                        if (characteristicNames.Any())
-                        {
-                            systemPrompt += $" Phong cách giao tiếp của bạn nên: {string.Join(", ", characteristicNames)}.";
-                        }
+                if (preferences.ChatbotCharacteristics.Any())
+                {
+                    var characteristicNames = preferences.ChatbotCharacteristics
+                        .Select(c => ChatbotCharacteristics.GetDisplayName(c))
+                        .Where(name => !string.IsNullOrEmpty(name));
+
+                    if (characteristicNames.Any())
+                    {
+                        systemPrompt += $" Phong cách giao tiếp của bạn nên: {string.Join(", ", characteristicNames)}.";
                     }
                 }
-                catch
-                {
-                    // Fallback for old format
-                    systemPrompt += $" Đặc điểm của bạn: {characteristicPreference.Value}.";
-                }
-            }
 
-            // Add additional info
-            var additionalInfoPreference = preferences.FirstOrDefault(p => p.Key == PreferenceKeys.AdditionalInfo);
-            if (additionalInfoPreference != null && !string.IsNullOrEmpty(additionalInfoPreference.Value))
-            {
-                systemPrompt += $" Thông tin bổ sung về người dùng: {additionalInfoPreference.Value}.";
+                if (!string.IsNullOrEmpty(preferences.AdditionalInfo))
+                {
+                    systemPrompt += $" Thông tin bổ sung về người dùng: {preferences.AdditionalInfo}.";
+                }
             }
 
             return systemPrompt;
@@ -409,10 +390,11 @@ namespace ChatBox.API.Services.Implement
 
         private async Task<string> GetDefaultModelNameAsync()
         {
+
             var defaultConfig = await _unitOfWork.GetRepository<AIConfiguration>()
                 .SingleOrDefaultAsync(predicate: c => c.IsActive);
 
-            return defaultConfig?.ModelName ?? DefaultValues.DefaultModelName;
+            return defaultConfig?.ModelName ?? _configuration["ChatService:DefaultModelName"];
         }
         private async Task<AIConfiguration> GetCurrentAIConfigurationAsync()
         {
@@ -456,7 +438,7 @@ namespace ChatBox.API.Services.Implement
                 session.LastActiveAt = DateTime.UtcNow;
                 session.UpdatedBy = userId;
 
-                if (isFirstMessage && (string.IsNullOrEmpty(session.Title) || session.Title == DefaultValues.DefaultSessionTitle))
+                if (isFirstMessage && (string.IsNullOrEmpty(session.Title) || session.Title == _configuration["ChatService:DefaultSessionTitle"]))
                 {
                     session.Title = await _semanticKernelService.GenerateTitleAsync(firstMessage);
                 }

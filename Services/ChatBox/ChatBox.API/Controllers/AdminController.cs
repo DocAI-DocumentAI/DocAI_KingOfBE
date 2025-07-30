@@ -90,53 +90,6 @@ namespace ChatBox.API.Controllers
             }
         }
 
-        // Prohibited Words endpoints
-        [HttpGet("prohibited-words")]
-        public async Task<ActionResult<ApiResponse<List<ProhibitedWordResponse>>>> GetProhibitedWords()
-        {
-            try
-            {
-                var words = await _adminService.GetProhibitedWordsAsync();
-                return Ok(ApiResponse<List<ProhibitedWordResponse>>.Ok(words));
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, ApiResponse<List<ProhibitedWordResponse>>.Fail("Đã xảy ra lỗi khi lấy danh sách từ cấm."));
-            }
-        }
-
-        [HttpPost("prohibited-words")]
-        public async Task<ActionResult<ApiResponse<ProhibitedWordResponse>>> CreateProhibitedWord([FromBody] ProhibitedWordRequest request)
-        {
-            try
-            {
-                var userId = GetCurrentUserId();
-                var response = await _adminService.CreateProhibitedWordAsync(request, userId);
-                return Ok(ApiResponse<ProhibitedWordResponse>.Ok(response, "Thêm từ cấm thành công."));
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, ApiResponse<ProhibitedWordResponse>.Fail("Đã xảy ra lỗi khi thêm từ cấm."));
-            }
-        }
-
-        [HttpDelete("prohibited-words/{id}")]
-        public async Task<ActionResult<ApiResponse<bool>>> DeleteProhibitedWord(string id)
-        {
-            try
-            {
-                var result = await _adminService.DeleteProhibitedWordAsync(id);
-                if (result)
-                    return Ok(ApiResponse<bool>.Ok(true, "Xóa từ cấm thành công."));
-                else
-                    return NotFound(ApiResponse<bool>.Fail("Không tìm thấy từ cấm."));
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, ApiResponse<bool>.Fail("Đã xảy ra lỗi khi xóa từ cấm."));
-            }
-        }
-
         private string GetCurrentUserId()
         {
             return User.FindFirst("userId")?.Value ??

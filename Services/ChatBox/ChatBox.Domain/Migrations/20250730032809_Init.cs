@@ -57,23 +57,6 @@ namespace ChatBox.Domain.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "ProhibitedWords",
-                columns: table => new
-                {
-                    Id = table.Column<string>(type: "text", nullable: false),
-                    Word = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedBy = table.Column<string>(type: "text", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    UpdatedBy = table.Column<string>(type: "text", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ProhibitedWords", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "ChatMessages",
                 columns: table => new
                 {
@@ -129,12 +112,6 @@ namespace ChatBox.Domain.Migrations
                 column: "SessionId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_ProhibitedWords_Word",
-                table: "ProhibitedWords",
-                column: "Word",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
                 name: "IX_SessionPreferences_SessionId",
                 table: "SessionPreferences",
                 column: "SessionId");
@@ -148,9 +125,6 @@ namespace ChatBox.Domain.Migrations
 
             migrationBuilder.DropTable(
                 name: "ChatMessages");
-
-            migrationBuilder.DropTable(
-                name: "ProhibitedWords");
 
             migrationBuilder.DropTable(
                 name: "SessionPreferences");

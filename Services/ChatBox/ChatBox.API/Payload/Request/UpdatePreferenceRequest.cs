@@ -2,7 +2,9 @@
 {
     public class UpdatePreferenceRequest
     {
-        public string Key { get; set; }
-        public string Value { get; set; }
+        public string? UserName { get; set; }
+        public List<string>? ChatbotCharacteristics { get; set; }
+        public string? AdditionalInfo { get; set; }
+        public bool ApplyToNewChats { get; set; } = false;
     }
 }

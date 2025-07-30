@@ -3,6 +3,6 @@
     public interface ITokenCountService
     {
         int CountTokens(string text);
-        bool IsWithinLimit(string text, int maxTokens = 4000);
+        bool IsWithinLimit(string text, int? maxTokens = null);
     }
 }
