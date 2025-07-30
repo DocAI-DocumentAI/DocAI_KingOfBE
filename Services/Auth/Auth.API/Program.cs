@@ -18,6 +18,10 @@ using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using DotNetEnv;
+using FluentValidation;
+using FluentValidation.AspNetCore;
+using Auth.API.Services.Interface;
+using Auth.API.Services.Implement;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -84,6 +88,15 @@ try
         });
 
         options.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("Bearer"));
+    });
+
+    builder.Services.AddFluentValidationAutoValidation();
+    builder.Services.AddFluentValidationClientsideAdapters();
+    builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
+    builder.Services.Configure<ApiBehaviorOptions>(options =>
+    {
+        options.SuppressModelStateInvalidFilter = true;
     });
 
     var app = builder.Build();
