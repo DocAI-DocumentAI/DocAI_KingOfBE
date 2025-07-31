@@ -153,33 +153,34 @@ public class AuthController : ControllerBase
         }
     }
 
-    [HttpPost(ApiEndPointConstant.User.GetUsersByDepartmentAndRole)]
-    [CustomAuthorize(Roles = new[] { Roles.Admin })]
-    [ProducesResponseType(typeof(List<GetUserByDeparAndRoleResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetUsersByDepartmentAndRole([FromBody] GetUserByDeparAndRole request)
-    {
-        try
-        {
-            var result = await _userService.GetUserByDeparAndRoleAsync(request);
-            return Ok(result);
-        }
-        catch (BadHttpRequestException ex)
-        {
-            _logger.LogError($"Failed to get users by department and role: {ex.Message}");
-            return BadRequest(ex.Message);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError($"Error getting users by department and role: {ex.Message}");
-            return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
-        }
-    }
+    // [HttpPost(ApiEndPointConstant.User.GetUsersByDepartmentAndRole)]
+    // [CustomAuthorize(Roles = new[] { Roles.Admin })]
+    // [ProducesResponseType(typeof(List<GetUserByDeparAndRoleResponse>), StatusCodes.Status200OK)]
+    // [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+    // [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
+    // [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
+    // public async Task<IActionResult> GetUsersByDepartmentAndRole([FromBody] GetUserByDeparAndRole request)
+    // {
+    //     try
+    //     {
+    //         var result = await _userService.GetUserByDeparAndRoleAsync(request);
+    //         return Ok(result);
+    //     }
+    //     catch (BadHttpRequestException ex)
+    //     {
+    //         _logger.LogError($"Failed to get users by department and role: {ex.Message}");
+    //         return BadRequest(ex.Message);
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         _logger.LogError($"Error getting users by department and role: {ex.Message}");
+    //         return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
+    //     }
+    // }
 
     [HttpGet(ApiEndPointConstant.User.Users)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
+    [SkipRateLimit]
     [ProducesResponseType(typeof(IPaginate<UserResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]

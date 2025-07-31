@@ -27,6 +27,7 @@ public class DepartmentController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Department.Departments)]
+    [SkipRateLimit]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status404NotFound)]

@@ -260,6 +260,7 @@ public class UserService : BaseService<UserService>, IUserService
     {
         var user = _mapper.Map<User>(request);
         user.Id = Guid.NewGuid();
+        user.Active = true;
         user.Password = PasswordUtil.HashPassword(request.Password);
         user.CreatAt = DateTime.UtcNow;
         user.UpdateAt = DateTime.UtcNow;
@@ -752,69 +753,69 @@ public class UserService : BaseService<UserService>, IUserService
         }
     }
 
-    public async Task<List<GetUserByDeparAndRoleResponse>> GetUserByDeparAndRoleAsync(GetUserByDeparAndRole request)
-    {
-        if (request == null)
-            throw new ArgumentNullException(nameof(request), "Request cannot be null");
+    // public async Task<List<GetUserByDeparAndRoleResponse>> GetUserByDeparAndRoleAsync(GetUserByDeparAndRole request)
+    // {
+    //     if (request == null)
+    //         throw new ArgumentNullException(nameof(request), "Request cannot be null");
 
-        if (request.DepartmentId == Guid.Empty)
-            throw new BadHttpRequestException(MessageConstant.Department.DepartmentNotFound);
+    //     if (request.DepartmentId == Guid.Empty)
+    //         throw new BadHttpRequestException(MessageConstant.Department.DepartmentNotFound);
 
-        if (request.RoleId == Guid.Empty)
-            throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
+    //     if (request.RoleId == Guid.Empty)
+    //         throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
 
-        // Kiểm tra department tồn tại
-        var department = await _unitOfWork.GetRepository<Department>()
-            .SingleOrDefaultAsync(predicate: d => d.Id == request.DepartmentId);
+    //     // Kiểm tra department tồn tại
+    //     var department = await _unitOfWork.GetRepository<Department>()
+    //         .SingleOrDefaultAsync(predicate: d => d.Id == request.DepartmentId);
 
-        if (department == null)
-            throw new BadHttpRequestException(MessageConstant.Department.DepartmentNotFound);
+    //     if (department == null)
+    //         throw new BadHttpRequestException(MessageConstant.Department.DepartmentNotFound);
 
-        // Kiểm tra role tồn tại
-        var role = await _unitOfWork.GetRepository<Role>()
-            .SingleOrDefaultAsync(predicate: r => r.Id == request.RoleId);
+    //     // Kiểm tra role tồn tại
+    //     var role = await _unitOfWork.GetRepository<Role>()
+    //         .SingleOrDefaultAsync(predicate: r => r.Id == request.RoleId);
 
-        if (role == null)
-            throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
+    //     if (role == null)
+    //         throw new BadHttpRequestException(MessageConstant.Role.RoleNotFound);
 
-        // Lấy danh sách user theo department và role với phân trang
-        var users = await _unitOfWork.GetRepository<User>().GetPagingListAsync(
-            selector: u => u,
-            filter: null,
-            predicate: u => u.DepartmentId == request.DepartmentId && u.RoleId == request.RoleId,
-            include: u => u.Include(u => u.Role).Include(u => u.Department),
-            page: request.PageIndex,
-            size: request.PageSize,
-            orderBy: u => u.OrderBy(x => x.FullName)
-        );
+    //     // Lấy danh sách user theo department và role với phân trang
+    //     var users = await _unitOfWork.GetRepository<User>().GetPagingListAsync(
+    //         selector: u => u,
+    //         filter: null,
+    //         predicate: u => u.DepartmentId == request.DepartmentId && u.RoleId == request.RoleId,
+    //         include: u => u.Include(u => u.Role).Include(u => u.Department),
+    //         page: request.PageIndex,
+    //         size: request.PageSize,
+    //         orderBy: u => u.OrderBy(x => x.FullName)
+    //     );
 
-        // Tạo danh sách response
-        var responseList = users.Items.Select(user => new GetUserByDeparAndRoleResponse
-        {
-            UserId = user.Id,
-            FullName = user.FullName,
-            Email = user.Email,
-            Phone = user.Phone,
-            Role = user.Role != null ? new RoleResponse
-            {
-                Id = user.Role.Id,
-                RoleName = user.Role.RoleName,
-                Description = user.Role.Description,
-                CreateAt = user.Role.CreateAt,
-                UpdateAt = user.Role.UpdateAt
-            } : null,
-            Department = user.Department != null ? new DepartmentResponse
-            {
-                Id = user.Department.Id,
-                Name = user.Department.Name,
-                Description = user.Department.Description,
-                CreateAt = user.Department.CreateAt,
-                UpdateAt = user.Department.UpdateAt
-            } : null
-        }).ToList();
+    //     // Tạo danh sách response
+    //     var responseList = users.Items.Select(user => new GetUserByDeparAndRoleResponse
+    //     {
+    //         UserId = user.Id,
+    //         FullName = user.FullName,
+    //         Email = user.Email,
+    //         Phone = user.Phone,
+    //         Role = user.Role != null ? new RoleResponse
+    //         {
+    //             Id = user.Role.Id,
+    //             RoleName = user.Role.RoleName,
+    //             Description = user.Role.Description,
+    //             CreateAt = user.Role.CreateAt,
+    //             UpdateAt = user.Role.UpdateAt
+    //         } : null,
+    //         Department = user.Department != null ? new DepartmentResponse
+    //         {
+    //             Id = user.Department.Id,
+    //             Name = user.Department.Name,
+    //             Description = user.Department.Description,
+    //             CreateAt = user.Department.CreateAt,
+    //             UpdateAt = user.Department.UpdateAt
+    //         } : null
+    //     }).ToList();
 
-        return responseList;
-    }
+    //     return responseList;
+    // }
 
     public async Task<IPaginate<UserResponse>> GetAllUsersAsync(int page, int size, UserFilter? filter, string? sortBy, bool isAsc)
     {
@@ -824,13 +825,15 @@ public class UserService : BaseService<UserService>, IUserService
                 Id = s.Id,
                 Email = s.Email,
                 Phone = s.Phone,
+                Active = s.Active,
                 FullName = s.FullName,
                 RoleId = s.RoleId,
                 Role = s.Role,
                 DepartmentId = s.DepartmentId,
                 Department = s.Department,
                 CreatAt = s.CreatAt,
-                UpdateAt = s.UpdateAt
+                UpdateAt = s.UpdateAt,
+                UserPermissions = s.UserPermissions
             },
             page: page,
             size: size,
@@ -839,6 +842,8 @@ public class UserService : BaseService<UserService>, IUserService
             isAsc: isAsc,
             include: s => s.Include(u => u.Role)
                            .Include(u => u.Department)
+                           .Include(u => u.UserPermissions)
+                           .ThenInclude(up => up.Permission)
         );
 
         var userIds = users.Items.Select(u => u.Id).ToList();
@@ -847,9 +852,12 @@ public class UserService : BaseService<UserService>, IUserService
 
         var response = _mapper.Map<IPaginate<UserResponse>>(users);
 
-        // Gán UserSetting cho từng UserResponse
+        // Gán UserSetting và Permissions cho từng UserResponse
         foreach (var userResponse in response.Items)
         {
+            var user = users.Items.FirstOrDefault(u => u.Id == userResponse.Id);
+
+            // Map UserSetting
             var userSetting = userSettings.FirstOrDefault(us => us.UserId == userResponse.Id);
             if (userSetting != null)
             {
@@ -862,6 +870,16 @@ public class UserService : BaseService<UserService>, IUserService
                     UpdateAt = userSetting.UpdateAt
                 };
             }
+
+            // Map Permissions
+            userResponse.Permissions = user?.UserPermissions?.Select(up => new PermissionResponse
+            {
+                Id = up.Permission.Id,
+                Name = up.Permission.Name,
+                Description = up.Permission.Description,
+                CreateAt = up.Permission.CreateAt,
+                UpdateAt = up.Permission.UpdateAt
+            }).ToList() ?? new List<PermissionResponse>();
         }
 
         return response;

@@ -23,7 +23,7 @@ public interface IUserService
     public Task<string> GenerateOtpAsync(GenerateEmailOtpRequest request);
     public Task<UserRoleChangeResponse> ChangeUserRoleAsync(Guid roleId);
     public Task<ChangeDepartmentResponse> ChangeDepartmentForUserAsync(ChangeDepartmentRequest request);
-    public Task<List<GetUserByDeparAndRoleResponse>> GetUserByDeparAndRoleAsync(GetUserByDeparAndRole request);
+    // public Task<List<GetUserByDeparAndRoleResponse>> GetUserByDeparAndRoleAsync(GetUserByDeparAndRole request);
     public Task<IPaginate<UserResponse>> GetAllUsersAsync(int page, int size, UserFilter? filter, string? sortBy, bool isAsc);
     public Task<bool> LogoutAsync();
     public Task<Dictionary<string, string>> GetUserNamesByIdsAsync(List<string> userIds);

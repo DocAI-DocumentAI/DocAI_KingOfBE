@@ -27,6 +27,7 @@ public class PermissionController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Permission.Permissions)]
+    [SkipRateLimit]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status404NotFound)]
