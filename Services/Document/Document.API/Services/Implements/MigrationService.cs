@@ -7,10 +7,12 @@ namespace Document.API.Services.Implements
 {
     /// <summary>
     /// Service for migrating documents from Azure Blob Storage to Google Drive
+    /// MIGRATION COMPLETE - Azure dependencies commented out
     /// </summary>
     public class MigrationService : IMigrationService
     {
-        private readonly IAzureStorageService _azureStorageService;
+        // Azure service commented out - migration complete
+        // private readonly IAzureStorageService _azureStorageService;
         private readonly IGoogleDriveService _googleDriveService;
         private readonly IGoogleDriveOAuthService _googleDriveOAuthService;
         private readonly IRedisService _redisService;
@@ -21,14 +23,14 @@ namespace Document.API.Services.Implements
         private const string MIGRATION_JOB_PREFIX = "migration_job:";
 
         public MigrationService(
-            IAzureStorageService azureStorageService,
+            // IAzureStorageService azureStorageService, // Commented out - migration complete
             IGoogleDriveService googleDriveService,
             IGoogleDriveOAuthService googleDriveOAuthService,
             IRedisService redisService,
             IUnitOfWork unitOfWork,
             ILogger<MigrationService> logger)
         {
-            _azureStorageService = azureStorageService;
+            // _azureStorageService = azureStorageService; // Commented out - migration complete
             _googleDriveService = googleDriveService;
             _googleDriveOAuthService = googleDriveOAuthService;
             _redisService = redisService;
@@ -75,52 +77,63 @@ namespace Document.API.Services.Implements
                     };
                 }
 
-                // Download file from Azure
-                var azureStream = await _azureStorageService.DownloadFileAsync(documentVersion.FilePath);
-                if (azureStream == null)
-                {
-                    return new MigrationResult
-                    {
-                        Success = false,
-                        DocumentVersionId = documentVersionId,
-                        OriginalFilePath = documentVersion.FilePath,
-                        Message = "Failed to download file from Azure",
-                        ErrorDetails = "File not found in Azure Blob Storage"
-                    };
-                }
+                // MIGRATION COMPLETE - Azure download commented out
+                // var azureStream = await _azureStorageService.DownloadFileAsync(documentVersion.FilePath);
+                // if (azureStream == null)
+                // {
+                //     return new MigrationResult
+                //     {
+                //         Success = false,
+                //         DocumentVersionId = documentVersionId,
+                //         OriginalFilePath = documentVersion.FilePath,
+                //         Message = "Failed to download file from Azure",
+                //         ErrorDetails = "File not found in Azure Blob Storage"
+                //     };
+                // }
 
-                // Create IFormFile from stream for Google Drive upload
-                var formFile = CreateFormFileFromStream(azureStream, documentVersion.FileName, "application/octet-stream");
-
-                // Determine folder and access settings
-                var folder = DetermineFolderFromFilePath(documentVersion.FilePath);
-                var departmentId = documentVersion.DocumentFile?.DepartmentId;
-                var isPublic = documentVersion.IsPublic;
-
-                // Upload to Google Drive
-                var uploadResponse = await _googleDriveService.UploadFileAsync(formFile, folder, departmentId, isPublic);
-
-                // Update database with Google Drive file ID
-                documentVersion.GoogleDriveFileId = uploadResponse.FileId;
-                documentVersion.LastUpdatedTime = DateTime.UtcNow;
-
-                await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(documentVersion);
-                await _unitOfWork.CommitAsync();
-
-                _logger.LogInformation("Successfully migrated document version {DocumentVersionId} to Google Drive with file ID {FileId}", 
-                    documentVersionId, uploadResponse.FileId);
-
+                // Migration is complete - all files should already be in Google Drive
                 return new MigrationResult
                 {
-                    Success = true,
+                    Success = false,
                     DocumentVersionId = documentVersionId,
                     OriginalFilePath = documentVersion.FilePath,
-                    NewFileId = uploadResponse.FileId,
-                    Md5Hash = uploadResponse.Md5Hash,
-                    FileSize = uploadResponse.FileSize,
-                    Message = "File migrated successfully",
-                    MigratedAt = DateTime.UtcNow
+                    Message = "Migration already complete - all files are in Google Drive",
+                    ErrorDetails = "No Azure migration needed"
                 };
+
+                // MIGRATION COMPLETE - Google Drive upload logic commented out
+                // var formFile = CreateFormFileFromStream(azureStream, documentVersion.FileName, "application/octet-stream");
+                //
+                // // Determine folder and access settings
+                // var folder = DetermineFolderFromFilePath(documentVersion.FilePath);
+                // var departmentId = documentVersion.DocumentFile?.DepartmentId;
+                // var isPublic = documentVersion.IsPublic;
+                //
+                // // Upload to Google Drive
+                // var uploadResponse = await _googleDriveService.UploadFileAsync(formFile, folder, departmentId, isPublic);
+                //
+                // // Update database with Google Drive file ID
+                // documentVersion.GoogleDriveFileId = uploadResponse.FileId;
+                // documentVersion.LastUpdatedTime = DateTime.UtcNow;
+                //
+                // await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(documentVersion);
+                // await _unitOfWork.CommitAsync();
+
+                // MIGRATION COMPLETE - Success logging commented out
+                // _logger.LogInformation("Successfully migrated document version {DocumentVersionId} to Google Drive with file ID {FileId}",
+                //     documentVersionId, uploadResponse.FileId);
+                //
+                // return new MigrationResult
+                // {
+                //     Success = true,
+                //     DocumentVersionId = documentVersionId,
+                //     OriginalFilePath = documentVersion.FilePath,
+                //     NewFileId = uploadResponse.FileId,
+                //     Md5Hash = uploadResponse.Md5Hash,
+                //     FileSize = uploadResponse.FileSize,
+                //     Message = "File migrated successfully",
+                //     MigratedAt = DateTime.UtcNow
+                // };
             }
             catch (Exception ex)
             {
@@ -376,17 +389,17 @@ namespace Document.API.Services.Implements
                     };
                 }
 
-                // Get file info from both storage providers
-                var azureExists = await _azureStorageService.FileExistsAsync(documentVersion.FilePath);
+                // MIGRATION COMPLETE - Azure verification commented out
+                // var azureExists = await _azureStorageService.FileExistsAsync(documentVersion.FilePath);
                 var googleExists = await _googleDriveService.FileExistsAsync(documentVersion.GoogleDriveFileId);
 
-                if (!azureExists || !googleExists)
+                if (!googleExists) // Migration complete - only check Google Drive
                 {
                     return new VerificationResult
                     {
                         IsValid = false,
                         DocumentVersionId = documentVersionId,
-                        Message = $"File missing - Azure: {azureExists}, Google: {googleExists}"
+                        Message = $"File missing - Google: {googleExists} (Migration complete - Azure not checked)"
                     };
                 }
 

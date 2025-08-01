@@ -1,4 +1,8 @@
-﻿using Document.API.Payload.Response;
+﻿// AZURE STORAGE INTERFACE - COMMENTED OUT FOR GOOGLE DRIVE MIGRATION
+// This file is preserved for potential rollback but not actively used
+
+/*
+using Document.API.Payload.Response;
 
 namespace Document.API.Services.Interfaces
 {
@@ -13,3 +17,6 @@ namespace Document.API.Services.Interfaces
         Task<string> GetFileContentTypeAsync(string filePath);
     }
 }
+*/
+
+// END OF COMMENTED AZURE STORAGE INTERFACE

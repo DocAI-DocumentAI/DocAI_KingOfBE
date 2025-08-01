@@ -20,9 +20,9 @@ namespace Document.API.Services.Implements
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
         private readonly ILogger<ApprovalService> _logger;
-        private readonly IAzureStorageService _storageService;
+        private readonly IStorageService _storageService;
         private readonly IKernelMemory _memory;
-        public ApprovalService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ApprovalService> logger, IAzureStorageService storageService, IKernelMemory kernelMemory) 
+        public ApprovalService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ApprovalService> logger, IStorageService storageService, IKernelMemory kernelMemory)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
@@ -149,18 +149,24 @@ namespace Document.API.Services.Implements
                 {
                     if (previousApprovedVersion != null)
                     {
-                        await _storageService.MoveFileAsync(previousApprovedVersion.FileName, StorageFolderConstant.Approved, StorageFolderConstant.Archived);
-                        previousApprovedVersion.FilePath = $"{StorageFolderConstant.Archived}/{previousApprovedVersion.FileName}";
+                        // Use Google Drive file ID for move operation
+                        var previousFileId = previousApprovedVersion.GoogleDriveFileId ?? previousApprovedVersion.FilePath;
+                        await _storageService.MoveFileAsync(previousFileId, StorageFolderConstant.Approved, StorageFolderConstant.Archived,
+                            previousApprovedVersion.DocumentFile.DepartmentId, previousApprovedVersion.IsPublic);
+                        // FilePath remains the Google Drive file ID - no change needed
                     }
 
-                    await _storageService.MoveFileAsync(versionToReview.FileName, StorageFolderConstant.Pending, StorageFolderConstant.Approved);
-                    versionToReview.FilePath = $"{StorageFolderConstant.Approved}/{versionToReview.FileName}";
+                    // Use Google Drive file ID for move operation
+                    var currentFileId = versionToReview.GoogleDriveFileId ?? versionToReview.FilePath;
+                    await _storageService.MoveFileAsync(currentFileId, StorageFolderConstant.Pending, StorageFolderConstant.Approved,
+                        versionToReview.DocumentFile.DepartmentId, versionToReview.IsPublic);
+                    // FilePath remains the Google Drive file ID - no change needed
 
                     var fileExists = false;
                     var retryCount = 0;
                     while (!fileExists && retryCount < 5)
                     {
-                        fileExists = await _storageService.FileExistsAsync(versionToReview.FilePath);
+                        fileExists = await _storageService.FileExistsAsync(currentFileId);
                         if (!fileExists)
                         {
                             await Task.Delay(500);
@@ -248,9 +254,13 @@ namespace Document.API.Services.Implements
 
                     if (previousApprovedVersion != null)
                     {
-                        await _storageService.MoveFileAsync(previousApprovedVersion.FileName, StorageFolderConstant.Archived, StorageFolderConstant.Approved);
+                        var previousFileId = previousApprovedVersion.GoogleDriveFileId ?? previousApprovedVersion.FilePath;
+                        await _storageService.MoveFileAsync(previousFileId, StorageFolderConstant.Archived, StorageFolderConstant.Approved,
+                            previousApprovedVersion.DocumentFile.DepartmentId, previousApprovedVersion.IsPublic);
                     }
-                    await _storageService.MoveFileAsync(versionToReview.FileName, StorageFolderConstant.Approved, StorageFolderConstant.Pending);
+                    var currentFileId = versionToReview.GoogleDriveFileId ?? versionToReview.FilePath;
+                    await _storageService.MoveFileAsync(currentFileId, StorageFolderConstant.Approved, StorageFolderConstant.Pending,
+                        versionToReview.DocumentFile.DepartmentId, versionToReview.IsPublic);
 
                     throw;
                 }
@@ -318,9 +328,11 @@ namespace Document.API.Services.Implements
             version.LastUpdatedBy = "system"; // temp
             version.LastUpdatedTime = DateTime.UtcNow; // Update timestamp
 
-            //4. Move the document file to the "Pending" folder in Azure Storage
-            await _storageService.MoveFileAsync(version.FileName, StorageFolderConstant.Drafts, StorageFolderConstant.Pending);
-            version.FilePath = $"{StorageFolderConstant.Pending}/{version.FileName}";
+            //4. Move the document file to the "Pending" folder in Google Drive
+            var fileId = version.GoogleDriveFileId ?? version.FilePath;
+            await _storageService.MoveFileAsync(fileId, StorageFolderConstant.Drafts, StorageFolderConstant.Pending,
+                version.DocumentFile.DepartmentId, version.IsPublic);
+            // FilePath remains the Google Drive file ID - no change needed
 
             //5. Change the file path to point to the new location
 

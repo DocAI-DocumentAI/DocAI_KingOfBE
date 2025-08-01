@@ -129,16 +129,24 @@ namespace Document.API.Services.Implements
                 using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
 
                 // Get current file to find current parents
-                var file = await driveService.Files.Get(fileId).ExecuteAsync();
-                var previousParents = string.Join(",", file.Parents);
+                var fileRequest = driveService.Files.Get(fileId);
+                fileRequest.Fields = "id,parents";
+                var file = await ExecuteWithRetryAsync(async () => await fileRequest.ExecuteAsync());
+                var previousParents = file.Parents != null ? string.Join(",", file.Parents) : "";
 
                 // Get destination folder ID
                 var destinationFolderId = await GetOrCreateFolderAsync(destinationFolder, departmentId, isPublic, driveService);
 
+                _logger.LogInformation("Moving file '{FileId}' from parents '{PreviousParents}' to folder '{DestinationFolderId}'",
+                    fileId, previousParents, destinationFolderId);
+
                 // Move file
                 var updateRequest = driveService.Files.Update(new Google.Apis.Drive.v3.Data.File(), fileId);
                 updateRequest.AddParents = destinationFolderId;
-                updateRequest.RemoveParents = previousParents;
+                if (!string.IsNullOrEmpty(previousParents))
+                {
+                    updateRequest.RemoveParents = previousParents;
+                }
                 updateRequest.Fields = "id,parents";
 
                 await ExecuteWithRetryAsync(async () => await updateRequest.ExecuteAsync());

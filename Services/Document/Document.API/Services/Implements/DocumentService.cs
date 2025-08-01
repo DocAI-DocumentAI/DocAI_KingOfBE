@@ -25,11 +25,11 @@ public class DocumentService : IDocumentService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
     private readonly ILogger<DocumentService> _logger;
-    private readonly IAzureStorageService _storageService;
+    private readonly IStorageService _storageService;
     private readonly IKernelMemory _memory;
     private readonly IConfiguration _configuration;
     private readonly IDocumentEnrichmentService _enrichmentService;
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IAzureStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService)
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
@@ -157,8 +157,8 @@ public class DocumentService : IDocumentService
             }
         }
 
-        // 4. Upload the file to Azure Storage and get the MD5 hash.
-        var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
+        // 4. Upload the file to storage and get the MD5 hash.
+        var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, request.DepartmentId, false);
         var fileHash = uploadResponse.Md5Hash;
 
         // 5. Check for file duplication using the MD5 hash.
@@ -167,7 +167,7 @@ public class DocumentService : IDocumentService
 
         if (existingFile != null)
         {
-            await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+            await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
 
             switch (existingFile.Status)
             {
@@ -219,7 +219,7 @@ public class DocumentService : IDocumentService
             FileName = request.File.FileName,
             FileType = Path.GetExtension(request.File.FileName),
             FileSize = request.File.Length,
-            FilePath = uploadResponse.BlobName,
+            FilePath = uploadResponse.FileIdentifier, // Google Drive file ID for new uploads
             FileHash = fileHash,
             SignedBy = request.SignedBy,
             EffectiveFrom = request.EffectiveFrom,
@@ -275,8 +275,14 @@ public class DocumentService : IDocumentService
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
         }
 
-        AzureUploadResponse uploadResponse = null;
+        StorageUploadResponse uploadResponse = null;
         string fileHash = null;
+
+        // First, get the version to update to access department info
+        var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
+            .SingleOrDefaultAsync(
+                predicate: v => v.Id == versionId,
+                include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
 
         if (request.File != null)
         {
@@ -293,9 +299,9 @@ public class DocumentService : IDocumentService
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
             }
 
-            // Upload the new file to Azure Storage BEFORE starting the database transaction.
+            // Upload the new file to storage BEFORE starting the database transaction.
             _logger.LogInformation("Uploading new file to storage before database transaction begins.");
-            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
+            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, versionToUpdate.DocumentFile.DepartmentId, false);
             fileHash = uploadResponse.Md5Hash;
         }
 
@@ -304,12 +310,6 @@ public class DocumentService : IDocumentService
         // ====================================================================================
         try
         {
-            // Retrive draft to update. This is our first read.
-            var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
-                .SingleOrDefaultAsync(
-                    predicate: v => v.Id == versionId,
-                    include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
-
             var documentToUpdate = versionToUpdate.DocumentFile;
 
             // --- Perform all database-dependent validations ---
@@ -318,14 +318,14 @@ public class DocumentService : IDocumentService
             if (documentToUpdate.OwnerId != userId)
             {
                 // If we uploaded a file, we must now delete it since the operation is failing.
-                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                 throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToEdit);
             }
 
             // Status must be Draft or Rejected.
             if (versionToUpdate.Status != StatusEnum.Draft && versionToUpdate.Status != StatusEnum.Rejected)
             {
-                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.CannotEditWithStatus, versionToUpdate.Status));
             }
 
@@ -336,7 +336,7 @@ public class DocumentService : IDocumentService
                     .SingleOrDefaultAsync(predicate: d => d.Title == request.Title && d.Id != documentToUpdate.Id);
                 if (existingDocument != null)
                 {
-                    if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                    if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                     throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentTitleExists);
                 }
             }
@@ -349,7 +349,7 @@ public class DocumentService : IDocumentService
                 if (existingFile != null)
                 {
                     // If a duplicate is found, delete the file that was just uploaded.
-                    await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                     throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
                         string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
                 }
@@ -364,8 +364,8 @@ public class DocumentService : IDocumentService
                 oldFileNameToDelete = versionToUpdate.FileName;
 
                 // Update version properties for the new file.
-                versionToUpdate.FilePath = uploadResponse.BlobName;
-                versionToUpdate.FileName = request.File.FileName;
+                versionToUpdate.FilePath = $"{StorageFolderConstant.Drafts}/{uploadResponse.FileName}";
+                versionToUpdate.FileName = uploadResponse.FileName;
                 versionToUpdate.FileType = Path.GetExtension(request.File.FileName);
                 versionToUpdate.FileSize = request.File.Length;
                 versionToUpdate.FileHash = fileHash;
@@ -427,8 +427,8 @@ public class DocumentService : IDocumentService
             // at the beginning, otherwise it will be an orphaned file in storage.
             if (uploadResponse != null)
             {
-                _logger.LogInformation("Rolling back storage upload for {BlobName} due to concurrency conflict.", uploadResponse.BlobName);
-                await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                _logger.LogInformation("Rolling back storage upload for {FileIdentifier} due to concurrency conflict.", uploadResponse.FileIdentifier);
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
             }
 
             // Throw a specific, user-friendly error.
@@ -647,10 +647,11 @@ Requirements:
 
         _logger.LogInformation("Version to delete: {VersionName}, Status: {Status}", versionToDelete.VersionName, versionToDelete.Status);
 
-        // 3. Delete the physical file from Azure Storage.
-        _logger.LogInformation("Deleting file from Azure Storage: {FileName}", versionToDelete.FileName);
-        await _storageService.DeleteFileAsync(versionToDelete.FileName, StorageFolderConstant.Drafts);
-        _logger.LogInformation("Deleted file from Azure Storage at path: {FilePath}", versionToDelete.FilePath);
+        // 3. Delete the physical file from Google Drive.
+        _logger.LogInformation("Deleting file from Google Drive: {FileName}", versionToDelete.FileName);
+        var fileId = versionToDelete.GoogleDriveFileId ?? versionToDelete.FilePath;
+        await _storageService.DeleteFileAsync(fileId, StorageFolderConstant.Drafts);
+        _logger.LogInformation("Deleted file from Google Drive with ID: {FileId}", fileId);
 
         // 4. Delete the DocumentFile record from the database.
         // Due to cascade delete settings, this will also remove the associated DocumentVersion(s) and VersionTag(s).
@@ -949,10 +950,10 @@ Requirements:
         // Business Rule: For new versions, DepartmentId and ReplacementId are inherited from the existing DocumentFile
         // The new request model (CreateNewVersionDraftRequest) doesn't include these fields as they are automatically inherited
 
-        AzureUploadResponse uploadResponse = null;
+        StorageUploadResponse uploadResponse = null;
         try
         {
-            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
+            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, documentToUpdate.DepartmentId, false);
             var fileHash = uploadResponse.Md5Hash;
 
             // Check for file duplication using the MD5 hash
@@ -961,7 +962,7 @@ Requirements:
 
             if (existingFile != null)
             {
-                await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                 throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
             }
 
@@ -975,10 +976,10 @@ Requirements:
                 Status = StatusEnum.Draft,
                 IsOfficial = false,
                 Summary = request.Summary,
-                FileName = request.File.FileName,
-                FileType = Path.GetExtension(request.File.FileName),
+                FileName = uploadResponse.FileName,
+                FileType = Path.GetExtension(uploadResponse.FileName),
                 FileSize = request.File.Length,
-                FilePath = uploadResponse.BlobName,
+                FilePath = uploadResponse.FileIdentifier, // Google Drive file ID for new uploads
                 FileHash = fileHash,
                 SignedBy = request.SignedBy,
                 EffectiveFrom = request.EffectiveFrom,
@@ -1017,12 +1018,12 @@ Requirements:
             {
                 try
                 {
-                    _logger.LogInformation("Rolling back storage upload for {BlobName} due to concurrency conflict.", uploadResponse.BlobName);
-                    await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                    _logger.LogInformation("Rolling back storage upload for {FileIdentifier} due to concurrency conflict.", uploadResponse.FileIdentifier);
+                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                 }
                 catch (Exception deleteEx)
                 {
-                    _logger.LogError(deleteEx, "Failed to delete uploaded file {BlobName} during rollback after concurrency conflict.", uploadResponse.BlobName);
+                    _logger.LogError(deleteEx, "Failed to delete uploaded file {FileIdentifier} during rollback after concurrency conflict.", uploadResponse.FileIdentifier);
                 }
             }
 
@@ -1035,12 +1036,12 @@ Requirements:
             {
                 try
                 {
-                    _logger.LogInformation("Rolling back storage upload for {BlobName} due to error.", uploadResponse.BlobName);
-                    await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                    _logger.LogInformation("Rolling back storage upload for {FileIdentifier} due to error.", uploadResponse.FileIdentifier);
+                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                 }
                 catch (Exception deleteEx)
                 {
-                    _logger.LogError(deleteEx, "Failed to delete uploaded file {BlobName} during rollback after error.", uploadResponse.BlobName);
+                    _logger.LogError(deleteEx, "Failed to delete uploaded file {FileIdentifier} during rollback after error.", uploadResponse.FileIdentifier);
                 }
             }
             throw;

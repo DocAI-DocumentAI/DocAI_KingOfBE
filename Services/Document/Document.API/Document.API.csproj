@@ -11,8 +11,9 @@
 
     <ItemGroup>
         <PackageReference Include="AutoMapper" Version="14.0.0" />
-        <PackageReference Include="Azure.Identity" Version="1.14.0" />
-        <PackageReference Include="Azure.Storage.Blobs" Version="12.24.1" />
+        <!-- Azure packages commented out for Google Drive migration -->
+        <!-- <PackageReference Include="Azure.Identity" Version="1.14.0" /> -->
+        <!-- <PackageReference Include="Azure.Storage.Blobs" Version="12.24.1" /> -->
         <PackageReference Include="Google.Apis.Auth" Version="1.70.0" />
         <PackageReference Include="Google.Apis.Drive.v3" Version="1.70.0.3834" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.4" />

@@ -10,7 +10,9 @@ public class MessageConstant
     public const string DocumentVersionNotFoundDetailed = "Document version not found";
     public const string UnauthorizedToSubmit = "You are not authorized to submit this document for approval";
     public const string CannotSubmitForApproval = "Document version cannot be submitted for approval. Current status: {0}";
-    public const string AzureStorageNotConfigured = "Azure Storage is not configured";
+    // Azure message commented out for Google Drive migration
+    // public const string AzureStorageNotConfigured = "Azure Storage is not configured";
+    public const string GoogleDriveNotAvailable = "Google Drive is not available. Please check authentication and configuration.";
     public const string OfficialDocumentVersionNotFound = "Official document version not found.";
     public const string DocumentAlreadyBookmarked = "Document already bookmarked by this user.";
     public const string BookmarkNotFound = "Bookmark not found.";

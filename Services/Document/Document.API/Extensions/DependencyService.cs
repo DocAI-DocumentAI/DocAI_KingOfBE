@@ -58,7 +58,8 @@ public static class DependencyService
         });
 
         // Storage services
-        services.AddScoped<IAzureStorageService, AzureStorageService>();
+        // Azure storage service commented out for Google Drive migration
+        // services.AddScoped<IAzureStorageService, AzureStorageService>();
         services.AddScoped<IRedisService, RedisService>();
         services.AddScoped<IGoogleDriveOAuthService, GoogleDriveOAuthService>();
         services.AddScoped<IGoogleDriveService, GoogleDriveService>();
