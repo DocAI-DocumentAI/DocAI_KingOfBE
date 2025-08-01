@@ -28,5 +28,10 @@ namespace Document.API.Payload.Response
         public DateTime? LastSubmitted { get; set; }
         public string? SubmittedBy { get; set; }
         public string? SubmittedByName { get; set; }
+
+        /// <summary>
+        /// Indicates whether the document is public (accessible to all employees) or private (restricted to same department)
+        /// </summary>
+        public bool IsPublic { get; set; }
     }
 }

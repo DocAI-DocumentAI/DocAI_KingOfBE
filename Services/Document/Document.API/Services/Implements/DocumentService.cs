@@ -16,6 +16,7 @@ using Microsoft.KernelMemory;
 
 using Shared.DTOs;
 using Shared.Exceptions;
+using System.Security.Claims;
 using System.Text.Json;
 
 namespace Document.API.Services.Implements;
@@ -29,7 +30,9 @@ public class DocumentService : IDocumentService
     private readonly IKernelMemory _memory;
     private readonly IConfiguration _configuration;
     private readonly IDocumentEnrichmentService _enrichmentService;
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService)
+    private readonly IHttpContextAccessor _httpContextAccessor;
+
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
@@ -37,6 +40,7 @@ public class DocumentService : IDocumentService
         _memory = memory;
         _storageService = storageService;
         _enrichmentService = enrichmentService;
+        _httpContextAccessor = httpContextAccessor;
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
         var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
@@ -67,7 +71,43 @@ public class DocumentService : IDocumentService
         }
     }
 
-    
+    /// <summary>
+    /// Gets the current user's department ID from JWT token
+    /// </summary>
+    /// <returns>Department ID or null if not found</returns>
+    private string? GetCurrentUserDepartmentId()
+    {
+        var user = _httpContextAccessor?.HttpContext?.User;
+        return user?.FindFirst("departmentId")?.Value;
+    }
+
+    /// <summary>
+    /// Validates if a user can access a document based on department and isPublic status
+    /// </summary>
+    /// <param name="documentDepartmentId">Document's department ID</param>
+    /// <param name="isPublic">Whether the document is public</param>
+    /// <param name="userDepartmentId">User's department ID (optional, will get from JWT if not provided)</param>
+    /// <returns>True if user can access the document</returns>
+    private bool CanUserAccessDocument(string documentDepartmentId, bool isPublic, string? userDepartmentId = null)
+    {
+        // Public documents are accessible to all employees
+        if (isPublic)
+        {
+            return true;
+        }
+
+        // For private documents, check department access
+        userDepartmentId ??= GetCurrentUserDepartmentId();
+
+        if (string.IsNullOrEmpty(userDepartmentId))
+        {
+            _logger.LogWarning("User department ID not found in JWT token for private document access check");
+            return false;
+        }
+
+        // Direct department ID comparison
+        return !string.IsNullOrEmpty(documentDepartmentId) && userDepartmentId.Equals(documentDepartmentId, StringComparison.OrdinalIgnoreCase);
+    }
 
 
     public async Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request, string userId)
@@ -172,7 +212,7 @@ public class DocumentService : IDocumentService
         }
 
         // 4. Upload the file to storage and get the MD5 hash.
-        var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, request.DepartmentId, false);
+        var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, request.DepartmentId, request.IsPublic);
         var fileHash = uploadResponse.Md5Hash;
 
         // 5. Check for file duplication using the MD5 hash.
@@ -230,6 +270,7 @@ public class DocumentService : IDocumentService
             VersionName = request.VersionName,
             Status = StatusEnum.Draft, // Use the Enum for status
             IsOfficial = false, // New drafts are not official
+            IsPublic = request.IsPublic, // Set public/private status from request
             Summary = request.Summary, // Placeholder for summary
             FileName = request.File.FileName,
             FileType = Path.GetExtension(request.File.FileName),
@@ -335,7 +376,7 @@ public class DocumentService : IDocumentService
 
             // Upload the new file to storage BEFORE starting the database transaction.
             _logger.LogInformation("Uploading new file to storage before database transaction begins.");
-            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, versionToUpdate.DocumentFile.DepartmentId, false);
+            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, versionToUpdate.DocumentFile.DepartmentId, request.IsPublic);
             fileHash = uploadResponse.Md5Hash;
         }
 
@@ -818,12 +859,15 @@ Requirements:
         return enrichedResponse;
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(string userId, int pageNumber, int pageSize)
     {
+        // Get user's department ID for permission filtering
+        var userDepartmentId = GetCurrentUserDepartmentId();
+
         var officialDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             filter: null,
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
-            predicate: v => v.IsOfficial,
+            predicate: v => v.IsOfficial && (v.IsPublic || v.DocumentFile.DepartmentId == userDepartmentId),
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
@@ -994,7 +1038,7 @@ Requirements:
         StorageUploadResponse uploadResponse = null;
         try
         {
-            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, documentToUpdate.DepartmentId, false);
+            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, documentToUpdate.DepartmentId, request.IsPublic);
             var fileHash = uploadResponse.Md5Hash;
 
             // Check for file duplication using the MD5 hash
@@ -1016,6 +1060,7 @@ Requirements:
                 VersionName = request.VersionName,
                 Status = StatusEnum.Draft,
                 IsOfficial = false,
+                IsPublic = request.IsPublic, // Set public/private status from request
                 Summary = request.Summary,
                 FileName = uploadResponse.FileName,
                 FileType = Path.GetExtension(uploadResponse.FileName),
@@ -1215,9 +1260,12 @@ Requirements:
         var relevanceMap = relevantDocuments.ToDictionary(d => d.DocumentId, d => d.MaxRelevance);
         var orderedUniqueDocumentIds = relevantDocuments.Select(d => d.DocumentId).ToList();
 
-        // 4. Fetch all documents in ONE query from the database
+        // 4. Fetch all documents in ONE query from the database with department-based filtering
+        var userDepartmentId = GetCurrentUserDepartmentId();
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
-            predicate: dv => orderedUniqueDocumentIds.Contains(dv.DocumentFile.Id) && dv.Status == StatusEnum.Approved,
+            predicate: dv => orderedUniqueDocumentIds.Contains(dv.DocumentFile.Id) &&
+                            dv.Status == StatusEnum.Approved &&
+                            (dv.IsPublic || dv.DocumentFile.DepartmentId == userDepartmentId),
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
@@ -1245,12 +1293,15 @@ Requirements:
         return new Paginate<SemanticSearchResponse>(enrichedItems, pageNumber, pageSize, totalCount);
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, string userId, int pageNumber, int pageSize)
     {
+        // Get user's department ID for permission filtering
+        var userDepartmentId = GetCurrentUserDepartmentId();
+
         var documents = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
             filter: filter,
-            predicate: dv => dv.Status == StatusEnum.Approved,
+            predicate: dv => dv.Status == StatusEnum.Approved && (dv.IsPublic || dv.DocumentFile.DepartmentId == userDepartmentId),
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,

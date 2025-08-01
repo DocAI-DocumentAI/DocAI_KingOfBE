@@ -115,4 +115,9 @@ public class DocumentResponse
     /// Whether this document has been replaced
     /// </summary>
     public bool IsReplaced { get; set; }
+
+    /// <summary>
+    /// Indicates whether the document is public (accessible to all employees) or private (restricted to same department)
+    /// </summary>
+    public bool IsPublic { get; set; }
 }

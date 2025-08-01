@@ -20,5 +20,10 @@ namespace Document.API.Payload.Request
 
         [Required(ErrorMessage = "Document type is required")]
         public string DocumentTypeId { get; set; }
+
+        /// <summary>
+        /// Indicates whether the document is public (accessible to all employees) or private (restricted to same department)
+        /// </summary>
+        public bool IsPublic { get; set; } = false;
     }
 }

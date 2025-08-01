@@ -26,5 +26,10 @@ namespace Document.API.Payload.Response
         public double Relevance { get; set; }
         public string DocumentTypeId { get; set; } = string.Empty;
         public string? DocumentTypeName { get; set; }
+
+        /// <summary>
+        /// Indicates whether the document is public (accessible to all employees) or private (restricted to same department)
+        /// </summary>
+        public bool IsPublic { get; set; }
     }
 }

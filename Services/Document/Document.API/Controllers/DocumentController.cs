@@ -78,9 +78,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetAllOfficialDocuments(int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> GetAllOfficialDocuments(string userId, int pageNumber = 1, int pageSize = 10)
     {
-        var result = await _documentService.GetAllOfficialDocumentsAsync(pageNumber, pageSize);
+        var result = await _documentService.GetAllOfficialDocumentsAsync(userId, pageNumber, pageSize);
         return Ok(ApiResponse<object>.Success(result));
     }
 
@@ -170,9 +170,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> FullTextSearch([FromQuery] FullTextSearchFilter filter, int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> FullTextSearch([FromQuery] FullTextSearchFilter filter, string userId, int pageNumber = 1, int pageSize = 10)
     {
-        var result = await _documentService.FullTextSearch(filter, pageNumber, pageSize);
+        var result = await _documentService.FullTextSearch(filter, userId, pageNumber, pageSize);
         return Ok(ApiResponse<object>.Success(result));
     }
 }
