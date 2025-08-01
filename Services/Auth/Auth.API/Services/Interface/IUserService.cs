@@ -6,6 +6,7 @@ using Auth.API.Payload.Request.User;
 using Auth.API.Payload.Response;
 using Auth.API.Payload.Response.Auth;
 using Auth.API.Payload.Response.User;
+using Auth.API.Payload.Response.UserSetting;
 using Auth.Infrastructure.Filter;
 using Auth.Infrastructure.Paginate;
 using MassTransit;
@@ -32,4 +33,8 @@ public interface IUserService
     public Task<GoogleOAuthResponse> GoogleCallbackAsync(string code, string state);
     public Task<bool> RevokeGoogleTokenAsync(string userId);
     public Task<bool> ChangePasswordAsync(Guid userId, ChangePasswordRequest request);
+    public Task<UserResponse> AdminUpdateUserAsync(Guid userId, AdminUpdateUserRequest request);
+    public Task<UserResponse> UpdateUserProfileAsync(UserUpdateProfileRequest request);
+    public Task<UserSettingResponse> UpdateUserSettingAsync(UpdateUserSettingRequest request);
+    public Task<UserResponse> GetUserByIdAminAsync(Guid userId);
 }

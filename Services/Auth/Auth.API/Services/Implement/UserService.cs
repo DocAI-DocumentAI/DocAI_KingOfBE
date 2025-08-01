@@ -1159,4 +1159,265 @@ public class UserService : BaseService<UserService>, IUserService
             await _unitOfWork.GetRepository<UserPermission>().InsertAsync(userPermission);
         }
     }
+
+    public async Task<UserResponse> AdminUpdateUserAsync(Guid userId, AdminUpdateUserRequest request)
+    {
+        var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Id == userId,
+            include: u => u.Include(x => x.Role)
+                         .Include(x => x.Department)
+                         .Include(x => x.UserPermissions)
+                         .ThenInclude(up => up.Permission)
+        );
+
+        if (user == null)
+            throw new BadHttpRequestException(MessageConstant.User.UserNotFound);
+
+        // Validate unique fields if changed
+        await ValidateUniqueFieldsForUpdateAsync(request.Email, request.Phone, userId);
+
+        // Update basic fields
+        if (!string.IsNullOrEmpty(request.FullName))
+            user.FullName = request.FullName;
+        if (!string.IsNullOrEmpty(request.Phone))
+            user.Phone = request.Phone;
+        if (!string.IsNullOrEmpty(request.Email))
+            user.Email = request.Email;
+        if (request.RoleId.HasValue)
+            user.RoleId = request.RoleId.Value;
+        if (request.DepartmentId.HasValue)
+            user.DepartmentId = request.DepartmentId.Value;
+        if (request.Active.HasValue)
+            user.Active = request.Active.Value;
+        if (request.RequirePasswordChange.HasValue)
+            user.RequirePasswordChange = request.RequirePasswordChange.Value;
+
+        user.UpdateAt = DateTime.UtcNow;
+
+        using var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled);
+        try
+        {
+            // Update user
+            _unitOfWork.GetRepository<User>().UpdateAsync(user);
+
+            // Update permissions
+            await UpdateUserPermissionsAsync(userId, request.PermissionIds);
+
+            var isSuccessful = await _unitOfWork.CommitAsync() > 0;
+            if (!isSuccessful)
+                throw new InvalidOperationException("Failed to update user");
+
+            transaction.Complete();
+
+            _logger.LogInformation("User {UserId} updated by Admin", userId);
+            return await GetUserResponseAsync(userId);
+        }
+        catch
+        {
+            throw;
+        }
+    }
+
+    public async Task<UserResponse> UpdateUserProfileAsync(UserUpdateProfileRequest request)
+    {
+        var currentUserId = GetUserIdFromJwt();
+
+        var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Id == currentUserId
+        );
+
+        if (user == null)
+            throw new BadHttpRequestException(MessageConstant.User.UserNotFound);
+
+        // Validate unique fields if changed
+        await ValidateUniqueFieldsForUpdateAsync(request.Email, request.Phone, currentUserId);
+
+        // Update only allowed fields
+        if (!string.IsNullOrEmpty(request.FullName))
+            user.FullName = request.FullName;
+        if (!string.IsNullOrEmpty(request.Phone))
+            user.Phone = request.Phone;
+        if (!string.IsNullOrEmpty(request.Email))
+            user.Email = request.Email;
+
+        user.UpdateAt = DateTime.UtcNow;
+
+        _unitOfWork.GetRepository<User>().UpdateAsync(user);
+        var isSuccessful = await _unitOfWork.CommitAsync() > 0;
+
+        if (!isSuccessful)
+            throw new InvalidOperationException("Failed to update profile");
+
+        _logger.LogInformation("User {UserId} updated profile", currentUserId);
+        return await GetUserResponseAsync(currentUserId);
+    }
+
+    private async Task ValidateUniqueFieldsForUpdateAsync(string? email, string? phone, Guid excludeUserId)
+    {
+        var repo = _unitOfWork.GetRepository<User>();
+
+        if (!string.IsNullOrEmpty(email))
+        {
+            var existingUser = await repo.SingleOrDefaultAsync(predicate: u => u.Email == email && u.Id != excludeUserId);
+            if (existingUser != null)
+                throw new BadHttpRequestException(MessageConstant.User.EmailExisted);
+        }
+
+        if (!string.IsNullOrEmpty(phone))
+        {
+            var existingUser = await repo.SingleOrDefaultAsync(predicate: u => u.Phone == phone && u.Id != excludeUserId);
+            if (existingUser != null)
+                throw new BadHttpRequestException(MessageConstant.User.PhoneNumberExisted);
+        }
+    }
+
+    private async Task UpdateUserPermissionsAsync(Guid userId, List<Guid>? permissionIds)
+    {
+        // Remove existing permissions
+        var existingPermissions = await _unitOfWork.GetRepository<UserPermission>()
+            .GetListAsync(predicate: up => up.UserId == userId);
+
+        foreach (var permission in existingPermissions)
+        {
+            _unitOfWork.GetRepository<UserPermission>().DeleteAsync(permission);
+        }
+
+        // Add new permissions
+        if (permissionIds != null && permissionIds.Any())
+        {
+            foreach (var permissionId in permissionIds)
+            {
+                var userPermission = new UserPermission
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = userId,
+                    PermissionId = permissionId
+                };
+                await _unitOfWork.GetRepository<UserPermission>().InsertAsync(userPermission);
+            }
+        }
+    }
+
+    private async Task<UserResponse> GetUserResponseAsync(Guid userId)
+    {
+        var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Id == userId,
+            include: u => u.Include(x => x.Role)
+                         .Include(x => x.Department)
+                         .Include(x => x.UserPermissions)
+                         .ThenInclude(up => up.Permission)
+        );
+
+        var userSetting = await _unitOfWork.GetRepository<UserSetting>()
+            .SingleOrDefaultAsync(predicate: us => us.UserId == userId);
+
+        var response = _mapper.Map<UserResponse>(user);
+
+        if (userSetting != null)
+        {
+            response.UserSetting = new UserSettingResponse
+            {
+                Id = userSetting.Id,
+                TwoFactorEnabled = userSetting.TwoFactorEnabled,
+                TwoFactorMethod = userSetting.TwoFactorMethod,
+                NotificationsEnabled = userSetting.NotificationsEnabled,
+                UpdateAt = userSetting.UpdateAt
+            };
+        }
+
+        return response;
+    }
+
+    public async Task<UserSettingResponse> UpdateUserSettingAsync(UpdateUserSettingRequest request)
+    {
+        var currentUserId = GetUserIdFromJwt();
+
+        // Validate TwoFactorMethod if provided
+        if (!string.IsNullOrEmpty(request.TwoFactorMethod) &&
+            !request.TwoFactorMethod.Equals("Email", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new BadHttpRequestException("TwoFactorMethod chỉ hỗ trợ 'Email'");
+        }
+
+        var userSetting = await _unitOfWork.GetRepository<UserSetting>()
+            .SingleOrDefaultAsync(predicate: us => us.UserId == currentUserId);
+
+        if (userSetting == null)
+        {
+            // Create new UserSetting if not exists
+            userSetting = new UserSetting
+            {
+                Id = Guid.NewGuid(),
+                UserId = currentUserId,
+                TwoFactorEnabled = request.TwoFactorEnabled,
+                TwoFactorMethod = request.TwoFactorMethod ?? "Email",
+                NotificationsEnabled = request.NotificationsEnabled,
+                UpdateAt = DateTime.UtcNow
+            };
+
+            await _unitOfWork.GetRepository<UserSetting>().InsertAsync(userSetting);
+        }
+        else
+        {
+            // Update existing UserSetting
+            userSetting.TwoFactorEnabled = request.TwoFactorEnabled;
+            userSetting.TwoFactorMethod = request.TwoFactorMethod ?? userSetting.TwoFactorMethod;
+            userSetting.NotificationsEnabled = request.NotificationsEnabled;
+            userSetting.UpdateAt = DateTime.UtcNow;
+
+            _unitOfWork.GetRepository<UserSetting>().UpdateAsync(userSetting);
+        }
+
+        var isSuccessful = await _unitOfWork.CommitAsync() > 0;
+        if (!isSuccessful)
+            throw new InvalidOperationException("Failed to update user settings");
+
+        _logger.LogInformation("User {UserId} updated settings", currentUserId);
+
+        return new UserSettingResponse
+        {
+            Id = userSetting.Id,
+            TwoFactorEnabled = userSetting.TwoFactorEnabled,
+            TwoFactorMethod = userSetting.TwoFactorMethod,
+            NotificationsEnabled = userSetting.NotificationsEnabled,
+            UpdateAt = userSetting.UpdateAt
+        };
+    }
+
+    public async Task<UserResponse> GetUserByIdAminAsync(Guid userId)
+    {
+        if (userId == Guid.Empty)
+            throw new BadHttpRequestException("UserId không hợp lệ");
+
+        var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Id == userId,
+            include: u => u.Include(x => x.Role)
+                         .Include(x => x.Department)
+                         .Include(x => x.UserPermissions)
+                         .ThenInclude(up => up.Permission)
+        );
+
+        if (user == null)
+            throw new BadHttpRequestException(MessageConstant.User.UserNotFound);
+
+        var userSetting = await _unitOfWork.GetRepository<UserSetting>()
+            .SingleOrDefaultAsync(predicate: us => us.UserId == userId);
+
+        var response = _mapper.Map<UserResponse>(user);
+
+        if (userSetting != null)
+        {
+            response.UserSetting = new UserSettingResponse
+            {
+                Id = userSetting.Id,
+                TwoFactorEnabled = userSetting.TwoFactorEnabled,
+                TwoFactorMethod = userSetting.TwoFactorMethod,
+                NotificationsEnabled = userSetting.NotificationsEnabled,
+                UpdateAt = userSetting.UpdateAt
+            };
+        }
+
+        _logger.LogInformation("Admin retrieved user information for UserId: {UserId}", userId);
+        return response;
+    }
 }

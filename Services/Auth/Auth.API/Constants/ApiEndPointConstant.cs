@@ -25,6 +25,10 @@ public class ApiEndPointConstant
         public const string ChangeDepartment = "change-department";
         public const string GetUsersByDepartmentAndRole = "get-users-by-department-role";
         public const string Users = "users";
+        public const string UpdateProfile = "update-profile";
+        public const string AdminUpdateUser = "admin/users";
+        public const string UpdateSettings = "settings";
+        public const string GetUserById = "user/{userId}";
     }
 
     public static class UserPermission

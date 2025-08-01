@@ -11,6 +11,7 @@ using Auth.API.Payload.Request.User;
 using Auth.API.Payload.Response;
 using Auth.API.Payload.Response.Auth;
 using Auth.API.Payload.Response.User;
+using Auth.API.Payload.Response.UserSetting;
 using Auth.API.Services.Interface;
 using Auth.Domain.Enums;
 using Auth.Infrastructure.Filter;
@@ -93,7 +94,7 @@ public class AuthController : ControllerBase
         return CreatedAtAction(nameof(SendOtp), result);
     }
 
-    [HttpPost(ApiEndPointConstant.User.ChangeRole)]
+    [HttpPatch(ApiEndPointConstant.User.ChangeRole)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(UserRoleChangeResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
@@ -123,7 +124,7 @@ public class AuthController : ControllerBase
         }
     }
 
-    [HttpPost(ApiEndPointConstant.User.ChangeDepartment)]
+    [HttpPatch(ApiEndPointConstant.User.ChangeDepartment)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(ChangeDepartmentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
@@ -306,7 +307,7 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
-    [HttpPost(ApiEndPointConstant.User.ChangePassword)]
+    [HttpPatch(ApiEndPointConstant.User.ChangePassword)]
     [CustomAuthorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -327,5 +328,47 @@ public class AuthController : ControllerBase
 
         _logger.LogInformation($"Password changed successfully for user {userId}");
         return Ok(new { message = "Password changed successfully" });
+    }
+
+    [HttpPatch(ApiEndPointConstant.User.AdminUpdateUser)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
+    [ProducesResponseType(typeof(UserResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AdminUpdateUser(Guid userId, [FromBody] AdminUpdateUserRequest request)
+    {
+        var response = await _userService.AdminUpdateUserAsync(userId, request);
+        return Ok(response);
+    }
+
+    [HttpPatch(ApiEndPointConstant.User.UpdateProfile)]
+    [CustomAuthorize]
+    [ProducesResponseType(typeof(UserResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> UpdateProfile([FromBody] UserUpdateProfileRequest request)
+    {
+        var response = await _userService.UpdateUserProfileAsync(request);
+        return Ok(response);
+    }
+
+    [HttpPatch(ApiEndPointConstant.User.UpdateSettings)]
+    [CustomAuthorize]
+    [ProducesResponseType(typeof(UserSettingResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> UpdateSettings([FromBody] UpdateUserSettingRequest request)
+    {
+        var response = await _userService.UpdateUserSettingAsync(request);
+        return Ok(response);
+    }
+
+    [HttpGet(ApiEndPointConstant.User.GetUserById)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
+    [ProducesResponseType(typeof(UserResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetUserById(Guid userId)
+    {
+        var response = await _userService.GetUserByIdAminAsync(userId);
+        return Ok(response);
     }
 }
