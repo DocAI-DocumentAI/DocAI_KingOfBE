@@ -66,4 +66,14 @@ public class ApiEndPointConstant
         public const string UpdateTag = ApiEndpoint + "/tags/{id}";
         public const string DeleteTag = ApiEndpoint + "/tags/{id}";
     }
+
+    public class DocumentType
+    {
+        public const string CreateDocumentType = ApiEndpoint + "/document-types";
+        public const string GetDocumentTypeById = ApiEndpoint + "/document-types/{id}";
+        public const string GetAllDocumentTypes = ApiEndpoint + "/document-types";
+        public const string UpdateDocumentType = ApiEndpoint + "/document-types/{id}";
+        public const string DeleteDocumentType = ApiEndpoint + "/document-types/{id}";
+        public const string GetDocumentTypesList = ApiEndpoint + "/document-types/list";
+    }
 }

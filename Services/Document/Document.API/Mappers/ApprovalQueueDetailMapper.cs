@@ -30,7 +30,9 @@ namespace Document.API.Mappers
                 .ForMember(dest => dest.LastSubmitted, opt => opt.MapFrom(src => src.LastSubmitted))
                 .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.SubmittedBy))
                 .ForMember(dest => dest.ClaimedBy, opt => opt.MapFrom(src => src.ApprovalClaim.ClaimedBy))
-                .ForMember(dest => dest.ClaimedAt, opt => opt.MapFrom(src => src.ApprovalClaim.ClaimedAt));
+                .ForMember(dest => dest.ClaimedAt, opt => opt.MapFrom(src => src.ApprovalClaim.ClaimedAt))
+                .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentFile.DocumentTypeId))
+                .ForMember(dest => dest.DocumentTypeName, opt => opt.MapFrom(src => src.DocumentFile.DocumentType != null ? src.DocumentFile.DocumentType.Name : null));
         }
     }
 }

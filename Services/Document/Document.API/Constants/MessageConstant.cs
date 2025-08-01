@@ -48,6 +48,16 @@ public class MessageConstant
     public const string SummaryTooLong = "Generated summary exceeds the maximum allowed length of {0} words.";
     public const string DocumentAlreadyClaimed = "This document is currently being reviewed by {0}.";
     public const string ClaimNotFound = "No active claim found for this document version.";
+
+    // DocumentType validation messages
+    public const string DocumentTypeNameRequired = "Document type name is required.";
+    public const string DocumentTypeNameTooLong = "Document type name must not exceed 100 characters.";
+    public const string DocumentTypeDescriptionTooLong = "Document type description must not exceed 500 characters.";
+    public const string DocumentTypeNameExists = "Document type with this name already exists.";
+    public const string DocumentTypeNotFound = "Document type not found.";
+    public const string DocumentTypeInUse = "Cannot delete document type that has associated documents. Please reassign or delete the documents first.";
+    public const string DocumentTypeRequired = "Document type is required.";
+    public const string InvalidDocumentType = "Invalid document type.";
     public const string UnauthorizedToReleaseClaim = "You are not authorized to release this claim.";
     public const string InvalidStatusForApprovalQueue = "Invalid status for approval queue list. Only 'Pending' 'Rejected' documents can be accepted.";
     public const string GoogleDriveNotConfigured = "Google Drive is not configured";

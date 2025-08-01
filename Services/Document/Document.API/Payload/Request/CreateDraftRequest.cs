@@ -17,5 +17,8 @@ namespace Document.API.Payload.Request
         public string DepartmentId { get; set; }
         public IFormFile File { get; set; }
         public string? ReplacementDocumentId { get; set; }
+
+        [Required(ErrorMessage = "Document type is required")]
+        public string DocumentTypeId { get; set; }
     }
 }

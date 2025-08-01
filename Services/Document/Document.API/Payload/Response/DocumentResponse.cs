@@ -94,6 +94,16 @@ public class DocumentResponse
     /// Tags associated with the document
     /// </summary>
     public List<string> Tags { get; set; } = new();
+
+    /// <summary>
+    /// Document type ID
+    /// </summary>
+    public string DocumentTypeId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Document type name
+    /// </summary>
+    public string? DocumentTypeName { get; set; }
     
     /// <summary>
     /// ID of the document that replaces this one

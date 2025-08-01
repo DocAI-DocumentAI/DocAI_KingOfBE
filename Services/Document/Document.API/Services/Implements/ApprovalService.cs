@@ -36,7 +36,7 @@ namespace Document.API.Services.Implements
                 .GetPagingListAsync(
                 selector: v => _mapper.Map<PendingDocumentResponse>(v),
                 filter: filter,
-                include: i => i.Include(v => v.DocumentFile),
+                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType),
                 predicate: v => (v.Status == StatusEnum.Pending || v.Status == StatusEnum.Rejected) && v.DocumentFile.DepartmentId == departmentId,
                 orderBy: v => v.OrderByDescending(v => v.LastSubmitted),
                 page: pageNumber,
@@ -50,7 +50,7 @@ namespace Document.API.Services.Implements
             var versionToClaim = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(
                     predicate: v => v.Id == versionId,
-                    include: i => i.Include(v => v.DocumentFile)
+                    include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
                 ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
 
             if (versionToClaim.Status != StatusEnum.Pending)
@@ -111,7 +111,7 @@ namespace Document.API.Services.Implements
             var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(
                     predicate: v => v.Id == versionId && (v.Status == StatusEnum.Pending || v.Status == StatusEnum.Rejected),
-                    include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag).Include(v => v.ApprovalClaim)
+                    include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag).Include(v => v.ApprovalClaim)
                 );
 
             if (documentVersion == null)
@@ -127,7 +127,7 @@ namespace Document.API.Services.Implements
             var versionToReview = await _unitOfWork.GetRepository<DocumentVersion>()
             .SingleOrDefaultAsync(
                 predicate: v => v.Id == versionId,
-                include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
             ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
             var documentFile = versionToReview.DocumentFile;
 
@@ -311,7 +311,7 @@ namespace Document.API.Services.Implements
             var version = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(
                 predicate: v => v.Id == versionId,
-                include: i => i.Include(v =>v.DocumentFile)
+                include: i => i.Include(v =>v.DocumentFile).ThenInclude(df => df.DocumentType)
                 ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFoundDetailed);
             //2.Check owner ID
             if (version.DocumentFile.OwnerId != userId)

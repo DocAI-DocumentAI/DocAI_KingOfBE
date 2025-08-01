@@ -24,5 +24,7 @@ namespace Document.API.Payload.Response
         public DocumentResponse? ReplacementDocument { get; set; }
         public bool IsReplaced { get; set; }
         public double Relevance { get; set; }
+        public string DocumentTypeId { get; set; } = string.Empty;
+        public string? DocumentTypeName { get; set; }
     }
 }

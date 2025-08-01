@@ -92,6 +92,20 @@ public class DocumentService : IDocumentService
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DepartmentNotAssigned);
         }
 
+        // Validate DocumentType exists
+        if (string.IsNullOrEmpty(request.DocumentTypeId))
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentTypeRequired);
+        }
+
+        var documentType = await _unitOfWork.GetRepository<DocumentType>()
+            .SingleOrDefaultAsync(predicate: dt => dt.Id == request.DocumentTypeId && dt.DeletedTime == null);
+
+        if (documentType == null)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidDocumentType);
+        }
+
         // BR-021 'Effective From' date must be before 'Expiration Date'.
         if (request.EffectiveFrom.HasValue && request.EffectiveUntil.HasValue && request.EffectiveFrom.Value >= request.EffectiveUntil.Value)
         {
@@ -204,7 +218,8 @@ public class DocumentService : IDocumentService
             OwnerId = userId,
             CreatedBy = userId,
             ReplacementId = request.ReplacementDocumentId,
-            IsReplaced = !string.IsNullOrEmpty(request.ReplacementDocumentId)
+            IsReplaced = !string.IsNullOrEmpty(request.ReplacementDocumentId),
+            DocumentTypeId = request.DocumentTypeId
         };
 
         var version = new DocumentVersion
@@ -251,12 +266,19 @@ public class DocumentService : IDocumentService
 
         _logger.LogInformation("Successfully created draft document {DocumentId}", documentFile.Id);
 
-        // 8. Use AutoMapper to map the result to the response DTO
-        var response = _mapper.Map<DocumentDraftResponse>(documentFile);
-        
-        // 9. Enrich response with user and department names
+        // 8. Reload the document version with DocumentType included to ensure proper mapping
+        var createdVersion = await _unitOfWork.GetRepository<DocumentVersion>()
+            .SingleOrDefaultAsync(
+                predicate: v => v.Id == version.Id,
+                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            );
+
+        // 9. Use AutoMapper to map the result to the response DTO
+        var response = _mapper.Map<DocumentDraftResponse>(createdVersion);
+
+        // 10. Enrich response with user and department names
         var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
-        
+
         _logger.LogInformation("Draft document response enriched with names for document {DocumentId}", documentFile.Id);
 
         return enrichedResponse;
@@ -273,6 +295,18 @@ public class DocumentService : IDocumentService
         if (request.EffectiveFrom.HasValue && request.EffectiveUntil.HasValue && request.EffectiveFrom.Value >= request.EffectiveUntil.Value)
         {
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
+        }
+
+        // Validate DocumentType if provided
+        if (!string.IsNullOrEmpty(request.DocumentTypeId))
+        {
+            var documentType = await _unitOfWork.GetRepository<DocumentType>()
+                .SingleOrDefaultAsync(predicate: dt => dt.Id == request.DocumentTypeId && dt.DeletedTime == null);
+
+            if (documentType == null)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidDocumentType);
+            }
         }
 
         StorageUploadResponse uploadResponse = null;
@@ -410,13 +444,20 @@ public class DocumentService : IDocumentService
             }
 
             _logger.LogInformation("Successfully updated document version {VersionId}", versionId);
-            
+
+            // Reload the document version with DocumentType included to ensure proper mapping
+            var updatedVersion = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(
+                    predicate: v => v.Id == versionId,
+                    include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                );
+
             // Enrich response with user and department names
-            var response = _mapper.Map<DocumentDraftResponse>(versionToUpdate);
+            var response = _mapper.Map<DocumentDraftResponse>(updatedVersion);
             var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
-            
+
             _logger.LogInformation("Updated document response enriched with names for version {VersionId}", versionId);
-            
+
             return enrichedResponse;
         }
         catch (DbUpdateConcurrencyException ex)
@@ -670,7 +711,7 @@ Requirements:
             filter: null,
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -697,7 +738,7 @@ Requirements:
     {
         var draft = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         if (draft == null)
@@ -717,7 +758,7 @@ Requirements:
             filter: null,
             selector : d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.LastUpdatedTime),
             page: pageNumber,
             size: pageSize
@@ -745,7 +786,7 @@ Requirements:
     {
         var rejectedDocument = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         if (rejectedDocument == null)
@@ -763,7 +804,7 @@ Requirements:
     {
         var officialDocument = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.DocumentFileId == documentFileId && v.IsOfficial,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         if (officialDocument == null)
@@ -783,7 +824,7 @@ Requirements:
             filter: null,
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.IsOfficial,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -813,7 +854,7 @@ Requirements:
             selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
             filter: filter,
             predicate: d => d.DocumentFile.OwnerId == userId,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -840,7 +881,7 @@ Requirements:
     {
         var document = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         if (document == null)
@@ -858,7 +899,7 @@ Requirements:
     {
         var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: dv => dv.DocumentFileId == documentId && dv.Id == versionId,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         return _mapper.Map<DocumentVersionResponse>(documentVersion);
@@ -868,7 +909,7 @@ Requirements:
     {
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
             predicate: dv => dv.DocumentFileId == documentId,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         return _mapper.Map<List<DocumentVersionResponse>>(documentVersions);
@@ -1001,7 +1042,7 @@ Requirements:
             // Load the complete version with DocumentFile and Tags for proper mapping
             var completeVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
                 predicate: v => v.Id == newVersion.Id,
-                include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
             );
 
             var response = _mapper.Map<DocumentDraftResponse>(completeVersion);
@@ -1177,7 +1218,7 @@ Requirements:
         // 4. Fetch all documents in ONE query from the database
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
             predicate: dv => orderedUniqueDocumentIds.Contains(dv.DocumentFile.Id) && dv.Status == StatusEnum.Approved,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         // 5. Map results and add the relevance score
@@ -1210,7 +1251,7 @@ Requirements:
             selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
             filter: filter,
             predicate: dv => dv.Status == StatusEnum.Approved,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize

@@ -23,5 +23,7 @@ namespace Document.API.Payload.Response
         public List<string> Tags { get; set; }
         public DateTime? LastSubmitted { get; set; }
         public string? SubmittedBy { get; set; }
+        public string DocumentTypeId { get; set; }
+        public string? DocumentTypeName { get; set; }
     }
 }
