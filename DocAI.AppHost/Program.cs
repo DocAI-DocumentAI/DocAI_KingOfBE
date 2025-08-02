@@ -3,8 +3,6 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
 // Thêm các API project với proxy để tự động chọn port
-var aiAPI = builder.AddProject<Projects.AI_API>("apiservice-ai")
-    .WithHttpEndpoint(name: "ai-endpoint");
 var docAPI = builder.AddProject<Projects.Document_API>("apiservice-doc")
     .WithHttpEndpoint(name: "doc-endpoint");
 var authAPI = builder.AddProject<Projects.Auth_API>("apiservice-auth")
@@ -16,7 +14,6 @@ var chatboxAPI = builder.AddProject<Projects.ChatBox_API>("apiservice-chatbox")
 
 var apigatewayAPI = builder.AddProject<Projects.ApiGateway>("apiservice-apigateway")
     .WithHttpEndpoint(name: "apigateway-endpoint")
-    .WithReference(aiAPI)
     .WithReference(docAPI)
     .WithReference(authAPI)
     .WithReference(notiAPI)

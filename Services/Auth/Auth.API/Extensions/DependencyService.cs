@@ -78,6 +78,7 @@ public static class DependencyService
         services.AddHttpClient<IGoogleOAuthService, GoogleOAuthService>();
         services.AddScoped<IGoogleOAuthService, GoogleOAuthService>();
         services.AddHttpClient<GoogleOAuthService>();
+        services.AddScoped<IValidationService, ValidationService>();
 
         // services.AddSingleton<IPublishEndpoint, MockPublishEndpoint>();
 

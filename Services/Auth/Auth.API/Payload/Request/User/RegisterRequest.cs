@@ -12,12 +12,9 @@ public class RegisterRequest
     public string Phone { get; set; }
     [Required]
     public string FullName { get; set; }
-    // [Required]
-    // public string Otp { get; set; }
     [Required]
     public Guid RoleId { get; set; }
     [Required]
     public Guid DepartmentId { get; set; }
-    // [Required]
-    // public string ActivationCode { get; set; }
+    public List<Guid>? PermissionIds { get; set; }
 }

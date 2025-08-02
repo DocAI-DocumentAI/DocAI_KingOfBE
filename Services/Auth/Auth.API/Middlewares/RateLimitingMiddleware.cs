@@ -1,3 +1,4 @@
+using Auth.API.Attributes;
 using Auth.API.Services.Interface;
 using System.Net;
 
@@ -17,14 +18,22 @@ namespace Auth.API.Middlewares
 
         public async Task InvokeAsync(HttpContext context)
         {
+            // Check if endpoint has SkipRateLimit attribute
+            var endpoint = context.GetEndpoint();
+            if (endpoint?.Metadata?.GetMetadata<SkipRateLimitAttribute>() != null)
+            {
+                await _next(context);
+                return;
+            }
+
             // Resolve scoped service từ HttpContext
             var redisService = context.RequestServices.GetRequiredService<IRedisService>();
 
-            var endpoint = context.Request.Path.Value;
+            var endpointPath = context.Request.Path.Value;
             var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
             // Rate limit by IP
-            var ipKey = $"ratelimit:ip:{clientIp}:{endpoint}";
+            var ipKey = $"ratelimit:ip:{clientIp}:{endpointPath}";
             if (!await redisService.CheckRateLimitAsync(ipKey, RATE_LIMIT, TimeSpan.FromMinutes(1)))
             {
                 await WriteRateLimitResponse(context, "IP rate limit exceeded");
@@ -37,7 +46,7 @@ namespace Auth.API.Middlewares
                 var userId = context.User.FindFirst("userId")?.Value;
                 if (!string.IsNullOrEmpty(userId))
                 {
-                    var userKey = $"ratelimit:user:{userId}:{endpoint}";
+                    var userKey = $"ratelimit:user:{userId}:{endpointPath}";
                     if (!await redisService.CheckRateLimitAsync(userKey, RATE_LIMIT, TimeSpan.FromMinutes(1)))
                     {
                         await WriteRateLimitResponse(context, "User rate limit exceeded");

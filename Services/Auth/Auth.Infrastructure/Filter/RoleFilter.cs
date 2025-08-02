@@ -11,6 +11,6 @@ public class RoleFilter : IFilter<Role>
     {
         return role =>
             (string.IsNullOrEmpty(RoleName) || role.RoleName.Contains(RoleName)) &&
-            (string.IsNullOrEmpty(Description) || role.Description.Contains(Description));           
+            (string.IsNullOrEmpty(Description) || role.Description.Contains(Description));
     }
 }

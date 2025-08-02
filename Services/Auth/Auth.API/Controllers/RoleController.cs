@@ -24,6 +24,7 @@ public class RoleController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.Role.Roles)]
+    [SkipRateLimit]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAllRolesAsync(int page = 1, int size = 30,

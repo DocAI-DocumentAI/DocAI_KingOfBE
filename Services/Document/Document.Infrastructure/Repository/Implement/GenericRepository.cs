@@ -42,12 +42,24 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
 			return await query.AsNoTracking().FirstOrDefaultAsync();
 		}
 
+		public override async Task<T> SingleOrDefaultWithTrackingAsync(Expression<Func<T, bool>> predicate = null, Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = null, Func<IQueryable<T>, IIncludableQueryable<T, object>> include = null)
+		{
+			IQueryable<T> query = _dbSet;
+			if (include != null) query = include(query);
+
+			if (predicate != null) query = query.Where(predicate);
+
+			if (orderBy != null) return await orderBy(query).FirstOrDefaultAsync();
+
+			return await query.FirstOrDefaultAsync();
+		}
+
 		public override async Task<TResult> SingleOrDefaultAsync<TResult>(Expression<Func<T, TResult>> selector, Expression<Func<T, bool>> predicate = null, Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = null,
 			Func<IQueryable<T>, IIncludableQueryable<T, object>> include = null)
 		{
 			IQueryable<T> query = _dbSet;
 			if (include != null) query = include(query);
-
+				
 			if (predicate != null) query = query.Where(predicate);
 
 			if (orderBy != null) return await orderBy(query).AsNoTracking().Select(selector).FirstOrDefaultAsync();

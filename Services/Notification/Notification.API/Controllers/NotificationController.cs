@@ -69,7 +69,6 @@ public class NotificationController : ControllerBase
 
         if (success)
         {
-            // Trả về 204 No Content khi hành động thành công và không cần trả về body
             return NoContent();
         }
 

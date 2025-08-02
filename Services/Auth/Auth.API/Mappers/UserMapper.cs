@@ -1,6 +1,7 @@
 ﻿using Auth.API.Payload.Request;
 using Auth.API.Payload.Response;
 using Auth.API.Payload.Response.Department;
+using Auth.API.Payload.Response.Permission;
 using Auth.API.Payload.Response.Role;
 using Auth.API.Payload.Response.User;
 using Auth.Domain.Models;
@@ -32,6 +33,15 @@ public class UserMapper : Profile
                 CreateAt = src.Department.CreateAt,
                 UpdateAt = src.Department.UpdateAt
             }))
+            .ForMember(dest => dest.Permissions, opt => opt.MapFrom(src =>
+                src.UserPermissions.Select(up => new PermissionResponse
+                {
+                    Id = up.Permission.Id,
+                    Name = up.Permission.Name,
+                    Description = up.Permission.Description,
+                    CreateAt = up.Permission.CreateAt,
+                    UpdateAt = up.Permission.UpdateAt
+                })))
             .ForMember(dest => dest.UserSetting, opt => opt.Ignore());
     }
 }

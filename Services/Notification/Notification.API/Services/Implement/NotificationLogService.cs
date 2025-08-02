@@ -28,12 +28,24 @@ namespace Notification.API.Services.Implement
         {
             try
             {
+                _logger.LogInformation("Attempting to insert log for recipient: {Recipient}", log.RecipientAddress);
                 await _unitOfWork.GetRepository<NotificationLog>().InsertAsync(log);
-                await _unitOfWork.CommitAsync();
+
+                _logger.LogInformation("Attempting to commit log to database...");
+                var result = await _unitOfWork.CommitAsync();
+
+                if (result > 0)
+                {
+                    _logger.LogInformation("[SUCCESS] Committed successfully. {Count} records saved.", result);
+                }
+                else
+                {
+                    _logger.LogWarning("[FAIL] Commit executed but no records were saved. There might be an issue with the DbContext tracking.");
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to log notification for DocumentId: {DocId}", log.DocumentId);
+                _logger.LogError(ex, "[FATAL] Failed to commit notification log to database for recipient: {Recipient}", log.RecipientAddress);
             }
         }
 

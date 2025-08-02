@@ -20,10 +20,10 @@ namespace Notification.API.Services.Implement
         {
             try
             {
-                var smtpHost = _configuration["AppSettings:SmtpHost"];
-                var smtpPort = int.Parse(_configuration["AppSettings:SmtpPort"]);
-                var smtpUsername = _configuration["AppSettings:SmtpUsername"];
-                var smtpPassword = _configuration["AppSettings:SmtpPassword"];
+                var smtpHost = _configuration["Smtp:Host"];
+                var smtpPort = int.Parse(_configuration["Smtp:Port"]);
+                var smtpUsername = _configuration["Smtp:Username"];
+                var smtpPassword = _configuration["Smtp:Password"];
 
                 using var client = new SmtpClient(smtpHost, smtpPort)
                 {

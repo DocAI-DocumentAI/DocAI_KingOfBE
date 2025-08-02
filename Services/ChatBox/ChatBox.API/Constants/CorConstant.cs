@@ -2,6 +2,6 @@
 {
     public class CorConstant
     {
-        public const string PolicyName = "MyDefaultPolicy";
+        public const string PolicyName = "AllowAll";
     }
 }

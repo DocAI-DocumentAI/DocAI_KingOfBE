@@ -22,13 +22,16 @@ namespace Document.API.Services.Implements
         private readonly ILogger<ApprovalService> _logger;
         private readonly IStorageService _storageService;
         private readonly IKernelMemory _memory;
-        public ApprovalService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ApprovalService> logger, IStorageService storageService, IKernelMemory kernelMemory)
+        private readonly IDocumentEnrichmentService _enrichmentService;
+        public ApprovalService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ApprovalService> logger, IStorageService storageService, IKernelMemory kernelMemory, IDocumentEnrichmentService enrichmentService)
+
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _logger = logger;
             _storageService = storageService;
             _memory = kernelMemory;
+            _enrichmentService = enrichmentService;
         }
         public async Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueAsync(string departmentId, Document.Infrastructure.Filter.ApprovalQueueFilter filter, int pageNumber, int pageSize)
         {
@@ -42,7 +45,22 @@ namespace Document.API.Services.Implements
                 page: pageNumber,
                 size: pageSize
                 );
-            return pendingDocuments;
+
+            // Enrich all pending documents with names in bulk for better performance
+            var enrichedPendingDocuments = await _enrichmentService.EnrichPendingDocumentResponsesAsync(pendingDocuments.Items.ToList());
+
+            // Create new paginated result with enriched pending documents
+            var enrichedPaginated = new Paginate<PendingDocumentResponse>
+            {
+                Items = enrichedPendingDocuments,
+                Page = pendingDocuments.Page,
+                Size = pendingDocuments.Size,
+                Total = pendingDocuments.Total,
+                TotalPages = pendingDocuments.TotalPages
+            };
+
+            _logger.LogInformation("Enriched {Count} pending documents with names for department {DepartmentId}", enrichedPendingDocuments.Count, departmentId);
+            return enrichedPaginated;
         }
 
         public async Task ClaimDocumentForReviewAsync(string versionId, string userId)
@@ -119,7 +137,11 @@ namespace Document.API.Services.Implements
                 throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
             }
 
-            return _mapper.Map<ApprovalQueueDetailResponse>(documentVersion);
+            var response = _mapper.Map<ApprovalQueueDetailResponse>(documentVersion);
+            var enrichedResponse = await _enrichmentService.EnrichApprovalQueueDetailResponseAsync(response);
+
+            _logger.LogInformation("Enriched approval queue detail response with names for version {VersionId}", versionId);
+            return enrichedResponse;
         }
 
         public async Task ReviewDocument(string versionId, ReviewDocumentRequest request, string userId)

@@ -42,11 +42,37 @@ public interface IDocumentEnrichmentService
     /// <returns>List of enriched SemanticSearchResponse objects</returns>
     Task<List<SemanticSearchResponse>> EnrichSemanticSearchResponsesAsync(List<SemanticSearchResponse> responses);
 
-    /// <summary>
-    /// Enriches a list of DocumentRecommendationResponse objects with department names in bulk.
-    /// This method is optimized for performance by making bulk requests to the Auth service.
-    /// </summary>
-    /// <param name="recommendations">List of DocumentRecommendationResponse objects to enrich</param>
-    /// <returns>List of enriched DocumentRecommendationResponse objects</returns>
     Task<List<DocumentRecommendationResponse>> EnrichDocumentRecommendationsAsync(List<DocumentRecommendationResponse> recommendations);
+
+    Task<BookmarkResponse> EnrichBookmarkResponseAsync(BookmarkResponse bookmark);
+
+    /// <summary>
+    /// Enrich multiple bookmark responses with names (bulk operation for better performance)
+    /// </summary>
+    Task<List<BookmarkResponse>> EnrichBookmarkResponsesAsync(List<BookmarkResponse> bookmarks);
+
+    /// <summary>
+    /// Enrich a single tag response with names
+    /// </summary>
+    Task<TagResponse> EnrichTagResponseAsync(TagResponse tag);
+
+    /// <summary>
+    /// Enrich multiple tag responses with names (bulk operation for better performance)
+    /// </summary>
+    Task<List<TagResponse>> EnrichTagResponsesAsync(List<TagResponse> tags);
+
+    /// <summary>
+    /// Enrich a single pending document response with names
+    /// </summary>
+    Task<PendingDocumentResponse> EnrichPendingDocumentResponseAsync(PendingDocumentResponse pendingDocument);
+
+    /// <summary>
+    /// Enrich multiple pending document responses with names (bulk operation for better performance)
+    /// </summary>
+    Task<List<PendingDocumentResponse>> EnrichPendingDocumentResponsesAsync(List<PendingDocumentResponse> pendingDocuments);
+
+    /// <summary>
+    /// Enrich a single approval queue detail response with names
+    /// </summary>
+    Task<ApprovalQueueDetailResponse> EnrichApprovalQueueDetailResponseAsync(ApprovalQueueDetailResponse approvalDetail);
 }

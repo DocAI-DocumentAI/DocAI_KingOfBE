@@ -365,11 +365,11 @@ public class DocumentService : IDocumentService
         StorageUploadResponse uploadResponse = null;
         string fileHash = null;
 
-        // First, get the version to update to access department info
-        var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
-            .SingleOrDefaultAsync(
-                predicate: v => v.Id == versionId,
-                include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
+        // // First, get the version to update to access department info
+        // var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
+        //     .SingleOrDefaultAsync(
+        //         predicate: v => v.Id == versionId,
+        //         include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
 
         if (request.File != null)
         {
@@ -397,6 +397,14 @@ public class DocumentService : IDocumentService
         // ====================================================================================
         try
         {
+
+            // Retrieve draft to update with tracking enabled for updates
+            var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultWithTrackingAsync(
+                    predicate: v => v.Id == versionId,
+                    include: p => p.Include(v => v.DocumentFile))
+                ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
+
             var documentToUpdate = versionToUpdate.DocumentFile;
 
             // --- Perform all database-dependent validations ---
@@ -432,7 +440,7 @@ public class DocumentService : IDocumentService
             if (fileHash != null)
             {
                 var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
-                    .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash && v.Id != versionId && v.Status != StatusEnum.Rejected, include: i => i.Include(v => v.DocumentFile));
+                    .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash && v.Id != versionId && v.Status != StatusEnum.Rejected);
                 if (existingFile != null)
                 {
                     // If a duplicate is found, delete the file that was just uploaded.
@@ -477,8 +485,8 @@ public class DocumentService : IDocumentService
             documentToUpdate.LastUpdatedTime = DateTime.UtcNow;
             versionToUpdate.Status = versionToUpdate.Status == StatusEnum.Rejected ? StatusEnum.Draft : versionToUpdate.Status;
 
-            //_unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentToUpdate);
-            //_unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(versionToUpdate);
+            // No need to call UpdateAsync since entities are now tracked by EF
+            // Entity Framework will automatically detect changes and update them
 
             // Save changes to the database. This is the critical point.
             await _unitOfWork.CommitAsync();

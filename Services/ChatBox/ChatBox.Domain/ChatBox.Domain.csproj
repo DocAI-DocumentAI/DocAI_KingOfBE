@@ -18,7 +18,6 @@
 
     <ItemGroup>
       <Folder Include="Migrations\" />
-      <Folder Include="Enum\" />
       <Folder Include="Configuration\" />
     </ItemGroup>
 

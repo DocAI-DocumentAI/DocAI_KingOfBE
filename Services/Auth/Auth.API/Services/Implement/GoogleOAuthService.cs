@@ -3,7 +3,9 @@ using Auth.API.DTOs.Request;
 using Auth.API.DTOs.Response;
 using Auth.API.Payload.Response;
 using Auth.API.Payload.Response.Department;
+using Auth.API.Payload.Response.Permission;
 using Auth.API.Payload.Response.Role;
+using Auth.API.Payload.Response.UserSetting;
 using Auth.API.Services.Interface;
 using Auth.API.Utils;
 using Auth.Domain.Models;
@@ -86,8 +88,11 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
 
             await _redisService.SetDocAITokensAsync(user.Id.ToString(), accessToken, refreshToken);
             await UpdateLastLoginAsync(user);
+            var userSetting = await _unitOfWork.GetRepository<UserSetting>().SingleOrDefaultAsync(
+            predicate: us => us.UserId == user.Id
+            );
 
-            return CreateGoogleOAuthResponse(user, accessToken, refreshToken, tokenResponse.AccessToken, tokenResponse.RefreshToken);
+            return CreateGoogleOAuthResponse(user, userSetting, accessToken, refreshToken, tokenResponse.AccessToken, tokenResponse.RefreshToken);
         }
         catch (Exception ex)
         {
@@ -114,7 +119,11 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
             await _redisService.SetDocAITokensAsync(user.Id.ToString(), accessToken, refreshToken);
             await UpdateLastLoginAsync(user);
 
-            return CreateLoginResponse(user, accessToken, refreshToken);
+            var userSetting = await _unitOfWork.GetRepository<UserSetting>().SingleOrDefaultAsync(
+            predicate: us => us.UserId == user.Id
+        );
+
+            return CreateLoginResponse(user, userSetting, accessToken, refreshToken);
         }
         catch (Exception ex)
         {
@@ -239,19 +248,6 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
         return user;
     }
 
-    private async Task<Role> GetDefaultRoleAsync()
-    {
-        return await _unitOfWork.GetRepository<Role>()
-            .SingleOrDefaultAsync(predicate: r => r.RoleName == "Member")
-            ?? throw new InvalidOperationException("Default role 'Member' not found");
-    }
-
-    private async Task<Department?> GetDefaultDepartmentAsync()
-    {
-        return await _unitOfWork.GetRepository<Department>()
-            .SingleOrDefaultAsync(predicate: d => d.Name == "General");
-    }
-
     private async Task UpdateLastLoginAsync(User user)
     {
         user.UpdateAt = DateTime.UtcNow;
@@ -259,8 +255,9 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
         await _unitOfWork.CommitAsync();
     }
 
-    private LoginResponse CreateLoginResponse(User user, string accessToken, string refreshToken)
+    private LoginResponse CreateLoginResponse(User user, UserSetting userSetting, string accessToken, string refreshToken)
     {
+
         return new LoginResponse
         {
             UserId = user.Id,
@@ -283,6 +280,22 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
                 CreateAt = user.Department?.CreateAt ?? DateTime.UtcNow,
                 UpdateAt = user.Department?.UpdateAt ?? DateTime.UtcNow
             },
+            UserSetting = userSetting != null ? new UserSettingResponse
+            {
+                Id = userSetting.Id,
+                TwoFactorEnabled = userSetting.TwoFactorEnabled,
+                TwoFactorMethod = userSetting.TwoFactorMethod,
+                NotificationsEnabled = userSetting.NotificationsEnabled,
+                UpdateAt = userSetting.UpdateAt
+            } : null,
+            Permissions = user.UserPermissions?.Select(up => new PermissionResponse
+            {
+                Id = up.Permission.Id,
+                Name = up.Permission.Name,
+                Description = up.Permission.Description,
+                CreateAt = up.Permission.CreateAt,
+                UpdateAt = up.Permission.UpdateAt
+            }).ToList() ?? new List<PermissionResponse>(),
             DocaiToken = accessToken,
             DocaiRefreshToken = refreshToken,
             RequirePasswordChange = false
@@ -368,7 +381,7 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
                $"prompt=consent";
     }
 
-    private GoogleOAuthResponse CreateGoogleOAuthResponse(User user, string docaiToken, string docaiRefreshToken, string googleAccessToken, string googleRefreshToken)
+    private GoogleOAuthResponse CreateGoogleOAuthResponse(User user, UserSetting userSetting, string docaiToken, string docaiRefreshToken, string googleAccessToken, string googleRefreshToken)
     {
         return new GoogleOAuthResponse
         {
@@ -388,6 +401,22 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
                 Name = user.Department?.Name ?? "",
                 Description = user.Department?.Description ?? ""
             },
+            UserSetting = userSetting != null ? new UserSettingResponse
+            {
+                Id = userSetting.Id,
+                TwoFactorEnabled = userSetting.TwoFactorEnabled,
+                TwoFactorMethod = userSetting.TwoFactorMethod,
+                NotificationsEnabled = userSetting.NotificationsEnabled,
+                UpdateAt = userSetting.UpdateAt
+            } : null,
+            Permissions = user.UserPermissions?.Select(up => new PermissionResponse
+            {
+                Id = up.Permission.Id,
+                Name = up.Permission.Name,
+                Description = up.Permission.Description,
+                CreateAt = up.Permission.CreateAt,
+                UpdateAt = up.Permission.UpdateAt
+            }).ToList() ?? new List<PermissionResponse>(),
             DocaiToken = docaiToken,
             DocaiRefreshToken = docaiRefreshToken,
             GoogleAccessToken = googleAccessToken,

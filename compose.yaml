@@ -1,34 +1,4 @@
 ﻿services:
-  ai.api1:
-    build:
-     context: .
-     dockerfile: Services/AI/AI.API/Dockerfile
-    # image: magicflexing/docai-ai-api:latest
-    container_name: ai.api1
-    ports:
-      - "5003:5003"
-    environment:
-      - HOSTNAME=ai-instance-1
-    restart: always
-    networks:
-      - docai_network
-
-  # AI API - Instance 2
-  ai.api2:
-    build:
-     context: .
-     dockerfile: Services/AI/AI.API/Dockerfile
-    # image: magicflexing/docai-ai-api:latest
-    container_name: ai.api2
-    ports:
-      - "5013:5003"
-    environment:
-      - HOSTNAME=ai-instance-2
-    restart: always
-    networks:
-      - docai_network
-
-
   # Auth API - Instance 1
   auth.api1:
     build:
@@ -134,8 +104,6 @@
       - auth.api2
       - document.api1
       - document.api2
-      - ai.api1
-      - ai.api2
       - notification.api1
       - notification.api2
       - chatbox.api1

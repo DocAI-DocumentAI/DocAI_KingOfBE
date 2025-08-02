@@ -14,7 +14,9 @@ namespace Document.API.Payload.Response
         public string Status { get; set; }
         public string VersionName { get; set; }
         public string DepartmentId { get; set; }
+        public string? DepartmentName { get; set; }
         public string OwnerId { get; set; }
+        public string? OwnerName { get; set; }
         public List<string> Tags { get; set; }
         public string DocumentTypeId { get; set; }
         public string? DocumentTypeName { get; set; }
@@ -25,7 +27,9 @@ namespace Document.API.Payload.Response
         public bool IsReplaced { get; set; }
         public DateTime? LastSubmitted { get; set; }
         public string? SubmittedBy { get; set; }
+        public string? SubmittedByName { get; set; }
         public string? ClaimedBy { get; set; }
+        public string? ClaimedByName { get; set; }
         public DateTime? ClaimedAt { get; set; }
     }
 }

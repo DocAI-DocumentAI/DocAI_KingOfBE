@@ -12,6 +12,6 @@ public class DepartmentFilter : IFilter<Department>
     {
         return Department =>
             (string.IsNullOrEmpty(DepartmentName) || Department.Name.Contains(DepartmentName)) &&
-            (string.IsNullOrEmpty(Description) || Department.Description.Contains(Description));           
+            (string.IsNullOrEmpty(Description) || Department.Description.Contains(Description));
     }
 }

@@ -1,4 +1,6 @@
-﻿using AutoMapper;
+﻿
+using AutoMapper;
+using ChatBox.API.Payload.Request;
 using ChatBox.API.Payload.Response;
 using ChatBox.Domain.Models;
 
@@ -8,10 +10,24 @@ namespace ChatBox.API.Mappers
     {
         public MappingProfile()
         {
-            CreateMap<Conversation, ConversationResponse>().ReverseMap();
-            CreateMap<Conversation, ConversationSummaryResponse>().ReverseMap();
-            CreateMap<MessageHistory, MessageResponse>().ReverseMap();
-            CreateMap<MessageResponse, MessageHistory>().ReverseMap();
+            CreateMap<ChatSession, SessionResponse>()
+           .ForMember(dest => dest.MessageCount, opt => opt.Ignore());
+
+            CreateMap<ChatSession, SessionDetailResponse>();
+            CreateMap<CreateSessionRequest, ChatSession>();
+
+            // Message mappings
+            CreateMap<ChatMessage, MessageResponse>();
+
+            // Preference mappings
+            CreateMap<UserPreference, PreferenceResponse>();
+            CreateMap<UpdatePreferenceRequest, UserPreference>();
+
+            // AI Configuration mappings
+            CreateMap<AIConfiguration, AIConfigurationResponse>();
+            CreateMap<AIConfigurationRequest, AIConfiguration>();
+
+            CreateMap<UserPreferenceRequest, UserPreference>();
         }
     }
 }

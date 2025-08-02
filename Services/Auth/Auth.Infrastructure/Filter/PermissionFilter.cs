@@ -12,6 +12,6 @@ public class PermissionFilter : IFilter<Permission>
     {
         return Permission =>
             (string.IsNullOrEmpty(PermissionName) || Permission.Name.Contains(PermissionName)) &&
-            (string.IsNullOrEmpty(Description) || Permission.Description.Contains(Description));           
+            (string.IsNullOrEmpty(Description) || Permission.Description.Contains(Description));
     }
 }
