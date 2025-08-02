@@ -41,4 +41,12 @@ public interface IDocumentEnrichmentService
     /// <param name="responses">List of SemanticSearchResponse objects to enrich</param>
     /// <returns>List of enriched SemanticSearchResponse objects</returns>
     Task<List<SemanticSearchResponse>> EnrichSemanticSearchResponsesAsync(List<SemanticSearchResponse> responses);
+
+    /// <summary>
+    /// Enriches a list of DocumentRecommendationResponse objects with department names in bulk.
+    /// This method is optimized for performance by making bulk requests to the Auth service.
+    /// </summary>
+    /// <param name="recommendations">List of DocumentRecommendationResponse objects to enrich</param>
+    /// <returns>List of enriched DocumentRecommendationResponse objects</returns>
+    Task<List<DocumentRecommendationResponse>> EnrichDocumentRecommendationsAsync(List<DocumentRecommendationResponse> recommendations);
 }

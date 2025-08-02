@@ -72,6 +72,8 @@ public static class DependencyService
         services.AddScoped<AiResponseHelper>();
         services.AddMemoryCache();
         services.AddScoped<IDocumentService, DocumentService>();
+        services.AddScoped<IDocumentRecommendationService, DocumentRecommendationService>();
+        services.AddScoped<IDocumentReplacementService, DocumentReplacementService>();
         services.AddScoped<IBookmarkService, BookmarkService>();
         services.AddScoped<IApprovalService, ApprovalService>();
         services.AddScoped<ITagService, TagService>();

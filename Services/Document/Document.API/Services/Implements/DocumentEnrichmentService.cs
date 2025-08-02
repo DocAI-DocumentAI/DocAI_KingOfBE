@@ -233,4 +233,66 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
             return responses;
         }
     }
+
+    public async Task<List<DocumentRecommendationResponse>> EnrichDocumentRecommendationsAsync(List<DocumentRecommendationResponse> recommendations)
+    {
+        if (!recommendations.Any()) return recommendations;
+
+        try
+        {
+            // Collect all unique department IDs
+            var departmentIds = recommendations
+                .Where(r => !string.IsNullOrEmpty(r.DepartmentId))
+                .Select(r => r.DepartmentId)
+                .Distinct()
+                .ToList();
+
+            if (!departmentIds.Any())
+            {
+                _logger.LogInformation("No department IDs found in recommendations to enrich");
+                return recommendations;
+            }
+
+            // Get names from the lookup service
+            var names = await _nameLookupService.GetNamesAsync(new List<string>(), departmentIds);
+
+            // Enrich each recommendation
+            var enrichedRecommendations = new List<DocumentRecommendationResponse>();
+            foreach (var recommendation in recommendations)
+            {
+                var enrichedRecommendation = new DocumentRecommendationResponse
+                {
+                    DocumentId = recommendation.DocumentId,
+                    Title = recommendation.Title,
+                    Description = recommendation.Description,
+                    DocumentTypeId = recommendation.DocumentTypeId,
+                    DocumentTypeName = recommendation.DocumentTypeName,
+                    DepartmentId = recommendation.DepartmentId,
+                    IsPublic = recommendation.IsPublic,
+                    CreatedTime = recommendation.CreatedTime,
+                    Tags = recommendation.Tags,
+                    RelevanceScore = recommendation.RelevanceScore,
+                    RecommendationReason = recommendation.RecommendationReason,
+                    SharedTagCount = recommendation.SharedTagCount,
+                    LatestVersionId = recommendation.LatestVersionId
+                };
+
+                // Enrich with department name
+                if (!string.IsNullOrEmpty(recommendation.DepartmentId))
+                {
+                    enrichedRecommendation.DepartmentName = names.DepartmentNames.GetValueOrDefault(recommendation.DepartmentId);
+                }
+
+                enrichedRecommendations.Add(enrichedRecommendation);
+            }
+
+            _logger.LogInformation("Successfully enriched {Count} document recommendations with names", enrichedRecommendations.Count);
+            return enrichedRecommendations;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to enrich document recommendations with names. Returning original recommendations.");
+            return recommendations;
+        }
+    }
 }

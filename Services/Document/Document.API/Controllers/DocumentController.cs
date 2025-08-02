@@ -13,10 +13,12 @@ namespace Document.API.Controllers;
 public class DocumentController : ControllerBase
 {
     private readonly IDocumentService _documentService;
+    private readonly IDocumentRecommendationService _recommendationService;
 
-    public DocumentController(IDocumentService documentService)
+    public DocumentController(IDocumentService documentService, IDocumentRecommendationService recommendationService)
     {
         _documentService = documentService;
+        _recommendationService = recommendationService;
     }
 
     [HttpPost(ApiEndPointConstant.Document.UploadDraft)]
@@ -174,5 +176,19 @@ public class DocumentController : ControllerBase
     {
         var result = await _documentService.FullTextSearch(filter, userId, pageNumber, pageSize);
         return Ok(ApiResponse<object>.Success(result));
+    }
+
+    [HttpGet(ApiEndPointConstant.Document.GetRecommendations)]
+    [ProducesResponseType(typeof(ApiResponse<DocumentRecommendationsResult>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDocumentRecommendations(
+        [FromRoute] string documentId,
+        [FromQuery] DocumentRecommendationRequest request,
+        string userId)
+    {
+        var result = await _recommendationService.GetRecommendationsAsync(documentId, request, userId);
+        return Ok(ApiResponse<DocumentRecommendationsResult>.Success(result, "Document recommendations retrieved successfully"));
     }
 }

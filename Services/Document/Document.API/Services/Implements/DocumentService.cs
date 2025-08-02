@@ -31,8 +31,9 @@ public class DocumentService : IDocumentService
     private readonly IConfiguration _configuration;
     private readonly IDocumentEnrichmentService _enrichmentService;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IDocumentReplacementService _replacementService;
 
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor)
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
@@ -41,6 +42,7 @@ public class DocumentService : IDocumentService
         _storageService = storageService;
         _enrichmentService = enrichmentService;
         _httpContextAccessor = httpContextAccessor;
+        _replacementService = replacementService;
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
         var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
@@ -307,6 +309,16 @@ public class DocumentService : IDocumentService
 
         _logger.LogInformation("Successfully created draft document {DocumentId}", documentFile.Id);
 
+        // Clear replacement suggestion cache since a new document was created
+        try
+        {
+            await _replacementService.ClearReplacementCacheAsync(request.DocumentTypeId, request.DepartmentId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clear replacement cache after document creation");
+        }
+
         // 8. Reload the document version with DocumentType included to ensure proper mapping
         var createdVersion = await _unitOfWork.GetRepository<DocumentVersion>()
             .SingleOrDefaultAsync(
@@ -498,6 +510,16 @@ public class DocumentService : IDocumentService
             var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
 
             _logger.LogInformation("Updated document response enriched with names for version {VersionId}", versionId);
+
+            // Clear replacement suggestion cache since a document was updated
+            try
+            {
+                await _replacementService.ClearReplacementCacheAsync(documentToUpdate.DocumentTypeId, documentToUpdate.DepartmentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to clear replacement cache after document update");
+            }
 
             return enrichedResponse;
         }
