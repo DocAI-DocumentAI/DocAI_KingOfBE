@@ -78,10 +78,25 @@ namespace Document.API.Services.Interfaces
         Task GrantUserAccessAsync(string fileId, string userEmail, string departmentId, bool isPublic, string role = "reader");
 
         /// <summary>
+        /// Grant user access to a file (simplified overload)
+        /// </summary>
+        /// <param name="fileId">Google Drive file ID</param>
+        /// <param name="userEmail">User email address</param>
+        /// <param name="role">Permission role (default: reader)</param>
+        Task GrantUserAccessAsync(string fileId, string userEmail, string role = "reader");
+
+        /// <summary>
         /// Revoke user access from file
         /// </summary>
         /// <param name="fileId">Google Drive file ID</param>
         /// <param name="userEmail">User email to revoke access</param>
         Task RevokeUserAccessAsync(string fileId, string userEmail);
+
+        /// <summary>
+        /// Get all permissions for a file
+        /// </summary>
+        /// <param name="fileId">Google Drive file ID</param>
+        /// <returns>List of permissions</returns>
+        Task<IList<Google.Apis.Drive.v3.Data.Permission>> GetFilePermissionsAsync(string fileId);
     }
 }

@@ -29,5 +29,15 @@ namespace Document.API.Services.Interfaces
         // Migration status tracking
         Task SetMigrationStatusAsync(string status, object data = null);
         Task<string> GetMigrationStatusAsync();
+
+        // Permission-related caching
+        Task SetDepartmentEmployeesAsync(string departmentId, List<string> employeeEmails, TimeSpan? expiry = null);
+        Task<List<string>?> GetDepartmentEmployeesAsync(string departmentId);
+        Task SetDepartmentManagersAsync(string departmentId, List<string> managerEmails, TimeSpan? expiry = null);
+        Task<List<string>?> GetDepartmentManagersAsync(string departmentId);
+        Task SetAllCompanyEmployeesAsync(List<string> employeeEmails, TimeSpan? expiry = null);
+        Task<List<string>?> GetAllCompanyEmployeesAsync();
+        Task SetUserEmailAsync(string userId, string email, TimeSpan? expiry = null);
+        Task<string?> GetUserEmailAsync(string userId);
     }
 }

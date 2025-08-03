@@ -40,6 +40,11 @@ public static class DependencyService
 
             // Add request client for name lookup
             x.AddRequestClient<NameLookupRequest>(new Uri("queue:name-lookup-queue"));
+
+            // Add request clients for permission-related Auth service communication
+            x.AddRequestClient<DepartmentEmployeeRequest>(new Uri("queue:department-employee-queue"));
+            x.AddRequestClient<CompanyEmployeeRequest>(new Uri("queue:company-employee-queue"));
+            x.AddRequestClient<UserEmailRequest>(new Uri("queue:user-email-queue"));
             x.UsingRabbitMq((context, cfg) =>
             {
                 var rabbitMqConfig = configuration.GetSection("RabbitMQ");
@@ -74,6 +79,7 @@ public static class DependencyService
         services.AddScoped<IDocumentService, DocumentService>();
         services.AddScoped<IDocumentRecommendationService, DocumentRecommendationService>();
         services.AddScoped<IDocumentReplacementService, DocumentReplacementService>();
+        services.AddScoped<IDocumentPermissionManager, DocumentPermissionManager>();
         services.AddScoped<IBookmarkService, BookmarkService>();
         services.AddScoped<IApprovalService, ApprovalService>();
         services.AddScoped<ITagService, TagService>();

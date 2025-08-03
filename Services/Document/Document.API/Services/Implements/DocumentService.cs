@@ -32,8 +32,9 @@ public class DocumentService : IDocumentService
     private readonly IDocumentEnrichmentService _enrichmentService;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IDocumentReplacementService _replacementService;
+    private readonly IDocumentPermissionManager _permissionManager;
 
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService)
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService, IDocumentPermissionManager permissionManager)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
@@ -43,6 +44,7 @@ public class DocumentService : IDocumentService
         _enrichmentService = enrichmentService;
         _httpContextAccessor = httpContextAccessor;
         _replacementService = replacementService;
+        _permissionManager = permissionManager;
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
         var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
@@ -309,6 +311,24 @@ public class DocumentService : IDocumentService
 
         _logger.LogInformation("Successfully created draft document {DocumentId}", documentFile.Id);
 
+        // Apply Google Drive permissions based on document status (Draft = owner only)
+        try
+        {
+            var fileId = uploadResponse.FileIdentifier; // Google Drive file ID
+            await _permissionManager.ApplyDocumentPermissionsAsync(
+                fileId,
+                StatusEnum.Draft,
+                request.DepartmentId,
+                request.IsPublic,
+                userId);
+            _logger.LogInformation("Applied permissions for draft document {DocumentId} with file ID {FileId}", documentFile.Id, fileId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to apply permissions for draft document {DocumentId}", documentFile.Id);
+            // Don't fail the entire operation for permission errors
+        }
+
         // Clear replacement suggestion cache since a new document was created
         try
         {
@@ -365,11 +385,11 @@ public class DocumentService : IDocumentService
         StorageUploadResponse uploadResponse = null;
         string fileHash = null;
 
-        // // First, get the version to update to access department info
-        // var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
-        //     .SingleOrDefaultAsync(
-        //         predicate: v => v.Id == versionId,
-        //         include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
+        // First, get the version to update to access department info
+        var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
+            .SingleOrDefaultAsync(
+                predicate: v => v.Id == versionId,
+                include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
 
         if (request.File != null)
         {
@@ -398,8 +418,8 @@ public class DocumentService : IDocumentService
         try
         {
 
-            // Retrieve draft to update with tracking enabled for updates
-            var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
+            // Re-retrieve draft with tracking enabled for updates
+            versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultWithTrackingAsync(
                     predicate: v => v.Id == versionId,
                     include: p => p.Include(v => v.DocumentFile))
@@ -518,6 +538,24 @@ public class DocumentService : IDocumentService
             var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
 
             _logger.LogInformation("Updated document response enriched with names for version {VersionId}", versionId);
+
+            // Apply Google Drive permissions for updated draft (still owner only)
+            try
+            {
+                var fileId = updatedVersion.GoogleDriveFileId ?? updatedVersion.FilePath;
+                await _permissionManager.ApplyDocumentPermissionsAsync(
+                    fileId,
+                    StatusEnum.Draft,
+                    updatedVersion.DocumentFile.DepartmentId,
+                    updatedVersion.IsPublic,
+                    userId);
+                _logger.LogInformation("Applied permissions for updated draft document {VersionId} with file ID {FileId}", versionId, fileId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to apply permissions for updated draft document {VersionId}", versionId);
+                // Don't fail the entire operation for permission errors
+            }
 
             // Clear replacement suggestion cache since a document was updated
             try

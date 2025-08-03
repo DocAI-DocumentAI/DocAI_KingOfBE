@@ -309,6 +309,14 @@ namespace Document.API.Services.Implements
             }
         }
 
+        /// <summary>
+        /// Grant user access to a file (simplified overload)
+        /// </summary>
+        public async Task GrantUserAccessAsync(string fileId, string userEmail, string role = "reader")
+        {
+            await GrantUserAccessAsync(fileId, userEmail, null, false, role);
+        }
+
         public async Task RevokeUserAccessAsync(string fileId, string userEmail)
         {
             try
@@ -502,6 +510,33 @@ namespace Document.API.Services.Implements
         }
 
         #endregion
+
+        /// <summary>
+        /// Get all permissions for a file
+        /// </summary>
+        /// <param name="fileId">Google Drive file ID</param>
+        /// <returns>List of permissions</returns>
+        public async Task<IList<Google.Apis.Drive.v3.Data.Permission>> GetFilePermissionsAsync(string fileId)
+        {
+            try
+            {
+                _logger.LogInformation("Getting permissions for file {FileId}", fileId);
+
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+                var request = driveService.Permissions.List(fileId);
+                request.Fields = "permissions(id,type,emailAddress,role)";
+
+                var response = await ExecuteWithRetryAsync(async () => await request.ExecuteAsync());
+
+                _logger.LogInformation("Retrieved {Count} permissions for file {FileId}", response.Permissions?.Count ?? 0, fileId);
+                return response.Permissions ?? new List<Google.Apis.Drive.v3.Data.Permission>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting permissions for file {FileId}", fileId);
+                throw;
+            }
+        }
 
         public void Dispose()
         {

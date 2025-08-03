@@ -23,7 +23,8 @@ namespace Document.API.Services.Implements
         private readonly IStorageService _storageService;
         private readonly IKernelMemory _memory;
         private readonly IDocumentEnrichmentService _enrichmentService;
-        public ApprovalService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ApprovalService> logger, IStorageService storageService, IKernelMemory kernelMemory, IDocumentEnrichmentService enrichmentService)
+        private readonly IDocumentPermissionManager _permissionManager;
+        public ApprovalService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ApprovalService> logger, IStorageService storageService, IKernelMemory kernelMemory, IDocumentEnrichmentService enrichmentService, IDocumentPermissionManager permissionManager)
 
         {
             _unitOfWork = unitOfWork;
@@ -32,6 +33,7 @@ namespace Document.API.Services.Implements
             _storageService = storageService;
             _memory = kernelMemory;
             _enrichmentService = enrichmentService;
+            _permissionManager = permissionManager;
         }
         public async Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueAsync(string departmentId, Document.Infrastructure.Filter.ApprovalQueueFilter filter, int pageNumber, int pageSize)
         {
@@ -234,6 +236,9 @@ namespace Document.API.Services.Implements
                         previousApprovedVersion.IsOfficial = false;
                         await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(previousApprovedVersion);
                         _logger.LogInformation("Archived previous version {VersionId} and updated its AI tags.", previousApprovedVersion.Id);
+
+                        // Update permissions for the archived document (will be done after commit)
+                        // Note: Permission update will happen after the main commit
                     }
 
                     versionToReview.Status = StatusEnum.Approved;
@@ -322,6 +327,50 @@ namespace Document.API.Services.Implements
 
             await _unitOfWork.CommitAsync();
 
+            // Update Google Drive permissions based on the new status
+            try
+            {
+                var fileId = versionToReview.GoogleDriveFileId ?? versionToReview.FilePath;
+                var newStatus = request.IsApproved ? StatusEnum.Approved : StatusEnum.Rejected;
+
+                await _permissionManager.UpdateDocumentPermissionsAsync(
+                    fileId,
+                    StatusEnum.Pending,
+                    newStatus,
+                    versionToReview.DocumentFile.DepartmentId,
+                    versionToReview.IsPublic,
+                    versionToReview.DocumentFile.OwnerId);
+
+                _logger.LogInformation("Updated permissions for document {VersionId} from Pending to {NewStatus}", versionId, newStatus);
+
+                // If this was an approval and there was a previous approved version that got archived, update its permissions too
+                if (request.IsApproved)
+                {
+                    var archivedVersion = await _unitOfWork.GetRepository<DocumentVersion>()
+                        .SingleOrDefaultAsync(predicate: v => v.DocumentFileId == versionToReview.DocumentFileId && v.Status == StatusEnum.Archived && v.Id != versionToReview.Id,
+                                            include: i => i.Include(v => v.DocumentFile));
+
+                    if (archivedVersion != null)
+                    {
+                        var archivedFileId = archivedVersion.GoogleDriveFileId ?? archivedVersion.FilePath;
+                        await _permissionManager.UpdateDocumentPermissionsAsync(
+                            archivedFileId,
+                            StatusEnum.Approved,
+                            StatusEnum.Archived,
+                            archivedVersion.DocumentFile.DepartmentId,
+                            archivedVersion.IsPublic,
+                            archivedVersion.DocumentFile.OwnerId);
+
+                        _logger.LogInformation("Updated permissions for archived document {ArchivedVersionId} from Approved to Archived", archivedVersion.Id);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update permissions for document {VersionId} during review", versionId);
+                // Don't fail the entire operation for permission errors
+            }
+
             _logger.LogInformation("Manager {UserId} has {Action} document version {VersionId}", userId, logAction, versionId);
 
             // TODO: Send a notification to the document owner.
@@ -361,6 +410,24 @@ namespace Document.API.Services.Implements
             //6. Save changes to the database
             _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(version);
             await _unitOfWork.CommitAsync();
+
+            //7. Update Google Drive permissions (Draft -> Pending: owner + department managers)
+            try
+            {
+                await _permissionManager.UpdateDocumentPermissionsAsync(
+                    fileId,
+                    StatusEnum.Draft,
+                    StatusEnum.Pending,
+                    version.DocumentFile.DepartmentId,
+                    version.IsPublic,
+                    userId);
+                _logger.LogInformation("Updated permissions for document {VersionId} from Draft to Pending", versionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update permissions for document {VersionId} when submitting for approval", versionId);
+                // Don't fail the entire operation for permission errors
+            }
         }
     }
 }

@@ -28,6 +28,13 @@ public interface IUserService
     public Task<IPaginate<UserResponse>> GetAllUsersAsync(int page, int size, UserFilter? filter, string? sortBy, bool isAsc);
     public Task<bool> LogoutAsync();
     public Task<Dictionary<string, string>> GetUserNamesByIdsAsync(List<string> userIds);
+
+    // Permission-related methods for Document service
+    public Task<List<string>> GetDepartmentEmployeeEmailsAsync(string departmentId);
+    public Task<List<string>> GetDepartmentManagerEmailsAsync(string departmentId);
+    public Task<List<string>> GetAllCompanyEmployeeEmailsAsync();
+    public Task<string?> GetUserEmailByIdAsync(string userId);
+
     public Task<RefreshTokenResponse> RefreshTokenAsync(RefreshTokenRequest request);
     public Task<GoogleOAuthResponse> GoogleLoginAsync(GoogleLoginRequest request);
     public Task<GoogleOAuthResponse> GoogleCallbackAsync(string code, string state);

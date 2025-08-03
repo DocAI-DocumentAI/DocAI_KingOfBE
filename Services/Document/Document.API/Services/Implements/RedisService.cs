@@ -284,5 +284,140 @@ namespace Document.API.Services.Implements
                 return "error";
             }
         }
+
+        #region Permission Caching
+
+        public async Task SetDepartmentEmployeesAsync(string departmentId, List<string> employeeEmails, TimeSpan? expiry = null)
+        {
+            try
+            {
+                var key = $"dept_employees:{departmentId}";
+                var value = JsonSerializer.Serialize(employeeEmails);
+                await _database.StringSetAsync(key, value, expiry ?? TimeSpan.FromMinutes(30));
+                _logger.LogDebug("Cached department employees for {DepartmentId}", departmentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error caching department employees for {DepartmentId}", departmentId);
+            }
+        }
+
+        public async Task<List<string>?> GetDepartmentEmployeesAsync(string departmentId)
+        {
+            try
+            {
+                var key = $"dept_employees:{departmentId}";
+                var value = await _database.StringGetAsync(key);
+                if (value.HasValue)
+                {
+                    return JsonSerializer.Deserialize<List<string>>(value);
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting cached department employees for {DepartmentId}", departmentId);
+                return null;
+            }
+        }
+
+        public async Task SetDepartmentManagersAsync(string departmentId, List<string> managerEmails, TimeSpan? expiry = null)
+        {
+            try
+            {
+                var key = $"dept_managers:{departmentId}";
+                var value = JsonSerializer.Serialize(managerEmails);
+                await _database.StringSetAsync(key, value, expiry ?? TimeSpan.FromMinutes(30));
+                _logger.LogDebug("Cached department managers for {DepartmentId}", departmentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error caching department managers for {DepartmentId}", departmentId);
+            }
+        }
+
+        public async Task<List<string>?> GetDepartmentManagersAsync(string departmentId)
+        {
+            try
+            {
+                var key = $"dept_managers:{departmentId}";
+                var value = await _database.StringGetAsync(key);
+                if (value.HasValue)
+                {
+                    return JsonSerializer.Deserialize<List<string>>(value);
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting cached department managers for {DepartmentId}", departmentId);
+                return null;
+            }
+        }
+
+        public async Task SetAllCompanyEmployeesAsync(List<string> employeeEmails, TimeSpan? expiry = null)
+        {
+            try
+            {
+                var key = "company_employees:all";
+                var value = JsonSerializer.Serialize(employeeEmails);
+                await _database.StringSetAsync(key, value, expiry ?? TimeSpan.FromMinutes(60));
+                _logger.LogDebug("Cached all company employees");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error caching all company employees");
+            }
+        }
+
+        public async Task<List<string>?> GetAllCompanyEmployeesAsync()
+        {
+            try
+            {
+                var key = "company_employees:all";
+                var value = await _database.StringGetAsync(key);
+                if (value.HasValue)
+                {
+                    return JsonSerializer.Deserialize<List<string>>(value);
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting cached company employees");
+                return null;
+            }
+        }
+
+        public async Task SetUserEmailAsync(string userId, string email, TimeSpan? expiry = null)
+        {
+            try
+            {
+                var key = $"user_email:{userId}";
+                await _database.StringSetAsync(key, email, expiry ?? TimeSpan.FromHours(24));
+                _logger.LogDebug("Cached user email for {UserId}", userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error caching user email for {UserId}", userId);
+            }
+        }
+
+        public async Task<string?> GetUserEmailAsync(string userId)
+        {
+            try
+            {
+                var key = $"user_email:{userId}";
+                var value = await _database.StringGetAsync(key);
+                return value.HasValue ? value.ToString() : null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting cached user email for {UserId}", userId);
+                return null;
+            }
+        }
+
+        #endregion
     }
 }
