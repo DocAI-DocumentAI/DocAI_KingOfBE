@@ -9,12 +9,12 @@ using ChatBox.API.Services.Interfaces;
 using ChatBox.Domain.Models;
 using ChatBox.Infrastructure.Repository.Implement;
 using ChatBox.Infrastructure.Repository.Interfaces;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Polly;
-using Polly.Extensions.Http;
 using Serilog;
+using Shared.DTOs;
 
 namespace ChatBox.API.Extensions;
 
@@ -54,23 +54,15 @@ public static class DependencyService
         services.AddAutoMapper(typeof(MappingProfile).Assembly);
 
         services.AddMemoryCache();
-        var redisConnection = configuration.GetConnectionString("Redis");
-        if (!string.IsNullOrEmpty(redisConnection))
-        {
-            services.AddStackExchangeRedisCache(options =>
-            {
-                options.Configuration = redisConnection;
-                options.InstanceName = "ChatBox";
-            });
-        }
 
         // Application services
         services.AddScoped<IChatService, ChatService>();
         services.AddScoped<ISemanticKernelService, SemanticKernelService>();
         services.AddScoped<ITokenCountService, TokenCountService>();
         services.AddScoped<IPreferenceService, PreferenceService>();
-        services.AddSingleton<IDocumentSearchService, DocumentSearchService>();
+        services.AddScoped<IDocumentSearchService, DocumentSearchService>();
         services.AddScoped<IAdminService, AdminService>();
+        services.AddScoped<IManualDocumentSearchService, ManualDocumentSearchService>();
 
         // Semantic Kernel plugins
         services.AddScoped<DocumentSearchPlugin>();
@@ -80,10 +72,10 @@ public static class DependencyService
     }
     public static IServiceCollection AddJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
-        string secret = configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret is missing in configuration.");
+        string secret = configuration["Jwt:Secret"] ?? throw new InvalidOperationException("Jwt:Secret is missing in configuration.");
         if (secret.Length < 32)
         {
-            throw new InvalidOperationException("JWT:Secret must be at least 32 characters long for HS256.");
+            throw new InvalidOperationException("Jwt:Secret must be at least 32 characters long for HS256.");
         }
 
         var key = Encoding.UTF8.GetBytes(secret);
@@ -101,35 +93,55 @@ public static class DependencyService
                 ValidateAudience = false,
                 ValidateLifetime = true,
                 ValidateIssuerSigningKey = true,
-                ValidIssuer = configuration["JWT:Issuer"] ?? "DocAI",
+                ValidIssuer = configuration["Jwt:Issuer"] ?? "DocAI",
                 IssuerSigningKey = new SymmetricSecurityKey(key),
                 RoleClaimType = ClaimTypes.Role,
+                NameClaimType = ClaimTypes.NameIdentifier
             };
 
-            options.SaveToken = true;
-
+            // Debug JWT events
             options.Events = new JwtBearerEvents
             {
-                OnMessageReceived = context =>
+                OnTokenValidated = context =>
                 {
-                    Log.Information("Token received: {Token}", context.Token);
+                    var claims = context.Principal.Claims.Select(c => $"{c.Type}: {c.Value}");
+                    Log.Information("JWT validated with claims: {Claims}", string.Join(", ", claims));
                     return Task.CompletedTask;
                 },
                 OnAuthenticationFailed = context =>
                 {
-                    Log.Error("JWT authentication failed: {Message}", context.Exception.Message);
+                    Log.Warning("JWT authentication failed: {Error}", context.Exception?.Message);
                     return Task.CompletedTask;
                 },
-                OnTokenValidated = context =>
+                OnMessageReceived = context =>
                 {
-                    Log.Information("JWT token validated successfully. Claims: {Claims}",
-                        string.Join(", ", context.Principal.Claims.Select(c => $"{c.Type}: {c.Value}")));
+                    var token = context.Request.Headers["Authorization"].FirstOrDefault();
                     return Task.CompletedTask;
                 }
             };
         });
+            
+        return services;
+    }
+    public static IServiceCollection AddRabbitmq(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddMassTransit(x =>
+        {
+            x.AddRequestClient<ChatBoxDocumentRequest>(new Uri("queue:document.search.request"));
+
+            x.UsingRabbitMq((context, cfg) =>
+            {
+                var rabbitMqConfig = configuration.GetSection("RabbitMQ");
+                cfg.Host(rabbitMqConfig["Host"], h =>
+                {
+                    h.Username(rabbitMqConfig["Username"]);
+                    h.Password(rabbitMqConfig["Password"]);
+                });
+
+                cfg.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+            });
+        });
 
         return services;
     }
-
 }

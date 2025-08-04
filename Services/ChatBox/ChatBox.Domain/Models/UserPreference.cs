@@ -27,10 +27,7 @@ namespace ChatBox.Domain.Models
 
         public bool ApplyToNewChats { get; set; } = false;
 
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
-        public string CreatedBy { get; set; } = string.Empty;
-        public string UpdatedBy { get; set; } = string.Empty;
+        public virtual ChatSession Session { get; set; }
 
     }
 }

@@ -20,11 +20,13 @@ namespace ChatBox.API.Plugins
         [Description("Tìm kiếm thông tin trong tài liệu nội bộ để trả lời câu hỏi của người dùng")]
         public async Task<string> SearchDocuments(
             [Description("Câu hỏi hoặc thông tin cần tìm kiếm")] string query,
-            [Description("ID người dùng")] string userId)
+          KernelArguments arguments)
         {
             try
             {
-                // ✅ Get RAG answer from Document microservice
+                var userId = arguments.ContainsName("userId")
+                    ? arguments["userId"]?.ToString()
+                    : "system";
                 var answer = await _documentSearchService.GetRAGAnswerWithSourcesAsync(query, userId);
 
                 return answer;
@@ -39,10 +41,13 @@ namespace ChatBox.API.Plugins
         [Description("Tìm kiếm thông tin trong tài liệu chính thức/official của công ty")]
         public async Task<string> SearchOfficialDocuments(
             [Description("Câu hỏi cần tìm trong tài liệu chính thức")] string query,
-            [Description("ID người dùng")] string userId)
+                      KernelArguments arguments)
         {
             try
             {
+                var userId = arguments.ContainsName("userId")
+           ? arguments["userId"]?.ToString()
+           : "system";
                 var result = await _documentSearchService.SearchOfficialDocumentsAsync(query, userId);
 
                 if (result?.Success == true && !string.IsNullOrEmpty(result.Answer))

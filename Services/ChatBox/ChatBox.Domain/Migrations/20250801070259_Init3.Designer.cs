@@ -3,6 +3,7 @@ using System;
 using ChatBox.Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ChatBox.Domain.Migrations
 {
     [DbContext(typeof(ChatBoxDbContext))]
-    partial class ChatBoxDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250801070259_Init3")]
+    partial class Init3
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -53,8 +56,8 @@ namespace ChatBox.Domain.Migrations
                         .HasColumnType("character varying(200)");
 
                     b.Property<string>("SystemPrompt")
-                        .HasMaxLength(5000)
-                        .HasColumnType("character varying(5000)");
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<double>("Temperature")
                         .HasPrecision(3, 2)

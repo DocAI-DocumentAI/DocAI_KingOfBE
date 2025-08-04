@@ -46,7 +46,7 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddServices(builder.Configuration);
     builder.Services.AddJwtAuthentication(builder.Configuration);
-
+    builder.Services.AddRabbitmq(builder.Configuration);
     builder.Services.AddCors(options =>
     {
         options.AddPolicy(CorConstant.PolicyName,
@@ -59,7 +59,6 @@ try
 
 
     builder.Services.AddHttpContextAccessor();
-    builder.Services.AddAuthorization();
 
     builder.Services.AddOpenApiDocument(options =>
     {
