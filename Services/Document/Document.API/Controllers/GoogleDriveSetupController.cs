@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using System.Text.Json;
 using Document.API.Configuration;
 using Document.API.Services.Interfaces;
+using Document.API.Attributes;
 
 namespace Document.API.Controllers
 {
@@ -12,6 +13,7 @@ namespace Document.API.Controllers
     /// </summary>
     [Route("api/googledrive-setup")]
     [ApiController]
+    [CustomAuthorize]
     public class GoogleDriveSetupController : ControllerBase
     {
         private readonly IGoogleDriveOAuthService _oauthService;

@@ -1,3 +1,4 @@
+using Document.API.Attributes;
 using Document.API.Constants;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
@@ -32,6 +33,7 @@ namespace Document.API.Controllers
         /// <param name="userId">The ID of the user creating the document type</param>
         /// <returns>The created document type</returns>
         [HttpPost(ApiEndPointConstant.DocumentType.CreateDocumentType)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager, Roles.Admin })]
         [ProducesResponseType(typeof(ApiResponse<DocumentTypeResponse>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
@@ -102,6 +104,7 @@ namespace Document.API.Controllers
         /// <param name="userId">The ID of the user updating the document type</param>
         /// <returns>The updated document type</returns>
         [HttpPut(ApiEndPointConstant.DocumentType.UpdateDocumentType)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager, Roles.Admin })]
         [ProducesResponseType(typeof(ApiResponse<DocumentTypeResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -122,6 +125,7 @@ namespace Document.API.Controllers
         /// <param name="userId">The ID of the user deleting the document type</param>
         /// <returns>Success response</returns>
         [HttpDelete(ApiEndPointConstant.DocumentType.DeleteDocumentType)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager, Roles.Admin })]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]

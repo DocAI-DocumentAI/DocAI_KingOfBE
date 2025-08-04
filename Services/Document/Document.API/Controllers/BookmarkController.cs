@@ -7,6 +7,9 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Document.API.Controllers
 {
+    /// <summary>
+    /// Controller for managing user document bookmarks
+    /// </summary>
     [Route(ApiEndPointConstant.ApiEndpoint)]
     [ApiController]
     [CustomAuthorize]
@@ -19,6 +22,11 @@ namespace Document.API.Controllers
             _bookmarkService = bookmarkService;
         }
 
+        /// <summary>
+        /// Add a document to user's bookmarks
+        /// </summary>
+        /// <param name="documentId">The ID of the document to bookmark</param>
+        /// <returns>Success confirmation</returns>
         [HttpPost(ApiEndPointConstant.Bookmark.AddBookmark)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -30,6 +38,11 @@ namespace Document.API.Controllers
             return Ok(ApiResponse<object>.Success(null, "Document bookmarked successfully.", 200));
         }
 
+        /// <summary>
+        /// Remove a document from user's bookmarks
+        /// </summary>
+        /// <param name="documentId">The ID of the document to remove from bookmarks</param>
+        /// <returns>Success confirmation</returns>
         [HttpDelete(ApiEndPointConstant.Bookmark.RemoveBookmark)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -41,6 +54,12 @@ namespace Document.API.Controllers
             return Ok(ApiResponse<object>.Success(null, "Bookmark removed successfully.", 200));
         }
 
+        /// <summary>
+        /// Get user's bookmarked documents with pagination
+        /// </summary>
+        /// <param name="pageNumber">Page number for pagination (default: 1)</param>
+        /// <param name="pageSize">Number of items per page (default: 10)</param>
+        /// <returns>Paginated list of user's bookmarked documents</returns>
         [HttpGet(ApiEndPointConstant.Bookmark.GetBookmarks)]
         [ProducesResponseType(typeof(ApiResponse<IPaginate<BookmarkResponse>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]

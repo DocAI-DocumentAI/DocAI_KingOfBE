@@ -1,6 +1,6 @@
 using Document.API.Attributes;
 
-namespace Auth.API.Attributes
+namespace Document.API.Attributes
 {
     /// <summary>
     /// Extension methods để tạo CustomAuthorizeAttribute dễ dàng hơn

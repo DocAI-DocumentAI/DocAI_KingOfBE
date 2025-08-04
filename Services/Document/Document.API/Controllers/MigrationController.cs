@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Document.API.Services.Interfaces;
+using Document.API.Attributes;
 
 namespace Document.API.Controllers
 {
@@ -8,6 +9,7 @@ namespace Document.API.Controllers
     /// </summary>
     [Route("api/[controller]")]
     [ApiController]
+    [CustomAuthorize]
     public class MigrationController : ControllerBase
     {
         private readonly IMigrationService _migrationService;
