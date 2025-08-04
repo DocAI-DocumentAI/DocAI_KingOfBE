@@ -16,6 +16,12 @@ using Document.API.Models;
 
 using Microsoft.KernelMemory.AI.OpenAI;
 using Microsoft.KernelMemory.SemanticKernel;
+using Document.API.Configuration;
+using StackExchange.Redis;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Security.Claims;
+using System.Text;
 
 
 
@@ -28,13 +34,22 @@ public static class DependencyService
 
     public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
     {
+        // Configure Google Drive and Storage settings
+        services.Configure<GoogleDriveConfiguration>(configuration.GetSection(GoogleDriveConfiguration.SectionName));
+        services.Configure<StorageConfiguration>(configuration.GetSection(StorageConfiguration.SectionName));
+
         services.AddMassTransit(x =>
         {
             x.AddConsumer<UserRequestMessageConsumer>();
             x.AddConsumer<DocumentSearchConsumer>();
-            
+
             // Add request client for name lookup
-            x.AddRequestClient<NameLookupRequest>(new Uri("queue:name-lookup-queue")); 
+            x.AddRequestClient<NameLookupRequest>(new Uri("queue:name-lookup-queue"));
+
+            // Add request clients for permission-related Auth service communication
+            x.AddRequestClient<DepartmentEmployeeRequest>(new Uri("queue:department-employee-queue"));
+            x.AddRequestClient<CompanyEmployeeRequest>(new Uri("queue:company-employee-queue"));
+            x.AddRequestClient<UserEmailRequest>(new Uri("queue:user-email-queue"));
             x.UsingRabbitMq((context, cfg) =>
             {
                 var rabbitMqConfig = configuration.GetSection("RabbitMQ");
@@ -43,7 +58,7 @@ public static class DependencyService
                     h.Username(rabbitMqConfig["Username"]);
                     h.Password(rabbitMqConfig["Password"]);
                 });
-                
+
                 cfg.ReceiveEndpoint("user-request-queue", e =>
                 {
                     // Chỉ định consumer nào sẽ xử lý message từ queue này
@@ -60,16 +75,30 @@ public static class DependencyService
                 });
             });
         });
-        services.AddScoped<IAzureStorageService, AzureStorageService>();
+
+        // Storage services
+        // Azure storage service commented out for Google Drive migration
+        // services.AddScoped<IAzureStorageService, AzureStorageService>();
+        services.AddScoped<IRedisService, RedisService>();
+        services.AddScoped<IGoogleDriveOAuthService, GoogleDriveOAuthService>();
+        services.AddScoped<IGoogleDriveService, GoogleDriveService>();
+        services.AddScoped<IStorageService, UnifiedStorageService>();
+        services.AddScoped<IMigrationService, MigrationService>();
+        services.AddHttpClient<IGoogleDriveOAuthService, GoogleDriveOAuthService>();
         services.AddScoped<IFileConversionService, FileConversionService>();
         services.AddScoped<INameLookupService, NameLookupService>();
         services.AddScoped<IDocumentEnrichmentService, DocumentEnrichmentService>();
         services.AddScoped<AiResponseHelper>();
         services.AddMemoryCache();
+        services.AddHttpContextAccessor();
         services.AddScoped<IDocumentService, DocumentService>();
+        services.AddScoped<IDocumentRecommendationService, DocumentRecommendationService>();
+        services.AddScoped<IDocumentReplacementService, DocumentReplacementService>();
+        services.AddScoped<IDocumentPermissionManager, DocumentPermissionManager>();
         services.AddScoped<IBookmarkService, BookmarkService>();
         services.AddScoped<IApprovalService, ApprovalService>();
         services.AddScoped<ITagService, TagService>();
+        services.AddScoped<IDocumentTypeService, DocumentTypeService>();
         services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 
         services.AddScoped<IDocumentRAGService, DocumentRAGService>();
@@ -186,20 +215,66 @@ public static class DependencyService
     }
 
 
-    //public static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
-    //{
-    //    var redisConnectionString = configuration.GetConnectionString("Redis");
+    public static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
+    {
+        var redisConnectionString = configuration.GetConnectionString("Redis");
 
-    //    if (string.IsNullOrEmpty(redisConnectionString))
-    //    {
-    //        throw new InvalidOperationException(" Connection string cho Redis không được cấu hình.");
-    //    }
+        if (string.IsNullOrEmpty(redisConnectionString))
+        {
+            throw new InvalidOperationException("Redis connection string is not configured.");
+        }
 
-    //    services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(redisConnectionString));
-    //    services.AddScoped<IRedisService, RedisService>();
+        services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(redisConnectionString));
 
-    //    return services;
-    //}
+        return services;
+    }
 
+    public static IServiceCollection AddJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
+    {
+        string secret = configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret is missing in configuration.");
+        if (secret.Length < 32)
+        {
+            throw new InvalidOperationException("JWT:Secret must be at least 32 characters long for HS256.");
+        }
+
+        var key = Encoding.UTF8.GetBytes(secret);
+
+        services.AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        })
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = false,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = configuration["JWT:Issuer"] ?? "DocAI",
+                IssuerSigningKey = new SymmetricSecurityKey(key),
+
+                // Đảm bảo role claim được map đúng
+                RoleClaimType = ClaimTypes.Role,
+
+                // Thêm claim mapping
+                NameClaimType = ClaimTypes.NameIdentifier
+            };
+
+            // Debug JWT events
+            options.Events = new JwtBearerEvents
+            {
+                OnTokenValidated = context =>
+                {
+                    var claims = context.Principal.Claims.Select(c => $"{c.Type}: {c.Value}");
+                    Console.WriteLine($"JWT validated with claims: {string.Join(", ", claims)}");
+                    return Task.CompletedTask;
+                }
+            };
+        });
+
+        return services;
+    }
 
 }

@@ -20,7 +20,9 @@ namespace Document.API.Mappers
                 .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.DocumentFile.IsReplaced))
                 .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentTags.Select(dt => dt.Tag.Name).ToList()))
                 .ForMember(dest => dest.LastSubmitted, opt => opt.MapFrom(src => src.LastSubmitted))
-                .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.SubmittedBy));
+                .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.SubmittedBy))
+                .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentFile.DocumentTypeId))
+                .ForMember(dest => dest.DocumentTypeName, opt => opt.MapFrom(src => src.DocumentFile.DocumentType != null ? src.DocumentFile.DocumentType.Name : null));
 
             CreateMap<DocumentVersion, PendingDocumentResponse>()
                 .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => src.Id))

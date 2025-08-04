@@ -1420,4 +1420,127 @@ public class UserService : BaseService<UserService>, IUserService
         _logger.LogInformation("Admin retrieved user information for UserId: {UserId}", userId);
         return response;
     }
+
+    #region Permission-related methods for Document service
+
+    public async Task<List<string>> GetDepartmentEmployeeEmailsAsync(string departmentId)
+    {
+        try
+        {
+            _logger.LogInformation("Getting employee emails for department {DepartmentId}", departmentId);
+
+            if (!Guid.TryParse(departmentId, out var deptGuid))
+            {
+                _logger.LogWarning("Invalid department ID format: {DepartmentId}", departmentId);
+                return new List<string>();
+            }
+
+            var users = await _unitOfWork.GetRepository<User>().GetListAsync(
+                predicate: u => u.DepartmentId == deptGuid && u.Active,
+                selector: u => u.Email
+            );
+
+            _logger.LogInformation("Retrieved {Count} employee emails for department {DepartmentId}", users.Count, departmentId);
+            return users.ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting department employee emails for {DepartmentId}", departmentId);
+            return new List<string>();
+        }
+    }
+
+    public async Task<List<string>> GetDepartmentManagerEmailsAsync(string departmentId)
+    {
+        try
+        {
+            _logger.LogInformation("Getting manager emails for department {DepartmentId}", departmentId);
+
+            if (!Guid.TryParse(departmentId, out var deptGuid))
+            {
+                _logger.LogWarning("Invalid department ID format: {DepartmentId}", departmentId);
+                return new List<string>();
+            }
+
+            // Get users who are managers in the department
+            // Assuming managers have a specific role - you may need to adjust this logic
+            var users = await _unitOfWork.GetRepository<User>().GetListAsync(
+                predicate: u => u.DepartmentId == deptGuid && u.Active,
+                include: u => u.Include(x => x.Role),
+                selector: u => new { u.Email, u.Role.RoleName }
+            );
+
+            // Filter for manager roles - adjust role names as needed
+            var managerEmails = users
+                .Where(u => u.RoleName != null && (u.RoleName.ToLower().Contains("manager") || u.RoleName.ToLower().Contains("lead")))
+                .Select(u => u.Email)
+                .ToList();
+
+            _logger.LogInformation("Retrieved {Count} manager emails for department {DepartmentId}", managerEmails.Count, departmentId);
+            return managerEmails;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting department manager emails for {DepartmentId}", departmentId);
+            return new List<string>();
+        }
+    }
+
+    public async Task<List<string>> GetAllCompanyEmployeeEmailsAsync()
+    {
+        try
+        {
+            _logger.LogInformation("Getting all company employee emails");
+
+            var emails = await _unitOfWork.GetRepository<User>().GetListAsync(
+                predicate: u => u.Active,
+                selector: u => u.Email
+            );
+
+            _logger.LogInformation("Retrieved {Count} company employee emails", emails.Count);
+            return emails.ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting all company employee emails");
+            return new List<string>();
+        }
+    }
+
+    public async Task<string?> GetUserEmailByIdAsync(string userId)
+    {
+        try
+        {
+            _logger.LogInformation("Getting email for user {UserId}", userId);
+
+            if (!Guid.TryParse(userId, out var userGuid))
+            {
+                _logger.LogWarning("Invalid user ID format: {UserId}", userId);
+                return null;
+            }
+
+            var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+                predicate: u => u.Id == userGuid && u.Active,
+                selector: u => u.Email
+            );
+
+            if (user != null)
+            {
+                _logger.LogInformation("Retrieved email for user {UserId}", userId);
+            }
+            else
+            {
+                _logger.LogWarning("User {UserId} not found or inactive", userId);
+            }
+
+            return user;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting email for user {UserId}", userId);
+            return null;
+        }
+    }
+
+    #endregion
 }

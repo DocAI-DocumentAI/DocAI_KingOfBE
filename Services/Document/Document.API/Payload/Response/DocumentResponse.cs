@@ -94,6 +94,16 @@ public class DocumentResponse
     /// Tags associated with the document
     /// </summary>
     public List<string> Tags { get; set; } = new();
+
+    /// <summary>
+    /// Document type ID
+    /// </summary>
+    public string DocumentTypeId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Document type name
+    /// </summary>
+    public string? DocumentTypeName { get; set; }
     
     /// <summary>
     /// ID of the document that replaces this one
@@ -105,4 +115,9 @@ public class DocumentResponse
     /// Whether this document has been replaced
     /// </summary>
     public bool IsReplaced { get; set; }
+
+    /// <summary>
+    /// Indicates whether the document is public (accessible to all employees) or private (restricted to same department)
+    /// </summary>
+    public bool IsPublic { get; set; }
 }

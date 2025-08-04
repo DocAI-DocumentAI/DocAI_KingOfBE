@@ -21,6 +21,7 @@ namespace Document.Domain.Context
         //public DbSet<DocumentChunk> DocumentChunks { get; set; }
         public DbSet<DocumentTag> DocumentTags { get; set; }
         public DbSet<DocumentVersion> DocumentVersions { get; set; }
+        public DbSet<DocumentType> DocumentTypes { get; set; }
         public DbSet<Tag> Tags { get; set; }
         public DbSet<ApprovalLog> ApprovalLogs { get; set; }
         public DbSet<Bookmark> Bookmarks { get; set; }
@@ -38,6 +39,19 @@ namespace Document.Domain.Context
                 .HasOne(ac => ac.DocumentVersion)
                 .WithOne()
                 .HasForeignKey<ApprovalClaim>(ac => ac.DocumentVersionId);
+
+            // Configure DocumentFile -> DocumentType relationship
+            modelBuilder.Entity<DocumentFile>()
+                .HasOne(df => df.DocumentType)
+                .WithMany(dt => dt.DocumentFiles)
+                .HasForeignKey(df => df.DocumentTypeId)
+                .IsRequired(true) // Required after data migration
+                .OnDelete(DeleteBehavior.Restrict); // Prevent deletion of DocumentType if it has associated documents
+
+            // Configure unique constraint on DocumentType name
+            modelBuilder.Entity<DocumentType>()
+                .HasIndex(dt => dt.Name)
+                .IsUnique();
 
             //// Configure cascade delete for DocumentChunks
             //modelBuilder.Entity<DocumentFile>()

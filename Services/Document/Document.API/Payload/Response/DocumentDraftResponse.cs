@@ -19,6 +19,8 @@ namespace Document.API.Payload.Response
         public string? OwnerName { get; set; }
         public List<string> Tags { get; set; }
         public DateTime CreatedTime { get; set; }
+        public string DocumentTypeId { get; set; }
+        public string? DocumentTypeName { get; set; }
         public string? ReplacementId { get; set; }
         public DocumentResponse? ReplacementDocument { get; set; }
         public string? ReplacementDocumentName { get; set; }
@@ -26,5 +28,10 @@ namespace Document.API.Payload.Response
         public DateTime? LastSubmitted { get; set; }
         public string? SubmittedBy { get; set; }
         public string? SubmittedByName { get; set; }
+
+        /// <summary>
+        /// Indicates whether the document is public (accessible to all employees) or private (restricted to same department)
+        /// </summary>
+        public bool IsPublic { get; set; }
     }
 }

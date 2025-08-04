@@ -10,6 +10,7 @@ namespace Document.Infrastructure.Filter
         public StatusEnum? Status { get; set; }
         public DateTime? From { get; set; }
         public DateTime? To { get; set; }
+        public string? DocumentTypeId { get; set; }
 
         public Expression<Func<DocumentVersion, bool>> ToExpression()
         {
@@ -17,7 +18,8 @@ namespace Document.Infrastructure.Filter
                 (string.IsNullOrEmpty(UserId) || doc.SubmittedBy == UserId) &&
                 (!Status.HasValue || doc.Status == Status.Value) &&
                 (!From.HasValue || doc.LastSubmitted >= From.Value) &&
-                (!To.HasValue || doc.LastSubmitted <= To.Value);
+                (!To.HasValue || doc.LastSubmitted <= To.Value) &&
+                (string.IsNullOrEmpty(DocumentTypeId) || doc.DocumentFile.DocumentTypeId == DocumentTypeId);
         }
     }
 }

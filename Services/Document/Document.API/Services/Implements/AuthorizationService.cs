@@ -35,6 +35,14 @@ namespace Document.API.Services.Implements
             return GetCurrentUser().FindFirst("departmentName")?.Value;
         }
 
+        public Guid? GetCurrentUserDepartmentId()
+        {
+            var departmentIdClaim = GetCurrentUser().FindFirst("departmentId")?.Value;
+            if (string.IsNullOrEmpty(departmentIdClaim) || !Guid.TryParse(departmentIdClaim, out var departmentId))
+                return null;
+            return departmentId;
+        }
+
         public string[] GetCurrentUserPermissions()
         {
             var permissionsString = GetCurrentUser().FindFirst("permissions")?.Value;

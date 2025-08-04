@@ -48,12 +48,15 @@ try
     builder.Services.AddOpenApi();
 
     builder.Services.AddDatabase();
+    builder.Services.AddRedis(configuration);
     builder.Services.AddUnitOfWork();
     builder.Services.AddServices(configuration);
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddControllers();
+    builder.Services.AddJwtAuthentication(configuration);
+    builder.Services.AddAuthorization();
     //builder.Services.AddKernelMemory();
     builder.Services.AddKernelMemory(configuration);
     
@@ -81,7 +84,6 @@ try
 
     // if (app.Environment.IsDevelopment())
     // {
-        
         app.UseSwaggerUI(options =>
         {
             options.RoutePrefix = "swagger"; 
@@ -123,6 +125,9 @@ try
     app.UseHttpsRedirection();
 
     app.UseSerilogRequestLogging();
+
+    app.UseAuthentication();
+    app.UseAuthorization();
 
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 

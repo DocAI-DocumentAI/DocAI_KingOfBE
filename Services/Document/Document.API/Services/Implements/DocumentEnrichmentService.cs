@@ -57,7 +57,7 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
 
             // Bulk lookup names
             var nameResponse = await _nameLookupService.GetNamesAsync(
-                userIds.ToList(), 
+                userIds.ToList(),
                 departmentIds.ToList()
             );
 
@@ -66,19 +66,19 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                 // Enrich each document with names
                 foreach (var doc in documents)
                 {
-                    if (!string.IsNullOrEmpty(doc.CreatedBy) && 
+                    if (!string.IsNullOrEmpty(doc.CreatedBy) &&
                         nameResponse.UserNames.TryGetValue(doc.CreatedBy, out string? createdByName))
                     {
                         doc.CreatedByName = createdByName;
                     }
 
-                    if (!string.IsNullOrEmpty(doc.LastUpdatedby) && 
+                    if (!string.IsNullOrEmpty(doc.LastUpdatedby) &&
                         nameResponse.UserNames.TryGetValue(doc.LastUpdatedby, out string? updatedByName))
                     {
                         doc.LastUpdatedByName = updatedByName;
                     }
 
-                    if (!string.IsNullOrEmpty(doc.DepartmentId) && 
+                    if (!string.IsNullOrEmpty(doc.DepartmentId) &&
                         nameResponse.DepartmentNames.TryGetValue(doc.DepartmentId, out string? deptName))
                     {
                         doc.DepartmentName = deptName;
@@ -87,7 +87,7 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
             }
             else
             {
-                _logger.LogWarning("Failed to enrich document responses with names: {ErrorMessage}", 
+                _logger.LogWarning("Failed to enrich document responses with names: {ErrorMessage}",
                     nameResponse.ErrorMessage);
             }
 
@@ -122,7 +122,7 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
 
             // Bulk lookup names
             var nameResponse = await _nameLookupService.GetNamesAsync(
-                userIds.ToList(), 
+                userIds.ToList(),
                 departmentIds.ToList()
             );
 
@@ -131,19 +131,19 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                 // Enrich each document with names
                 foreach (var doc in documents)
                 {
-                    if (!string.IsNullOrEmpty(doc.OwnerId) && 
+                    if (!string.IsNullOrEmpty(doc.OwnerId) &&
                         nameResponse.UserNames.TryGetValue(doc.OwnerId, out string? ownerName))
                     {
                         doc.OwnerName = ownerName;
                     }
 
-                    if (!string.IsNullOrEmpty(doc.SubmittedBy) && 
+                    if (!string.IsNullOrEmpty(doc.SubmittedBy) &&
                         nameResponse.UserNames.TryGetValue(doc.SubmittedBy, out string? submittedByName))
                     {
                         doc.SubmittedByName = submittedByName;
                     }
 
-                    if (!string.IsNullOrEmpty(doc.DepartmentId) && 
+                    if (!string.IsNullOrEmpty(doc.DepartmentId) &&
                         nameResponse.DepartmentNames.TryGetValue(doc.DepartmentId, out string? deptName))
                     {
                         doc.DepartmentName = deptName;
@@ -152,7 +152,7 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
             }
             else
             {
-                _logger.LogWarning("Failed to enrich document draft responses with names: {ErrorMessage}", 
+                _logger.LogWarning("Failed to enrich document draft responses with names: {ErrorMessage}",
                     nameResponse.ErrorMessage);
             }
 
@@ -492,6 +492,68 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
         {
             _logger.LogError(ex, "Error enriching approval queue detail response with names");
             return approvalDetail; // Return original response if enrichment fails
+        }
+    }
+    
+    public async Task<List<DocumentRecommendationResponse>> EnrichDocumentRecommendationsAsync(List<DocumentRecommendationResponse> recommendations)
+    {
+        if (!recommendations.Any()) return recommendations;
+
+        try
+        {
+            // Collect all unique department IDs
+            var departmentIds = recommendations
+                .Where(r => !string.IsNullOrEmpty(r.DepartmentId))
+                .Select(r => r.DepartmentId)
+                .Distinct()
+                .ToList();
+
+            if (!departmentIds.Any())
+            {
+                _logger.LogInformation("No department IDs found in recommendations to enrich");
+                return recommendations;
+            }
+
+            // Get names from the lookup service
+            var names = await _nameLookupService.GetNamesAsync(new List<string>(), departmentIds);
+
+            // Enrich each recommendation
+            var enrichedRecommendations = new List<DocumentRecommendationResponse>();
+            foreach (var recommendation in recommendations)
+            {
+                var enrichedRecommendation = new DocumentRecommendationResponse
+                {
+                    DocumentId = recommendation.DocumentId,
+                    Title = recommendation.Title,
+                    Description = recommendation.Description,
+                    DocumentTypeId = recommendation.DocumentTypeId,
+                    DocumentTypeName = recommendation.DocumentTypeName,
+                    DepartmentId = recommendation.DepartmentId,
+                    IsPublic = recommendation.IsPublic,
+                    CreatedTime = recommendation.CreatedTime,
+                    Tags = recommendation.Tags,
+                    RelevanceScore = recommendation.RelevanceScore,
+                    RecommendationReason = recommendation.RecommendationReason,
+                    SharedTagCount = recommendation.SharedTagCount,
+                    LatestVersionId = recommendation.LatestVersionId
+                };
+
+                // Enrich with department name
+                if (!string.IsNullOrEmpty(recommendation.DepartmentId))
+                {
+                    enrichedRecommendation.DepartmentName = names.DepartmentNames.GetValueOrDefault(recommendation.DepartmentId);
+                }
+
+                enrichedRecommendations.Add(enrichedRecommendation);
+            }
+
+            _logger.LogInformation("Successfully enriched {Count} document recommendations with names", enrichedRecommendations.Count);
+            return enrichedRecommendations;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to enrich document recommendations with names. Returning original recommendations.");
+            return recommendations;
         }
     }
 }

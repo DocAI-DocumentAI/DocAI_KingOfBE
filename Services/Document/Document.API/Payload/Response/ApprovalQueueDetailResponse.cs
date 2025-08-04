@@ -18,6 +18,8 @@ namespace Document.API.Payload.Response
         public string OwnerId { get; set; }
         public string? OwnerName { get; set; }
         public List<string> Tags { get; set; }
+        public string DocumentTypeId { get; set; }
+        public string? DocumentTypeName { get; set; }
         public DateTime CreatedTime { get; set; }
         public string? ReplacementId { get; set; }
         public DocumentResponse? ReplacementDocument { get; set; }

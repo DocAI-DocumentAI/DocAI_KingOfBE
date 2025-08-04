@@ -44,8 +44,8 @@ public static class JwtUtil
             new Claim("fullName", user.FullName ?? ""),
             new Claim("phone", user.Phone ?? ""),
             new Claim(ClaimTypes.Role, user.Role?.RoleName ?? ""),
-            new Claim("departmentID", user.Department?.Name ?? ""),
-            new Claim("departmentID", user.Department?.Id.ToString() ?? ""),
+            new Claim("departmentId", user.Department?.Id.ToString() ?? ""),
+            new Claim("departmentName", user.Department?.Name ?? ""),
             new Claim("permissions", permissionsString)
         };
 
@@ -92,8 +92,8 @@ public static class JwtUtil
                 new Claim("fullName", user.FullName ?? ""),
                 new Claim("phone", user.Phone ?? ""),
                 new Claim(ClaimTypes.Role, user.Role?.RoleName ?? ""),
+                new Claim("departmentId", user.Department?.Id.ToString() ?? ""),
                 new Claim("departmentName", user.Department?.Name ?? ""),
-                new Claim("departmentID", user.Department?.Id.ToString() ?? ""),
                 new Claim("permissions", permissionsString)
             }),
             Expires = DateTime.UtcNow.AddDays(7),

@@ -42,9 +42,8 @@ public interface IDocumentEnrichmentService
     /// <returns>List of enriched SemanticSearchResponse objects</returns>
     Task<List<SemanticSearchResponse>> EnrichSemanticSearchResponsesAsync(List<SemanticSearchResponse> responses);
 
-    /// <summary>
-    /// Enrich a single bookmark response with names
-    /// </summary>
+    Task<List<DocumentRecommendationResponse>> EnrichDocumentRecommendationsAsync(List<DocumentRecommendationResponse> recommendations);
+
     Task<BookmarkResponse> EnrichBookmarkResponseAsync(BookmarkResponse bookmark);
 
     /// <summary>

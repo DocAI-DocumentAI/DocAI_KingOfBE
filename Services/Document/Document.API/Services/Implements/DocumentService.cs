@@ -16,6 +16,7 @@ using Microsoft.KernelMemory;
 
 using Shared.DTOs;
 using Shared.Exceptions;
+using System.Security.Claims;
 using System.Text.Json;
 
 namespace Document.API.Services.Implements;
@@ -25,11 +26,15 @@ public class DocumentService : IDocumentService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
     private readonly ILogger<DocumentService> _logger;
-    private readonly IAzureStorageService _storageService;
+    private readonly IStorageService _storageService;
     private readonly IKernelMemory _memory;
     private readonly IConfiguration _configuration;
     private readonly IDocumentEnrichmentService _enrichmentService;
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IAzureStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService)
+    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IDocumentReplacementService _replacementService;
+    private readonly IDocumentPermissionManager _permissionManager;
+
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService, IDocumentPermissionManager permissionManager)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
@@ -37,6 +42,9 @@ public class DocumentService : IDocumentService
         _memory = memory;
         _storageService = storageService;
         _enrichmentService = enrichmentService;
+        _httpContextAccessor = httpContextAccessor;
+        _replacementService = replacementService;
+        _permissionManager = permissionManager;
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
         var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
@@ -67,11 +75,70 @@ public class DocumentService : IDocumentService
         }
     }
 
-    
-
-
-    public async Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request, string userId)
+    /// <summary>
+    /// Gets the current user's department ID from JWT token
+    /// </summary>
+    /// <returns>Department ID or null if not found</returns>
+    private string? GetCurrentUserDepartmentId()
     {
+        var user = _httpContextAccessor?.HttpContext?.User;
+        return user?.FindFirst("departmentId")?.Value;
+    }
+
+    /// <summary>
+    /// Gets the current user's ID from JWT token
+    /// </summary>
+    /// <returns>User ID</returns>
+    private string GetCurrentUserId()
+    {
+        var user = _httpContextAccessor?.HttpContext?.User;
+        var userIdClaim = user?.FindFirst("userId")?.Value;
+        if (string.IsNullOrEmpty(userIdClaim))
+            throw new UnauthorizedAccessException("User ID not found in token");
+        return userIdClaim;
+    }
+
+    /// <summary>
+    /// Validates if a user can access a document based on department and isPublic status
+    /// </summary>
+    /// <param name="documentDepartmentId">Document's department ID</param>
+    /// <param name="isPublic">Whether the document is public</param>
+    /// <param name="userDepartmentId">User's department ID (optional, will get from JWT if not provided)</param>
+    /// <returns>True if user can access the document</returns>
+    private bool CanUserAccessDocument(string documentDepartmentId, bool isPublic, string? userDepartmentId = null)
+    {
+        // Public documents are accessible to all employees
+        if (isPublic)
+        {
+            return true;
+        }
+
+        // For private documents, check department access
+        userDepartmentId ??= GetCurrentUserDepartmentId();
+
+        if (string.IsNullOrEmpty(userDepartmentId))
+        {
+            _logger.LogWarning("User department ID not found in JWT token for private document access check");
+            return false;
+        }
+
+        // Direct department ID comparison
+        return !string.IsNullOrEmpty(documentDepartmentId) && userDepartmentId.Equals(documentDepartmentId, StringComparison.OrdinalIgnoreCase);
+    }
+
+
+    public async Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request)
+    {
+        // Get current user ID and department ID from JWT token
+        var userId = GetCurrentUserId();
+        var departmentId = GetCurrentUserDepartmentId();
+
+        // BR-018 Every new document must be assigned to a single Department.
+        if (string.IsNullOrEmpty(departmentId))
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "User department not found in authentication token");
+        }
+
         // Validations
         // BR-015 Supported file types are PDF (text-based) and DOCX.
         var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
@@ -86,10 +153,18 @@ public class DocumentService : IDocumentService
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
         }
 
-        // BR-018 Every new document must be assigned to a single Department.
-        if (string.IsNullOrEmpty(request.DepartmentId))
+        // Validate DocumentType exists
+        if (string.IsNullOrEmpty(request.DocumentTypeId))
         {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DepartmentNotAssigned);
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentTypeRequired);
+        }
+
+        var documentType = await _unitOfWork.GetRepository<DocumentType>()
+            .SingleOrDefaultAsync(predicate: dt => dt.Id == request.DocumentTypeId && dt.DeletedTime == null);
+
+        if (documentType == null)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidDocumentType);
         }
 
         // BR-021 'Effective From' date must be before 'Expiration Date'.
@@ -130,7 +205,7 @@ public class DocumentService : IDocumentService
             }
 
             // BR-038: Editors can only replace documents within their assigned Department.
-            if (documentToReplace.DepartmentId != request.DepartmentId) // Assuming user's department is tied to the request's department
+            if (documentToReplace.DepartmentId != departmentId) // User's department from JWT token
             {
                 throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToReplaceDocumentInOtherDepartment);
             }
@@ -157,8 +232,8 @@ public class DocumentService : IDocumentService
             }
         }
 
-        // 4. Upload the file to Azure Storage and get the MD5 hash.
-        var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
+        // 4. Upload the file to storage and get the MD5 hash.
+        var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, departmentId, request.IsPublic);
         var fileHash = uploadResponse.Md5Hash;
 
         // 5. Check for file duplication using the MD5 hash.
@@ -167,7 +242,7 @@ public class DocumentService : IDocumentService
 
         if (existingFile != null)
         {
-            await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+            await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
 
             switch (existingFile.Status)
             {
@@ -200,11 +275,12 @@ public class DocumentService : IDocumentService
         {
             Title = request.Title,
             Description = request.Description,
-            DepartmentId = request.DepartmentId,
+            DepartmentId = departmentId,
             OwnerId = userId,
             CreatedBy = userId,
             ReplacementId = request.ReplacementDocumentId,
-            IsReplaced = !string.IsNullOrEmpty(request.ReplacementDocumentId)
+            IsReplaced = !string.IsNullOrEmpty(request.ReplacementDocumentId),
+            DocumentTypeId = request.DocumentTypeId
         };
 
         var version = new DocumentVersion
@@ -215,11 +291,12 @@ public class DocumentService : IDocumentService
             VersionName = request.VersionName,
             Status = StatusEnum.Draft, // Use the Enum for status
             IsOfficial = false, // New drafts are not official
+            IsPublic = request.IsPublic, // Set public/private status from request
             Summary = request.Summary, // Placeholder for summary
             FileName = request.File.FileName,
             FileType = Path.GetExtension(request.File.FileName),
             FileSize = request.File.Length,
-            FilePath = uploadResponse.BlobName,
+            FilePath = uploadResponse.FileIdentifier, // Google Drive file ID for new uploads
             FileHash = fileHash,
             SignedBy = request.SignedBy,
             EffectiveFrom = request.EffectiveFrom,
@@ -251,19 +328,57 @@ public class DocumentService : IDocumentService
 
         _logger.LogInformation("Successfully created draft document {DocumentId}", documentFile.Id);
 
-        // 8. Use AutoMapper to map the result to the response DTO
-        var response = _mapper.Map<DocumentDraftResponse>(documentFile);
-        
-        // 9. Enrich response with user and department names
+        // Apply Google Drive permissions based on document status (Draft = owner only)
+        try
+        {
+            var fileId = uploadResponse.FileIdentifier; // Google Drive file ID
+            await _permissionManager.ApplyDocumentPermissionsAsync(
+                fileId,
+                StatusEnum.Draft,
+                departmentId,
+                request.IsPublic,
+                userId);
+            _logger.LogInformation("Applied permissions for draft document {DocumentId} with file ID {FileId}", documentFile.Id, fileId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to apply permissions for draft document {DocumentId}", documentFile.Id);
+            // Don't fail the entire operation for permission errors
+        }
+
+        // Clear replacement suggestion cache since a new document was created
+        try
+        {
+            await _replacementService.ClearReplacementCacheAsync(request.DocumentTypeId, departmentId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clear replacement cache after document creation");
+        }
+
+        // 8. Reload the document version with DocumentType included to ensure proper mapping
+        var createdVersion = await _unitOfWork.GetRepository<DocumentVersion>()
+            .SingleOrDefaultAsync(
+                predicate: v => v.Id == version.Id,
+                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            );
+
+        // 9. Use AutoMapper to map the result to the response DTO
+        var response = _mapper.Map<DocumentDraftResponse>(createdVersion);
+
+        // 10. Enrich response with user and department names
         var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
-        
+
         _logger.LogInformation("Draft document response enriched with names for document {DocumentId}", documentFile.Id);
 
         return enrichedResponse;
     }
 
-    public async Task<DocumentDraftResponse> UpdateDraftAsync(string versionId, UpdateDocumentDraftRequest request, string userId)
+    public async Task<DocumentDraftResponse> UpdateDraftAsync(string versionId, UpdateDocumentDraftRequest request)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         // ====================================================================================
         // STEP 1: Perform all fast, in-memory validations and external I/O first.
         // Do NOT touch the database yet.
@@ -275,8 +390,26 @@ public class DocumentService : IDocumentService
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
         }
 
-        AzureUploadResponse uploadResponse = null;
+        // Validate DocumentType if provided
+        if (!string.IsNullOrEmpty(request.DocumentTypeId))
+        {
+            var documentType = await _unitOfWork.GetRepository<DocumentType>()
+                .SingleOrDefaultAsync(predicate: dt => dt.Id == request.DocumentTypeId && dt.DeletedTime == null);
+
+            if (documentType == null)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidDocumentType);
+            }
+        }
+
+        StorageUploadResponse uploadResponse = null;
         string fileHash = null;
+
+        // First, get the version to update to access department info
+        var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
+            .SingleOrDefaultAsync(
+                predicate: v => v.Id == versionId,
+                include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
 
         if (request.File != null)
         {
@@ -293,9 +426,9 @@ public class DocumentService : IDocumentService
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
             }
 
-            // Upload the new file to Azure Storage BEFORE starting the database transaction.
+            // Upload the new file to storage BEFORE starting the database transaction.
             _logger.LogInformation("Uploading new file to storage before database transaction begins.");
-            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
+            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, versionToUpdate.DocumentFile.DepartmentId, request.IsPublic);
             fileHash = uploadResponse.Md5Hash;
         }
 
@@ -304,13 +437,13 @@ public class DocumentService : IDocumentService
         // ====================================================================================
         try
         {
-            // Retrieve draft to update with tracking enabled for updates
-            var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
+
+            // Re-retrieve draft with tracking enabled for updates
+            versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultWithTrackingAsync(
                     predicate: v => v.Id == versionId,
                     include: p => p.Include(v => v.DocumentFile))
                 ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
-
 
             var documentToUpdate = versionToUpdate.DocumentFile;
 
@@ -320,14 +453,14 @@ public class DocumentService : IDocumentService
             if (documentToUpdate.OwnerId != userId)
             {
                 // If we uploaded a file, we must now delete it since the operation is failing.
-                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                 throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToEdit);
             }
 
             // Status must be Draft or Rejected.
             if (versionToUpdate.Status != StatusEnum.Draft && versionToUpdate.Status != StatusEnum.Rejected)
             {
-                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.CannotEditWithStatus, versionToUpdate.Status));
             }
 
@@ -338,7 +471,7 @@ public class DocumentService : IDocumentService
                     .SingleOrDefaultAsync(predicate: d => d.Title == request.Title && d.Id != documentToUpdate.Id);
                 if (existingDocument != null)
                 {
-                    if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                    if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                     throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentTitleExists);
                 }
             }
@@ -351,7 +484,7 @@ public class DocumentService : IDocumentService
                 if (existingFile != null)
                 {
                     // If a duplicate is found, delete the file that was just uploaded.
-                    await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                     throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
                         string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
                 }
@@ -366,8 +499,8 @@ public class DocumentService : IDocumentService
                 oldFileNameToDelete = versionToUpdate.FileName;
 
                 // Update version properties for the new file.
-                versionToUpdate.FilePath = uploadResponse.BlobName;
-                versionToUpdate.FileName = request.File.FileName;
+                versionToUpdate.FilePath = $"{StorageFolderConstant.Drafts}/{uploadResponse.FileName}";
+                versionToUpdate.FileName = uploadResponse.FileName;
                 versionToUpdate.FileType = Path.GetExtension(request.File.FileName);
                 versionToUpdate.FileSize = request.File.Length;
                 versionToUpdate.FileHash = fileHash;
@@ -412,13 +545,48 @@ public class DocumentService : IDocumentService
             }
 
             _logger.LogInformation("Successfully updated document version {VersionId}", versionId);
-            
+
+            // Reload the document version with DocumentType included to ensure proper mapping
+            var updatedVersion = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(
+                    predicate: v => v.Id == versionId,
+                    include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                );
+
             // Enrich response with user and department names
-            var response = _mapper.Map<DocumentDraftResponse>(versionToUpdate);
+            var response = _mapper.Map<DocumentDraftResponse>(updatedVersion);
             var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
-            
+
             _logger.LogInformation("Updated document response enriched with names for version {VersionId}", versionId);
-            
+
+            // Apply Google Drive permissions for updated draft (still owner only)
+            try
+            {
+                var fileId = updatedVersion.GoogleDriveFileId ?? updatedVersion.FilePath;
+                await _permissionManager.ApplyDocumentPermissionsAsync(
+                    fileId,
+                    StatusEnum.Draft,
+                    updatedVersion.DocumentFile.DepartmentId,
+                    updatedVersion.IsPublic,
+                    userId);
+                _logger.LogInformation("Applied permissions for updated draft document {VersionId} with file ID {FileId}", versionId, fileId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to apply permissions for updated draft document {VersionId}", versionId);
+                // Don't fail the entire operation for permission errors
+            }
+
+            // Clear replacement suggestion cache since a document was updated
+            try
+            {
+                await _replacementService.ClearReplacementCacheAsync(documentToUpdate.DocumentTypeId, documentToUpdate.DepartmentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to clear replacement cache after document update");
+            }
+
             return enrichedResponse;
         }
         catch (DbUpdateConcurrencyException ex)
@@ -429,8 +597,8 @@ public class DocumentService : IDocumentService
             // at the beginning, otherwise it will be an orphaned file in storage.
             if (uploadResponse != null)
             {
-                _logger.LogInformation("Rolling back storage upload for {BlobName} due to concurrency conflict.", uploadResponse.BlobName);
-                await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                _logger.LogInformation("Rolling back storage upload for {FileIdentifier} due to concurrency conflict.", uploadResponse.FileIdentifier);
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
             }
 
             // Throw a specific, user-friendly error.
@@ -612,8 +780,11 @@ Requirements:
     }
 
 
-    public async Task DeleteDraftAsync(string documentId, string versionId, string userId)
+    public async Task DeleteDraftAsync(string documentId, string versionId)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         _logger.LogInformation("Attempting to delete document {DocumentId} by user {UserId}", documentId, userId);
 
         // 1. Retrieve the document, ensuring its versions are included for status checking.
@@ -649,10 +820,11 @@ Requirements:
 
         _logger.LogInformation("Version to delete: {VersionName}, Status: {Status}", versionToDelete.VersionName, versionToDelete.Status);
 
-        // 3. Delete the physical file from Azure Storage.
-        _logger.LogInformation("Deleting file from Azure Storage: {FileName}", versionToDelete.FileName);
-        await _storageService.DeleteFileAsync(versionToDelete.FileName, StorageFolderConstant.Drafts);
-        _logger.LogInformation("Deleted file from Azure Storage at path: {FilePath}", versionToDelete.FilePath);
+        // 3. Delete the physical file from Google Drive.
+        _logger.LogInformation("Deleting file from Google Drive: {FileName}", versionToDelete.FileName);
+        var fileId = versionToDelete.GoogleDriveFileId ?? versionToDelete.FilePath;
+        await _storageService.DeleteFileAsync(fileId, StorageFolderConstant.Drafts);
+        _logger.LogInformation("Deleted file from Google Drive with ID: {FileId}", fileId);
 
         // 4. Delete the DocumentFile record from the database.
         // Due to cascade delete settings, this will also remove the associated DocumentVersion(s) and VersionTag(s).
@@ -665,13 +837,16 @@ Requirements:
         // TODO: As per SRS 3.4.3, this action should be recorded in the system audit log.
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> GetDraftsAsync(string userId, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetDraftsAsync(int pageNumber, int pageSize)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         var drafts = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             filter: null,
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -694,11 +869,14 @@ Requirements:
         return enrichedPaginated;
     }
 
-    public async Task<DocumentDraftResponse> GetDraftByIdAsync(string versionId, string userId)
+    public async Task<DocumentDraftResponse> GetDraftByIdAsync(string versionId)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         var draft = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         if (draft == null)
@@ -712,13 +890,16 @@ Requirements:
         return enrichedResponse;
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(string userId, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(int pageNumber, int pageSize)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         var rejectedDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             filter: null,
             selector : d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.LastUpdatedTime),
             page: pageNumber,
             size: pageSize
@@ -742,11 +923,14 @@ Requirements:
         return enrichedPaginated;
     }
 
-    public async Task<DocumentDraftResponse> GetRejectedById(string versionId, string userId)
+    public async Task<DocumentDraftResponse> GetRejectedById(string versionId)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         var rejectedDocument = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         if (rejectedDocument == null)
@@ -764,7 +948,7 @@ Requirements:
     {
         var officialDocument = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.DocumentFileId == documentFileId && v.IsOfficial,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         if (officialDocument == null)
@@ -780,11 +964,14 @@ Requirements:
 
     public async Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize)
     {
+        // Get user's department ID for permission filtering
+        var userDepartmentId = GetCurrentUserDepartmentId();
+
         var officialDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             filter: null,
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
-            predicate: v => v.IsOfficial,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            predicate: v => v.IsOfficial && (v.IsPublic || v.DocumentFile.DepartmentId == userDepartmentId),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -807,14 +994,16 @@ Requirements:
         return enrichedPaginated;
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(string userId, MyDocumentsFilter filter, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(MyDocumentsFilter filter, int pageNumber, int pageSize)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
 
         var myDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
             filter: filter,
             predicate: d => d.DocumentFile.OwnerId == userId,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -837,11 +1026,14 @@ Requirements:
         return enrichedPaginated;
     }
 
-    public async Task<DocumentDraftResponse> GetMyDocumentByIdAsync(string versionId, string userId)
+    public async Task<DocumentDraftResponse> GetMyDocumentByIdAsync(string versionId)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         var document = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         if (document == null)
@@ -859,7 +1051,7 @@ Requirements:
     {
         var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: dv => dv.DocumentFileId == documentId && dv.Id == versionId,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         return _mapper.Map<DocumentVersionResponse>(documentVersion);
@@ -869,14 +1061,17 @@ Requirements:
     {
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
             predicate: dv => dv.DocumentFileId == documentId,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         return _mapper.Map<List<DocumentVersionResponse>>(documentVersions);
     }
 
-    public async Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateNewVersionDraftRequest request, string userId)
+    public async Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateNewVersionDraftRequest request)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         var documentToUpdate = await _unitOfWork.GetRepository<DocumentFile>().SingleOrDefaultAsync(
             predicate: d => d.Id == documentId,
             include: i => i.Include(d => d.DocumentVersions)
@@ -951,10 +1146,10 @@ Requirements:
         // Business Rule: For new versions, DepartmentId and ReplacementId are inherited from the existing DocumentFile
         // The new request model (CreateNewVersionDraftRequest) doesn't include these fields as they are automatically inherited
 
-        AzureUploadResponse uploadResponse = null;
+        StorageUploadResponse uploadResponse = null;
         try
         {
-            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts);
+            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, documentToUpdate.DepartmentId, request.IsPublic);
             var fileHash = uploadResponse.Md5Hash;
 
             // Check for file duplication using the MD5 hash
@@ -963,7 +1158,7 @@ Requirements:
 
             if (existingFile != null)
             {
-                await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                 throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
             }
 
@@ -976,11 +1171,12 @@ Requirements:
                 VersionName = request.VersionName,
                 Status = StatusEnum.Draft,
                 IsOfficial = false,
+                IsPublic = request.IsPublic, // Set public/private status from request
                 Summary = request.Summary,
-                FileName = request.File.FileName,
-                FileType = Path.GetExtension(request.File.FileName),
+                FileName = uploadResponse.FileName,
+                FileType = Path.GetExtension(uploadResponse.FileName),
                 FileSize = request.File.Length,
-                FilePath = uploadResponse.BlobName,
+                FilePath = uploadResponse.FileIdentifier, // Google Drive file ID for new uploads
                 FileHash = fileHash,
                 SignedBy = request.SignedBy,
                 EffectiveFrom = request.EffectiveFrom,
@@ -1002,7 +1198,7 @@ Requirements:
             // Load the complete version with DocumentFile and Tags for proper mapping
             var completeVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
                 predicate: v => v.Id == newVersion.Id,
-                include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
             );
 
             var response = _mapper.Map<DocumentDraftResponse>(completeVersion);
@@ -1019,12 +1215,12 @@ Requirements:
             {
                 try
                 {
-                    _logger.LogInformation("Rolling back storage upload for {BlobName} due to concurrency conflict.", uploadResponse.BlobName);
-                    await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                    _logger.LogInformation("Rolling back storage upload for {FileIdentifier} due to concurrency conflict.", uploadResponse.FileIdentifier);
+                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                 }
                 catch (Exception deleteEx)
                 {
-                    _logger.LogError(deleteEx, "Failed to delete uploaded file {BlobName} during rollback after concurrency conflict.", uploadResponse.BlobName);
+                    _logger.LogError(deleteEx, "Failed to delete uploaded file {FileIdentifier} during rollback after concurrency conflict.", uploadResponse.FileIdentifier);
                 }
             }
 
@@ -1037,12 +1233,12 @@ Requirements:
             {
                 try
                 {
-                    _logger.LogInformation("Rolling back storage upload for {BlobName} due to error.", uploadResponse.BlobName);
-                    await _storageService.DeleteFileAsync(uploadResponse.BlobName, StorageFolderConstant.Drafts);
+                    _logger.LogInformation("Rolling back storage upload for {FileIdentifier} due to error.", uploadResponse.FileIdentifier);
+                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                 }
                 catch (Exception deleteEx)
                 {
-                    _logger.LogError(deleteEx, "Failed to delete uploaded file {BlobName} during rollback after error.", uploadResponse.BlobName);
+                    _logger.LogError(deleteEx, "Failed to delete uploaded file {FileIdentifier} during rollback after error.", uploadResponse.FileIdentifier);
                 }
             }
             throw;
@@ -1107,7 +1303,7 @@ Requirements:
     }
 
 
-    public async Task<IPaginate<SemanticSearchResponse>> SemanticSearch(SemanticSearchRequest request, SemanticSearchFilter filter, string userId, int pageNumber, int pageSize)
+    public async Task<IPaginate<SemanticSearchResponse>> SemanticSearch(SemanticSearchRequest request, SemanticSearchFilter filter, int pageNumber, int pageSize)
     {
         // 1. Build the filter
         var memoryFilter = new MemoryFilter();
@@ -1175,10 +1371,13 @@ Requirements:
         var relevanceMap = relevantDocuments.ToDictionary(d => d.DocumentId, d => d.MaxRelevance);
         var orderedUniqueDocumentIds = relevantDocuments.Select(d => d.DocumentId).ToList();
 
-        // 4. Fetch all documents in ONE query from the database
+        // 4. Fetch all documents in ONE query from the database with department-based filtering
+        var userDepartmentId = GetCurrentUserDepartmentId();
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
-            predicate: dv => orderedUniqueDocumentIds.Contains(dv.DocumentFile.Id) && dv.Status == StatusEnum.Approved,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            predicate: dv => orderedUniqueDocumentIds.Contains(dv.DocumentFile.Id) &&
+                            dv.Status == StatusEnum.Approved &&
+                            (dv.IsPublic || dv.DocumentFile.DepartmentId == userDepartmentId),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         // 5. Map results and add the relevance score
@@ -1207,11 +1406,14 @@ Requirements:
 
     public async Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, int pageNumber, int pageSize)
     {
+        // Get user's department ID for permission filtering
+        var userDepartmentId = GetCurrentUserDepartmentId();
+
         var documents = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
             filter: filter,
-            predicate: dv => dv.Status == StatusEnum.Approved,
-            include: i => i.Include(v => v.DocumentFile).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            predicate: dv => dv.Status == StatusEnum.Approved && (dv.IsPublic || dv.DocumentFile.DepartmentId == userDepartmentId),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize

@@ -13,6 +13,7 @@ public class FullTextSearchFilter : IFilter<DocumentVersion>
     public string? DepartmentId { get; set; }
     public bool? IsPublic { get; set; }
     public string? SignedBy { get; set; }
+    public string? DocumentTypeId { get; set; }
 
     public Expression<Func<DocumentVersion, bool>> ToExpression()
     {
@@ -26,6 +27,7 @@ public class FullTextSearchFilter : IFilter<DocumentVersion>
             (Tags == null || !Tags.Any() || documentVersion.DocumentTags.Any(tag => Tags.Contains(tag.Tag.Name))) &&
             (string.IsNullOrEmpty(DepartmentId) || documentVersion.DocumentFile.DepartmentId == DepartmentId) &&
             (!IsPublic.HasValue || documentVersion.IsPublic == IsPublic.Value) &&
-            (string.IsNullOrEmpty(SignedBy) || documentVersion.SignedBy.Contains(SignedBy));
+            (string.IsNullOrEmpty(SignedBy) || documentVersion.SignedBy.Contains(SignedBy)) &&
+            (string.IsNullOrEmpty(DocumentTypeId) || documentVersion.DocumentFile.DocumentTypeId == DocumentTypeId);
     }
 }
