@@ -86,6 +86,19 @@ public class DocumentService : IDocumentService
     }
 
     /// <summary>
+    /// Gets the current user's ID from JWT token
+    /// </summary>
+    /// <returns>User ID</returns>
+    private string GetCurrentUserId()
+    {
+        var user = _httpContextAccessor?.HttpContext?.User;
+        var userIdClaim = user?.FindFirst("userId")?.Value;
+        if (string.IsNullOrEmpty(userIdClaim))
+            throw new UnauthorizedAccessException("User ID not found in token");
+        return userIdClaim;
+    }
+
+    /// <summary>
     /// Validates if a user can access a document based on department and isPublic status
     /// </summary>
     /// <param name="documentDepartmentId">Document's department ID</param>
@@ -114,8 +127,18 @@ public class DocumentService : IDocumentService
     }
 
 
-    public async Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request, string userId)
+    public async Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request)
     {
+        // Get current user ID and department ID from JWT token
+        var userId = GetCurrentUserId();
+        var departmentId = GetCurrentUserDepartmentId();
+
+        // BR-018 Every new document must be assigned to a single Department.
+        if (string.IsNullOrEmpty(departmentId))
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "User department not found in authentication token");
+        }
+
         // Validations
         // BR-015 Supported file types are PDF (text-based) and DOCX.
         var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
@@ -128,12 +151,6 @@ public class DocumentService : IDocumentService
         if (request.File.Length > PolicyConstant.MaxFileSizeMB * 1024 * 1024)
         {
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
-        }
-
-        // BR-018 Every new document must be assigned to a single Department.
-        if (string.IsNullOrEmpty(request.DepartmentId))
-        {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DepartmentNotAssigned);
         }
 
         // Validate DocumentType exists
@@ -188,7 +205,7 @@ public class DocumentService : IDocumentService
             }
 
             // BR-038: Editors can only replace documents within their assigned Department.
-            if (documentToReplace.DepartmentId != request.DepartmentId) // Assuming user's department is tied to the request's department
+            if (documentToReplace.DepartmentId != departmentId) // User's department from JWT token
             {
                 throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToReplaceDocumentInOtherDepartment);
             }
@@ -216,7 +233,7 @@ public class DocumentService : IDocumentService
         }
 
         // 4. Upload the file to storage and get the MD5 hash.
-        var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, request.DepartmentId, request.IsPublic);
+        var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, departmentId, request.IsPublic);
         var fileHash = uploadResponse.Md5Hash;
 
         // 5. Check for file duplication using the MD5 hash.
@@ -258,7 +275,7 @@ public class DocumentService : IDocumentService
         {
             Title = request.Title,
             Description = request.Description,
-            DepartmentId = request.DepartmentId,
+            DepartmentId = departmentId,
             OwnerId = userId,
             CreatedBy = userId,
             ReplacementId = request.ReplacementDocumentId,
@@ -318,7 +335,7 @@ public class DocumentService : IDocumentService
             await _permissionManager.ApplyDocumentPermissionsAsync(
                 fileId,
                 StatusEnum.Draft,
-                request.DepartmentId,
+                departmentId,
                 request.IsPublic,
                 userId);
             _logger.LogInformation("Applied permissions for draft document {DocumentId} with file ID {FileId}", documentFile.Id, fileId);
@@ -332,7 +349,7 @@ public class DocumentService : IDocumentService
         // Clear replacement suggestion cache since a new document was created
         try
         {
-            await _replacementService.ClearReplacementCacheAsync(request.DocumentTypeId, request.DepartmentId);
+            await _replacementService.ClearReplacementCacheAsync(request.DocumentTypeId, departmentId);
         }
         catch (Exception ex)
         {
@@ -357,8 +374,11 @@ public class DocumentService : IDocumentService
         return enrichedResponse;
     }
 
-    public async Task<DocumentDraftResponse> UpdateDraftAsync(string versionId, UpdateDocumentDraftRequest request, string userId)
+    public async Task<DocumentDraftResponse> UpdateDraftAsync(string versionId, UpdateDocumentDraftRequest request)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         // ====================================================================================
         // STEP 1: Perform all fast, in-memory validations and external I/O first.
         // Do NOT touch the database yet.
@@ -760,8 +780,11 @@ Requirements:
     }
 
 
-    public async Task DeleteDraftAsync(string documentId, string versionId, string userId)
+    public async Task DeleteDraftAsync(string documentId, string versionId)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         _logger.LogInformation("Attempting to delete document {DocumentId} by user {UserId}", documentId, userId);
 
         // 1. Retrieve the document, ensuring its versions are included for status checking.
@@ -814,8 +837,11 @@ Requirements:
         // TODO: As per SRS 3.4.3, this action should be recorded in the system audit log.
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> GetDraftsAsync(string userId, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetDraftsAsync(int pageNumber, int pageSize)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         var drafts = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             filter: null,
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
@@ -843,8 +869,11 @@ Requirements:
         return enrichedPaginated;
     }
 
-    public async Task<DocumentDraftResponse> GetDraftByIdAsync(string versionId, string userId)
+    public async Task<DocumentDraftResponse> GetDraftByIdAsync(string versionId)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         var draft = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
@@ -861,8 +890,11 @@ Requirements:
         return enrichedResponse;
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(string userId, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(int pageNumber, int pageSize)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         var rejectedDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             filter: null,
             selector : d => _mapper.Map<DocumentDraftResponse>(d),
@@ -891,8 +923,11 @@ Requirements:
         return enrichedPaginated;
     }
 
-    public async Task<DocumentDraftResponse> GetRejectedById(string versionId, string userId)
+    public async Task<DocumentDraftResponse> GetRejectedById(string versionId)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         var rejectedDocument = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
@@ -927,7 +962,7 @@ Requirements:
         return enrichedResponse;
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(string userId, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize)
     {
         // Get user's department ID for permission filtering
         var userDepartmentId = GetCurrentUserDepartmentId();
@@ -959,8 +994,10 @@ Requirements:
         return enrichedPaginated;
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(string userId, MyDocumentsFilter filter, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(MyDocumentsFilter filter, int pageNumber, int pageSize)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
 
         var myDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
@@ -989,8 +1026,11 @@ Requirements:
         return enrichedPaginated;
     }
 
-    public async Task<DocumentDraftResponse> GetMyDocumentByIdAsync(string versionId, string userId)
+    public async Task<DocumentDraftResponse> GetMyDocumentByIdAsync(string versionId)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         var document = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
@@ -1027,8 +1067,11 @@ Requirements:
         return _mapper.Map<List<DocumentVersionResponse>>(documentVersions);
     }
 
-    public async Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateNewVersionDraftRequest request, string userId)
+    public async Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateNewVersionDraftRequest request)
     {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
         var documentToUpdate = await _unitOfWork.GetRepository<DocumentFile>().SingleOrDefaultAsync(
             predicate: d => d.Id == documentId,
             include: i => i.Include(d => d.DocumentVersions)
@@ -1260,7 +1303,7 @@ Requirements:
     }
 
 
-    public async Task<IPaginate<SemanticSearchResponse>> SemanticSearch(SemanticSearchRequest request, SemanticSearchFilter filter, string userId, int pageNumber, int pageSize)
+    public async Task<IPaginate<SemanticSearchResponse>> SemanticSearch(SemanticSearchRequest request, SemanticSearchFilter filter, int pageNumber, int pageSize)
     {
         // 1. Build the filter
         var memoryFilter = new MemoryFilter();
@@ -1361,7 +1404,7 @@ Requirements:
         return new Paginate<SemanticSearchResponse>(enrichedItems, pageNumber, pageSize, totalCount);
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, string userId, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, int pageNumber, int pageSize)
     {
         // Get user's department ID for permission filtering
         var userDepartmentId = GetCurrentUserDepartmentId();

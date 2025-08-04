@@ -51,11 +51,13 @@ namespace Document.API.Services.Implements
         }
 
         public async Task<DocumentRecommendationsResult> GetRecommendationsAsync(
-            string documentId, 
-            DocumentRecommendationRequest request, 
-            string userId)
+            string documentId,
+            DocumentRecommendationRequest request)
         {
-            _logger.LogInformation("Getting recommendations for document {DocumentId}, user {UserId}, count {Count}", 
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
+
+            _logger.LogInformation("Getting recommendations for document {DocumentId}, user {UserId}, count {Count}",
                 documentId, userId, request.Count);
 
             // Check cache first
@@ -133,6 +135,19 @@ namespace Document.API.Services.Implements
         {
             var user = _httpContextAccessor?.HttpContext?.User;
             return user?.FindFirst("departmentId")?.Value;
+        }
+
+        /// <summary>
+        /// Gets the current user's ID from JWT token
+        /// </summary>
+        /// <returns>User ID</returns>
+        private string GetCurrentUserId()
+        {
+            var user = _httpContextAccessor?.HttpContext?.User;
+            var userIdClaim = user?.FindFirst("userId")?.Value;
+            if (string.IsNullOrEmpty(userIdClaim))
+                throw new UnauthorizedAccessException("User ID not found in token");
+            return userIdClaim;
         }
 
         private async Task<List<DocumentRecommendationResponse>> GenerateRecommendationsAsync(

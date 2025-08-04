@@ -13,12 +13,10 @@ namespace Document.API.Services.Interfaces
         /// </summary>
         /// <param name="documentId">Source document ID</param>
         /// <param name="request">Recommendation request parameters</param>
-        /// <param name="userId">Current user ID</param>
         /// <returns>Document recommendations result</returns>
         Task<DocumentRecommendationsResult> GetRecommendationsAsync(
-            string documentId, 
-            DocumentRecommendationRequest request, 
-            string userId);
+            string documentId,
+            DocumentRecommendationRequest request);
 
         /// <summary>
         /// Clear recommendation cache for a specific document

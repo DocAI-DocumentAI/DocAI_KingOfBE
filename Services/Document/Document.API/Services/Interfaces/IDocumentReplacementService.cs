@@ -7,13 +7,11 @@ namespace Document.API.Services.Interfaces
     public interface IDocumentReplacementService
     {
         Task<DocumentReplacementSuggestionResponse> GetReplacementSuggestionsAsync(
-            DocumentReplacementSuggestionRequest request,
-            string userId);
+            DocumentReplacementSuggestionRequest request);
 
         Task<DocumentReplacementSuggestionResponse> GetReplacementSuggestionsForEditAsync(
             string documentId,
-            DocumentReplacementSuggestionRequest request,
-            string userId);
+            DocumentReplacementSuggestionRequest request);
 
         Task ClearReplacementCacheAsync(string documentTypeId, string departmentId);
 
@@ -21,10 +19,9 @@ namespace Document.API.Services.Interfaces
 
         Task<ReplacementSuggestionScoring> GetScoringBreakdownAsync(
             DocumentReplacementSuggestionRequest request,
-            string candidateDocumentId,
-            string userId);
+            string candidateDocumentId);
 
-        Task<bool> CanReplaceDocumentAsync(string documentId, string userId);
+        Task<bool> CanReplaceDocumentAsync(string documentId);
 
         Task PreWarmCacheAsync(List<string> documentTypeIds);
     }

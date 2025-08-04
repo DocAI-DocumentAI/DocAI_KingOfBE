@@ -18,6 +18,10 @@ using Microsoft.KernelMemory.AI.OpenAI;
 using Microsoft.KernelMemory.SemanticKernel;
 using Document.API.Configuration;
 using StackExchange.Redis;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Security.Claims;
+using System.Text;
 
 
 
@@ -212,5 +216,52 @@ public static class DependencyService
         return services;
     }
 
+    public static IServiceCollection AddJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
+    {
+        string secret = configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret is missing in configuration.");
+        if (secret.Length < 32)
+        {
+            throw new InvalidOperationException("JWT:Secret must be at least 32 characters long for HS256.");
+        }
+
+        var key = Encoding.UTF8.GetBytes(secret);
+
+        services.AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        })
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = false,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = configuration["JWT:Issuer"] ?? "DocAI",
+                IssuerSigningKey = new SymmetricSecurityKey(key),
+
+                // Đảm bảo role claim được map đúng
+                RoleClaimType = ClaimTypes.Role,
+
+                // Thêm claim mapping
+                NameClaimType = ClaimTypes.NameIdentifier
+            };
+
+            // Debug JWT events
+            options.Events = new JwtBearerEvents
+            {
+                OnTokenValidated = context =>
+                {
+                    var claims = context.Principal.Claims.Select(c => $"{c.Type}: {c.Value}");
+                    Console.WriteLine($"JWT validated with claims: {string.Join(", ", claims)}");
+                    return Task.CompletedTask;
+                }
+            };
+        });
+
+        return services;
+    }
 
 }

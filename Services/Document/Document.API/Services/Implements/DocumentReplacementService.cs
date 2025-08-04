@@ -78,18 +78,21 @@ namespace Document.API.Services.Implements
         }
 
         public async Task<DocumentReplacementSuggestionResponse> GetReplacementSuggestionsAsync(
-            DocumentReplacementSuggestionRequest request, 
-            string userId)
+            DocumentReplacementSuggestionRequest request)
         {
             var stopwatch = Stopwatch.StartNew();
-            
-            _logger.LogInformation("Getting replacement suggestions for new document. Title: {Title}, Type: {DocumentTypeId}, User: {UserId}", 
+
+            // Get current user ID and department ID from JWT token
+            var userId = GetCurrentUserId();
+            var userDepartmentId = GetCurrentUserDepartmentId();
+
+            _logger.LogInformation("Getting replacement suggestions for new document. Title: {Title}, Type: {DocumentTypeId}, User: {UserId}",
                 request.Title, request.DocumentTypeId, userId);
 
             try
             {
                 // Check cache first
-                var cacheKey = GenerateCacheKey(request, userId);
+                var cacheKey = GenerateCacheKey(request, userId, userDepartmentId);
                 var cachedResult = await GetFromCacheAsync(cacheKey);
                 if (cachedResult != null)
                 {
@@ -98,9 +101,6 @@ namespace Document.API.Services.Implements
                     cachedResult.ProcessingTimeMs = stopwatch.ElapsedMilliseconds;
                     return cachedResult;
                 }
-
-                // Get user department for access control
-                var userDepartmentId = GetCurrentUserDepartmentId();
 
                 // Generate suggestions
                 var suggestions = await GenerateReplacementSuggestionsAsync(request, userDepartmentId, userId);
@@ -145,14 +145,13 @@ namespace Document.API.Services.Implements
 
         public async Task<DocumentReplacementSuggestionResponse> GetReplacementSuggestionsForEditAsync(
             string documentId,
-            DocumentReplacementSuggestionRequest request, 
-            string userId)
+            DocumentReplacementSuggestionRequest request)
         {
             _logger.LogInformation("Getting replacement suggestions for editing document {DocumentId}", documentId);
 
             // For editing, we exclude the current document from suggestions
-            var result = await GetReplacementSuggestionsAsync(request, userId);
-            
+            var result = await GetReplacementSuggestionsAsync(request);
+
             // Filter out the current document being edited
             result.Suggestions = result.Suggestions.Where(s => s.DocumentId != documentId).ToList();
             result.TotalFound = result.Suggestions.Count;
@@ -193,8 +192,7 @@ namespace Document.API.Services.Implements
 
         public async Task<ReplacementSuggestionScoring> GetScoringBreakdownAsync(
             DocumentReplacementSuggestionRequest request,
-            string candidateDocumentId,
-            string userId)
+            string candidateDocumentId)
         {
             _logger.LogInformation("Getting scoring breakdown for candidate {CandidateId}", candidateDocumentId);
 
@@ -211,7 +209,7 @@ namespace Document.API.Services.Implements
             return scoring;
         }
 
-        public async Task<bool> CanReplaceDocumentAsync(string documentId, string userId)
+        public async Task<bool> CanReplaceDocumentAsync(string documentId)
         {
             try
             {
@@ -222,14 +220,14 @@ namespace Document.API.Services.Implements
                 }
 
                 var userDepartmentId = GetCurrentUserDepartmentId();
-                
+
                 // Check replacement eligibility rules
                 return CanUserReplaceDocument(document, userDepartmentId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking replacement eligibility for document {DocumentId}, user {UserId}", 
-                    documentId, userId);
+                _logger.LogError(ex, "Error checking replacement eligibility for document {DocumentId}",
+                    documentId);
                 return false;
             }
         }
@@ -261,7 +259,6 @@ namespace Document.API.Services.Implements
                             Title = "Sample Document",
                             Description = "Sample description for cache warming",
                             DocumentTypeId = documentTypeId,
-                            DepartmentId = departmentId,
                             Tags = new List<string> { "sample", "cache", "warming" },
                             IsPublic = false,
                             MaxSuggestions = 5,
@@ -269,7 +266,7 @@ namespace Document.API.Services.Implements
                         };
 
                         // Generate suggestions to warm the cache
-                        await GetReplacementSuggestionsAsync(sampleRequest, "system-cache-warming");
+                        await GetReplacementSuggestionsAsync(sampleRequest);
 
                         // Add a small delay to avoid overwhelming the system
                         await Task.Delay(100);
@@ -333,9 +330,7 @@ namespace Document.API.Services.Implements
                 // Department access control
                 (v.IsPublic ||
                  (!request.SameDepartmentOnly && (string.IsNullOrEmpty(userDepartmentId) || v.DocumentFile.DepartmentId == userDepartmentId)) ||
-                 (request.SameDepartmentOnly && !string.IsNullOrEmpty(userDepartmentId) && v.DocumentFile.DepartmentId == userDepartmentId)) &&
-                // Apply additional filters if specified
-                (string.IsNullOrEmpty(request.DepartmentId) || v.DocumentFile.DepartmentId == request.DepartmentId)
+                 (request.SameDepartmentOnly && !string.IsNullOrEmpty(userDepartmentId) && v.DocumentFile.DepartmentId == userDepartmentId))
             );
 
             // Get candidates using GetListAsync
@@ -354,9 +349,7 @@ namespace Document.API.Services.Implements
                     // Department access control
                     (v.IsPublic ||
                      (!request.SameDepartmentOnly && (string.IsNullOrEmpty(userDepartmentId) || v.DocumentFile.DepartmentId == userDepartmentId)) ||
-                     (request.SameDepartmentOnly && !string.IsNullOrEmpty(userDepartmentId) && v.DocumentFile.DepartmentId == userDepartmentId)) &&
-                    // Apply additional filters if specified
-                    (string.IsNullOrEmpty(request.DepartmentId) || v.DocumentFile.DepartmentId == request.DepartmentId)
+                     (request.SameDepartmentOnly && !string.IsNullOrEmpty(userDepartmentId) && v.DocumentFile.DepartmentId == userDepartmentId))
                 )
                 .OrderByDescending(v => v.CreatedTime)
                 .Take(MAX_CANDIDATES_TO_EVALUATE)
@@ -393,7 +386,7 @@ namespace Document.API.Services.Implements
                         var semanticScore = await CalculateSemanticSimilarityAsync(request, candidate, inputEmbedding);
 
                         // Calculate metadata similarity
-                        var metadataScore = CalculateMetadataSimilarity(request, candidate, requestTags, candidateTags);
+                        var metadataScore = CalculateMetadataSimilarity(request, candidate, requestTags, candidateTags, userDepartmentId);
 
                         // Calculate contextual score
                         var contextScore = CalculateContextualScore(candidate, userDepartmentId);
@@ -404,7 +397,7 @@ namespace Document.API.Services.Implements
                                        (contextScore * CONTEXTUAL_WEIGHT);
 
                         // Create reasons for the suggestion
-                        var reasons = CreateReplacementReasons(request, candidate, requestTags, candidateTags, semanticScore, metadataScore);
+                        var reasons = CreateReplacementReasons(request, candidate, requestTags, candidateTags, semanticScore, metadataScore, userDepartmentId);
 
                         // Check if user can replace this document
                         var canReplace = CanUserReplaceDocument(candidate, userDepartmentId);
@@ -616,7 +609,8 @@ namespace Document.API.Services.Implements
             DocumentReplacementSuggestionRequest request,
             DocumentVersion candidate,
             HashSet<string> requestTags,
-            HashSet<string> candidateTags)
+            HashSet<string> candidateTags,
+            string? userDepartmentId)
         {
             // Document type match (required for replacement, so always 1.0)
             var documentTypeMatch = 1.0;
@@ -625,7 +619,7 @@ namespace Document.API.Services.Implements
             var tagSimilarity = CalculateTagSimilarity(requestTags, candidateTags);
 
             // Department compatibility
-            var departmentCompatibility = CalculateDepartmentCompatibility(request, candidate);
+            var departmentCompatibility = CalculateDepartmentCompatibility(userDepartmentId, candidate);
 
             // Combine metadata scores with weights
             var metadataScore = (documentTypeMatch * DOCUMENT_TYPE_WEIGHT) +
@@ -649,14 +643,14 @@ namespace Document.API.Services.Implements
             return union > 0 ? (double)intersection / union : 0.0;
         }
 
-        private double CalculateDepartmentCompatibility(DocumentReplacementSuggestionRequest request, DocumentVersion candidate)
+        private double CalculateDepartmentCompatibility(string? userDepartmentId, DocumentVersion candidate)
         {
             // Public documents are always compatible
             if (candidate.IsPublic)
                 return 1.0;
 
             // Same department gets full score
-            if (request.DepartmentId == candidate.DocumentFile.DepartmentId)
+            if (!string.IsNullOrEmpty(userDepartmentId) && userDepartmentId == candidate.DocumentFile.DepartmentId)
                 return 1.0;
 
             // Different department gets partial score
@@ -711,7 +705,8 @@ namespace Document.API.Services.Implements
             HashSet<string> requestTags,
             HashSet<string> candidateTags,
             double semanticScore,
-            double metadataScore)
+            double metadataScore,
+            string? userDepartmentId)
         {
             var reasons = new List<string>();
 
@@ -734,7 +729,7 @@ namespace Document.API.Services.Implements
             }
 
             // Department compatibility
-            if (request.DepartmentId == candidate.DocumentFile.DepartmentId)
+            if (!string.IsNullOrEmpty(userDepartmentId) && userDepartmentId == candidate.DocumentFile.DepartmentId)
             {
                 reasons.Add("Same department");
             }
@@ -802,7 +797,7 @@ namespace Document.API.Services.Implements
 
             var documentTypeMatch = 1.0; // Always 1.0 for replacement candidates
             var tagSimilarity = CalculateTagSimilarity(requestTags, candidateTags);
-            var departmentCompatibility = CalculateDepartmentCompatibility(request, candidate);
+            var departmentCompatibility = CalculateDepartmentCompatibility(userDepartmentId, candidate);
 
             var recencyScore = CalculateRecencyScore(candidate.CreatedTime);
             var departmentBonus = CalculateDepartmentBonus(candidate, userDepartmentId);
@@ -860,10 +855,10 @@ namespace Document.API.Services.Implements
 
         #region Utility Methods
 
-        private string GenerateCacheKey(DocumentReplacementSuggestionRequest request, string userId)
+        private string GenerateCacheKey(DocumentReplacementSuggestionRequest request, string userId, string? departmentId)
         {
             // Create a hash of the request parameters for cache key
-            var keyData = $"{request.Title}:{request.Description}:{request.DocumentTypeId}:{request.DepartmentId}:" +
+            var keyData = $"{request.Title}:{request.Description}:{request.DocumentTypeId}:{departmentId}:" +
                          $"{string.Join(",", request.Tags ?? new List<string>())}:{request.IsPublic}:" +
                          $"{request.MaxSuggestions}:{request.MinSimilarityThreshold}:{request.SameDepartmentOnly}:{userId}";
 
@@ -927,7 +922,7 @@ namespace Document.API.Services.Implements
                 var httpContext = _httpContextAccessor.HttpContext;
                 if (httpContext?.User?.Identity?.IsAuthenticated == true)
                 {
-                    return httpContext.User.FindFirst("DepartmentId")?.Value;
+                    return httpContext.User.FindFirst("departmentId")?.Value;
                 }
             }
             catch (Exception ex)
@@ -935,6 +930,19 @@ namespace Document.API.Services.Implements
                 _logger.LogWarning(ex, "Error getting current user department ID");
             }
             return null;
+        }
+
+        /// <summary>
+        /// Gets the current user's ID from JWT token
+        /// </summary>
+        /// <returns>User ID</returns>
+        private string GetCurrentUserId()
+        {
+            var user = _httpContextAccessor?.HttpContext?.User;
+            var userIdClaim = user?.FindFirst("userId")?.Value;
+            if (string.IsNullOrEmpty(userIdClaim))
+                throw new UnauthorizedAccessException("User ID not found in token");
+            return userIdClaim;
         }
 
         #endregion

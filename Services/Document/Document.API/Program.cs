@@ -55,6 +55,8 @@ try
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddControllers();
+    builder.Services.AddJwtAuthentication(configuration);
+    builder.Services.AddAuthorization();
     //builder.Services.AddKernelMemory();
     builder.Services.AddKernelMemory(configuration);
     
@@ -123,6 +125,9 @@ try
     app.UseHttpsRedirection();
 
     app.UseSerilogRequestLogging();
+
+    app.UseAuthentication();
+    app.UseAuthorization();
 
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 

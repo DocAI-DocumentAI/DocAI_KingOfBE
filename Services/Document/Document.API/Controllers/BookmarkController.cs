@@ -1,3 +1,4 @@
+using Document.API.Attributes;
 using Document.API.Constants;
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
@@ -8,6 +9,7 @@ namespace Document.API.Controllers
 {
     [Route(ApiEndPointConstant.ApiEndpoint)]
     [ApiController]
+    [CustomAuthorize]
     public class BookmarkController : ControllerBase
     {
         private readonly IBookmarkService _bookmarkService;
@@ -22,9 +24,9 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> AddBookmark([FromRoute(Name = "documentId")] string documentId, string userId)
+        public async Task<IActionResult> AddBookmark([FromRoute(Name = "documentId")] string documentId)
         {
-            await _bookmarkService.AddBookmarkAsync(documentId, userId);
+            await _bookmarkService.AddBookmarkAsync(documentId);
             return Ok(ApiResponse<object>.Success(null, "Document bookmarked successfully.", 200));
         }
 
@@ -33,9 +35,9 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> RemoveBookmark([FromRoute(Name = "documentId")] string documentId, string userId)
+        public async Task<IActionResult> RemoveBookmark([FromRoute(Name = "documentId")] string documentId)
         {
-            await _bookmarkService.RemoveBookmarkAsync(documentId, userId);
+            await _bookmarkService.RemoveBookmarkAsync(documentId);
             return Ok(ApiResponse<object>.Success(null, "Bookmark removed successfully.", 200));
         }
 
@@ -43,9 +45,9 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<IPaginate<BookmarkResponse>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetBookmarks(string userId, int pageNumber = 1, int pageSize = 10)
-        { 
-            var result = await _bookmarkService.GetBookmarksAsync(userId, pageNumber, pageSize);
+        public async Task<IActionResult> GetBookmarks(int pageNumber = 1, int pageSize = 10)
+        {
+            var result = await _bookmarkService.GetBookmarksAsync(pageNumber, pageSize);
             return Ok(ApiResponse<object>.Success(result));
         }
     }

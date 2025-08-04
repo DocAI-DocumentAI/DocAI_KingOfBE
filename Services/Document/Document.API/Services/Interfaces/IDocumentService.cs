@@ -9,23 +9,23 @@ namespace Document.API.Services.Interfaces;
 
 public interface IDocumentService
 {
-    Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request, string userId);
-    Task<DocumentDraftResponse> UpdateDraftAsync(string versionId, UpdateDocumentDraftRequest request, string userId);
-    Task DeleteDraftAsync(string documentId, string versionId, string userId);
-    Task<IPaginate<DocumentDraftResponse>> GetDraftsAsync(string userId, int pageNumber, int pageSize);
-    Task<DocumentDraftResponse> GetDraftByIdAsync(string versionId, string userId);
-    Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(string userId, int pageNumber, int pageSize);
-    Task<DocumentDraftResponse> GetRejectedById(string versionId, string userId);
+    Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request);
+    Task<DocumentDraftResponse> UpdateDraftAsync(string versionId, UpdateDocumentDraftRequest request);
+    Task DeleteDraftAsync(string documentId, string versionId);
+    Task<IPaginate<DocumentDraftResponse>> GetDraftsAsync(int pageNumber, int pageSize);
+    Task<DocumentDraftResponse> GetDraftByIdAsync(string versionId);
+    Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(int pageNumber, int pageSize);
+    Task<DocumentDraftResponse> GetRejectedById(string versionId);
     Task<AnalyzeDocumentResponse> AnalyzeDocumentAsync(IFormFile file);
     Task<DocumentDraftResponse> GetOfficialDocumentAsync(string documentFileId);
-    Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(string userId, int pageNumber, int pageSize);
-    Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(string userId, MyDocumentsFilter filter, int pageNumber, int pageSize);
-    Task<DocumentDraftResponse> GetMyDocumentByIdAsync(string versionId, string userId);
-    Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateNewVersionDraftRequest request, string userId);
+    Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize);
+    Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(MyDocumentsFilter filter, int pageNumber, int pageSize);
+    Task<DocumentDraftResponse> GetMyDocumentByIdAsync(string versionId);
+    Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateNewVersionDraftRequest request);
     Task<List<DocumentVersionResponse>> GetDocumentVersionsAsync(string documentId);
     Task<DocumentVersionResponse> GetDocumentVersionByVersionIdAsync(string documentId, string versionId);
-    Task<IPaginate<SemanticSearchResponse>> SemanticSearch(SemanticSearchRequest request, SemanticSearchFilter filter, string userId, int pageNumber, int pageSize);
-    Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, string userId, int pageNumber, int pageSize);
+    Task<IPaginate<SemanticSearchResponse>> SemanticSearch(SemanticSearchRequest request, SemanticSearchFilter filter, int pageNumber, int pageSize);
+    Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, int pageNumber, int pageSize);
 
     // File serving methods
     Task<(Stream stream, string contentType, string fileName)> GetFileForViewingAsync(string versionId);

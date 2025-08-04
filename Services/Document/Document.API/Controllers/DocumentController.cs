@@ -1,4 +1,5 @@
-﻿using Document.API.Constants;
+﻿using Document.API.Attributes;
+using Document.API.Constants;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
@@ -10,6 +11,7 @@ namespace Document.API.Controllers;
 
 [Route(ApiEndPointConstant.ApiEndpoint)]
 [ApiController]
+[CustomAuthorize]
 public class DocumentController : ControllerBase
 {
     private readonly IDocumentService _documentService;
@@ -26,9 +28,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<DocumentDraftResponse>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> UploadDocumentDraft([FromForm] CreateDraftRequest request, string userId)
+    public async Task<IActionResult> UploadDocumentDraft([FromForm] CreateDraftRequest request)
     {
-        var result = await _documentService.CreateDraftAsync(request, userId);
+        var result = await _documentService.CreateDraftAsync(request);
         return Ok(ApiResponse<object>.Success(result, "Document draft uploaded successfully", 201));
     }
     
@@ -48,9 +50,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> EditDraft([FromRoute(Name = "id")] string documentId, [FromForm] UpdateDocumentDraftRequest request, string userId)
+    public async Task<IActionResult> EditDraft([FromRoute(Name = "id")] string documentId, [FromForm] UpdateDocumentDraftRequest request)
     {
-        var result = await _documentService.UpdateDraftAsync(documentId, request, userId);
+        var result = await _documentService.UpdateDraftAsync(documentId, request);
         return Ok(ApiResponse<object>.Success(result));
     }
 
@@ -59,9 +61,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> DeleteDocument([FromRoute(Name = "id")] string documentId, string versionId, string userId)
+    public async Task<IActionResult> DeleteDocument([FromRoute(Name = "id")] string documentId, string versionId)
     {
-        await _documentService.DeleteDraftAsync(documentId, versionId, userId);
+        await _documentService.DeleteDraftAsync(documentId, versionId);
         return Ok(ApiResponse<object>.Success(null, "Document deleted successfully", 200));
     }
 
@@ -80,9 +82,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetAllOfficialDocuments(string userId, int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> GetAllOfficialDocuments(int pageNumber = 1, int pageSize = 10)
     {
-        var result = await _documentService.GetAllOfficialDocumentsAsync(userId, pageNumber, pageSize);
+        var result = await _documentService.GetAllOfficialDocumentsAsync(pageNumber, pageSize);
         return Ok(ApiResponse<object>.Success(result));
     }
 
@@ -90,9 +92,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentDraftResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetMyDocuments(string userId, [FromQuery] MyDocumentsFilter filter, int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> GetMyDocuments([FromQuery] MyDocumentsFilter filter, int pageNumber = 1, int pageSize = 10)
     {
-        var result = await _documentService.GetMyDocumentsAsync(userId, filter, pageNumber, pageSize);
+        var result = await _documentService.GetMyDocumentsAsync(filter, pageNumber, pageSize);
         return Ok(ApiResponse<object>.Success(result));
     }
 
@@ -100,9 +102,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<DocumentDraftResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetMyDocumentDetail(string userId, [FromRoute(Name = "id")] string versionId)
+    public async Task<IActionResult> GetMyDocumentDetail([FromRoute(Name = "id")] string versionId)
     {
-        var result = await _documentService.GetMyDocumentByIdAsync(versionId, userId);
+        var result = await _documentService.GetMyDocumentByIdAsync(versionId);
         return Ok(ApiResponse<object>.Success(result));
     }
 
@@ -110,9 +112,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentDraftResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetDrafts(string userId, int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> GetDrafts(int pageNumber = 1, int pageSize = 10)
     {
-        var result = await _documentService.GetDraftsAsync(userId, pageNumber, pageSize);
+        var result = await _documentService.GetDraftsAsync(pageNumber, pageSize);
         return Ok(ApiResponse<object>.Success(result));
     }
 
@@ -120,9 +122,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<DocumentDraftResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetDraftById(string userId, [FromRoute(Name = "id")] string versionId)
+    public async Task<IActionResult> GetDraftById([FromRoute(Name = "id")] string versionId)
     {
-        var result = await _documentService.GetDraftByIdAsync(versionId, userId);
+        var result = await _documentService.GetDraftByIdAsync(versionId);
         return Ok(ApiResponse<object>.Success(result));
     }
 
@@ -130,9 +132,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentDraftResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetRejectedDocuments(string userId, int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> GetRejectedDocuments(int pageNumber = 1, int pageSize = 10)
     {
-        var result = await _documentService.GetRejectDocumentsAsync(userId, pageNumber, pageSize);
+        var result = await _documentService.GetRejectDocumentsAsync(pageNumber, pageSize);
         return Ok(ApiResponse<object>.Success(result));
     }
 
@@ -140,9 +142,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<DocumentDraftResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetRejectedById(string userId, [FromRoute(Name = "id")] string versionId)
+    public async Task<IActionResult> GetRejectedById([FromRoute(Name = "id")] string versionId)
     {
-        var result = await _documentService.GetRejectedById(versionId, userId);
+        var result = await _documentService.GetRejectedById(versionId);
         return Ok(ApiResponse<object>.Success(result));
     }
 
@@ -152,9 +154,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> CreateNewVersion([FromRoute(Name = "id")] string documentId, [FromForm] CreateNewVersionDraftRequest request, string userId)
+    public async Task<IActionResult> CreateNewVersion([FromRoute(Name = "id")] string documentId, [FromForm] CreateNewVersionDraftRequest request)
     {
-        var result = await _documentService.CreateNewVersionAsync(documentId, request, userId);
+        var result = await _documentService.CreateNewVersionAsync(documentId, request);
         return Ok(ApiResponse<object>.Success(result));
     }
 
@@ -162,9 +164,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> SemanticSearch([FromQuery] SemanticSearchRequest request, [FromQuery] SemanticSearchFilter filter, string userId, int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> SemanticSearch([FromQuery] SemanticSearchRequest request, [FromQuery] SemanticSearchFilter filter, int pageNumber = 1, int pageSize = 10)
     {
-        var result = await _documentService.SemanticSearch(request,filter, userId, pageNumber, pageSize);
+        var result = await _documentService.SemanticSearch(request,filter, pageNumber, pageSize);
         return Ok(ApiResponse<object>.Success(result));
     }
 
@@ -172,9 +174,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> FullTextSearch([FromQuery] FullTextSearchFilter filter, string userId, int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> FullTextSearch([FromQuery] FullTextSearchFilter filter, int pageNumber = 1, int pageSize = 10)
     {
-        var result = await _documentService.FullTextSearch(filter, userId, pageNumber, pageSize);
+        var result = await _documentService.FullTextSearch(filter, pageNumber, pageSize);
         return Ok(ApiResponse<object>.Success(result));
     }
 
@@ -185,10 +187,9 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetDocumentRecommendations(
         [FromRoute] string documentId,
-        [FromQuery] DocumentRecommendationRequest request,
-        string userId)
+        [FromQuery] DocumentRecommendationRequest request)
     {
-        var result = await _recommendationService.GetRecommendationsAsync(documentId, request, userId);
+        var result = await _recommendationService.GetRecommendationsAsync(documentId, request);
         return Ok(ApiResponse<DocumentRecommendationsResult>.Success(result, "Document recommendations retrieved successfully"));
     }
 }

@@ -1,3 +1,4 @@
+using Document.API.Attributes;
 using Document.API.Constants;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
@@ -9,6 +10,7 @@ namespace Document.API.Controllers
 {
     [Route(ApiEndPointConstant.ApiEndpoint)]
     [ApiController]
+    [CustomAuthorize]
     public class DocumentReplacementController : ControllerBase
     {
         private readonly IDocumentReplacementService _replacementService;
@@ -27,24 +29,23 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetReplacementSuggestions(
-            [FromBody] DocumentReplacementSuggestionRequest request, 
-            string userId)
+            [FromBody] DocumentReplacementSuggestionRequest request)
         {
             try
             {
-                _logger.LogInformation("Getting replacement suggestions for user {UserId}, document type {DocumentTypeId}", 
-                    userId, request.DocumentTypeId);
+                _logger.LogInformation("Getting replacement suggestions for document type {DocumentTypeId}",
+                    request.DocumentTypeId);
 
-                var result = await _replacementService.GetReplacementSuggestionsAsync(request, userId);
-                
+                var result = await _replacementService.GetReplacementSuggestionsAsync(request);
+
                 return Ok(ApiResponse<DocumentReplacementSuggestionResponse>.Success(
-                    result, 
-                    $"Found {result.TotalFound} replacement suggestions", 
+                    result,
+                    $"Found {result.TotalFound} replacement suggestions",
                     StatusCodes.Status200OK));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting replacement suggestions for user {UserId}", userId);
+                _logger.LogError(ex, "Error getting replacement suggestions");
                 return StatusCode(StatusCodes.Status500InternalServerError,
                     ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while getting replacement suggestions"));
             }
@@ -57,25 +58,24 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetReplacementSuggestionsForEdit(
             [FromRoute(Name = "documentId")] string documentId,
-            [FromBody] DocumentReplacementSuggestionRequest request, 
-            string userId)
+            [FromBody] DocumentReplacementSuggestionRequest request)
         {
             try
             {
-                _logger.LogInformation("Getting replacement suggestions for editing document {DocumentId}, user {UserId}", 
-                    documentId, userId);
+                _logger.LogInformation("Getting replacement suggestions for editing document {DocumentId}",
+                    documentId);
 
-                var result = await _replacementService.GetReplacementSuggestionsForEditAsync(documentId, request, userId);
-                
+                var result = await _replacementService.GetReplacementSuggestionsForEditAsync(documentId, request);
+
                 return Ok(ApiResponse<DocumentReplacementSuggestionResponse>.Success(
-                    result, 
-                    $"Found {result.TotalFound} replacement suggestions for editing", 
+                    result,
+                    $"Found {result.TotalFound} replacement suggestions for editing",
                     StatusCodes.Status200OK));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting replacement suggestions for editing document {DocumentId}, user {UserId}", 
-                    documentId, userId);
+                _logger.LogError(ex, "Error getting replacement suggestions for editing document {DocumentId}",
+                    documentId);
                 return StatusCode(StatusCodes.Status500InternalServerError,
                     ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while getting replacement suggestions"));
             }
@@ -88,25 +88,24 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetReplacementScoringBreakdown(
             [FromRoute(Name = "candidateId")] string candidateId,
-            [FromBody] DocumentReplacementSuggestionRequest request, 
-            string userId)
+            [FromBody] DocumentReplacementSuggestionRequest request)
         {
             try
             {
-                _logger.LogInformation("Getting scoring breakdown for candidate {CandidateId}, user {UserId}", 
-                    candidateId, userId);
+                _logger.LogInformation("Getting scoring breakdown for candidate {CandidateId}",
+                    candidateId);
 
-                var result = await _replacementService.GetScoringBreakdownAsync(request, candidateId, userId);
-                
+                var result = await _replacementService.GetScoringBreakdownAsync(request, candidateId);
+
                 return Ok(ApiResponse<ReplacementSuggestionScoring>.Success(
-                    result, 
-                    "Scoring breakdown retrieved successfully", 
+                    result,
+                    "Scoring breakdown retrieved successfully",
                     StatusCodes.Status200OK));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting scoring breakdown for candidate {CandidateId}, user {UserId}", 
-                    candidateId, userId);
+                _logger.LogError(ex, "Error getting scoring breakdown for candidate {CandidateId}",
+                    candidateId);
                 return StatusCode(StatusCodes.Status500InternalServerError,
                     ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while getting scoring breakdown"));
             }
@@ -117,25 +116,24 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> ValidateReplacement(
-            [FromRoute(Name = "documentId")] string documentId,
-            string userId)
+            [FromRoute(Name = "documentId")] string documentId)
         {
             try
             {
-                _logger.LogInformation("Validating replacement permission for document {DocumentId}, user {UserId}", 
-                    documentId, userId);
+                _logger.LogInformation("Validating replacement permission for document {DocumentId}",
+                    documentId);
 
-                var canReplace = await _replacementService.CanReplaceDocumentAsync(documentId, userId);
-                
+                var canReplace = await _replacementService.CanReplaceDocumentAsync(documentId);
+
                 return Ok(ApiResponse<bool>.Success(
-                    canReplace, 
-                    canReplace ? "Document can be replaced" : "Document cannot be replaced", 
+                    canReplace,
+                    canReplace ? "Document can be replaced" : "Document cannot be replaced",
                     StatusCodes.Status200OK));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error validating replacement for document {DocumentId}, user {UserId}", 
-                    documentId, userId);
+                _logger.LogError(ex, "Error validating replacement for document {DocumentId}",
+                    documentId);
                 return StatusCode(StatusCodes.Status500InternalServerError,
                     ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while validating replacement"));
             }

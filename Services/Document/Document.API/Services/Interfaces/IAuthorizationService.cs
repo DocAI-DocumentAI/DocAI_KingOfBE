@@ -65,6 +65,11 @@ namespace Document.API.Services.Interfaces
         string? GetCurrentUserDepartment();
 
         /// <summary>
+        /// Lấy Department ID từ JWT
+        /// </summary>
+        Guid? GetCurrentUserDepartmentId();
+
+        /// <summary>
         /// Lấy danh sách Permissions từ JWT
         /// </summary>
         string[] GetCurrentUserPermissions();

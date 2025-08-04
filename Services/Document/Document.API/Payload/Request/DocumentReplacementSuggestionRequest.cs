@@ -14,9 +14,6 @@ namespace Document.API.Payload.Request
         [Required(ErrorMessage = "Document type is required")]
         public string DocumentTypeId { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "Department is required")]
-        public string DepartmentId { get; set; } = string.Empty;
-
         public List<string>? Tags { get; set; }
 
         public bool IsPublic { get; set; } = false;
