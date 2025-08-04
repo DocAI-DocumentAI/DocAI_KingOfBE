@@ -13,6 +13,7 @@ public class SemanticSearchFilter : IFilter<DocumentVersion>
     public DateTime? EffectiveFrom { get; set; }
     public DateTime? EffectiveUntil { get; set; }
     public string? SignedBy { get; set; }
+    public string? DocumentTypeId { get; set; }
 
     public Expression<Func<DocumentVersion, bool>> ToExpression()
     {
@@ -20,6 +21,7 @@ public class SemanticSearchFilter : IFilter<DocumentVersion>
             (!FromDate.HasValue || documentVersion.CreatedTime >= FromDate.Value) &&
             (!ToDate.HasValue || documentVersion.CreatedTime <= ToDate.Value) &&
             (Tags == null || !Tags.Any() || documentVersion.DocumentTags.Any(tag => Tags.Contains(tag.Tag.Name))) &&
-            (string.IsNullOrEmpty(DepartmentId) || documentVersion.DocumentFile.DepartmentId == DepartmentId);
+            (string.IsNullOrEmpty(DepartmentId) || documentVersion.DocumentFile.DepartmentId == DepartmentId) &&
+            (string.IsNullOrEmpty(DocumentTypeId) || documentVersion.DocumentFile.DocumentTypeId == DocumentTypeId);
     }
 }

@@ -12,6 +12,7 @@ namespace Document.Infrastructure.Filter
         public DateTime? From { get; set; }
         public DateTime? To { get; set; }
         public StatusEnum? Status { get; set; }
+        public string? DocumentTypeId { get; set; }
 
         public Expression<Func<DocumentVersion, bool>> ToExpression()
         {
@@ -21,7 +22,8 @@ namespace Document.Infrastructure.Filter
        (!IsPublic.HasValue || doc.IsPublic == IsPublic.Value) &&
        (!From.HasValue || doc.CreatedTime >= From.Value) &&
        (!To.HasValue || doc.CreatedTime <= To.Value) &&
-       (!Status.HasValue || doc.Status == Status.Value);
+       (!Status.HasValue || doc.Status == Status.Value) &&
+       (string.IsNullOrEmpty(DocumentTypeId) || doc.DocumentFile.DocumentTypeId == DocumentTypeId);
         }
     }
 }

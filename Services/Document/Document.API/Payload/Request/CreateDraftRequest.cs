@@ -14,8 +14,15 @@ namespace Document.API.Payload.Request
         public DateTime? EffectiveFrom { get; set; }
         public DateTime? EffectiveUntil { get; set; }
         public List<string>? Tags { get; set; }
-        public string DepartmentId { get; set; }
         public IFormFile File { get; set; }
         public string? ReplacementDocumentId { get; set; }
+
+        [Required(ErrorMessage = "Document type is required")]
+        public string DocumentTypeId { get; set; }
+
+        /// <summary>
+        /// Indicates whether the document is public (accessible to all employees) or private (restricted to same department)
+        /// </summary>
+        public bool IsPublic { get; set; } = false;
     }
 }

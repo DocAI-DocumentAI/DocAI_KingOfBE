@@ -23,5 +23,10 @@ namespace Document.API.Payload.Request
         
         [Required]
         public IFormFile File { get; set; }
+
+        /// <summary>
+        /// Indicates whether the document is public (accessible to all employees) or private (restricted to same department)
+        /// </summary>
+        public bool IsPublic { get; set; } = false;
     }
 }

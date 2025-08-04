@@ -5,8 +5,8 @@ namespace Document.API.Services.Interfaces
 {
     public interface IBookmarkService
     {
-        Task AddBookmarkAsync(string documentId, string userId);
-        Task RemoveBookmarkAsync(string documentId, string userId);
-        Task<IPaginate<BookmarkResponse>> GetBookmarksAsync(string userId, int pageNumber, int pageSize);
+        Task AddBookmarkAsync(string documentId);
+        Task RemoveBookmarkAsync(string documentId);
+        Task<IPaginate<BookmarkResponse>> GetBookmarksAsync(int pageNumber, int pageSize);
     }
 }

@@ -87,6 +87,9 @@ public static class DependencyService
         {
             x.AddConsumer<UserRequestMessageConsumer>();
             x.AddConsumer<NameLookupConsumer>();
+            x.AddConsumer<DepartmentEmployeeConsumer>();
+            x.AddConsumer<CompanyEmployeeConsumer>();
+            x.AddConsumer<UserEmailConsumer>();
 
             x.UsingRabbitMq((context, cfg) =>
             {
@@ -114,6 +117,30 @@ public static class DependencyService
                 cfg.ReceiveEndpoint("name-lookup-queue", e =>
                 {
                     e.ConfigureConsumer<NameLookupConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                // Configure endpoint for Department Employee requests
+                cfg.ReceiveEndpoint("department-employee-queue", e =>
+                {
+                    e.ConfigureConsumer<DepartmentEmployeeConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                // Configure endpoint for Company Employee requests
+                cfg.ReceiveEndpoint("company-employee-queue", e =>
+                {
+                    e.ConfigureConsumer<CompanyEmployeeConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                // Configure endpoint for User Email requests
+                cfg.ReceiveEndpoint("user-email-queue", e =>
+                {
+                    e.ConfigureConsumer<UserEmailConsumer>(context);
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
                     e.UseInMemoryOutbox();
                 });

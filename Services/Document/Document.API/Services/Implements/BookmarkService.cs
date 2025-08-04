@@ -18,17 +18,35 @@ namespace Document.API.Services.Implements
         private readonly IMapper _mapper;
         private readonly ILogger<BookmarkService> _logger;
         private readonly IDocumentEnrichmentService _enrichmentService;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public BookmarkService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<BookmarkService> logger, IDocumentEnrichmentService enrichmentService)
+        public BookmarkService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<BookmarkService> logger, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _logger = logger;
             _enrichmentService = enrichmentService;
+            _httpContextAccessor = httpContextAccessor;
         }
 
-        public async Task AddBookmarkAsync(string documentId, string userId)
+        /// <summary>
+        /// Gets the current user's ID from JWT token
+        /// </summary>
+        /// <returns>User ID</returns>
+        private string GetCurrentUserId()
         {
+            var user = _httpContextAccessor?.HttpContext?.User;
+            var userIdClaim = user?.FindFirst("userId")?.Value;
+            if (string.IsNullOrEmpty(userIdClaim))
+                throw new UnauthorizedAccessException("User ID not found in token");
+            return userIdClaim;
+        }
+
+        public async Task AddBookmarkAsync(string documentId)
+        {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
+
             // 1. Check if the document version exists and is official
             var document = await _unitOfWork.GetRepository<DocumentFile>()
                 .SingleOrDefaultAsync(
@@ -60,8 +78,11 @@ namespace Document.API.Services.Implements
             _logger.LogInformation("User {UserId} bookmarked document version {documentId}", userId, documentId);
         }
 
-        public async Task RemoveBookmarkAsync(string documentId, string userId)
+        public async Task RemoveBookmarkAsync(string documentId)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
+
             // 1. Find the bookmark to remove
             var bookmarkToRemove = await _unitOfWork.GetRepository<Bookmark>()
                 .SingleOrDefaultAsync(
@@ -75,8 +96,11 @@ namespace Document.API.Services.Implements
             _logger.LogInformation("User {UserId} removed bookmark for document version {documentId}", userId, documentId);
         }
 
-        public async Task<IPaginate<BookmarkResponse>> GetBookmarksAsync(string userId, int pageNumber, int pageSize)
+        public async Task<IPaginate<BookmarkResponse>> GetBookmarksAsync(int pageNumber, int pageSize)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
+
             var bookmarks = await _unitOfWork.GetRepository<Bookmark>().GetPagingListAsync(
                 selector: b => new BookmarkResponse
                 {

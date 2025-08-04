@@ -1,4 +1,9 @@
-﻿using Azure.Storage.Blobs;
+﻿// AZURE STORAGE SERVICE - COMMENTED OUT FOR GOOGLE DRIVE MIGRATION
+// This file is preserved for potential rollback but not actively used
+// All Azure dependencies have been commented out in the project
+
+/*
+using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Document.API.Constants;
 using Document.API.Payload.Response;
@@ -189,5 +194,8 @@ namespace Document.API.Services.Implements
         }
     }
 }
+*/
+
+// END OF COMMENTED AZURE STORAGE SERVICE
 
 

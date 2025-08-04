@@ -87,6 +87,10 @@ namespace Document.Domain.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text");
 
+                    b.Property<string>("DocumentTypeId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsReplaced")
                         .HasColumnType("boolean");
 
@@ -111,6 +115,8 @@ namespace Document.Domain.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DocumentTypeId");
 
                     b.HasIndex("ReplacementDocumentId");
 
@@ -213,6 +219,47 @@ namespace Document.Domain.Migrations
                     b.ToTable("DocumentTags");
                 });
 
+            modelBuilder.Entity("Document.Domain.Models.DocumentType", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeletedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("DeletedTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("LastUpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastUpdatedTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("DocumentTypes");
+                });
+
             modelBuilder.Entity("Document.Domain.Models.DocumentVersion", b =>
                 {
                     b.Property<string>("Id")
@@ -261,6 +308,9 @@ namespace Document.Domain.Migrations
 
                     b.Property<string>("FileType")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("GoogleDriveFileId")
                         .HasColumnType("text");
 
                     b.Property<bool>("IsOfficial")
@@ -356,9 +406,17 @@ namespace Document.Domain.Migrations
 
             modelBuilder.Entity("Document.Domain.Model.DocumentFile", b =>
                 {
+                    b.HasOne("Document.Domain.Models.DocumentType", "DocumentType")
+                        .WithMany("DocumentFiles")
+                        .HasForeignKey("DocumentTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Document.Domain.Model.DocumentFile", "ReplacementDocument")
                         .WithMany()
                         .HasForeignKey("ReplacementDocumentId");
+
+                    b.Navigation("DocumentType");
 
                     b.Navigation("ReplacementDocument");
                 });
@@ -424,6 +482,11 @@ namespace Document.Domain.Migrations
             modelBuilder.Entity("Document.Domain.Model.DocumentFile", b =>
                 {
                     b.Navigation("DocumentVersions");
+                });
+
+            modelBuilder.Entity("Document.Domain.Models.DocumentType", b =>
+                {
+                    b.Navigation("DocumentFiles");
                 });
 
             modelBuilder.Entity("Document.Domain.Models.DocumentVersion", b =>
