@@ -20,27 +20,52 @@ namespace ChatBox.Domain.Models
             modelBuilder.Entity<ChatSession>(entity =>
             {
                 entity.HasKey(e => e.Id);
-                entity.Property(e => e.Title).HasMaxLength(500);
-                entity.Property(e => e.UserId).IsRequired();
-                entity.Property(e => e.ModelName).HasMaxLength(100);
+                entity.Property(e => e.UserId).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.Title).HasMaxLength(200);
+                entity.Property(e => e.ModelName).IsRequired().HasMaxLength(200);
+                entity.HasIndex(e => new { e.UserId, e.IsActive });
             });
 
+            // ChatMessage  
             modelBuilder.Entity<ChatMessage>(entity =>
             {
                 entity.HasKey(e => e.Id);
+                entity.Property(e => e.SessionId).IsRequired();
                 entity.Property(e => e.Content).IsRequired();
-                entity.HasOne(d => d.Session)
-                    .WithMany(p => p.Messages)
-                    .HasForeignKey(d => d.SessionId);
-            });
+                entity.Property(e => e.Role).IsRequired();
 
+                entity.HasOne(e => e.Session)
+                    .WithMany(s => s.Messages)
+                    .HasForeignKey(e => e.SessionId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(e => new { e.SessionId, e.CreatedAt });
+            });
 
             modelBuilder.Entity<AIConfiguration>(entity =>
             {
                 entity.HasKey(e => e.Id);
-                entity.Property(e => e.Provider).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.ModelName).IsRequired().HasMaxLength(100);
-                entity.Property(e => e.ApiKey).IsRequired();
+                entity.Property(e => e.ModelName).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.DisplayName).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.Temperature).HasPrecision(3, 2);
+                entity.Property(e => e.TopP).HasPrecision(3, 2);
+                entity.HasIndex(e => e.ModelName).IsUnique();
+                entity.HasIndex(e => e.IsActive);
+            });
+
+            modelBuilder.Entity<UserPreference>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.UserId).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.SessionId).HasMaxLength(100);
+                entity.Property(e => e.UserName).HasMaxLength(100);
+
+                entity.HasOne(e => e.Session)
+                    .WithMany(s => s.Preferences)
+                    .HasForeignKey(e => e.SessionId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(e => new { e.UserId, e.SessionId }).IsUnique();
             });
             base.OnModelCreating(modelBuilder);
         }

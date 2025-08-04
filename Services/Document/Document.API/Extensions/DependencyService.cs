@@ -31,6 +31,7 @@ public static class DependencyService
         services.AddMassTransit(x =>
         {
             x.AddConsumer<UserRequestMessageConsumer>();
+            x.AddConsumer<DocumentSearchConsumer>();
             
             // Add request client for name lookup
             x.AddRequestClient<NameLookupRequest>(new Uri("queue:name-lookup-queue")); 
@@ -48,6 +49,15 @@ public static class DependencyService
                     // Chỉ định consumer nào sẽ xử lý message từ queue này
                     e.ConfigureConsumer<UserRequestMessageConsumer>(context);
                 });
+                //  ChatBox RAG endpoints
+                cfg.ReceiveEndpoint("document.search.request", e =>
+                {
+                    e.ConfigureConsumer<DocumentSearchConsumer>(context);
+                    e.ConcurrentMessageLimit = 10;
+                    e.PrefetchCount = 20;
+                    e.UseConcurrencyLimit(10);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(2)));
+                });
             });
         });
         services.AddScoped<IAzureStorageService, AzureStorageService>();
@@ -61,6 +71,9 @@ public static class DependencyService
         services.AddScoped<IApprovalService, ApprovalService>();
         services.AddScoped<ITagService, TagService>();
         services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+
+        services.AddScoped<IDocumentRAGService, DocumentRAGService>();
+
         return services;
     } 
 

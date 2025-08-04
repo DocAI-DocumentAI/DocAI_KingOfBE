@@ -1,83 +1,113 @@
 ﻿
 
+using ChatBox.API.Constants;
 using ChatBox.API.Services.Interfaces;
+using MassTransit.Courier;
+using Microsoft.SemanticKernel.ChatCompletion;
 using SharpToken;
 
 namespace ChatBox.API.Services.Implement
-{ 
+{
     public class TokenCountService : ITokenCountService
+    {
+        private readonly IConfiguration _configuration;
+        private readonly GptEncoding _encoding;
+
+        public TokenCountService(IConfiguration configuration)
         {
-            private readonly IConfiguration _configuration;
-            private readonly GptEncoding _encoding;
+            _configuration = configuration;
+            _encoding = CreateEncodingForMistral(ChatConstants.TokenizerModel);
+        }
 
-            public TokenCountService(IConfiguration configuration)
+        private GptEncoding CreateEncodingForMistral(string modelName)
+        {
+
+            if (IsMistralModel(modelName))
             {
-                _configuration = configuration;
-                var tokenizerModel = _configuration["ChatService:TokenizerModel"];
-
-                // Tạo encoding cho Mistral sử dụng SharpToken
-                _encoding = CreateEncodingForMistral(tokenizerModel);
+                return GptEncoding.GetEncoding(ChatConstants.DefaultEncodingName);
             }
 
-            private GptEncoding CreateEncodingForMistral(string modelName)
+            return GptEncoding.GetEncoding(ChatConstants.DefaultEncodingName);
+        }
+
+        private bool IsMistralModel(string modelName)
+        {
+            return !string.IsNullOrEmpty(modelName) &&
+                   modelName.Contains("mistral", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public int CountTokens(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return 0;
+
+            try
             {
+                var tokens = _encoding.Encode(text);
+                var count = tokens.Count;
 
-
-                if (IsMistralModel(modelName))
+                if (IsMistralModel(ChatConstants.TokenizerModel))
                 {
-                    return GptEncoding.GetEncoding("cl100k_base");
+                    count = (int)(count * ChatConstants.MistralTokenAdjustment);
                 }
 
-                // Fallback cho các model khác
-                return GptEncoding.GetEncoding("cl100k_base");
+                return Math.Max(1, count);
             }
-
-            private bool IsMistralModel(string modelName)
+            catch (Exception ex)
             {
-                return modelName?.Contains("mistral", StringComparison.OrdinalIgnoreCase) == true;
+                return EstimateTokenCount(text);
             }
+        }
 
-            public int CountTokens(string text)
+        private int EstimateTokenCount(string text)
+        {
+            // Ước tính cho Mistral: 3.5 ký tự = 1 token
+            return Math.Max(1, (int)Math.Ceiling(text.Length / 4.0));
+        }
+
+        public bool IsWithinLimit(string text, int? maxTokens = null)
+        {
+            var limit = maxTokens ?? ChatConstants.DefaultMaxTokens;
+            return CountTokens(text) <= limit;
+        }
+
+        public int GetMaxTokensForModel(string modelName)
+        {
+            return modelName.ToLower() switch
             {
-                if (string.IsNullOrEmpty(text))
-                    return 0;
-
-                try
-                {
-                    // Encode text thành tokens bằng SharpToken
-                    var tokens = _encoding.Encode(text);
-
-                    // Điều chỉnh cho Mistral models
-                    var tokenizerModel = _configuration["ChatService:TokenizerModel"];
-
-                    if (IsMistralModel(tokenizerModel))
-                    {
-                        // Mistral tokenizer thường tạo ra ít token hơn GPT-4 khoảng 5-10%
-                        // Dựa trên research, giảm 8% để gần với Mistral tokenizer thực tế
-                        return Math.Max(1, (int)(tokens.Count * 0.92));
-                    }
-
-                    return tokens.Count;
-                }
-                catch (Exception)
-                {
-                    // Fallback: ước tính đơn giản
-                    return EstimateTokenCount(text);
-                }
-            }
-
-            private int EstimateTokenCount(string text)
+                var name when name.Contains("gpt-4") => ChatConstants.GPT4MaxTokens,
+                var name when name.Contains("gpt-3.5") => ChatConstants.GPT35MaxTokens,
+                var name when name.Contains("mistral") => ChatConstants.MistralMaxTokens,
+                _ => ChatConstants.DefaultMaxTokens
+            };
+        }
+        public int EstimateContextTokens(ChatHistory chatHistory)
+        {
+            var totalTokens = 0;
+            foreach (var message in chatHistory)
             {
-                // Ước tính cho Mistral: 3.5 ký tự = 1 token
-                return Math.Max(1, (int)Math.Ceiling(text.Length / 3.5));
+                totalTokens += CountTokens(message.Content ?? "");
             }
+            return totalTokens;
+        }
 
-            public bool IsWithinLimit(string text, int? maxTokens = null)
+        public bool IsContextWithinLimit(ChatHistory chatHistory, string modelName)
+        {
+            var maxContextTokens = GetMaxContextTokensForModel(modelName);
+            var currentTokens = EstimateContextTokens(chatHistory);
+            return currentTokens <= maxContextTokens;
+        }
+
+        private int GetMaxContextTokensForModel(string modelName)
+        {
+            return modelName.ToLower() switch
             {
-                var limit = maxTokens ?? _configuration.GetValue<int>("ChatService:DefaultMaxTokens");
-                return CountTokens(text) <= limit;
-            }
-
+                var name when name.Contains("mistral") => ChatConstants.MistralMaxContextTokens,
+                var name when name.Contains("gpt-4") => ChatConstants.GPT4MaxContextTokens,
+                var name when name.Contains("gpt-3.5") => ChatConstants.GPT35MaxContextTokens,
+                _ => ChatConstants.DefaultMaxContextTokens
+            };
         }
     }
+}
 

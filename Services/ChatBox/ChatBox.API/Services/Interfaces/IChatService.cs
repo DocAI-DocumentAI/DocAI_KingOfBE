@@ -11,7 +11,10 @@ namespace ChatBox.API.Services.Interfaces
         Task<SessionDetailResponse> GetSessionAsync(string sessionId, string userId);
         Task<List<SessionResponse>> GetUserSessionsAsync(string userId);
         Task<bool> DeleteSessionAsync(string sessionId, string userId);
-        Task<string> SuggestTitleAsync(string firstMessage);
         Task<ApiResponse<object>> ValidateMessageAsync(string message);
+        Task<List<AvailableModelResponse>> GetAvailableModelsAsync();
+        Task<bool> SwitchSessionModelAsync(string sessionId, string newModelName, string userId);
+
+
     }
 }
