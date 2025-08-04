@@ -8,6 +8,9 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Document.API.Controllers
 {
+    /// <summary>
+    /// Controller for AI-powered document replacement suggestions and management
+    /// </summary>
     [Route(ApiEndPointConstant.ApiEndpoint)]
     [ApiController]
     [CustomAuthorize]
@@ -24,6 +27,11 @@ namespace Document.API.Controllers
             _logger = logger;
         }
 
+        /// <summary>
+        /// Get AI-powered suggestions for documents that could replace the current document
+        /// </summary>
+        /// <param name="request">Request containing document type and search criteria</param>
+        /// <returns>List of replacement suggestions with similarity scores</returns>
         [HttpPost(ApiEndPointConstant.Document.GetReplacementSuggestions)]
         [ProducesResponseType(typeof(ApiResponse<DocumentReplacementSuggestionResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -51,6 +59,12 @@ namespace Document.API.Controllers
             }
         }
 
+        /// <summary>
+        /// Get replacement suggestions for editing an existing document
+        /// </summary>
+        /// <param name="documentId">The ID of the document being edited</param>
+        /// <param name="request">Request containing search criteria for replacements</param>
+        /// <returns>List of replacement suggestions tailored for document editing</returns>
         [HttpPost(ApiEndPointConstant.Document.GetReplacementSuggestionsForEdit)]
         [ProducesResponseType(typeof(ApiResponse<DocumentReplacementSuggestionResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -81,6 +95,12 @@ namespace Document.API.Controllers
             }
         }
 
+        /// <summary>
+        /// Get detailed scoring breakdown for a specific replacement candidate
+        /// </summary>
+        /// <param name="candidateId">The ID of the replacement candidate document</param>
+        /// <param name="request">Request containing original document criteria</param>
+        /// <returns>Detailed scoring breakdown showing how similarity was calculated</returns>
         [HttpPost(ApiEndPointConstant.Document.GetReplacementScoringBreakdown)]
         [ProducesResponseType(typeof(ApiResponse<ReplacementSuggestionScoring>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -111,6 +131,11 @@ namespace Document.API.Controllers
             }
         }
 
+        /// <summary>
+        /// Validate if a document can be replaced (check permissions and business rules)
+        /// </summary>
+        /// <param name="documentId">The ID of the document to validate for replacement</param>
+        /// <returns>Boolean indicating if the document can be replaced</returns>
         [HttpGet(ApiEndPointConstant.Document.ValidateReplacement)]
         [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -139,6 +164,12 @@ namespace Document.API.Controllers
             }
         }
 
+        /// <summary>
+        /// Clear cached replacement suggestions for improved performance
+        /// </summary>
+        /// <param name="documentTypeId">Optional document type ID to clear specific cache</param>
+        /// <param name="departmentId">Optional department ID to clear specific cache</param>
+        /// <returns>Success confirmation</returns>
         [HttpDelete(ApiEndPointConstant.ApiEndpoint + "/replacement-suggestions/cache")]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]

@@ -1,11 +1,16 @@
+using Document.API.Attributes;
 using Document.API.Constants;
 using Document.API.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Document.API.Controllers
 {
+    /// <summary>
+    /// Controller for file operations including viewing, downloading, and file information
+    /// </summary>
     [Route(ApiEndPointConstant.ApiEndpoint)]
     [ApiController]
+    [CustomAuthorize]
     public class FileController : ControllerBase
     {
         private readonly IDocumentService _documentService;
@@ -22,6 +27,11 @@ namespace Document.API.Controllers
             _logger = logger;
         }
 
+        /// <summary>
+        /// View a document file inline in the browser with proper security headers
+        /// </summary>
+        /// <param name="versionId">The version ID of the document to view</param>
+        /// <returns>File stream for inline viewing</returns>
         [HttpGet(ApiEndPointConstant.Document.ViewFile)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -51,6 +61,11 @@ namespace Document.API.Controllers
             return File(stream, properContentType, fileName);
         }
 
+        /// <summary>
+        /// Download a document file with proper headers for file download
+        /// </summary>
+        /// <param name="versionId">The version ID of the document to download</param>
+        /// <returns>File stream for download</returns>
         [HttpGet(ApiEndPointConstant.Document.DownloadFile)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -80,6 +95,11 @@ namespace Document.API.Controllers
             return File(stream, properContentType, fileName);
         }
 
+        /// <summary>
+        /// Get detailed information about a document file including metadata and URLs
+        /// </summary>
+        /// <param name="versionId">The version ID of the document</param>
+        /// <returns>File information including size, type, and access URLs</returns>
         [HttpGet(ApiEndPointConstant.Document.GetFileInfo)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]

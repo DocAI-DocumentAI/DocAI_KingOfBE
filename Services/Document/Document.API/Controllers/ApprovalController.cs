@@ -1,4 +1,5 @@
-﻿using Document.API.Constants;
+﻿using Document.API.Attributes;
+using Document.API.Constants;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Implements;
@@ -21,6 +22,7 @@ namespace Document.API.Controllers
         }
 
         [HttpPost(ApiEndPointConstant.Approval.Submit)]
+        [CustomAuthorize(Roles = new[] { Roles.Editor })]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -32,6 +34,7 @@ namespace Document.API.Controllers
         }
 
         [HttpPost(ApiEndPointConstant.Approval.ApproveOrReject)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager })]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -43,6 +46,7 @@ namespace Document.API.Controllers
         }
 
         [HttpGet(ApiEndPointConstant.Approval.GetApprovalQueue)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager })]
         [ProducesResponseType(typeof(ApiResponse<IPaginate<PendingDocumentResponse>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
@@ -53,6 +57,7 @@ namespace Document.API.Controllers
         }
 
         [HttpPost(ApiEndPointConstant.Approval.Claim)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager })]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -64,6 +69,7 @@ namespace Document.API.Controllers
         }
 
         [HttpPost(ApiEndPointConstant.Approval.ReleaseClaim)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager })]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -75,6 +81,7 @@ namespace Document.API.Controllers
         }
 
         [HttpGet(ApiEndPointConstant.Approval.GetApprovalQueueDetail)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager })]
         [ProducesResponseType(typeof(ApiResponse<PendingDocumentResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
