@@ -1,4 +1,4 @@
-﻿using Auth.API.Attributes;
+using Auth.API.Attributes;
 using Auth.API.Constants;
 using Auth.API.Payload.Request.Role;
 using Auth.API.Payload.Response.Role;
@@ -77,18 +77,20 @@ public class RoleController : ControllerBase
 
     [HttpDelete(ApiEndPointConstant.Role.DeleteRole)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
-    [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> DeleteRoleAsync(Guid roleId)
     {
         var response = await _roleService.DeleteRoleAsync(roleId);
         if (response == null)
         {
-            _logger.LogError($"Delete role failed");
-            return Problem(MessageConstant.Role.DeleteFailed);
+            _logger.LogError($"Delete failed for role {roleId}");
+            return NotFound($"Role with ID {roleId} not found");
         }
 
-        _logger.LogInformation($"Delete role successful");
-        return Ok(response);
+        _logger.LogInformation($"Role {roleId} deleted successfully");
+        return NoContent();
     }
 
     // [HttpPost(ApiEndPointConstant.Role.AddPermissionToRole)]
