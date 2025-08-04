@@ -18,6 +18,7 @@ namespace Document.API.Services.Implements
         private readonly IRequestClient<CompanyEmployeeRequest> _companyEmployeeClient;
         private readonly IRequestClient<UserEmailRequest> _userEmailClient;
         private readonly GoogleDriveConfiguration _googleDriveConfig;
+        private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ILogger<DocumentPermissionManager> _logger;
 
         public DocumentPermissionManager(
@@ -27,6 +28,7 @@ namespace Document.API.Services.Implements
             IRequestClient<CompanyEmployeeRequest> companyEmployeeClient,
             IRequestClient<UserEmailRequest> userEmailClient,
             IOptions<GoogleDriveConfiguration> googleDriveConfig,
+            IHttpContextAccessor httpContextAccessor,
             ILogger<DocumentPermissionManager> logger)
         {
             _googleDriveService = googleDriveService;
@@ -35,6 +37,7 @@ namespace Document.API.Services.Implements
             _companyEmployeeClient = companyEmployeeClient;
             _userEmailClient = userEmailClient;
             _googleDriveConfig = googleDriveConfig.Value;
+            _httpContextAccessor = httpContextAccessor;
             _logger = logger;
         }
 
@@ -203,10 +206,16 @@ namespace Document.API.Services.Implements
 
                 _logger.LogInformation("Granted owner access to file {FileId} for user {OwnerEmail}", fileId, ownerEmail);
             }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Cannot grant owner access to file {FileId} for owner {OwnerId}: {ErrorMessage}", fileId, ownerId, ex.Message);
+                // Don't throw - allow document creation to continue without permissions
+                // The document will still be created but without proper Google Drive permissions
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error granting owner access to file {FileId} for owner {OwnerId}", fileId, ownerId);
-                throw;
+                // Don't throw - allow document creation to continue
             }
         }
 
@@ -402,7 +411,7 @@ namespace Document.API.Services.Implements
         }
 
         /// <summary>
-        /// Get user email by user ID from Auth service (with Redis caching)
+        /// Get user email from JWT token (for current user) or from Auth service (for other users)
         /// </summary>
         public async Task<string> GetUserEmailAsync(string userId)
         {
@@ -410,18 +419,41 @@ namespace Document.API.Services.Implements
             {
                 _logger.LogInformation("Getting user email for user {UserId}", userId);
 
+                // Validate user ID format
+                if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out _))
+                {
+                    throw new ArgumentException($"Invalid user ID format: {userId}");
+                }
+
+                // First, check if this is the current user from JWT token
+                var currentUserEmail = GetCurrentUserEmailFromToken();
+                var currentUserId = GetCurrentUserIdFromToken();
+
+                if (!string.IsNullOrEmpty(currentUserEmail) && !string.IsNullOrEmpty(currentUserId) &&
+                    currentUserId.Equals(userId, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation("Retrieved current user email from JWT token for {UserId}", userId);
+
+                    // Cache the result for future use
+                    await _redisService.SetUserEmailAsync(userId, currentUserEmail, TimeSpan.FromHours(24));
+                    return currentUserEmail;
+                }
+
                 // Try to get from cache first
                 var cachedEmail = await _redisService.GetUserEmailAsync(userId);
                 if (!string.IsNullOrEmpty(cachedEmail))
                 {
-                    _logger.LogDebug("Retrieved user email from cache for {UserId}", userId);
+                    _logger.LogDebug("Retrieved user email from cache for {UserId}: {Email}", userId, cachedEmail);
                     return cachedEmail;
                 }
 
                 // If not in cache, request from Auth service via RabbitMQ
+                _logger.LogInformation("User email not in cache, requesting from Auth service for {UserId}", userId);
+
                 var request = new UserEmailRequest
                 {
-                    UserId = userId
+                    UserId = userId,
+                    RequestId = Guid.NewGuid().ToString()
                 };
 
                 var response = await _userEmailClient.GetResponse<UserEmailResponse>(request, timeout: TimeSpan.FromSeconds(30));
@@ -433,24 +465,70 @@ namespace Document.API.Services.Implements
                     // Cache the result for 24 hours (user emails change rarely)
                     await _redisService.SetUserEmailAsync(userId, email, TimeSpan.FromHours(24));
 
-                    _logger.LogInformation("Retrieved email for user {UserId}", userId);
+                    _logger.LogInformation("Retrieved email for user {UserId}: {Email}", userId, email);
                     return email;
                 }
                 else
                 {
                     _logger.LogWarning("Failed to get user email from Auth service: {ErrorMessage}", response.Message.ErrorMessage);
-                    return $"user{userId}@company.com"; // Fallback
+                    throw new InvalidOperationException($"User {userId} not found in Auth service. Cannot grant permissions without valid email address.");
                 }
             }
             catch (RequestTimeoutException)
             {
                 _logger.LogWarning("Timeout getting user email for user {UserId}", userId);
-                return $"user{userId}@company.com"; // Fallback
+                throw new InvalidOperationException($"Timeout retrieving email for user {userId}. Cannot grant permissions without valid email address.");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting user email for user {UserId}", userId);
-                return $"user{userId}@company.com"; // Fallback
+                throw new InvalidOperationException($"Error retrieving email for user {userId}: {ex.Message}. Cannot grant permissions without valid email address.", ex);
+            }
+        }
+
+        /// <summary>
+        /// Get current user's email from JWT token
+        /// </summary>
+        private string? GetCurrentUserEmailFromToken()
+        {
+            try
+            {
+                var user = _httpContextAccessor?.HttpContext?.User;
+                if (user == null)
+                {
+                    return null;
+                }
+
+                var email = user.FindFirst("email")?.Value;
+                return email;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error extracting email from JWT token");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Get current user's ID from JWT token
+        /// </summary>
+        private string? GetCurrentUserIdFromToken()
+        {
+            try
+            {
+                var user = _httpContextAccessor?.HttpContext?.User;
+                if (user == null)
+                {
+                    return null;
+                }
+
+                var userId = user.FindFirst("userId")?.Value;
+                return userId;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error extracting user ID from JWT token");
+                return null;
             }
         }
     }

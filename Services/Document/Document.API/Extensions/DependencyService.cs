@@ -76,6 +76,7 @@ public static class DependencyService
         services.AddScoped<IDocumentEnrichmentService, DocumentEnrichmentService>();
         services.AddScoped<AiResponseHelper>();
         services.AddMemoryCache();
+        services.AddHttpContextAccessor();
         services.AddScoped<IDocumentService, DocumentService>();
         services.AddScoped<IDocumentRecommendationService, DocumentRecommendationService>();
         services.AddScoped<IDocumentReplacementService, DocumentReplacementService>();
