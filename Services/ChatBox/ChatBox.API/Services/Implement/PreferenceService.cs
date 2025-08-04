@@ -177,10 +177,12 @@ namespace ChatBox.API.Services.Implement
                 UserId = userId,
                 SessionId = sessionId,
                 UserName = sessionPreference?.UserName ?? userPreference?.UserName ?? "",
-                ChatbotCharacteristics = sessionPreference?.ChatbotCharacteristics != null
-                    ? ParseChatbotCharacteristics(sessionPreference.ChatbotCharacteristics)
-                    : ParseChatbotCharacteristics(userPreference?.ChatbotCharacteristics),
-                AdditionalInfo = sessionPreference?.AdditionalInfo ?? userPreference?.AdditionalInfo ?? "",
+                // ✅ LIMIT characteristics để tránh system prompt quá dài
+                ChatbotCharacteristics = LimitCharacteristics(
+             sessionPreference?.ChatbotCharacteristics != null
+                 ? ParseChatbotCharacteristics(sessionPreference.ChatbotCharacteristics)
+                 : ParseChatbotCharacteristics(userPreference?.ChatbotCharacteristics)),
+                AdditionalInfo = LimitAdditionalInfo(sessionPreference?.AdditionalInfo ?? userPreference?.AdditionalInfo ?? ""),
                 ApplyToNewChats = sessionPreference?.ApplyToNewChats ?? userPreference?.ApplyToNewChats ?? false
             };
 
@@ -270,6 +272,22 @@ namespace ChatBox.API.Services.Implement
                 result.Add(new PreferenceResponse { Key = "AdditionalInfo", Value = preferences.AdditionalInfo });
 
             return result;
+        }
+        private List<string> LimitCharacteristics(List<string> characteristics)
+        {
+            // Chỉ lấy 2 characteristics đầu tiên để tránh system prompt quá dài
+            return characteristics.Take(2).ToList();
+        }
+
+        private string LimitAdditionalInfo(string additionalInfo)
+        {
+            // Giới hạn additional info tối đa 100 ký tự
+            if (string.IsNullOrEmpty(additionalInfo))
+                return "";
+
+            return additionalInfo.Length > 100
+                ? additionalInfo.Substring(0, 100) + "..."
+                : additionalInfo;
         }
     }
 
