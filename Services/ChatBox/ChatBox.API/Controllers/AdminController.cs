@@ -12,6 +12,9 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace ChatBox.API.Controllers
 {
+    /// <summary>
+    /// API quản trị cấu hình AI và thống kê hệ thống
+    /// </summary>
     [ApiController]
     [Route(ApiEndPointConstant.ApiEndpoint)]
     public class AdminController : ControllerBase
@@ -30,7 +33,9 @@ namespace ChatBox.API.Controllers
             return User.FindFirst("userId")?.Value ??
                    throw new UnauthorizedAccessException("User ID not found in token");
         }
-
+        /// <summary>
+        /// Lấy danh sách tất cả cấu hình AI
+        /// </summary>
         [HttpGet(ApiEndPointConstant.Admin.GetConfigurations)]
         [CustomAuthorize(Roles = new[] { Roles.Admin })]
         [ProducesResponseType(typeof(List<AIConfigurationResponse>), StatusCodes.Status200OK)]
@@ -49,7 +54,9 @@ namespace ChatBox.API.Controllers
                 return Problem("Lấy danh sách cấu hình AI thất bại");
             }
         }
-
+        /// <summary>
+        /// Tạo cấu hình AI mới - validate và test connectivity
+        /// </summary>
         [HttpPost(ApiEndPointConstant.Admin.CreateConfiguration)]
         [CustomAuthorize(Roles = new[] { Roles.Admin })]
         [ProducesResponseType(typeof(AIConfigurationResponse), StatusCodes.Status201Created)]
@@ -79,7 +86,9 @@ namespace ChatBox.API.Controllers
                 return Problem(MessageConstant.Admin.CreateFailed);
             }
         }
-
+        /// <summary>
+        /// Cập nhật cấu hình AI - chỉ update các field được gửi
+        /// </summary>
         [HttpPatch(ApiEndPointConstant.Admin.UpdateConfiguration)]
         [CustomAuthorize(Roles = new[] { Roles.Admin })]
         [ProducesResponseType(typeof(AIConfigurationResponse), StatusCodes.Status200OK)]
@@ -113,7 +122,9 @@ namespace ChatBox.API.Controllers
                 return Problem(MessageConstant.Admin.UpdateFailed);
             }
         }
-
+        /// <summary>
+        /// Xóa cấu hình AI - không được xóa model đang active hoặc đang dùng
+        /// </summary>
         [HttpDelete(ApiEndPointConstant.Admin.DeleteConfiguration)]
         [CustomAuthorize(Roles = new[] { Roles.Admin })]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -146,7 +157,9 @@ namespace ChatBox.API.Controllers
                 return Problem(MessageConstant.Admin.DeleteFailed);
             }
         }
-
+        /// <summary>
+        /// Kích hoạt model - chỉ 1 model active tại một thời điểm
+        /// </summary>
         [HttpPost(ApiEndPointConstant.Admin.SetActiveModel)]
         [CustomAuthorize(Roles = new[] { Roles.Admin })]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -175,31 +188,34 @@ namespace ChatBox.API.Controllers
             }
         }
 
-        //[HttpPost(ApiEndPointConstant.Admin.TestModel)]
-        //[CustomAuthorize(Roles = new[] { Roles.Admin })]
-        //[ProducesResponseType(typeof(ModelTestResponse), StatusCodes.Status200OK)]
-        //[ProducesResponseType(StatusCodes.Status404NotFound)]
-        //[ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        //[ProducesResponseType(StatusCodes.Status403Forbidden)]
-        //public async Task<IActionResult> TestModelAsync(string modelName)
-        //{
-        //    try
-        //    {
-        //        var userId = GetUserId();
-        //        var response = await _adminService.TestModelAsync(modelName, userId);
+        [HttpPost(ApiEndPointConstant.Admin.TestModel)]
+        [CustomAuthorize(Roles = new[] { Roles.Admin })]
+        [ProducesResponseType(typeof(ModelTestResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> TestModelAsync(string modelName)
+        {
+            try
+            {
+                var userId = GetUserId();
+                var response = await _adminService.TestModelAsync(modelName, userId);
 
-        //        _logger.LogInformation("Model test completed: {ModelName}, Success: {Success}",
-        //            modelName, response.Success);
+                _logger.LogInformation("Model test completed: {ModelName}, Success: {Success}",
+                    modelName, response.Success);
 
-        //        return Ok(response);
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        _logger.LogError(ex, "Failed to test model {ModelName}", modelName);
-        //        return Problem("Test model thất bại");
-        //    }
-        //}
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to test model {ModelName}", modelName);
+                return Problem("Test model thất bại");
+            }
+        }
 
+        /// <summary>
+        /// Thống kê tổng quan hệ thống
+        /// </summary>
         [HttpGet(ApiEndPointConstant.Admin.Statistics)]
         [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
         [ProducesResponseType(typeof(SystemStatisticsResponse), StatusCodes.Status200OK)]
@@ -218,7 +234,9 @@ namespace ChatBox.API.Controllers
                 return Problem("Lấy thống kê hệ thống thất bại");
             }
         }
-
+        /// <summary>
+        /// Thống kê hoạt động theo ngày (mặc định 30 ngày)
+        /// </summary>
         [HttpGet(ApiEndPointConstant.Admin.DailyActivity)]
         [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
         [ProducesResponseType(typeof(List<DailyActivityResponse>), StatusCodes.Status200OK)]
@@ -235,7 +253,9 @@ namespace ChatBox.API.Controllers
                 return Problem("Lấy thống kê hoạt động thất bại");
             }
         }
-
+        /// <summary>
+        /// Thống kê sử dụng từng model chi tiết
+        /// </summary>
         [HttpGet(ApiEndPointConstant.Admin.ModelUsage)]
         [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
         [ProducesResponseType(typeof(List<ModelUsageStatistics>), StatusCodes.Status200OK)]

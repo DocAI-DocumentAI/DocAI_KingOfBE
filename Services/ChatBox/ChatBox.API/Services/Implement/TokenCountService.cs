@@ -12,21 +12,21 @@ namespace ChatBox.API.Services.Implement
     {
         private readonly IConfiguration _configuration;
         private readonly GptEncoding _encoding;
+        private readonly ILogger<TokenCountService> _logger; 
 
-        public TokenCountService(IConfiguration configuration)
+        public TokenCountService(IConfiguration configuration, ILogger<TokenCountService> logger) 
         {
             _configuration = configuration;
+            _logger = logger; // 🔧 ASSIGN
             _encoding = CreateEncodingForMistral(ChatConstants.TokenizerModel);
         }
 
         private GptEncoding CreateEncodingForMistral(string modelName)
         {
-
             if (IsMistralModel(modelName))
             {
                 return GptEncoding.GetEncoding(ChatConstants.DefaultEncodingName);
             }
-
             return GptEncoding.GetEncoding(ChatConstants.DefaultEncodingName);
         }
 
@@ -40,28 +40,27 @@ namespace ChatBox.API.Services.Implement
         {
             if (string.IsNullOrEmpty(text))
                 return 0;
-
             try
             {
                 var tokens = _encoding.Encode(text);
                 var count = tokens.Count;
-
                 if (IsMistralModel(ChatConstants.TokenizerModel))
                 {
                     count = (int)(count * ChatConstants.MistralTokenAdjustment);
                 }
-
                 return Math.Max(1, count);
             }
             catch (Exception ex)
             {
+                // 🔧 FIX: Thêm logging khi fallback
+                _logger.LogWarning(ex, "Token counting failed for text length {Length}, using estimation fallback", text.Length);
                 return EstimateTokenCount(text);
             }
         }
 
+        // ... rest of methods remain the same
         private int EstimateTokenCount(string text)
         {
-            // Ước tính cho Mistral: 3.5 ký tự = 1 token
             return Math.Max(1, (int)Math.Ceiling(text.Length / 4.0));
         }
 
@@ -81,6 +80,7 @@ namespace ChatBox.API.Services.Implement
                 _ => ChatConstants.DefaultMaxTokens
             };
         }
+
         public int EstimateContextTokens(ChatHistory chatHistory)
         {
             var totalTokens = 0;

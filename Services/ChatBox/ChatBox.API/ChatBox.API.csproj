@@ -5,6 +5,9 @@
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<!--<DocumentationFile>ChatBox.API.xml</DocumentationFile>-->
+		<NoWarn>$(NoWarn);1591</NoWarn>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -51,6 +54,10 @@
 	<ItemGroup>
 		<ProjectReference Include="..\..\..\Shared\Shared.csproj" />
 		<ProjectReference Include="..\ChatBox.Infrastructure\ChatBox.Infrastructure.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Folder Include="Hubs\" />
 	</ItemGroup>
 
 </Project>

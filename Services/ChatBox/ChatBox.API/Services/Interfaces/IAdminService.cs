@@ -14,7 +14,7 @@ namespace ChatBox.API.Services.Interfaces
 
         // Model management
         Task<bool> SetActiveModelAsync(string modelName, string userId);
-        //Task<ModelTestResponse> TestModelAsync(string modelName, string userId);
+        Task<ModelTestResponse> TestModelAsync(string modelName, string userId);
         #endregion
 
         #region System Statistics
