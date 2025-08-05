@@ -23,6 +23,11 @@ namespace Document.API.Services.Implements
         {
             _database = redis.GetDatabase();
             _logger = logger;
+
+            // Log Redis connection info for debugging
+            var endpoints = redis.GetEndPoints();
+            _logger.LogInformation("Redis connection initialized. Endpoints: {Endpoints}, Instance: {InstanceId}",
+                string.Join(", ", endpoints.Select(e => e.ToString())), Environment.MachineName);
         }
 
         public async Task<string> GetStringAsync(string key)
@@ -92,11 +97,17 @@ namespace Document.API.Services.Implements
                 var json = JsonSerializer.Serialize(tokenData);
                 var ttl = expiresAt - DateTime.UtcNow;
 
-                // Store with TTL, but minimum 1 day to allow for refresh
-                var expiry = ttl > TimeSpan.Zero ? ttl : TimeSpan.FromDays(1);
-                await _database.StringSetAsync(GOOGLE_DRIVE_COMPANY_TOKENS_KEY, json, expiry);
+                // Store with TTL longer than token expiry to allow for refresh attempts
+                // Add 2 hours buffer to ensure tokens are available for refresh
+                var expiry = ttl > TimeSpan.Zero ? ttl.Add(TimeSpan.FromHours(2)) : TimeSpan.FromDays(1);
+                var success = await _database.StringSetAsync(GOOGLE_DRIVE_COMPANY_TOKENS_KEY, json, expiry);
 
-                _logger.LogInformation("Google Drive company tokens stored successfully");
+                _logger.LogInformation("Google Drive company tokens stored successfully. Token expires at: {TokenExpiry}, Redis TTL: {RedisTTL} minutes, Redis Set Success: {Success}, Instance: {InstanceId}",
+                    expiresAt, expiry.TotalMinutes, success, Environment.MachineName);
+
+                // Verify the key was actually set
+                var verification = await _database.KeyExistsAsync(GOOGLE_DRIVE_COMPANY_TOKENS_KEY);
+                _logger.LogInformation("Token storage verification - Key exists after set: {KeyExists}, Instance: {InstanceId}", verification, Environment.MachineName);
             }
             catch (Exception ex)
             {
@@ -109,11 +120,17 @@ namespace Document.API.Services.Implements
         {
             try
             {
+                // Check if key exists and get TTL for debugging
+                var keyExists = await _database.KeyExistsAsync(GOOGLE_DRIVE_COMPANY_TOKENS_KEY);
+                var ttl = await _database.KeyTimeToLiveAsync(GOOGLE_DRIVE_COMPANY_TOKENS_KEY);
+
+                _logger.LogDebug("Redis key check - Exists: {KeyExists}, TTL: {TTL} seconds, Instance: {InstanceId}", keyExists, ttl?.TotalSeconds, Environment.MachineName);
+
                 var json = await _database.StringGetAsync(GOOGLE_DRIVE_COMPANY_TOKENS_KEY);
 
                 if (!json.HasValue)
                 {
-                    _logger.LogWarning("No Google Drive company tokens found in Redis");
+                    _logger.LogWarning("No Google Drive company tokens found in Redis. Key exists: {KeyExists}, TTL: {TTL}, Instance: {InstanceId}", keyExists, ttl?.TotalSeconds, Environment.MachineName);
                     return null;
                 }
 

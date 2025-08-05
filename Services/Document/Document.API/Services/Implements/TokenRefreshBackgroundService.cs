@@ -1,4 +1,5 @@
 using Document.API.Services.Interfaces;
+using Microsoft.Extensions.Hosting;
 
 namespace Document.API.Services.Implements
 {
@@ -21,24 +22,38 @@ namespace Document.API.Services.Implements
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("Token refresh background service started");
-
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                try
+                _logger.LogInformation("Token refresh background service starting...");
+
+                // Test service dependencies on startup
+                using var scope = _serviceScopeFactory.CreateScope();
+                var oauthService = scope.ServiceProvider.GetRequiredService<IGoogleDriveOAuthService>();
+
+                _logger.LogInformation("Token refresh background service started successfully. Check interval: {Interval} minutes", _checkInterval.TotalMinutes);
+
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    await RefreshTokensIfNeeded();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error during background token refresh");
+                    try
+                    {
+                        await RefreshTokensIfNeeded();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error during background token refresh");
+                    }
+
+                    // Wait for next check interval
+                    await Task.Delay(_checkInterval, stoppingToken);
                 }
 
-                // Wait for next check interval
-                await Task.Delay(_checkInterval, stoppingToken);
+                _logger.LogInformation("Token refresh background service stopped");
             }
-
-            _logger.LogInformation("Token refresh background service stopped");
+            catch (Exception ex)
+            {
+                _logger.LogCritical(ex, "Token refresh background service failed to start");
+                throw; // Re-throw to ensure the service failure is visible
+            }
         }
 
         private async Task RefreshTokensIfNeeded()
