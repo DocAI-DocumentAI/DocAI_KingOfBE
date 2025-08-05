@@ -16,12 +16,12 @@ namespace ChatBox.API.Controllers
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
-    public class ChatboxController : ControllerBase
+    public class ChatController : ControllerBase
     {
         private readonly IChatService _chatService;
-        private readonly ILogger<ChatboxController> _logger;
+        private readonly ILogger<ChatController> _logger;
 
-        public ChatboxController(IChatService chatService, ILogger<ChatboxController> logger)
+        public ChatController(IChatService chatService, ILogger<ChatController> logger)
         {
             _chatService = chatService;
             _logger = logger;
