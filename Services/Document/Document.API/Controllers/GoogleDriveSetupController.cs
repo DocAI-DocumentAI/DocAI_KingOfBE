@@ -13,7 +13,6 @@ namespace Document.API.Controllers
     /// </summary>
     [Route("api/googledrive-setup")]
     [ApiController]
-    [CustomAuthorize]
     public class GoogleDriveSetupController : ControllerBase
     {
         private readonly IGoogleDriveOAuthService _oauthService;
@@ -34,15 +33,48 @@ namespace Document.API.Controllers
         }
 
         /// <summary>
+        /// Test endpoint to check configuration without authentication
+        /// </summary>
+        [HttpGet("config-test")]
+        public IActionResult TestConfiguration()
+        {
+            return Ok(new
+            {
+                BaseUrl = _config.BaseUrl,
+                CompanyAccount = _config.CompanyAccountEmail,
+                HasClientId = !string.IsNullOrEmpty(_config.ClientId),
+                ClientIdPrefix = _config.ClientId?.Substring(0, Math.Min(10, _config.ClientId.Length)) + "...",
+                ScopesCount = _config.Scopes?.Length ?? 0,
+                Timestamp = DateTime.UtcNow
+            });
+        }
+
+        /// <summary>
         /// Get Google OAuth authorization URL for company account setup
         /// This should only be used once during initial setup
         /// </summary>
         /// <returns>Authorization URL for company account</returns>
         [HttpGet("company-auth-url")]
+        [CustomAuthorize(Roles = new[] { Roles.Admin })]
         public IActionResult GetCompanyAuthUrl()
         {
             try
             {
+                _logger.LogInformation("Generating company auth URL. BaseUrl: {BaseUrl}, ClientId: {ClientId}",
+                    _config.BaseUrl, _config.ClientId?.Substring(0, 10) + "...");
+
+                if (string.IsNullOrEmpty(_config.BaseUrl))
+                {
+                    _logger.LogError("BaseUrl is not configured in GoogleDrive settings");
+                    return BadRequest("BaseUrl is not configured");
+                }
+
+                if (string.IsNullOrEmpty(_config.ClientId))
+                {
+                    _logger.LogError("ClientId is not configured in GoogleDrive settings");
+                    return BadRequest("ClientId is not configured");
+                }
+
                 var state = Guid.NewGuid().ToString();
                 var scopes = string.Join(" ", _config.Scopes);
 
@@ -56,17 +88,23 @@ namespace Document.API.Controllers
                              $"access_type=offline&" +
                              $"prompt=consent";
 
-                return Ok(new
+                _logger.LogInformation("Generated auth URL successfully. RedirectUri: {RedirectUri}", redirectUri);
+
+                var response = new
                 {
                     AuthUrl = authUrl,
                     State = state,
+                    RedirectUri = redirectUri,
+                    CompanyAccount = _config.CompanyAccountEmail,
                     Instructions = "Company account (s3rcc.9@gmail.com) must authorize this application using the provided URL"
-                });
+                };
+
+                return Ok(response);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error generating company auth URL");
-                return StatusCode(500, "Error generating authorization URL");
+                return StatusCode(500, new { Error = "Error generating authorization URL", Details = ex.Message });
             }
         }
 
