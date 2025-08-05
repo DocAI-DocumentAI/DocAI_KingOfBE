@@ -7,6 +7,23 @@ namespace ChatBox.API.Services.Implement
         private readonly IDocumentSearchService _documentSearchService;
         private readonly ILogger<ManualDocumentSearchService> _logger;
 
+        // 🔧 IMPROVED: Better categorized keywords
+        private static readonly Dictionary<string, string[]> DocumentCategories = new()
+        {
+            ["legal"] = new[] { "quyết định", "nghị định", "thông tư", "luật", "pháp lý", "quy định", "điều lệ" },
+            ["procedure"] = new[] { "thủ tục", "quy trình", "hướng dẫn", "cách thức", "procedure", "process" },
+            ["policy"] = new[] { "chính sách", "policy", "guideline", "regulation" },
+            ["document"] = new[] { "tài liệu", "văn bản", "document", "file", "công bố" },
+            ["admin"] = new[] { "hành chính", "administrative", "quản lý", "management" }
+        };
+
+        // 🔧 IMPROVED: Exclusion phrases để tránh false positive
+        private static readonly string[] ExclusionPhrases = new[]
+        {
+            "không cần", "không muốn", "không có", "chưa có",
+            "don't need", "don't want", "no document", "without"
+        };
+
         public ManualDocumentSearchService(
             IDocumentSearchService documentSearchService,
             ILogger<ManualDocumentSearchService> logger)
@@ -44,22 +61,69 @@ namespace ChatBox.API.Services.Implement
             }
         }
 
+        // 🔧 IMPROVED: Better keyword detection logic
         public bool ShouldSearchDocuments(string message)
         {
-            var documentKeywords = new[]
+            if (string.IsNullOrWhiteSpace(message))
             {
-                "quyết định", "thủ tục", "quy định", "chính sách", "hướng dẫn",
-                "tài liệu", "văn bản", "công bố", "nghị định", "thông tư",
-                "hành chính", "pháp lý", "luật", "điều lệ", "quy trình",
-                "document", "policy", "procedure", "regulation", "guideline"
-            };
+                return false;
+            }
 
-            var lowerMessage = message.ToLowerInvariant();
-            var shouldSearch = documentKeywords.Any(keyword => lowerMessage.Contains(keyword));
+            var lowerMessage = message.ToLowerInvariant().Trim();
 
-            Console.WriteLine($"🔍 [MANUAL] Should search documents: {shouldSearch} for message: {message.Substring(0, Math.Min(50, message.Length))}...");
+            // 🔧 IMPROVED: Check exclusion phrases first
+            if (ExclusionPhrases.Any(phrase => lowerMessage.Contains(phrase)))
+            {
+                Console.WriteLine($"🔍 [MANUAL] Excluded due to negative phrase: {message.Substring(0, Math.Min(50, message.Length))}...");
+                return false;
+            }
+
+            // 🔧 IMPROVED: Better category matching
+            var matchedCategories = 0;
+            var totalMatches = 0;
+
+            foreach (var category in DocumentCategories)
+            {
+                var categoryMatches = category.Value.Count(keyword => lowerMessage.Contains(keyword));
+                if (categoryMatches > 0)
+                {
+                    matchedCategories++;
+                    totalMatches += categoryMatches;
+                }
+            }
+
+            //  IMPROVED: More sophisticated logic
+            var shouldSearch = false;
+
+            if (matchedCategories >= 2) // Multiple categories matched
+            {
+                shouldSearch = true;
+            }
+            else if (matchedCategories == 1 && totalMatches >= 2) // Multiple keywords in same category
+            {
+                shouldSearch = true;
+            }
+            else if (IsDirectDocumentQuery(lowerMessage)) // Direct document query
+            {
+                shouldSearch = true;
+            }
+
+            Console.WriteLine($"🔍 [MANUAL] Should search: {shouldSearch} (categories: {matchedCategories}, matches: {totalMatches}) for: {message.Substring(0, Math.Min(50, message.Length))}...");
 
             return shouldSearch;
+        }
+
+        // 🔧 IMPROVED: Detect direct document queries
+        private static bool IsDirectDocumentQuery(string message)
+        {
+            var directQueries = new[]
+            {
+                "tìm tài liệu", "search document", "có tài liệu nào",
+                "văn bản về", "quy định về", "chính sách về",
+                "hướng dẫn về", "thủ tục về", "quy trình về"
+            };
+
+            return directQueries.Any(query => message.Contains(query));
         }
     }
 }

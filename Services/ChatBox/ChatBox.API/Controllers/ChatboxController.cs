@@ -7,18 +7,21 @@ using ChatBox.API.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using System.IO;
 using System.Security.Claims;
+using System.Text;
 
 namespace ChatBox.API.Controllers
 {
-
+    /// <summary>
+    /// API chat chính - gửi tin nhắn và quản lý session
+    /// </summary>
     [ApiController]
     [Route("api/[controller]")]
-    public class ChatController : ControllerBase
+    public class ChatboxController : ControllerBase
     {
         private readonly IChatService _chatService;
-        private readonly ILogger<ChatController> _logger;
+        private readonly ILogger<ChatboxController> _logger;
 
-        public ChatController(IChatService chatService, ILogger<ChatController> logger)
+        public ChatboxController(IChatService chatService, ILogger<ChatboxController> logger)
         {
             _chatService = chatService;
             _logger = logger;
@@ -29,7 +32,14 @@ namespace ChatBox.API.Controllers
             return User.FindFirst("userId")?.Value ??
                    throw new UnauthorizedAccessException("User ID not found in token");
         }
-
+        private static bool IsEndOfSentence(string chunk)
+        {
+            return chunk.Contains('.') || chunk.Contains('!') || chunk.Contains('?') ||
+                   chunk.Contains('\n') || chunk.Contains('。') || chunk.Contains('！') || chunk.Contains('？');
+        }
+        /// <summary>
+        /// Gửi tin nhắn và nhận phản hồi AI (có tích hợp RAG tự động)
+        /// </summary>
         [HttpPost(ApiEndPointConstant.Chat.SendMessage)]
         [CustomAuthorize]
         [ProducesResponseType(typeof(ChatResponse), StatusCodes.Status200OK)]
@@ -59,7 +69,9 @@ namespace ChatBox.API.Controllers
                 return Problem(MessageConstant.Chat.SendFailed);
             }
         }
-
+        /// <summary>
+        /// Gửi tin nhắn và nhận phản hồi AI theo dạng streaming real-time
+        /// </summary>
         [HttpPost(ApiEndPointConstant.Chat.SendMessageStream)]
         [CustomAuthorize]
         [ProducesResponseType(typeof(IAsyncEnumerable<string>), StatusCodes.Status200OK)]
@@ -67,33 +79,84 @@ namespace ChatBox.API.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         public async Task SendMessageStreamAsync([FromBody] ChatRequest request)
         {
+
             try
             {
                 var userId = GetUserId();
+
+                // 🔧 FIXED: Validate trước khi stream để tránh lãng phí
+                var validation = await _chatService.ValidateMessageAsync(request.Message);
+                if (!validation.Success)
+                {
+                    Response.StatusCode = 400;
+                    await Response.WriteAsync($"Error: {validation.Message}");
+                    return;
+                }
+
                 var responseStream = await _chatService.SendMessageStreamAsync(request, userId);
 
                 Response.StatusCode = 200;
-                Response.ContentType = "text/event-stream"; 
+                Response.ContentType = "text/event-stream";
                 Response.Headers["Cache-Control"] = "no-cache";
+                Response.Headers["Connection"] = "keep-alive";
+
+                // 🔧 FIXED: Simple buffer để giảm số lần flush
+                var buffer = new StringBuilder();
+                var tokenCount = 0;
+                const int bufferThreshold = 50; // Buffer 50 tokens trước khi flush
 
                 await using var writer = new StreamWriter(Response.Body);
 
                 await foreach (var chunk in responseStream)
                 {
-                    await writer.WriteAsync(chunk);
-                        await writer.FlushAsync(); 
+                    // 🔧 FIXED: Check client disconnect
+                    if (HttpContext.RequestAborted.IsCancellationRequested)
+                    {
+                        _logger.LogInformation("Client disconnected during streaming");
+                        break;
+                    }
+
+                    buffer.Append(chunk);
+                    tokenCount++;
+
+                    // 🔧 FIXED: Flush buffer khi đủ tokens hoặc gặp dấu câu
+                    if (tokenCount >= bufferThreshold || IsEndOfSentence(chunk))
+                    {
+                        await writer.WriteAsync(buffer.ToString());
+                        await writer.FlushAsync();
+
+                        buffer.Clear();
+                        tokenCount = 0;
+                    }
+                }
+
+                if (buffer.Length > 0)
+                {
+                    await writer.WriteAsync(buffer.ToString());
+                    await writer.FlushAsync();
                 }
             }
             catch (ArgumentException ex)
             {
                 _logger.LogWarning("Invalid stream request: {Error}", ex.Message);
+                Response.StatusCode = 400;
+                await Response.WriteAsync($"Error: {ex.Message}");
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Streaming cancelled by client");
+                // Không cần làm gì thêm
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to start message stream");
+                Response.StatusCode = 500;
+                await Response.WriteAsync($"Error: {MessageConstant.Chat.SendFailed}");
             }
         }
-
+        /// <summary>
+        /// Tạo session chat mới
+        /// </summary>
         [HttpPost(ApiEndPointConstant.Chat.CreateSession)]
         [CustomAuthorize]
         [ProducesResponseType(typeof(SessionResponse), StatusCodes.Status201Created)]
@@ -116,7 +179,9 @@ namespace ChatBox.API.Controllers
                 return Problem("Tạo phiên chat thất bại");
             }
         }
-
+        /// <summary>
+        /// Lấy thông tin chi tiết session và lịch sử chat
+        /// </summary>
         [HttpGet(ApiEndPointConstant.Chat.GetSession)]
         [CustomAuthorize]
         [ProducesResponseType(typeof(SessionDetailResponse), StatusCodes.Status200OK)]
@@ -142,7 +207,9 @@ namespace ChatBox.API.Controllers
                 return Problem("Lấy thông tin phiên chat thất bại");
             }
         }
-
+        /// <summary>
+        /// Lấy danh sách tất cả session của user
+        /// </summary>
         [HttpGet(ApiEndPointConstant.Chat.GetUserSessions)]
         [CustomAuthorize]
         [ProducesResponseType(typeof(List<SessionResponse>), StatusCodes.Status200OK)]
@@ -162,7 +229,9 @@ namespace ChatBox.API.Controllers
                 return Problem("Lấy danh sách phiên chat thất bại");
             }
         }
-
+        /// <summary>
+        /// Xóa session (soft delete)
+        /// </summary>
         [HttpDelete(ApiEndPointConstant.Chat.DeleteSession)]
         [CustomAuthorize]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -189,7 +258,9 @@ namespace ChatBox.API.Controllers
                 return Problem("Xóa phiên chat thất bại");
             }
         }
-
+        /// <summary>
+        /// Chuyển đổi model cho session - DISABLED (phải tạo session mới)
+        /// </summary>
         [HttpPatch(ApiEndPointConstant.Chat.SwitchModel)]
         [CustomAuthorize]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -222,7 +293,9 @@ namespace ChatBox.API.Controllers
                 return Problem(MessageConstant.Chat.ModelSwitchFailed);
             }
         }
-
+        /// <summary>
+        /// Validate tin nhắn trước khi gửi (độ dài, tokens)
+        /// </summary>
         [HttpPost(ApiEndPointConstant.Chat.ValidateMessage)]
         [CustomAuthorize]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
@@ -231,7 +304,9 @@ namespace ChatBox.API.Controllers
             var validation = await _chatService.ValidateMessageAsync(message);
             return Ok(validation);
         }
-
+        /// <summary>
+        /// Lấy danh sách các model AI khả dụng
+        /// </summary>
         [HttpGet(ApiEndPointConstant.Chat.AvailableModels)]
         [CustomAuthorize]
         [ProducesResponseType(typeof(List<AvailableModelResponse>), StatusCodes.Status200OK)]

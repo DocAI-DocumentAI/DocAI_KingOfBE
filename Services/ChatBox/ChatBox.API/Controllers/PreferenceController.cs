@@ -8,6 +8,9 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace ChatBox.API.Controllers
 {
+    /// <summary>
+    /// API quản lý tùy chọn user và session
+    /// </summary>
     [ApiController]
     [Route(ApiEndPointConstant.ApiEndpoint)]
     public class PreferenceController : ControllerBase
@@ -26,7 +29,9 @@ namespace ChatBox.API.Controllers
             return User.FindFirst("userId")?.Value ??
                    throw new UnauthorizedAccessException("User ID not found in token");
         }
-
+        /// <summary>
+        /// Lấy tùy chọn cá nhân của user (áp dụng cho tất cả chat mới)
+        /// </summary>
         [HttpGet(ApiEndPointConstant.Preference.GetUserPreferences)]
         [CustomAuthorize]
         [ProducesResponseType(typeof(UserPreferenceResponse), StatusCodes.Status200OK)]
@@ -46,7 +51,9 @@ namespace ChatBox.API.Controllers
                 return Problem("Lấy tùy chọn người dùng thất bại");
             }
         }
-
+        /// <summary>
+        /// Cập nhật tùy chọn cá nhân (tên, tính cách chatbot, thông tin thêm)
+        /// </summary>
         [HttpPatch(ApiEndPointConstant.Preference.UpdateUserPreferences)]
         [CustomAuthorize]
         [ProducesResponseType(typeof(UserPreferenceResponse), StatusCodes.Status200OK)]
@@ -68,7 +75,9 @@ namespace ChatBox.API.Controllers
                 return Problem(MessageConstant.Preference.UpdateFailed);
             }
         }
-
+        /// <summary>
+        /// Cập nhật tùy chọn cho session cụ thể (override user preferences)
+        /// </summary>
         [HttpGet(ApiEndPointConstant.Preference.GetSessionPreferences)]
         [CustomAuthorize]
         [ProducesResponseType(typeof(UserPreferenceResponse), StatusCodes.Status200OK)]
@@ -89,6 +98,9 @@ namespace ChatBox.API.Controllers
             }
         }
 
+        /// <summary>
+        /// Xóa tùy chọn cá nhân của user
+        /// </summary>
         [HttpPatch(ApiEndPointConstant.Preference.UpdateSessionPreferences)]
         [CustomAuthorize]
         [ProducesResponseType(typeof(UserPreferenceResponse), StatusCodes.Status200OK)]
@@ -110,7 +122,9 @@ namespace ChatBox.API.Controllers
                 return Problem(MessageConstant.Preference.UpdateFailed);
             }
         }
-
+        /// <summary>
+        /// Xóa tùy chọn cá nhân của user
+        /// </summary>
         [HttpDelete(ApiEndPointConstant.Preference.DeleteUserPreferences)]
         [CustomAuthorize]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -137,7 +151,9 @@ namespace ChatBox.API.Controllers
                 return Problem(MessageConstant.Preference.DeleteFailed);
             }
         }
-
+        /// <summary>
+        /// Xóa tùy chọn riêng của session
+        /// </summary>
         [HttpDelete(ApiEndPointConstant.Preference.DeleteSessionPreferences)]
         [CustomAuthorize]
         [ProducesResponseType(StatusCodes.Status200OK)]

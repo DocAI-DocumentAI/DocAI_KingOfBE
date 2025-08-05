@@ -16,16 +16,19 @@ namespace ChatBox.API.Services.Implement
         private readonly IMapper _mapper;
         private readonly IConfiguration _configuration;
         private readonly ISemanticKernelService _kernelService;
+        private readonly ICacheService _cacheService;
         public AdminService(
         IUnitOfWork<ChatBoxDbContext> unitOfWork,
         IMapper mapper,
         IConfiguration configuration,
-        ISemanticKernelService semanticKernelService)
+        ISemanticKernelService semanticKernelService,
+        ICacheService cacheService)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _configuration = configuration;
             _kernelService = semanticKernelService;
+            _cacheService = cacheService;
         }
         #region AI Configuration Management
 
@@ -80,6 +83,8 @@ namespace ChatBox.API.Services.Implement
             await _unitOfWork.GetRepository<AIConfiguration>().InsertAsync(config);
             await _unitOfWork.CommitAsync();
 
+            await _cacheService.RemoveAsync("default_active_model");
+
             return _mapper.Map<AIConfigurationResponse>(config);
         }
 
@@ -103,8 +108,9 @@ namespace ChatBox.API.Services.Implement
                 if (duplicate != null)
                     throw new ArgumentException(string.Format(MessageConstant.Admin.ModelExists, request.ModelName));
             }
-            var oldSystemPrompt = config.SystemPrompt;
 
+            var oldSystemPrompt = config.SystemPrompt;
+            var oldModelName = config.ModelName;
 
             _mapper.Map(request, config);
             config.UpdatedAt = DateTime.UtcNow;
@@ -128,6 +134,14 @@ namespace ChatBox.API.Services.Implement
 
             _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(config);
             await _unitOfWork.CommitAsync();
+
+            //  THÊM: Clear cache khi update model
+            if (config.IsActive || oldModelName != config.ModelName)
+            {
+                await _cacheService.RemoveAsync("default_active_model");
+                await _cacheService.RemoveAsync($"model_valid_{oldModelName}");
+                await _cacheService.RemoveAsync($"model_valid_{config.ModelName}");
+            }
 
             return _mapper.Map<AIConfigurationResponse>(config);
         }
@@ -156,6 +170,9 @@ namespace ChatBox.API.Services.Implement
             _unitOfWork.GetRepository<AIConfiguration>().DeleteAsync(config);
             await _unitOfWork.CommitAsync();
 
+            //  THÊM: Clear cache khi delete
+            await _cacheService.RemoveAsync($"model_valid_{config.ModelName}");
+
             return true;
         }
 
@@ -163,29 +180,45 @@ namespace ChatBox.API.Services.Implement
         {
             var normalizedModelName = NormalizeModelName(modelName);
 
-            var allConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
-                .GetListAsync(); // ← EF sẽ dịch được truy vấn này
-
-            var targetConfig = allConfigs
-                .FirstOrDefault(c => NormalizeModelName(c.ModelName) == normalizedModelName);
+            // 🔧 FIX: Tìm target model trước
+            var targetConfig = await _unitOfWork.GetRepository<AIConfiguration>()
+                .SingleOrDefaultAsync(predicate: c => NormalizeModelName(c.ModelName) == normalizedModelName);
 
             if (targetConfig == null)
                 return false;
 
-            foreach (var config in allConfigs)
-            {
-                var wasActive = config.IsActive;
-                config.IsActive = config.Id == targetConfig.Id;
+            // 🔧 FIX: Nếu đã active rồi thì return luôn
+            if (targetConfig.IsActive)
+                return true;
 
-                if (wasActive != config.IsActive)
-                {
-                    config.UpdatedAt = DateTime.UtcNow;
-                    config.UpdatedBy = userId;
-                     _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(config);
-                }
+            // 🔧 FIX: Deactivate current active models TRƯỚC
+            var currentActiveConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
+                .GetListAsync(predicate: c => c.IsActive && c.Id != targetConfig.Id);
+
+            foreach (var config in currentActiveConfigs)
+            {
+                config.IsActive = false;
+                config.UpdatedAt = DateTime.UtcNow;
+                config.UpdatedBy = userId;
+                _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(config);
             }
 
+            // Activate target model
+            targetConfig.IsActive = true;
+            targetConfig.UpdatedAt = DateTime.UtcNow;
+            targetConfig.UpdatedBy = userId;
+            _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(targetConfig);
+
             await _unitOfWork.CommitAsync();
+
+            // 🔧 THÊM: Clear cache khi thay đổi active model
+            await _cacheService.RemoveAsync("default_active_model");
+            foreach (var config in currentActiveConfigs)
+            {
+                await _cacheService.RemoveAsync($"model_valid_{config.ModelName}");
+            }
+            await _cacheService.RemoveAsync($"model_valid_{targetConfig.ModelName}");
+
             return true;
         }
 
@@ -198,7 +231,7 @@ namespace ChatBox.API.Services.Implement
             return activeSessions.Any();
         }
         #endregion
-     
+
         #region Statistics
 
         public async Task<SystemStatisticsResponse> GetSystemStatisticsAsync()
@@ -290,19 +323,19 @@ namespace ChatBox.API.Services.Implement
 
         #region Model Testing
 
-   public async Task<ModelTestResponse> TestModelAsync(string modelName, string userId)
+        public async Task<ModelTestResponse> TestModelAsync(string modelName, string userId)
         {
             try
             {
                 modelName = HttpUtility.UrlDecode(modelName);
 
-        var normalizedModelName = NormalizeModelName(modelName);
+                var normalizedModelName = NormalizeModelName(modelName);
 
-        var allConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
-            .GetListAsync();
+                var allConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
+                    .GetListAsync();
 
-        var targetConfig = allConfigs
-            .FirstOrDefault(c => NormalizeModelName(c.ModelName) == normalizedModelName);
+                var targetConfig = allConfigs
+                    .FirstOrDefault(c => NormalizeModelName(c.ModelName) == normalizedModelName);
 
 
                 if (targetConfig == null)

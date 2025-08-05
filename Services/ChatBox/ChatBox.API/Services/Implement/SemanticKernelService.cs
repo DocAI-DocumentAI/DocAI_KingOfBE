@@ -49,7 +49,7 @@ namespace ChatBox.API.Services.Implement
 
                 var kernel = builder.Build();
 
-                // ✅ DOCUMENT SEARCH PLUGIN INTEGRATION - FEATURE PRESERVED
+                //  DOCUMENT SEARCH PLUGIN INTEGRATION - FEATURE PRESERVED
                 var documentPlugin = new DocumentSearchPlugin(_documentSearchService);
                 kernel.Plugins.AddFromObject(documentPlugin, "DocumentSearch");
                 kernel.Plugins.AddFromType<TimePlugin>("Time");
@@ -241,17 +241,17 @@ namespace ChatBox.API.Services.Implement
                 MaxTokens = isMistralModel ? Math.Min(config.MaxTokens, 2000) : config.MaxTokens,
             };
 
-            // ✅ DISABLE tool calling cho Mistral, enable cho models khác
-            if (!isMistralModel)
+            //  DISABLE tool calling cho Mistral, enable cho models khác
+            settings.ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions;
+
+            if (isMistralModel)
             {
-                settings.ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions;
-                Console.WriteLine($"🔧 [TOOLS] Tool calling ENABLED for non-Mistral model");
+                Console.WriteLine($"🔧 [MISTRAL] Function calling enabled via OpenRouter (format handled by proxy)");
             }
             else
             {
-                Console.WriteLine($"🔧 [TOOLS] Tool calling DISABLED for Mistral model - using structured prompts");
+                Console.WriteLine($"🔧 [TOOLS] Function calling enabled");
             }
-
             return settings;
         }
 

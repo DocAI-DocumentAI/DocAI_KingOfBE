@@ -12,6 +12,7 @@ using ChatBox.Infrastructure.Repository.Interfaces;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using Shared.DTOs;
@@ -50,12 +51,15 @@ public static class DependencyService
         services.AddDatabase();
         services.AddUnitOfWork();
 
+        services.AddRedisCache(configuration);
+
         services.AddHttpContextAccessor();
         services.AddAutoMapper(typeof(MappingProfile).Assembly);
 
         services.AddMemoryCache();
 
         // Application services
+        services.AddScoped<ICacheService, CacheService>();
         services.AddScoped<IChatService, ChatService>();
         services.AddScoped<ISemanticKernelService, SemanticKernelService>();
         services.AddScoped<ITokenCountService, TokenCountService>();
@@ -67,6 +71,37 @@ public static class DependencyService
         // Semantic Kernel plugins
         services.AddScoped<DocumentSearchPlugin>();
         services.AddScoped<TimePlugin>();
+
+        return services;
+    }
+    public static IServiceCollection AddRedisCache(this IServiceCollection services, IConfiguration configuration)
+    {
+        var redisConnection = configuration.GetConnectionString("Redis");
+
+        if (!string.IsNullOrEmpty(redisConnection))
+        {
+            try
+            {
+                services.AddStackExchangeRedisCache(options =>
+                {
+                    options.Configuration = redisConnection;
+                    options.InstanceName = "ChatBox";
+                });
+                Log.Information("Redis cache configured with connection: {RedisConnection}", redisConnection);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to configure Redis, falling back to memory cache");
+                services.AddMemoryCache();
+                services.AddSingleton<IDistributedCache, MemoryDistributedCache>();
+            }
+        }
+        else
+        {
+            Log.Information("No Redis connection configured, using memory cache");
+            services.AddMemoryCache();
+            services.AddSingleton<IDistributedCache, MemoryDistributedCache>();
+        }
 
         return services;
     }
