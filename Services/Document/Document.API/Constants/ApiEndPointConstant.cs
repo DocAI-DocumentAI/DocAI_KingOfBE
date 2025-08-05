@@ -85,4 +85,12 @@ public class ApiEndPointConstant
         public const string DeleteDocumentType = ApiEndpoint + "/document-types/{id}";
         public const string GetDocumentTypesList = ApiEndpoint + "/document-types/list";
     }
+
+    public class GoogleDrive
+    {
+        public const string CompanyAuth = ApiEndpoint + "/company-auth-url";
+        public const string CompanyCallback = ApiEndpoint + "/company-callback";
+        public const string Status = ApiEndpoint + "/status";
+        public const string TestConnection = ApiEndpoint + "/test-connection";
+    }
 }
