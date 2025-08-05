@@ -77,9 +77,8 @@ namespace Document.API.Configuration
         public bool AutoShareWithDepartmentUsers { get; set; } = true;
 
         /// <summary>
-        /// Base URL for OAuth callbacks (e.g., "http://localhost:5002" or "https://yourdomain.com")
         /// </summary>
-        public string BaseUrl { get; set; } = "http://localhost:5002";
+        public string BaseUrl { get; set; } = "https://production.docai.asia";
     }
 
     /// <summary>

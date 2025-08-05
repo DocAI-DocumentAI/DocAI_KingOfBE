@@ -12,7 +12,7 @@ namespace Document.API.Controllers
     /// Controller for Google Drive setup and company account authorization
     /// This is used for one-time setup of the company account
     /// </summary>
-    [Route(ApiEndPointConstant.ApiEndpoint)]
+    [Route(ApiEndPointConstant.GoogleApiEndpoint)]
     [ApiController]
     public class GoogleDriveSetupController : ControllerBase
     {
@@ -62,7 +62,7 @@ namespace Document.API.Controllers
                 var state = Guid.NewGuid().ToString();
                 var scopes = string.Join(" ", _config.Scopes);
 
-                var redirectUri = $"{_config.BaseUrl}/api/document/company-callback";
+                var redirectUri = $"{_config.BaseUrl}/api/googledrive-setup/company-callback";
                 var authUrl = $"https://accounts.google.com/o/oauth2/v2/auth?" +
                              $"client_id={_config.ClientId}&" +
                              $"redirect_uri={Uri.EscapeDataString(redirectUri)}&" +
@@ -223,7 +223,7 @@ namespace Document.API.Controllers
                     ["client_secret"] = _config.ClientSecret,
                     ["code"] = code,
                     ["grant_type"] = "authorization_code",
-                    ["redirect_uri"] = $"{_config.BaseUrl}/api/document/company-callback"
+                    ["redirect_uri"] = $"{_config.BaseUrl}/api/googledrive-setup/company-callback"
                 };
 
                 using var httpClient = new HttpClient();
