@@ -96,18 +96,9 @@ try
         options.RoutePrefix = "swagger";
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
     });
-    app.Use(async (context, next) =>
-    {
-        context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
-        context.Response.Headers.Add("X-Frame-Options", "DENY");
-        context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
-        context.Response.Headers.Add("Referrer-Policy", "strict-origin-when-cross-origin");
-        await next();
-    });
-
-    app.UseHttpsRedirection();
-    app.UseSerilogRequestLogging();
     app.UseCors(CorConstant.PolicyName);
+
+    app.UseSerilogRequestLogging();
     //app.UseCustomMiddlewares();
     app.UseAuthentication();
 
