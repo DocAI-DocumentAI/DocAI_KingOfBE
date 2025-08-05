@@ -7,7 +7,6 @@ public class ApiEndPointConstant
     public const string RootEndPoint = "/api";
     public const string DocumentApiVersion = "/document"; // New constant
     public const string ApiEndpoint = RootEndPoint + DocumentApiVersion; // Base for document-related APIs
-    public const string GoogleApiEndpoint = RootEndPoint + "/googledrive-setup"; // Base for Google Drive setup APIs
 
     public class Document
     {
@@ -89,9 +88,9 @@ public class ApiEndPointConstant
 
     public class GoogleDrive
     {
-        public const string CompanyAuth = GoogleApiEndpoint + "/company-auth-url";
-        public const string CompanyCallback = GoogleApiEndpoint + "/company-callback";
-        public const string Status = GoogleApiEndpoint + "/status";
-        public const string TestConnection = GoogleApiEndpoint +"/test-connection";
+        public const string CompanyAuth = ApiEndpoint + "/company-auth-url";
+        public const string CompanyCallback = ApiEndpoint + "/company-callback";
+        public const string Status = ApiEndpoint + "/status";
+        public const string TestConnection = ApiEndpoint +"/test-connection";
     }
 }
