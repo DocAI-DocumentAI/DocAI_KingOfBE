@@ -1,11 +1,9 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using System.ComponentModel.DataAnnotations;
 
 namespace Document.API.Payload.Request
 {
     public class CreateDraftRequest
     {
-        [Required]
         public string Title { get; set; }
         public string VersionName { get; set; }
         public string? Summary { get; set; }
@@ -17,7 +15,6 @@ namespace Document.API.Payload.Request
         public IFormFile File { get; set; }
         public string? ReplacementDocumentId { get; set; }
 
-        [Required(ErrorMessage = "Document type is required")]
         public string DocumentTypeId { get; set; }
 
         /// <summary>

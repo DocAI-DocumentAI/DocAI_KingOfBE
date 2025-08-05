@@ -113,11 +113,20 @@ namespace Document.API.Services.Implements
                     var refreshed = await RefreshCompanyTokensAsync();
                     if (refreshed)
                     {
+                        // Get the refreshed tokens
                         tokens = await _redisService.GetGoogleDriveCompanyTokensAsync();
+                        if (tokens != null)
+                        {
+                            _logger.LogInformation("Successfully refreshed and retrieved new company access token");
+                            return tokens.Value.accessToken;
+                        }
                     }
+
+                    _logger.LogWarning("Failed to refresh company tokens, returning expired token");
+                    return null;
                 }
 
-                return tokens?.accessToken;
+                return tokens.Value.accessToken;
             }
             catch (Exception ex)
             {
@@ -220,7 +229,31 @@ namespace Document.API.Services.Implements
             try
             {
                 var tokens = await _redisService.GetGoogleDriveCompanyTokensAsync();
-                return tokens != null && tokens.Value.expiresAt > DateTime.UtcNow.AddMinutes(5);
+                if (tokens == null)
+                {
+                    _logger.LogWarning("No company tokens found in storage");
+                    return false;
+                }
+
+                // If tokens are expired or expiring soon, try to refresh them
+                if (tokens.Value.expiresAt <= DateTime.UtcNow.AddMinutes(5))
+                {
+                    _logger.LogInformation("Company tokens are expired or expiring soon, attempting refresh");
+                    var refreshed = await RefreshCompanyTokensAsync();
+                    if (refreshed)
+                    {
+                        _logger.LogInformation("Company tokens refreshed successfully");
+                        return true;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Failed to refresh company tokens");
+                        return false;
+                    }
+                }
+
+                // Tokens are still valid
+                return true;
             }
             catch (Exception ex)
             {
@@ -248,6 +281,8 @@ namespace Document.API.Services.Implements
         {
             try
             {
+                _logger.LogInformation("Attempting to refresh Google OAuth tokens");
+
                 var tokenRequest = new Dictionary<string, string>
                 {
                     ["client_id"] = _config.ClientId,
@@ -261,19 +296,26 @@ namespace Document.API.Services.Implements
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogError("Token refresh failed: {Error}", await response.Content.ReadAsStringAsync());
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError("Token refresh failed with status {StatusCode}: {Error}",
+                        response.StatusCode, errorContent);
                     return null;
                 }
 
                 var jsonResponse = await response.Content.ReadAsStringAsync();
+                _logger.LogDebug("Token refresh response received: {Response}", jsonResponse);
+
                 var tokenResponse = JsonSerializer.Deserialize<JsonElement>(jsonResponse);
 
-                return new RefreshedTokenData
+                var refreshedData = new RefreshedTokenData
                 {
                     AccessToken = tokenResponse.GetProperty("access_token").GetString(),
-                    RefreshToken = tokenResponse.TryGetProperty("refresh_token", out var rt) ? rt.GetString() : null,
+                    RefreshToken = tokenResponse.TryGetProperty("refresh_token", out var rt) ? rt.GetString() : refreshToken, // Use original if new one not provided
                     ExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.GetProperty("expires_in").GetInt32())
                 };
+
+                _logger.LogInformation("Successfully refreshed OAuth tokens, expires at: {ExpiresAt}", refreshedData.ExpiresAt);
+                return refreshedData;
             }
             catch (Exception ex)
             {

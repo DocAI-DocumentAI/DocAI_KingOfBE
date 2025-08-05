@@ -139,19 +139,7 @@ public class DocumentService : IDocumentService
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "User department not found in authentication token");
         }
 
-        // Validations
-        // BR-015 Supported file types are PDF (text-based) and DOCX.
-        var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
-        if (!PolicyConstant.SupportedFileTypes.Contains(fileExtension))
-        {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.UnsupportedFileType);
-        }
-
-        // BR-016 Maximum file size is 5MB.
-        if (request.File.Length > PolicyConstant.MaxFileSizeMB * 1024 * 1024)
-        {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
-        }
+        // File type and size validations are now handled by FluentValidation
 
         // Validate DocumentType exists
         if (string.IsNullOrEmpty(request.DocumentTypeId))
@@ -167,11 +155,7 @@ public class DocumentService : IDocumentService
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidDocumentType);
         }
 
-        // BR-021 'Effective From' date must be before 'Expiration Date'.
-        if (request.EffectiveFrom.HasValue && request.EffectiveUntil.HasValue && request.EffectiveFrom.Value >= request.EffectiveUntil.Value)
-        {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
-        }
+        // Effective date validation is now handled by FluentValidation
 
         //1. Check draft limit
         var draftCount = await _unitOfWork.GetRepository<DocumentVersion>()
@@ -384,23 +368,7 @@ public class DocumentService : IDocumentService
         // Do NOT touch the database yet.
         // ====================================================================================
 
-        // BR-021 'Effective From' date must be before 'Expiration Date'.
-        if (request.EffectiveFrom.HasValue && request.EffectiveUntil.HasValue && request.EffectiveFrom.Value >= request.EffectiveUntil.Value)
-        {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
-        }
-
-        // Validate DocumentType if provided
-        if (!string.IsNullOrEmpty(request.DocumentTypeId))
-        {
-            var documentType = await _unitOfWork.GetRepository<DocumentType>()
-                .SingleOrDefaultAsync(predicate: dt => dt.Id == request.DocumentTypeId && dt.DeletedTime == null);
-
-            if (documentType == null)
-            {
-                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidDocumentType);
-            }
-        }
+        // Effective date and DocumentType validations are now handled by FluentValidation
 
         StorageUploadResponse uploadResponse = null;
         string fileHash = null;
@@ -413,18 +381,7 @@ public class DocumentService : IDocumentService
 
         if (request.File != null)
         {
-            // BR-015 Supported file types are PDF (text-based) and DOCX.
-            var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
-            if (!PolicyConstant.SupportedFileTypes.Contains(fileExtension))
-            {
-                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.UnsupportedFileType);
-            }
-
-            // BR-016 Maximum file size is 5MB.
-            if (request.File.Length > PolicyConstant.MaxFileSizeMB * 1024 * 1024)
-            {
-                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
-            }
+            // File type and size validations are now handled by FluentValidation
 
             // Upload the new file to storage BEFORE starting the database transaction.
             _logger.LogInformation("Uploading new file to storage before database transaction begins.");
@@ -611,11 +568,7 @@ public class DocumentService : IDocumentService
     {
         _logger.LogInformation("Starting single-prompt AI analysis for file: {FileName}", file.FileName);
 
-        var fileExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (!PolicyConstant.SupportedFileTypes.Contains(fileExtension))
-        {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.UnsupportedFileType);
-        }
+        // File type validation is now handled by FluentValidation at the controller level
 
         var response = new AnalyzeDocumentResponse
         {
@@ -1083,34 +1036,7 @@ Requirements:
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "File is required for creating a new version.");
         }
 
-        if (string.IsNullOrWhiteSpace(request.Title))
-        {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Title is required for creating a new version.");
-        }
-
-        if (string.IsNullOrWhiteSpace(request.VersionName))
-        {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Version name is required for creating a new version.");
-        }
-
-        // BR-015 Supported file types are PDF (text-based) and DOCX.
-        var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
-        if (!PolicyConstant.SupportedFileTypes.Contains(fileExtension))
-        {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.UnsupportedFileType);
-        }
-
-        // BR-016 Maximum file size is 5MB.
-        if (request.File.Length > PolicyConstant.MaxFileSizeMB * 1024 * 1024)
-        {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.FileSizeExceeded, PolicyConstant.MaxFileSizeMB));
-        }
-
-        // BR-021 'Effective From' date must be before 'Expiration Date'.
-        if (request.EffectiveFrom.HasValue && request.EffectiveUntil.HasValue && request.EffectiveFrom.Value >= request.EffectiveUntil.Value)
-        {
-            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidEffectiveDates);
-        }
+        // Title, VersionName, file type, file size, and effective date validations are now handled by FluentValidation
 
         // BR-037: A document can only be in the process of being replaced by one new document at a time.
         var pendingVersion = documentToUpdate.DocumentVersions.FirstOrDefault(v => v.Status == StatusEnum.Pending);
