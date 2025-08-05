@@ -4,6 +4,7 @@ using System.Text.Json;
 using Document.API.Configuration;
 using Document.API.Services.Interfaces;
 using Document.API.Attributes;
+using Document.API.Constants;
 
 namespace Document.API.Controllers
 {
@@ -11,7 +12,7 @@ namespace Document.API.Controllers
     /// Controller for Google Drive setup and company account authorization
     /// This is used for one-time setup of the company account
     /// </summary>
-    [Route("api/googledrive-setup")]
+    [Route(ApiEndPointConstant.ApiEndpoint)]
     [ApiController]
     public class GoogleDriveSetupController : ControllerBase
     {
@@ -33,28 +34,11 @@ namespace Document.API.Controllers
         }
 
         /// <summary>
-        /// Test endpoint to check configuration without authentication
-        /// </summary>
-        [HttpGet("config-test")]
-        public IActionResult TestConfiguration()
-        {
-            return Ok(new
-            {
-                BaseUrl = _config.BaseUrl,
-                CompanyAccount = _config.CompanyAccountEmail,
-                HasClientId = !string.IsNullOrEmpty(_config.ClientId),
-                ClientIdPrefix = _config.ClientId?.Substring(0, Math.Min(10, _config.ClientId.Length)) + "...",
-                ScopesCount = _config.Scopes?.Length ?? 0,
-                Timestamp = DateTime.UtcNow
-            });
-        }
-
-        /// <summary>
         /// Get Google OAuth authorization URL for company account setup
         /// This should only be used once during initial setup
         /// </summary>
         /// <returns>Authorization URL for company account</returns>
-        [HttpGet("company-auth-url")]
+        [HttpGet(ApiEndPointConstant.GoogleDrive.CompanyAuth)]
         [CustomAuthorize(Roles = new[] { Roles.Admin })]
         public IActionResult GetCompanyAuthUrl()
         {
@@ -115,7 +99,7 @@ namespace Document.API.Controllers
         /// <param name="code">Authorization code from Google</param>
         /// <param name="state">State parameter for security</param>
         /// <returns>Setup completion status</returns>
-        [HttpGet("company-callback")]
+        [HttpGet(ApiEndPointConstant.GoogleDrive.CompanyCallback)]
         public async Task<IActionResult> CompanyCallback([FromQuery] string code, [FromQuery] string state)
         {
             try
@@ -165,7 +149,7 @@ namespace Document.API.Controllers
         /// Check the current setup status
         /// </summary>
         /// <returns>Setup status information</returns>
-        [HttpGet("status")]
+        [HttpGet(ApiEndPointConstant.GoogleDrive.Status)]
         public async Task<IActionResult> GetSetupStatus()
         {
             try
@@ -193,7 +177,7 @@ namespace Document.API.Controllers
         /// Test Google Drive connection and permissions
         /// </summary>
         /// <returns>Connection test results</returns>
-        [HttpPost("test-connection")]
+        [HttpPost(ApiEndPointConstant.GoogleDrive.TestConnection)]
         public async Task<IActionResult> TestConnection()
         {
             try
