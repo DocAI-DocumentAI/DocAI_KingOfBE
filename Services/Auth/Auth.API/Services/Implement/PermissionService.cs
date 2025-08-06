@@ -67,14 +67,14 @@ public class PermissionService : BaseService<PermissionService>, IPermissionServ
         if (request == null)
             throw new ArgumentNullException(nameof(request));
         var permission = await _unitOfWork.GetRepository<Permission>().SingleOrDefaultAsync(
-            predicate: s => s.Name == request.PermissonName
+            predicate: s => s.Name == request.PermissionName
         );
         if (permission != null)
             throw new BadHttpRequestException(MessageConstant.Permission.PermissionExist);
         var newPermission = new Permission()
         {
             Id = Guid.NewGuid(),
-            Name = request.PermissonName,
+            Name = request.PermissionName,
             Description = request.Description,
             CreateAt = DateTime.UtcNow,
             UpdateAt = DateTime.UtcNow,

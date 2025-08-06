@@ -1,25 +1,34 @@
 using FluentValidation;
 using Auth.API.Payload.Request.Permission;
-using Auth.API.Services.Interface;
+using Auth.Domain.Models;
+using Auth.Infrastructure.Repository.Interfaces;
 
 namespace Auth.API.Validators.Permission;
 
 public class CreatePermissionRequestValidator : AbstractValidator<CreatePermissionRequest>
 {
-    private readonly IValidationService _validationService;
+    private readonly IUnitOfWork<DocAIAuthContext> _unitOfWork;
 
-    public CreatePermissionRequestValidator(IValidationService validationService)
+    public CreatePermissionRequestValidator(IUnitOfWork<DocAIAuthContext> unitOfWork)
     {
-        _validationService = validationService;
+        _unitOfWork = unitOfWork;
 
-        RuleFor(x => x.PermissonName)
+        RuleFor(x => x.PermissionName)
             .NotEmpty().WithMessage("Tên quyền không được để trống")
-            .Length(2, 100).WithMessage("Tên quyền phải từ 2-100 ký tự")
-            .Matches(@"^[a-zA-Z0-9\.\-_]+$").WithMessage("Tên quyền chỉ được chứa chữ cái, số, dấu chấm, gạch ngang và gạch dưới")
-            .MustAsync(async (name, cancellation) => !await _validationService.IsPermissionNameExistsAsync(name))
+            .Length(2, 50).WithMessage("Tên quyền phải từ 2-50 ký tự")
+            .Matches(@"^[a-zA-ZÀ-ỹ0-9\s\-_]+$").WithMessage("Tên quyền chỉ được chứa chữ cái, số, khoảng trắng, dấu gạch ngang và gạch dưới")
+            .Must(IsPermissionNameUnique)
             .WithMessage("Tên quyền đã tồn tại");
 
         RuleFor(x => x.Description)
             .MaximumLength(300).WithMessage("Mô tả không được vượt quá 300 ký tự");
+    }
+
+    private bool IsPermissionNameUnique(string permissionName)
+    {
+        var permission = _unitOfWork.GetRepository<Domain.Models.Permission>().GetQuery()
+            .Where(p => p.Name.ToLower() == permissionName.ToLower())
+            .FirstOrDefault();
+        return permission == null;
     }
 }
