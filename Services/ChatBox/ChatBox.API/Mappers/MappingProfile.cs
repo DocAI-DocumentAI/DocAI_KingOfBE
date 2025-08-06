@@ -11,23 +11,28 @@ namespace ChatBox.API.Mappers
         public MappingProfile()
         {
             CreateMap<ChatSession, SessionResponse>()
-           .ForMember(dest => dest.MessageCount, opt => opt.Ignore());
+                         .ForMember(dest => dest.MessageCount, opt => opt.Ignore())
+                         .ForMember(dest => dest.IsModelActive, opt => opt.Ignore()); // Set trong service
 
-            CreateMap<ChatSession, SessionDetailResponse>();
+            CreateMap<ChatSession, SessionDetailResponse>()
+                .ForMember(dest => dest.IsModelActive, opt => opt.Ignore()); // Set trong service
+
             CreateMap<CreateSessionRequest, ChatSession>();
-
-            // Message mappings
             CreateMap<ChatMessage, MessageResponse>();
-
-            // Preference mappings
             CreateMap<UserPreference, PreferenceResponse>();
             CreateMap<UpdatePreferenceRequest, UserPreference>();
 
-            // AI Configuration mappings
+            // AI Configuration mappings - sử dụng mapping hiện tại
             CreateMap<AIConfiguration, AIConfigurationResponse>();
             CreateMap<AIConfigurationRequest, AIConfiguration>();
 
             CreateMap<UserPreferenceRequest, UserPreference>();
+
+            // New mappings for admin functionality
+            CreateMap<SetMultipleModelsRequest, List<string>>()
+                .ConvertUsing(src => src.ModelNames);
+
+
         }
     }
 }

@@ -53,8 +53,8 @@ namespace ChatBox.API.Controllers
                 var userId = GetUserId();
                 var response = await _chatService.SendMessageAsync(request, userId);
 
-                _logger.LogInformation("Message sent successfully for user {UserId}, session {SessionId}",
-                    userId, response.SessionId);
+                _logger.LogInformation("Message sent successfully for user {UserId}, session {SessionId}, model {ModelName}",
+                    userId, response.SessionId, response.ModelUsed);
 
                 return Ok(response);
             }
@@ -62,6 +62,17 @@ namespace ChatBox.API.Controllers
             {
                 _logger.LogWarning("Invalid message request: {Error}", ex.Message);
                 return BadRequest(ex.Message);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("thay đổi model") || ex.Message.Contains("đã bị tắt"))
+            {
+                // Modern flow violations - clear error messages
+                _logger.LogWarning("Model operation not allowed: {Error}", ex.Message);
+                return BadRequest(new
+                {
+                    error = ex.Message,
+                    code = "MODEL_SWITCH_NOT_ALLOWED",
+                    suggestion = "Vui lòng tạo session mới để sử dụng model khác."
+                });
             }
             catch (Exception ex)
             {
@@ -79,13 +90,11 @@ namespace ChatBox.API.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         public async Task SendMessageStreamAsync([FromBody] ChatRequest request)
         {
-
             try
             {
                 var userId = GetUserId();
-
-                // 🔧 FIXED: Validate trước khi stream để tránh lãng phí
                 var validation = await _chatService.ValidateMessageAsync(request.Message);
+
                 if (!validation.Success)
                 {
                     Response.StatusCode = 400;
@@ -100,56 +109,22 @@ namespace ChatBox.API.Controllers
                 Response.Headers["Cache-Control"] = "no-cache";
                 Response.Headers["Connection"] = "keep-alive";
 
-                // 🔧 FIXED: Simple buffer để giảm số lần flush
-                var buffer = new StringBuilder();
-                var tokenCount = 0;
-                const int bufferThreshold = 50; // Buffer 50 tokens trước khi flush
-
                 await using var writer = new StreamWriter(Response.Body);
-
                 await foreach (var chunk in responseStream)
                 {
-                    // 🔧 FIXED: Check client disconnect
-                    if (HttpContext.RequestAborted.IsCancellationRequested)
-                    {
-                        _logger.LogInformation("Client disconnected during streaming");
-                        break;
-                    }
-
-                    buffer.Append(chunk);
-                    tokenCount++;
-
-                    // 🔧 FIXED: Flush buffer khi đủ tokens hoặc gặp dấu câu
-                    if (tokenCount >= bufferThreshold || IsEndOfSentence(chunk))
-                    {
-                        await writer.WriteAsync(buffer.ToString());
-                        await writer.FlushAsync();
-
-                        buffer.Clear();
-                        tokenCount = 0;
-                    }
-                }
-
-                if (buffer.Length > 0)
-                {
-                    await writer.WriteAsync(buffer.ToString());
+                    if (HttpContext.RequestAborted.IsCancellationRequested) break;
+                    await writer.WriteAsync(chunk);
                     await writer.FlushAsync();
                 }
             }
-            catch (ArgumentException ex)
+            catch (InvalidOperationException ex) when (ex.Message.Contains("thay đổi model"))
             {
-                _logger.LogWarning("Invalid stream request: {Error}", ex.Message);
                 Response.StatusCode = 400;
                 await Response.WriteAsync($"Error: {ex.Message}");
             }
-            catch (OperationCanceledException)
-            {
-                _logger.LogInformation("Streaming cancelled by client");
-                // Không cần làm gì thêm
-            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to start message stream");
+                _logger.LogError(ex, "Streaming failed");
                 Response.StatusCode = 500;
                 await Response.WriteAsync($"Error: {MessageConstant.Chat.SendFailed}");
             }
@@ -168,15 +143,20 @@ namespace ChatBox.API.Controllers
             {
                 var userId = GetUserId();
                 var response = await _chatService.CreateSessionAsync(request, userId);
-
-                _logger.LogInformation("Session created successfully: {SessionId}", response.Id);
-
-                return Created($"{ApiEndPointConstant.Chat.GetSession.Replace("{sessionId}", response.Id)}", response);
+                return Created($"{ApiEndPointConstant.ApiEndpoint}/{ApiEndPointConstant.Chat.GetSession.Replace("{sessionId}", response.Id)}", response);
+            }
+            catch (ArgumentException ex) when (ex.Message.Contains("không khả dụng"))
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("không có model nào"))
+            {
+                return StatusCode(503, ex.Message);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to create session");
-                return Problem("Tạo phiên chat thất bại");
+                return Problem(MessageConstant.Chat.CreateSessionFailed);
             }
         }
         /// <summary>
@@ -193,18 +173,16 @@ namespace ChatBox.API.Controllers
             {
                 var userId = GetUserId();
                 var response = await _chatService.GetSessionAsync(sessionId, userId);
-
                 return Ok(response);
             }
             catch (ArgumentException ex)
             {
-                _logger.LogWarning("Session not found: {SessionId}", sessionId);
                 return NotFound(MessageConstant.Chat.SessionNotFound);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to get session {SessionId}", sessionId);
-                return Problem("Lấy thông tin phiên chat thất bại");
+                return Problem(MessageConstant.Chat.GetSessionFailed);
             }
         }
         /// <summary>
@@ -220,13 +198,12 @@ namespace ChatBox.API.Controllers
             {
                 var userId = GetUserId();
                 var response = await _chatService.GetUserSessionsAsync(userId);
-
                 return Ok(response);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to get user sessions");
-                return Problem("Lấy danh sách phiên chat thất bại");
+                return Problem(MessageConstant.Chat.GetSessionsFailed);
             }
         }
         /// <summary>
@@ -245,17 +222,14 @@ namespace ChatBox.API.Controllers
                 var result = await _chatService.DeleteSessionAsync(sessionId, userId);
 
                 if (!result)
-                {
                     return NotFound(MessageConstant.Chat.SessionNotFound);
-                }
 
-                _logger.LogInformation("Session deleted: {SessionId}", sessionId);
                 return Ok(MessageConstant.Chat.SessionDeleted);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to delete session {SessionId}", sessionId);
-                return Problem("Xóa phiên chat thất bại");
+                _logger.LogError(ex, "Failed to delete session");
+                return Problem(MessageConstant.Chat.DeleteSessionFailed);
             }
         }
         /// <summary>
@@ -274,14 +248,13 @@ namespace ChatBox.API.Controllers
                 var result = await _chatService.SwitchSessionModelAsync(sessionId, newModelName, userId);
 
                 if (!result)
-                {
                     return NotFound(MessageConstant.Chat.SessionNotFound);
-                }
-
-                _logger.LogInformation("Model switched for session {SessionId} to {ModelName}",
-                    sessionId, newModelName);
 
                 return Ok(MessageConstant.Chat.ModelSwitched);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("đã có conversation"))
+            {
+                return BadRequest(ex.Message);
             }
             catch (ArgumentException ex)
             {
@@ -289,7 +262,7 @@ namespace ChatBox.API.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to switch model for session {SessionId}", sessionId);
+                _logger.LogError(ex, "Failed to switch model");
                 return Problem(MessageConstant.Chat.ModelSwitchFailed);
             }
         }
@@ -317,10 +290,14 @@ namespace ChatBox.API.Controllers
                 var models = await _chatService.GetAvailableModelsAsync();
                 return Ok(models);
             }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("không có model nào"))
+            {
+                return StatusCode(503, ex.Message);
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to get available models");
-                return Problem("Lấy danh sách model thất bại");
+                return Problem(MessageConstant.Chat.GetModelsFailed);
             }
         }
     }
