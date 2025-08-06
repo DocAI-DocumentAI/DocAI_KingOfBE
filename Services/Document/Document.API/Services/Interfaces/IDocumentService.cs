@@ -17,6 +17,7 @@ public interface IDocumentService
     Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(int pageNumber, int pageSize);
     Task<DocumentDraftResponse> GetRejectedById(string versionId);
     Task<AnalyzeDocumentResponse> AnalyzeDocumentAsync(IFormFile file);
+    Task<RegenerateSummaryResponse> RegenerateSummaryAsync(IFormFile file);
     Task<DocumentDraftResponse> GetOfficialDocumentAsync(string documentFileId);
     Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize);
     Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(MyDocumentsFilter filter, int pageNumber, int pageSize);

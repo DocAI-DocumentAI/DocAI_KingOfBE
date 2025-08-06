@@ -1,0 +1,177 @@
+namespace Document.API.Constants;
+
+/// <summary>
+/// Constants for AI prompts used in document analysis and processing
+/// </summary>
+public static class AiPromptConstant
+{
+    /// <summary>
+    /// Prompts for document analysis and metadata extraction
+    /// </summary>
+    public static class DocumentAnalysis
+    {
+        /// <summary>
+        /// Comprehensive prompt for extracting document metadata in JSON format
+        /// </summary>
+        public const string MetadataExtractionPrompt = @"Phân tích tài liệu và trả về một đối tượng JSON duy nhất với các khóa sau:
+- ""title"": string — tiêu đề chính thức của tài liệu.
+- ""versionName"": string — mã số/số hiệu tài liệu. Tìm kiếm cẩn thận ở phần đầu/tiêu đề tài liệu các mẫu như:
+  * ""Luật số: 80/2025/QH15"" (Số luật)
+  * ""Nghị định số: 123/2024/NĐ-CP"" (Số nghị định)
+  * ""Thông tư số: 45/2023/TT-BTC"" (Số thông tư)
+  * ""Quyết định số: 789/2024/QĐ-TTg"" (Số quyết định)
+  * ""Chỉ thị số: 15/2024/CT-TTg"" (Số chỉ thị)
+  Trích xuất đầy đủ mã định danh bao gồm tất cả tiền tố và hậu tố. Thông tin này thường ở những dòng đầu tiên của tài liệu.
+- ""description"": string — Tạo mô tả rõ ràng, ngắn gọn (2-3 câu) giải thích tài liệu này về gì, mục đích chính và đối tượng ảnh hưởng. Tập trung vào mục tiêu và phạm vi của tài liệu.
+- ""signedBy"": string — Tìm tên người ký tài liệu này. Tìm ở CUỐI tài liệu trong phần chữ ký với các cụm từ như:
+  * ""Ký tên:"", ""Thay mặt:"", ""Bộ trưởng:"", ""Thủ tướng:"", ""Chủ tịch:"", ""Giám đốc:"", ""Tổng Giám đốc:""
+  * Tiếng Anh: ""Signed by:"", ""Director:"", ""Minister:"", ""Prime Minister:"", ""Chairman:""
+  Chỉ trích xuất tên người, không bao gồm chức danh.
+- ""summary"": string — tóm tắt có cấu trúc toàn diện với các điểm chính và phần bao gồm Điểm Chính, Chi Tiết Quan Trọng, Hành Động Cần Thực Hiện, và Kết Luận (tương tự định dạng Google NotebookLM).
+- ""effectiveFrom"": 'yyyy-MM-dd' (hoặc null).
+- ""effectiveUntil"": 'yyyy-MM-dd' (hoặc null).
+- ""tags"": mảng tối đa 5 từ khóa liên quan.
+Yêu cầu:
+- Chỉ trả lời bằng một đối tượng JSON hợp lệ (không có giải thích thêm hoặc markdown).
+- Nếu thiếu bất kỳ giá trị nào, sử dụng null.
+- Đối với tóm tắt, sử dụng định dạng có cấu trúc với thẻ HTML như <b>, <ul>, <li> để định dạng tốt hơn.
+- Escape tất cả dấu ngoặc kép bên trong nội dung HTML/markdown (ví dụ: `\""`).
+- Chú ý đặc biệt đến phần đầu tài liệu cho versionName và phần chữ ký cho signedBy.";
+
+        /// <summary>
+        /// Fallback prompt for extracting document title when JSON parsing fails
+        /// </summary>
+        public const string TitleExtractionPrompt = "Tiêu đề của tài liệu này là gì? Chỉ trả lời bằng tiêu đề.";
+
+        /// <summary>
+        /// Fallback prompt for extracting basic document summary
+        /// </summary>
+        public const string BasicSummaryPrompt = "Cung cấp tóm tắt ngắn gọn 2-3 câu về mục đích chính của tài liệu này.";
+
+        /// <summary>
+        /// Fallback prompt for extracting document tags/keywords
+        /// </summary>
+        public const string TagsExtractionPrompt = "Liệt kê 3 từ khóa mô tả tài liệu này. Chỉ trả lời bằng các từ khóa cách nhau bởi dấu phẩy.";
+    }
+
+    /// <summary>
+    /// Prompts for enhanced summary generation with structured format
+    /// </summary>
+    public static class SummaryGeneration
+    {
+        /// <summary>
+        /// Enhanced prompt for generating structured document summaries during document creation workflow
+        /// </summary>
+        public const string StructuredSummaryPrompt = @"Phân tích tài liệu này và tạo một bản tóm tắt có cấu trúc chi tiết bằng tiếng Việt để hỗ trợ người dùng trong quá trình tạo tài liệu. Định dạng phản hồi dưới dạng HTML với các phần sau:
+
+<h3>📋 Điểm Chính / Key Points</h3>
+<ul>
+<li>Liệt kê 3-5 chủ đề chính và thông tin quan trọng nhất từ tài liệu</li>
+<li>Tập trung vào các khái niệm cốt lõi và phát hiện quan trọng</li>
+<li>Làm nổi bật mục đích và phạm vi của tài liệu</li>
+</ul>
+
+<h3>📝 Chi Tiết Quan Trọng / Important Details</h3>
+<ul>
+<li>Cung cấp thông tin cụ thể: số liệu, ngày tháng, thông số kỹ thuật</li>
+<li>Đề cập đến các bên liên quan, phòng ban chịu trách nhiệm</li>
+<li>Bao gồm thông tin về quy trình hoặc thủ tục quan trọng</li>
+<li>Nêu rõ bối cảnh và thông tin nền tảng liên quan</li>
+</ul>
+
+<h3>✅ Hành Động Cần Thực Hiện / Action Items</h3>
+<ul>
+<li>Liệt kê các hành động bắt buộc, thời hạn hoặc bước tiếp theo</li>
+<li>Bao gồm yêu cầu tuân thủ hoặc thủ tục bắt buộc</li>
+<li>Đề cập đến các bước triển khai hoặc thực hiện</li>
+<li>Nếu không có hành động cụ thể, ghi: ""Không có hành động cụ thể được yêu cầu""</li>
+</ul>
+
+<h3>🎯 Kết Luận & Khuyến Nghị / Conclusions & Recommendations</h3>
+<ul>
+<li>Tóm tắt mục đích chính và kết quả của tài liệu</li>
+<li>Đưa ra các khuyến nghị hoặc hàm ý chiến lược</li>
+<li>Làm nổi bật tầm quan trọng của tài liệu đối với tổ chức</li>
+<li>Đề xuất cách sử dụng hiệu quả thông tin trong tài liệu</li>
+</ul>
+
+Yêu cầu:
+- Sử dụng tiếng Việt chuyên nghiệp phù hợp với tài liệu doanh nghiệp
+- Mỗi phần có 2-4 điểm tối đa, ngắn gọn nhưng đầy đủ thông tin
+- Đảm bảo định dạng HTML chính xác với thẻ <ul> và <li>
+- Tập trung vào thông tin thực tế và có thể áp dụng
+- Giới hạn tổng số từ dưới 1000 từ
+- Tạo nội dung hữu ích cho người dùng trong việc hoàn thiện tài liệu";
+
+        /// <summary>
+        /// Prompt for regenerating enhanced summary during document creation workflow
+        /// </summary>
+        public const string RegenerateSummaryPrompt = @"Dựa trên nội dung tài liệu đã tải lên, tạo một bản tóm tắt cải tiến có cấu trúc để hỗ trợ người dùng hoàn thiện tài liệu. Sử dụng định dạng sau bằng tiếng Việt:
+
+<h3>📋 Điểm Chính / Key Points</h3>
+<ul>
+<li>Xác định và liệt kê 3-5 điểm quan trọng nhất từ tài liệu</li>
+<li>Tập trung vào khái niệm cốt lõi, mục tiêu chính và phát hiện chủ yếu</li>
+<li>Làm rõ phạm vi và đối tượng áp dụng của tài liệu</li>
+</ul>
+
+<h3>📝 Chi Tiết Quan Trọng / Important Details</h3>
+<ul>
+<li>Bao gồm dữ liệu cụ thể, ngày tháng, số liệu hoặc thông số kỹ thuật</li>
+<li>Đề cập đến các bên liên quan chính, phòng ban hoặc người chịu trách nhiệm</li>
+<li>Thêm thông tin về quy trình hoặc quy định liên quan</li>
+<li>Nêu rõ các điều kiện hoặc yêu cầu đặc biệt</li>
+</ul>
+
+<h3>✅ Hành Động Cần Thực Hiện / Action Items</h3>
+<ul>
+<li>Trích xuất các thời hạn, yêu cầu hoặc hành động bắt buộc</li>
+<li>Bao gồm nghĩa vụ tuân thủ hoặc các bước triển khai</li>
+<li>Đề cập đến quy trình phê duyệt hoặc thực hiện</li>
+<li>Nếu không có hành động cụ thể, ghi: ""Không có hành động cụ thể được yêu cầu""</li>
+</ul>
+
+<h3>🎯 Kết Luận & Khuyến Nghị / Conclusions & Recommendations</h3>
+<ul>
+<li>Tóm tắt mục đích chính và kết quả mong đợi của tài liệu</li>
+<li>Đưa ra các hàm ý chiến lược hoặc khuyến nghị thực hiện</li>
+<li>Làm nổi bật tầm quan trọng của tài liệu đối với tổ chức</li>
+<li>Đề xuất cách tối ưu hóa việc sử dụng thông tin trong tài liệu</li>
+</ul>
+
+Yêu cầu:
+- Sử dụng tiếng Việt chuyên nghiệp phù hợp với tài liệu doanh nghiệp
+- Đảm bảo mỗi phần có 2-4 điểm tối đa
+- Giữ tổng số từ dưới 1000 từ
+- Sử dụng định dạng HTML chính xác với thẻ <ul> và <li>
+- Tạo bản tóm tắt có thể hành động và thực tế cho người dùng doanh nghiệp
+- Tập trung vào việc hỗ trợ người dùng hiểu và sử dụng tài liệu hiệu quả";
+    }
+
+    /// <summary>
+    /// Configuration constants for AI prompts
+    /// </summary>
+    public static class Configuration
+    {
+        /// <summary>
+        /// Maximum number of retry attempts for AI analysis
+        /// </summary>
+        public const int MaxRetryAttempts = 3;
+
+        /// <summary>
+        /// Delay between retry attempts in milliseconds
+        /// </summary>
+        public const int RetryDelayMs = 1500;
+
+        /// <summary>
+        /// Phrases that indicate AI analysis failure
+        /// </summary>
+        public static readonly string[] FailureIndicators = 
+        {
+            "INFO NOT FOUND",
+            "không tìm thấy",
+            "không thể phân tích",
+            "thông tin không có sẵn"
+        };
+    }
+}
