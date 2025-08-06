@@ -18,20 +18,20 @@ namespace Document.API.Services.Implements
         private readonly ILogger<GoogleDriveOAuthService> _logger;
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
-        private readonly IRedisService _redisService;
+        private readonly IGoogleOAuthTokenService _tokenService;
 
         public GoogleDriveOAuthService(
             IOptions<GoogleDriveConfiguration> config,
             ILogger<GoogleDriveOAuthService> logger,
             HttpClient httpClient,
             IConfiguration configuration,
-            IRedisService redisService)
+            IGoogleOAuthTokenService tokenService)
         {
             _config = config.Value;
             _logger = logger;
             _httpClient = httpClient;
             _configuration = configuration;
-            _redisService = redisService;
+            _tokenService = tokenService;
 
             // Use existing GoogleOAuth configuration if not specified
             if (string.IsNullOrEmpty(_config.ClientId))
@@ -98,7 +98,7 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                var tokens = await _redisService.GetGoogleDriveCompanyTokensAsync();
+                var tokens = await _tokenService.GetCompanyTokensAsync();
 
                 if (tokens == null)
                 {
@@ -114,7 +114,7 @@ namespace Document.API.Services.Implements
                     if (refreshed)
                     {
                         // Get the refreshed tokens
-                        tokens = await _redisService.GetGoogleDriveCompanyTokensAsync();
+                        tokens = await _tokenService.GetCompanyTokensAsync();
                         if (tokens != null)
                         {
                             _logger.LogInformation("Successfully refreshed and retrieved new company access token");
@@ -139,7 +139,7 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                var tokens = await _redisService.GetUserGoogleTokensAsync(userId);
+                var tokens = await _tokenService.GetUserTokensAsync(userId);
 
                 if (tokens == null)
                 {
@@ -162,7 +162,7 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                var tokens = await _redisService.GetGoogleDriveCompanyTokensAsync();
+                var tokens = await _tokenService.GetCompanyTokensAsync();
                 if (tokens?.refreshToken == null)
                 {
                     _logger.LogError("No refresh token available for company account");
@@ -172,7 +172,7 @@ namespace Document.API.Services.Implements
                 var refreshedTokens = await RefreshOAuthTokensAsync(tokens.Value.refreshToken);
                 if (refreshedTokens != null)
                 {
-                    await _redisService.SetGoogleDriveCompanyTokensAsync(
+                    await _tokenService.SetCompanyTokensAsync(
                         refreshedTokens.AccessToken,
                         refreshedTokens.RefreshToken ?? tokens.Value.refreshToken,
                         refreshedTokens.ExpiresAt);
@@ -214,7 +214,7 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                await _redisService.SetGoogleDriveCompanyTokensAsync(accessToken, refreshToken, expiresAt);
+                await _tokenService.SetCompanyTokensAsync(accessToken, refreshToken, expiresAt);
                 _logger.LogInformation("Company tokens stored successfully");
             }
             catch (Exception ex)
@@ -228,7 +228,7 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                var tokens = await _redisService.GetGoogleDriveCompanyTokensAsync();
+                var tokens = await _tokenService.GetCompanyTokensAsync();
                 if (tokens == null)
                 {
                     _logger.LogWarning("No company tokens found in storage");
@@ -266,7 +266,8 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                return await _redisService.HasUserGoogleTokensAsync(userId);
+                var tokens = await _tokenService.GetUserTokensAsync(userId);
+                return tokens != null;
             }
             catch (Exception ex)
             {

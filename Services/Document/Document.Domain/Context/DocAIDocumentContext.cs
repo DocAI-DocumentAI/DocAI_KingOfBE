@@ -26,6 +26,7 @@ namespace Document.Domain.Context
         public DbSet<ApprovalLog> ApprovalLogs { get; set; }
         public DbSet<Bookmark> Bookmarks { get; set; }
         public DbSet<ApprovalClaim> ApprovalClaims { get; set; }
+        public DbSet<GoogleOAuthToken> GoogleOAuthTokens { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -52,6 +53,11 @@ namespace Document.Domain.Context
             modelBuilder.Entity<DocumentType>()
                 .HasIndex(dt => dt.Name)
                 .IsUnique();
+
+            // Configure GoogleOAuthToken
+            modelBuilder.Entity<GoogleOAuthToken>()
+                .HasIndex(t => t.TokenType)
+                .IsUnique(); // Ensure only one token per type (company or user)
 
             //// Configure cascade delete for DocumentChunks
             //modelBuilder.Entity<DocumentFile>()

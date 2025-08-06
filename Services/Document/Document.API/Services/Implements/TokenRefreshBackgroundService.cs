@@ -10,7 +10,7 @@ namespace Document.API.Services.Implements
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ILogger<TokenRefreshBackgroundService> _logger;
-        private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(15); // Check every 15 minutes
+        private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(1); // Check every 1 minute for testing
 
         public TokenRefreshBackgroundService(
             IServiceScopeFactory serviceScopeFactory,
@@ -29,6 +29,7 @@ namespace Document.API.Services.Implements
                 // Test service dependencies on startup
                 using var scope = _serviceScopeFactory.CreateScope();
                 var oauthService = scope.ServiceProvider.GetRequiredService<IGoogleDriveOAuthService>();
+                var tokenService = scope.ServiceProvider.GetRequiredService<IGoogleOAuthTokenService>();
 
                 _logger.LogInformation("Token refresh background service started successfully. Check interval: {Interval} minutes", _checkInterval.TotalMinutes);
 
@@ -60,20 +61,35 @@ namespace Document.API.Services.Implements
         {
             try
             {
+                _logger.LogInformation("Checking company tokens for expiration...");
+
                 using var scope = _serviceScopeFactory.CreateScope();
                 var oauthService = scope.ServiceProvider.GetRequiredService<IGoogleDriveOAuthService>();
+                var tokenService = scope.ServiceProvider.GetRequiredService<IGoogleOAuthTokenService>();
 
-                // This will automatically refresh tokens if they're expiring
-                var hasValidTokens = await oauthService.HasValidCompanyTokensAsync();
+                // Check if tokens need refresh using database service
+                var areTokensValid = await tokenService.AreCompanyTokensValidAsync();
 
-                if (hasValidTokens)
+                if (!areTokensValid)
                 {
-                    _logger.LogDebug("Company tokens are valid, no refresh needed");
+                    _logger.LogInformation("Company tokens are expired or expiring soon, attempting refresh");
+                    var result = await oauthService.RefreshCompanyTokensAsync();
+                    if (result)
+                    {
+                        _logger.LogInformation("Company tokens refreshed successfully");
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Company tokens are not valid or missing");
+                    }
                 }
                 else
                 {
-                    _logger.LogWarning("Company tokens are not valid or missing");
+                    _logger.LogDebug("Company tokens are still valid");
                 }
+
+                // Cleanup expired user tokens periodically
+                await tokenService.CleanupExpiredTokensAsync();
             }
             catch (Exception ex)
             {
