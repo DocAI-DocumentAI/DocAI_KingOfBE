@@ -75,9 +75,7 @@ namespace Auth.API.Attributes
     public static class Departments
     {
         public const string Company = "Company";
-        public const string PhongNhanSu = "Phòng nhân sự";
         public const string DepartmentA = "DepartmentA";
-        public const string DepartmentB = "DepartmentB";
     }
 
     /// <summary>
@@ -90,8 +88,5 @@ namespace Auth.API.Attributes
         public const string CreateDocument = "CREATE_DOCUMENT";
         public const string EditDocument = "EDIT_DOCUMENT";
         public const string DeleteDocument = "DELETE_DOCUMENT";
-        public const string ManageUsers = "MANAGE_USERS";
-        public const string ManageRoles = "MANAGE_ROLES";
-        public const string ManageDepartments = "MANAGE_DEPARTMENTS";
     }
 }

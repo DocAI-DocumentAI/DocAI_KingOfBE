@@ -2,22 +2,24 @@ using FluentValidation;
 using Auth.API.Payload.Request.User;
 using Auth.API.Services.Interface;
 using Auth.API.Payload.Request;
+using Auth.Domain.Models;
+using Auth.Infrastructure.Repository.Interfaces;
 
 namespace Auth.API.Validators.User;
 
 public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
 {
-    private readonly IValidationService _validationService;
+    private readonly IUnitOfWork<DocAIAuthContext> _unitOfWork;
 
-    public RegisterRequestValidator(IValidationService validationService)
+    public RegisterRequestValidator(IUnitOfWork<DocAIAuthContext> unitOfWork)
     {
-        _validationService = validationService;
+        _unitOfWork = unitOfWork;
 
         RuleFor(x => x.Email)
             .NotEmpty().WithMessage("Email không được để trống")
             .EmailAddress().WithMessage("Email không đúng định dạng")
             .MaximumLength(255).WithMessage("Email không được vượt quá 255 ký tự")
-            .MustAsync(async (email, cancellation) => !await _validationService.IsEmailExistsAsync(email))
+            .Must(IsEmailUnique)
             .WithMessage("Email đã được sử dụng");
 
         RuleFor(x => x.Password)
@@ -35,7 +37,7 @@ public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
         RuleFor(x => x.Phone)
             .NotEmpty().WithMessage("Số điện thoại không được để trống")
             .Matches(@"^(0[3|5|7|8|9])+([0-9]{8})$").WithMessage("Số điện thoại không đúng định dạng Việt Nam")
-            .MustAsync(async (phone, cancellation) => !await _validationService.IsPhoneExistsAsync(phone))
+            .Must(IsPhoneUnique)
             .WithMessage("Số điện thoại đã được sử dụng");
 
         RuleFor(x => x.RoleId)
@@ -43,5 +45,21 @@ public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
 
         RuleFor(x => x.DepartmentId)
             .NotEmpty().WithMessage("Phòng ban không được để trống");
+    }
+
+    private bool IsEmailUnique(string email)
+    {
+        var user = _unitOfWork.GetRepository<Domain.Models.User>().GetQuery()
+            .Where(u => u.Email.ToLower() == email.ToLower())
+            .FirstOrDefault();
+        return user == null;
+    }
+
+    private bool IsPhoneUnique(string phone)
+    {
+        var user = _unitOfWork.GetRepository<Domain.Models.User>().GetQuery()
+            .Where(u => u.Phone == phone)
+            .FirstOrDefault();
+        return user == null;
     }
 }

@@ -10,6 +10,9 @@ using Microsoft.KernelMemory;
 using NSwag;
 using NSwag.Generation.Processors.Security;
 using Scalar.AspNetCore;
+using FluentValidation;
+using FluentValidation.AspNetCore;
+using Microsoft.AspNetCore.Mvc;
 
 using Serilog;
 using Serilog.Events;
@@ -78,7 +81,16 @@ try
 
         options.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("Bearer"));
     });
-    
+
+    // Configure FluentValidation
+    builder.Services.AddFluentValidationAutoValidation();
+    builder.Services.AddFluentValidationClientsideAdapters();
+    builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
+    builder.Services.Configure<ApiBehaviorOptions>(options =>
+    {
+        options.SuppressModelStateInvalidFilter = true;
+    });
 
     var app = builder.Build();
 

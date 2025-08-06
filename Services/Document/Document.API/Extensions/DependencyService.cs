@@ -96,6 +96,9 @@ public static class DependencyService
         services.AddScoped<IDocumentReplacementService, DocumentReplacementService>();
         services.AddScoped<IDocumentPermissionManager, DocumentPermissionManager>();
         services.AddScoped<IBookmarkService, BookmarkService>();
+
+        // Background services
+        services.AddHostedService<TokenRefreshBackgroundService>();
         services.AddScoped<IApprovalService, ApprovalService>();
         services.AddScoped<ITagService, TagService>();
         services.AddScoped<IDocumentTypeService, DocumentTypeService>();

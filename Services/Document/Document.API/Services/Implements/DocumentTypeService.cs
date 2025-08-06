@@ -222,26 +222,8 @@ namespace Document.API.Services.Implements
         /// <returns>Task representing the async validation</returns>
         private async Task ValidateDocumentTypeBusinessRulesAsync(string name, string? description, string? excludeId = null)
         {
-            // Validate name is not empty or whitespace
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,
-                    MessageConstant.DocumentTypeNameRequired);
-            }
-
-            // Validate name length
-            if (name.Length > 100)
-            {
-                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,
-                    MessageConstant.DocumentTypeNameTooLong);
-            }
-
-            // Validate description length if provided
-            if (!string.IsNullOrEmpty(description) && description.Length > 500)
-            {
-                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,
-                    MessageConstant.DocumentTypeDescriptionTooLong);
-            }
+            // Basic validations (name required, length limits) are now handled by FluentValidation
+            // Only business logic validations remain here
 
             // Validate name uniqueness
             var existingDocumentType = await _unitOfWork.GetRepository<DocumentType>()
