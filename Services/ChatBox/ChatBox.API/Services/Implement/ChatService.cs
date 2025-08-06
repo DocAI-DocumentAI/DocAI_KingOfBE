@@ -591,7 +591,7 @@ namespace ChatBox.API.Services.Implement
             }
 
             var config = await _unitOfWork.GetRepository<AIConfiguration>()
-                .SingleOrDefaultAsync(predicate: c => c.ModelName == modelName && c.IsActive);
+                .SingleOrDefaultAsync(predicate: c => c.ModelName == NormalizeModelName(modelName) && c.IsActive);
 
             var isActive = config != null;
 
@@ -815,8 +815,9 @@ namespace ChatBox.API.Services.Implement
 
             if (session != null)
             {
+                var normalizedModelName = NormalizeModelName(session.ModelName);
                 var aiConfig = await _unitOfWork.GetRepository<AIConfiguration>()
-               .SingleOrDefaultAsync(predicate: c => c.ModelName == session.ModelName && c.IsActive);
+                    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName && c.IsActive);
 
                 if (aiConfig != null && !string.IsNullOrEmpty(aiConfig.SystemPrompt))
                 {
@@ -1015,6 +1016,8 @@ namespace ChatBox.API.Services.Implement
             }
         }
         #endregion
+        private string NormalizeModelName(string modelName) =>
+    Uri.UnescapeDataString(modelName ?? string.Empty).Trim().ToLowerInvariant();
     }
     public class ChatHistoryCache
     {
