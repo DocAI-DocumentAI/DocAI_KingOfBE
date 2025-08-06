@@ -1007,7 +1007,9 @@ Requirements:
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
-        return _mapper.Map<DocumentVersionResponse>(documentVersion);
+        var response = _mapper.Map<DocumentVersionResponse>(documentVersion);
+        var enrichedResponse = await _enrichmentService.EnrichDocumentVersionResponseAsync(response);
+        return enrichedResponse;
     }
 
     public async Task<List<DocumentVersionResponse>> GetDocumentVersionsAsync(string documentId)
@@ -1017,7 +1019,9 @@ Requirements:
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
-        return _mapper.Map<List<DocumentVersionResponse>>(documentVersions);
+        var response = _mapper.Map<List<DocumentVersionResponse>>(documentVersions);
+        var enrichedResponse = await _enrichmentService.EnrichDocumentVersionResponsesAsync(response);
+        return enrichedResponse;
     }
 
     public async Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateNewVersionDraftRequest request)

@@ -15,6 +15,7 @@ namespace Document.API.Services.Implements
     {
         private readonly IKernelMemory _memory;
         private readonly INameLookupService _nameLookupService;
+        private readonly IDocumentEnrichmentService _enrichmentService;
 
         public DocumentRAGService(
             IKernelMemory memory,
@@ -22,12 +23,14 @@ namespace Document.API.Services.Implements
             ILogger<DocumentRAGService> logger,
             IConfiguration configuration,
             INameLookupService nameLookupService,
+            IDocumentEnrichmentService enrichmentService,
             IMapper mapper,
             IHttpContextAccessor httpContextAccessor)
             : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
         {
             _memory = memory;
             _nameLookupService = nameLookupService;
+            _enrichmentService = enrichmentService;
         }
 
         public async Task<DocumentRAGResponse> SearchDocumentsWithRAGAsync(DocumentRAGRequest request)
@@ -431,30 +434,8 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                var departmentIds = sources
-                    .Where(s => !string.IsNullOrEmpty(s.DepartmentId))
-                    .Select(s => s.DepartmentId)
-                    .Distinct()
-                    .ToList();
-
-                if (departmentIds.Any())
-                {
-                    var nameResponse = await _nameLookupService.GetNamesAsync(new List<string>(), departmentIds);
-
-                    if (nameResponse.Success)
-                    {
-                        foreach (var source in sources)
-                        {
-                            if (!string.IsNullOrEmpty(source.DepartmentId) &&
-                                nameResponse.DepartmentNames.TryGetValue(source.DepartmentId, out string deptName))
-                            {
-                                source.DepartmentName = deptName;
-                            }
-                        }
-                    }
-                }
-
-                return sources;
+                // Use the centralized enrichment service
+                return await _enrichmentService.EnrichDocumentSourceResponsesAsync(sources);
             }
             catch (Exception ex)
             {

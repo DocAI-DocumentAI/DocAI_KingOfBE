@@ -1,6 +1,5 @@
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
-using Document.API.Payload.Models;
 
 namespace Document.API.Services.Interfaces
 {
