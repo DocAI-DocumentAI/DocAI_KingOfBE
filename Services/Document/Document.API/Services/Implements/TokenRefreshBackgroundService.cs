@@ -10,7 +10,7 @@ namespace Document.API.Services.Implements
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ILogger<TokenRefreshBackgroundService> _logger;
-        private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(1); // Check every 1 minute for testing
+        private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(15); // Check every 1 minute for testing
 
         public TokenRefreshBackgroundService(
             IServiceScopeFactory serviceScopeFactory,
