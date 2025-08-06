@@ -60,7 +60,7 @@ namespace ChatBox.API.Services.Implement
 
                 // Check duplicate
                 var existingConfig = await _unitOfWork.GetRepository<AIConfiguration>()
-                   .SingleOrDefaultAsync(predicate: c => NormalizeModelName(c.ModelName) == normalizedModelName);
+    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
 
                 if (existingConfig != null)
                     throw new ArgumentException(string.Format(MessageConstant.Admin.ModelExists, request.ModelName));
@@ -110,11 +110,10 @@ namespace ChatBox.API.Services.Implement
 
                 var normalizedModelName = NormalizeModelName(request.ModelName);
 
-                // Check duplicate (excluding current)
-                if (normalizedModelName != NormalizeModelName(config.ModelName))
+                if (normalizedModelName != config.ModelName)
                 {
                     var duplicate = await _unitOfWork.GetRepository<AIConfiguration>()
-                       .SingleOrDefaultAsync(predicate: c => NormalizeModelName(c.ModelName) == normalizedModelName && c.Id != id);
+                        .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName && c.Id != id);
 
                     if (duplicate != null)
                         throw new ArgumentException(string.Format(MessageConstant.Admin.ModelExists, request.ModelName));
@@ -123,11 +122,13 @@ namespace ChatBox.API.Services.Implement
                 var oldModelName = config.ModelName;
                 var wasActive = config.IsActive;
 
+                // ✅ Map request & override normalized ModelName
                 _mapper.Map(request, config);
+                config.ModelName = normalizedModelName;
                 config.UpdatedAt = DateTime.UtcNow;
                 config.UpdatedBy = userId;
 
-                // Validate system prompt
+                // ✅ Validate system prompt
                 if (string.IsNullOrEmpty(config.SystemPrompt))
                 {
                     config.SystemPrompt = ChatConstants.SystemPrompt;
@@ -140,7 +141,7 @@ namespace ChatBox.API.Services.Implement
                 _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(config);
                 await _unitOfWork.CommitAsync();
 
-                // Clear relevant caches
+                // ✅ Clear caches nếu có thay đổi quan trọng
                 if (wasActive || oldModelName != config.ModelName)
                 {
                     await ClearModelCaches();
@@ -212,7 +213,7 @@ namespace ChatBox.API.Services.Implement
                 var normalizedModelName = NormalizeModelName(modelName);
 
                 var targetConfig = await _unitOfWork.GetRepository<AIConfiguration>()
-                    .SingleOrDefaultAsync(predicate: c => NormalizeModelName(c.ModelName) == normalizedModelName);
+                    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
 
                 if (targetConfig == null)
                     return false;
@@ -255,22 +256,26 @@ namespace ChatBox.API.Services.Implement
         {
             try
             {
-                if (!modelNames?.Any() == true)
+                if (modelNames == null || !modelNames.Any())
                     throw new ArgumentException("Cần ít nhất 1 model được chọn.");
 
-                var normalizedNames = modelNames.Select(NormalizeModelName).ToList();
+                // ✅ Normalize đầu vào
+                var normalizedNames = modelNames
+                    .Select(NormalizeModelName)
+                    .Distinct()
+                    .ToList();
 
                 var allConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
                     .GetListAsync();
 
                 var targetConfigs = allConfigs
-                    .Where(c => normalizedNames.Contains(NormalizeModelName(c.ModelName)))
+                    .Where(c => c.ModelName != null && normalizedNames.Contains(c.ModelName))
                     .ToList();
 
-                if (targetConfigs.Count != modelNames.Count)
+                if (targetConfigs.Count != normalizedNames.Count)
                     throw new ArgumentException("Một số model không tồn tại trong hệ thống.");
 
-                // Update all configs - activate selected, deactivate others
+                // ✅ Cập nhật trạng thái active
                 foreach (var config in allConfigs)
                 {
                     var shouldBeActive = targetConfigs.Any(t => t.Id == config.Id);
@@ -279,6 +284,8 @@ namespace ChatBox.API.Services.Implement
                         config.IsActive = shouldBeActive;
                         config.UpdatedAt = DateTime.UtcNow;
                         config.UpdatedBy = userId;
+
+                        // Gọi UpdateAsync (nhưng không await từng cái — xử lý sau)
                         _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(config);
                     }
                 }
@@ -286,7 +293,8 @@ namespace ChatBox.API.Services.Implement
                 await _unitOfWork.CommitAsync();
                 await ClearModelCaches();
 
-                _logger.LogInformation("Bulk updated models by {UserId}: {Models}", userId, string.Join(", ", modelNames));
+                _logger.LogInformation("Bulk updated models by {UserId}: {Models}",
+                    userId, string.Join(", ", modelNames));
 
                 return true;
             }
@@ -301,7 +309,7 @@ namespace ChatBox.API.Services.Implement
         {
             var normalized = NormalizeModelName(modelName);
             var activeSessions = await _unitOfWork.GetRepository<ChatSession>()
-                .GetListAsync(predicate: s => NormalizeModelName(s.ModelName) == normalized && s.IsActive);
+                .GetListAsync(predicate: s => s.ModelName == normalized && s.IsActive);
 
             return activeSessions.Any();
         }
@@ -434,7 +442,7 @@ namespace ChatBox.API.Services.Implement
                 var normalizedModelName = NormalizeModelName(modelName);
 
                 var targetConfig = await _unitOfWork.GetRepository<AIConfiguration>()
-                    .SingleOrDefaultAsync(predicate: c => NormalizeModelName(c.ModelName) == normalizedModelName);
+                    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
 
                 if (targetConfig == null)
                 {
@@ -485,7 +493,7 @@ namespace ChatBox.API.Services.Implement
 
                 var activeSessions = await _unitOfWork.GetRepository<ChatSession>()
                     .GetListAsync(
-                        predicate: s => NormalizeModelName(s.ModelName) == normalizedModelName && s.IsActive,
+                        predicate: s => s.ModelName == normalizedModelName && s.IsActive,
                         include: q => q.Include(s => s.Messages));
 
                 var affectedUsers = activeSessions.Select(s => s.UserId).Distinct().Count();
