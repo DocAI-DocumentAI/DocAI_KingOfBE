@@ -15,7 +15,7 @@ namespace ChatBox.API.Controllers
     /// API chat chính - gửi tin nhắn và quản lý session
     /// </summary>
     [ApiController]
-    [Route("api/[controller]")]
+    [Route(ApiEndPointConstant.ApiEndpoint)]
     public class ChatController : ControllerBase
     {
         private readonly IChatService _chatService;
