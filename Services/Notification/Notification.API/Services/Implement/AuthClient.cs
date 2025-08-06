@@ -86,5 +86,57 @@ namespace Notification.API.Services.Implement
                 return new List<UserDetailResponseExternal>();
             }
         }
+
+        public async Task<List<string>> GetDepartmentManagerEmailsAsync(string departmentId)
+        {
+            try
+            {
+                _logger.LogInformation("Getting department manager emails for department {DepartmentId}", departmentId);
+
+                var requestUri = $"api/users/department-managers/{departmentId}";
+                var response = await _httpClient.GetAsync(requestUri);
+                response.EnsureSuccessStatusCode();
+
+                var content = await response.Content.ReadAsStringAsync();
+                var emails = JsonSerializer.Deserialize<List<string>>(content,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                return emails ?? new List<string>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting department manager emails for department {DepartmentId}", departmentId);
+                return new List<string>();
+            }
+        }
+
+        public async Task<UserDetailResponseExternal?> GetUserByEmailAsync(string email)
+        {
+            try
+            {
+                _logger.LogInformation("Getting user by email {Email}", email);
+
+                var requestUri = $"api/users/by-email/{Uri.EscapeDataString(email)}";
+                var response = await _httpClient.GetAsync(requestUri);
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    return null;
+                }
+
+                response.EnsureSuccessStatusCode();
+
+                var content = await response.Content.ReadAsStringAsync();
+                var user = JsonSerializer.Deserialize<UserDetailResponseExternal>(content,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                return user;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting user by email {Email}", email);
+                return null;
+            }
+        }
     }
 }

@@ -2,7 +2,7 @@
 
 namespace Notification.API.Utils
 {
-    public class TemplateRendererUtil
+    public class TemplateRendererUtil : ITemplateRendererUtil
     {
         public string Render(string templateContent, Dictionary<string, string>? data)
         {

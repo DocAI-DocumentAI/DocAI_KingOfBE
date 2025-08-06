@@ -53,6 +53,8 @@ public static class DependencyService
         services.AddScoped<INotificationSchedulerService, NotificationSchedulerService>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IDocumentScanService, DocumentScanService>();
+        services.AddScoped<IDocumentWorkflowNotificationService, DocumentWorkflowNotificationService>();
+        services.AddScoped<ITemplateRendererUtil, TemplateRendererUtil>();
 
         services.AddSingleton<TemplateRendererUtil>();
         services.AddMemoryCache(); 
@@ -173,6 +175,9 @@ public static class DependencyService
         {
             busConfig.AddConsumer<ProcessDocumentExpirationConsumer>(); // Sẽ được tích hợp sâu hơn ở bước sau
             busConfig.AddConsumer<GeneralNotificationConsumer>();
+            busConfig.AddConsumer<DocumentSubmissionNotificationConsumer>();
+            busConfig.AddConsumer<DocumentApprovalNotificationConsumer>();
+            busConfig.AddConsumer<DocumentRejectionNotificationConsumer>();
 
             busConfig.UsingRabbitMq((context, mqConfig) =>
             {
@@ -194,9 +199,30 @@ public static class DependencyService
                     e.UseInMemoryOutbox();
                 });
 
-                mqConfig.ReceiveEndpoint("general-notifications-queue", e => 
+                mqConfig.ReceiveEndpoint("general-notifications-queue", e =>
                 {
                     e.ConfigureConsumer<GeneralNotificationConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                mqConfig.ReceiveEndpoint("document-submission-notifications-queue", e =>
+                {
+                    e.ConfigureConsumer<DocumentSubmissionNotificationConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                mqConfig.ReceiveEndpoint("document-approval-notifications-queue", e =>
+                {
+                    e.ConfigureConsumer<DocumentApprovalNotificationConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                mqConfig.ReceiveEndpoint("document-rejection-notifications-queue", e =>
+                {
+                    e.ConfigureConsumer<DocumentRejectionNotificationConsumer>(context);
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
                     e.UseInMemoryOutbox();
                 });

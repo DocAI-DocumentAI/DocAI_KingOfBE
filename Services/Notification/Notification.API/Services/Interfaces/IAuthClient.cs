@@ -12,5 +12,9 @@ namespace Notification.API.Services.Interfaces
 
         Task<List<UserDetailResponseExternal>> GetAdminUsersAsync(Guid adminRoleId);
 
+        // Document workflow notification methods
+        Task<List<string>> GetDepartmentManagerEmailsAsync(string departmentId);
+        Task<UserDetailResponseExternal?> GetUserByEmailAsync(string email);
+
     }
 }
