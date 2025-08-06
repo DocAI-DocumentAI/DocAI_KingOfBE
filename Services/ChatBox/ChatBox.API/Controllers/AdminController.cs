@@ -9,6 +9,7 @@ using ChatBox.Domain.Models;
 using ChatBox.Infrastructure.Repository.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace ChatBox.API.Controllers
 {
@@ -32,6 +33,109 @@ namespace ChatBox.API.Controllers
         {
             return User.FindFirst("userId")?.Value ??
                    throw new UnauthorizedAccessException("User ID not found in token");
+        }
+        /// <summary>
+        /// Thống kê hoạt động theo ngày
+        /// </summary>
+        [HttpGet(ApiEndPointConstant.Admin.DailyActivity)]
+        [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
+        [ProducesResponseType(typeof(List<DailyActivityResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GetDailyActivityAsync([FromQuery] int days = 30)
+        {
+            try
+            {
+                var response = await _adminService.GetDailyActivityAsync(days);
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get daily activity");
+                return Problem(MessageConstant.Admin.GetActivityFailed);
+            }
+        }
+
+        /// <summary>
+        /// Thống kê sử dụng từng model chi tiết
+        /// </summary>
+        [HttpGet(ApiEndPointConstant.Admin.ModelUsage)]
+        [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
+        [ProducesResponseType(typeof(List<ModelUsageStatistics>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GetModelUsageStatisticsAsync()
+        {
+            try
+            {
+                var response = await _adminService.GetModelUsageStatisticsAsync();
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get model usage statistics");
+                return Problem(MessageConstant.Admin.GetModelUsageFailed);
+            }
+        }
+
+        /// <summary>
+        /// Bulk quản lý nhiều models (Optional - Advanced Feature)
+        /// </summary>
+        [HttpPost(ApiEndPointConstant.Admin.Bulk)]
+        [CustomAuthorize(Roles = new[] { Roles.Admin })]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> SetMultipleActiveModelsAsync([FromBody] SetMultipleModelsRequest request)
+        {
+            try
+            {
+                var userId = GetUserId();
+                var result = await _adminService.SetMultipleActiveModelsAsync(request.ModelNames, userId);
+
+                if (!result)
+                {
+                    return BadRequest("Cập nhật models thất bại");
+                }
+
+                _logger.LogInformation("Multiple models updated by {UserId}: {Models}",
+                    userId, string.Join(", ", request.ModelNames));
+
+                return Ok($"Đã cập nhật {request.ModelNames.Count} models thành công");
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning("Invalid bulk model request: {Error}", ex.Message);
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to set multiple active models");
+                return Problem("Cập nhật bulk models thất bại");
+            }
+        }
+
+        /// <summary>
+        /// Phân tích ảnh hưởng trước khi tắt model (Optional - Advanced Feature)
+        /// </summary>
+        [HttpGet(ApiEndPointConstant.Admin.ModelImpact)]
+        [CustomAuthorize(Roles = new[] { Roles.Admin })]
+        [ProducesResponseType(typeof(ModelImpactResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GetModelImpactAnalysisAsync(string modelName)
+        {
+            try
+            {
+                var impact = await _adminService.GetModelImpactAnalysisAsync(modelName);
+                return Ok(impact);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get model impact analysis for {ModelName}", modelName);
+                return Problem("Lấy phân tích ảnh hưởng thất bại");
+            }
         }
         /// <summary>
         /// Lấy danh sách tất cả cấu hình AI
@@ -174,17 +278,18 @@ namespace ChatBox.API.Controllers
                 var result = await _adminService.SetActiveModelAsync(modelName, userId);
 
                 if (!result)
-                {
-                    return NotFound($"Model '{modelName}' không tồn tại");
-                }
+                    return NotFound(string.Format(MessageConstant.Admin.ModelNotFound, modelName));
 
-                _logger.LogInformation("Model activated: {ModelName} by {UserId}", modelName, userId);
                 return Ok(MessageConstant.Admin.ModelActivated);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("model cuối cùng"))
+            {
+                return BadRequest(ex.Message);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to activate model {ModelName}", modelName);
-                return Problem("Kích hoạt model thất bại");
+                _logger.LogError(ex, "Failed to toggle model");
+                return Problem(MessageConstant.Admin.ActivateModelFailed);
             }
         }
 
@@ -209,7 +314,7 @@ namespace ChatBox.API.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to test model {ModelName}", modelName);
-                return Problem("Test model thất bại");
+                return Problem(MessageConstant.Admin.TestModelFailed);
             }
         }
 
@@ -231,45 +336,7 @@ namespace ChatBox.API.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to get system statistics");
-                return Problem("Lấy thống kê hệ thống thất bại");
-            }
-        }
-        /// <summary>
-        /// Thống kê hoạt động theo ngày (mặc định 30 ngày)
-        /// </summary>
-        [HttpGet(ApiEndPointConstant.Admin.DailyActivity)]
-        [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
-        [ProducesResponseType(typeof(List<DailyActivityResponse>), StatusCodes.Status200OK)]
-        public async Task<IActionResult> GetDailyActivityAsync([FromQuery] int days = 30)
-        {
-            try
-            {
-                var response = await _adminService.GetDailyActivityAsync(days);
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get daily activity");
-                return Problem("Lấy thống kê hoạt động thất bại");
-            }
-        }
-        /// <summary>
-        /// Thống kê sử dụng từng model chi tiết
-        /// </summary>
-        [HttpGet(ApiEndPointConstant.Admin.ModelUsage)]
-        [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
-        [ProducesResponseType(typeof(List<ModelUsageStatistics>), StatusCodes.Status200OK)]
-        public async Task<IActionResult> GetModelUsageStatisticsAsync()
-        {
-            try
-            {
-                var response = await _adminService.GetModelUsageStatisticsAsync();
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get model usage statistics");
-                return Problem("Lấy thống kê sử dụng model thất bại");
+                return Problem(MessageConstant.Admin.GetStatsFailed);
             }
         }
     }

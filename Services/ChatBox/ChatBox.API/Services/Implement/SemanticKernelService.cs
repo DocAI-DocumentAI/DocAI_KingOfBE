@@ -290,7 +290,13 @@ namespace ChatBox.API.Services.Implement
                 {
                     fallbackHistory.AddUserMessage(ChatConstants.DefaultFallbackMessage);
                 }
-
+                var fallbackSettings = new OpenAIPromptExecutionSettings
+                {
+                    Temperature = settings.Temperature,
+                    TopP = settings.TopP,
+                    MaxTokens = Math.Min(settings.MaxTokens ?? 1000, 500), // Reduced for fallback
+                    ToolCallBehavior = null // Disable tools for fallback
+                };
                 var result = await chatService.GetChatMessageContentAsync(fallbackHistory, settings);
                 return result?.Content ?? MessageConstant.AI.ResponseGenerationFailed;
             }
