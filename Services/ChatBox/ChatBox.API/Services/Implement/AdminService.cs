@@ -85,7 +85,7 @@ namespace ChatBox.API.Services.Implement
                 await _unitOfWork.CommitAsync();
 
                 // Clear cache
-                await ClearModelCaches();
+                await ClearAllModelCaches();
 
                 _logger.LogInformation("Created AI configuration: {ModelName} by {UserId}", request.ModelName, userId);
 
@@ -144,7 +144,8 @@ namespace ChatBox.API.Services.Implement
                 // ✅ Clear caches nếu có thay đổi quan trọng
                 if (wasActive || oldModelName != config.ModelName)
                 {
-                    await ClearModelCaches();
+                    await ClearAllModelCaches(oldModelName);
+                    await ClearAllModelCaches(config.ModelName);
                 }
 
                 _logger.LogInformation("Updated AI configuration: {ConfigId} by {UserId}", id, userId);
@@ -193,7 +194,7 @@ namespace ChatBox.API.Services.Implement
                 _unitOfWork.GetRepository<AIConfiguration>().DeleteAsync(config);
                 await _unitOfWork.CommitAsync();
 
-                await ClearModelCaches();
+                await ClearAllModelCaches(config.ModelName);
 
                 _logger.LogInformation("Deleted AI configuration: {ConfigId} - {ModelName}", id, config.ModelName);
 
@@ -238,7 +239,7 @@ namespace ChatBox.API.Services.Implement
                 _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(targetConfig);
                 await _unitOfWork.CommitAsync();
 
-                await ClearModelCaches();
+                await ClearAllModelCaches(targetConfig.ModelName);
 
                 _logger.LogInformation("Model {ModelName} {Action} by {UserId}",
                     modelName, newActiveState ? "activated" : "deactivated", userId);
@@ -544,7 +545,60 @@ namespace ChatBox.API.Services.Implement
         #endregion
 
         #region Helper Methods
+        private async Task ClearAllModelCaches(string modelName = null)
+        {
+            var cacheKeys = new List<string>
+        {
+            "active_models_cache",
+            "default_active_model"
+        };
 
+            // 🔧 CRITICAL: Clear individual model cache keys
+            if (!string.IsNullOrEmpty(modelName))
+            {
+                var normalizedModelName = NormalizeModelName(modelName);
+                cacheKeys.AddRange(new[]
+                {
+                $"model_active_{normalizedModelName}",
+                $"model_valid_{normalizedModelName}",
+                $"model_active_{modelName}",  // Original name too
+                $"model_valid_{modelName}"    // Original name too
+            });
+            }
+            else
+            {
+                // 🔧 If no specific model, get all models and clear their caches
+                var allConfigs = await _unitOfWork.GetRepository<AIConfiguration>().GetListAsync();
+                foreach (var config in allConfigs)
+                {
+                    var normalized = NormalizeModelName(config.ModelName);
+                    cacheKeys.AddRange(new[]
+                    {
+                    $"model_active_{normalized}",
+                    $"model_valid_{normalized}",
+                    $"model_active_{config.ModelName}",
+                    $"model_valid_{config.ModelName}"
+                });
+                }
+            }
+
+            // Remove duplicates
+            cacheKeys = cacheKeys.Distinct().ToList();
+
+            _logger.LogInformation("Clearing {Count} cache keys for model operations", cacheKeys.Count);
+
+            var clearTasks = cacheKeys.Select(key => _cacheService.RemoveAsync(key));
+
+            try
+            {
+                await Task.WhenAll(clearTasks);
+                _logger.LogInformation("Successfully cleared all model caches");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to clear some model caches");
+            }
+        }
         private async Task ClearModelCaches()
         {
             var cacheKeys = new[]
