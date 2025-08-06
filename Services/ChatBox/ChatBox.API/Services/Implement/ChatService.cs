@@ -23,11 +23,8 @@ namespace ChatBox.API.Services.Implement
         private readonly ITokenCountService _tokenCountService;
         private readonly IPreferenceService _preferenceService;
         private readonly IManualDocumentSearchService _manualDocumentSearchService;
-        private readonly ICacheService _cacheService;
         private readonly ILogger<ChatService> _logger;
 
-        private readonly TimeSpan _chatHistoryCacheDuration = TimeSpan.FromMinutes(10);
-        private readonly TimeSpan _sessionCacheDuration = TimeSpan.FromMinutes(30);
         public ChatService(
             IUnitOfWork<ChatBoxDbContext> unitOfWork,
             IMapper mapper,
@@ -35,7 +32,6 @@ namespace ChatBox.API.Services.Implement
             ITokenCountService tokenCountService,
             IPreferenceService preferenceService,
             IManualDocumentSearchService manualDocumentSearchService,
-            ICacheService cacheService,
             ILogger<ChatService> logger)
         {
             _unitOfWork = unitOfWork;
@@ -44,26 +40,27 @@ namespace ChatBox.API.Services.Implement
             _tokenCountService = tokenCountService;
             _preferenceService = preferenceService;
             _manualDocumentSearchService = manualDocumentSearchService;
-            _cacheService = cacheService;
             _logger = logger;
         }
 
-        // 🔧 FIXED: SendMessageAsync - AI response trước khi save
         public async Task<ChatResponse> SendMessageAsync(ChatRequest request, string userId)
         {
             await ValidateMessageStrictAsync(request.Message);
 
             var session = await GetOrCreateSessionAsync(request.SessionId, request.ModelName, userId);
 
+            // Validate model switching
             if (!string.IsNullOrEmpty(request.ModelName) &&
-              !string.IsNullOrEmpty(session.Id) &&
-              session.ModelName != request.ModelName)
+                !string.IsNullOrEmpty(session.Id) &&
+                session.ModelName != request.ModelName)
             {
                 throw new InvalidOperationException(
                     $"Không thể thay đổi model trong session đã có conversation. " +
                     $"Session hiện tại sử dụng {session.ModelName}. " +
                     $"Để sử dụng {request.ModelName}, vui lòng tạo session mới.");
             }
+
+            // Validate session model is still active
             var isSessionModelActive = await IsModelActiveAsync(session.ModelName);
             if (!isSessionModelActive)
             {
@@ -72,6 +69,7 @@ namespace ChatBox.API.Services.Implement
                     $"Session này không thể tiếp tục. Vui lòng tạo session mới với model khác.");
             }
 
+            // Check if first message (for title generation)
             var userMessages = await _unitOfWork.GetRepository<ChatMessage>()
                 .GetListAsync(predicate: m => m.SessionId == session.Id && m.Role == MessageRole.User);
             var isFirstMessage = userMessages.Count == 0;
@@ -79,7 +77,7 @@ namespace ChatBox.API.Services.Implement
             _logger.LogInformation("Processing chat message for session {SessionId}, isFirstMessage: {IsFirstMessage}",
                 session.Id, isFirstMessage);
 
-            // 🔧 Document search
+            // Document search if applicable
             string documentAnswer = null;
             if (_manualDocumentSearchService.ShouldSearchDocuments(request.Message))
             {
@@ -98,20 +96,21 @@ namespace ChatBox.API.Services.Implement
                 }
             }
 
-            // 🔧 FIXED: Build chat history và add temp user message
+            // Build chat history and add temporary user message
             var chatHistory = await BuildChatHistoryAsync(session.Id);
-            chatHistory.AddUserMessage(request.Message); // Add temporary user message for AI context
+            chatHistory.AddUserMessage(request.Message);
 
+            // Inject document context if available
             if (!string.IsNullOrEmpty(documentAnswer))
             {
                 _logger.LogInformation("Injecting document context into chat history");
                 chatHistory = InjectDocumentContext(chatHistory, documentAnswer);
             }
 
-            // 🔧 FIXED: Get AI response TRƯỚC khi save user message
+            // Get AI response
             var aiResponse = await _semanticKernelService.GetChatResponseAsync(session.ModelName, chatHistory);
 
-            // 🔧 FIXED: Nếu AI fail → throw exception (như chatbot hiện tại)
+            // Validate AI response
             if (string.IsNullOrEmpty(aiResponse))
             {
                 _logger.LogError("AI service returned empty response for session {SessionId}", session.Id);
@@ -120,7 +119,7 @@ namespace ChatBox.API.Services.Implement
 
             _logger.LogInformation("AI response generated successfully, length: {Length}", aiResponse.Length);
 
-            // 🔧 FIXED: CHỈ KHI AI response thành công mới save messages
+            // Create and save messages
             var userMessage = new ChatMessage
             {
                 Content = request.Message,
@@ -147,7 +146,7 @@ namespace ChatBox.API.Services.Implement
                 UpdatedAt = DateTime.UtcNow
             };
 
-            // Save both messages together
+            // Save both messages
             await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(userMessage);
             await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(aiMessage);
 
@@ -155,7 +154,7 @@ namespace ChatBox.API.Services.Implement
             session.LastActiveAt = DateTime.UtcNow;
             session.UpdatedBy = userId;
 
-            // 🔧 FIXED: Title generation - keep default nếu fail
+            // Generate title for first message
             if (isFirstMessage && (string.IsNullOrEmpty(session.Title) || session.Title == ChatConstants.DefaultSessionTitle))
             {
                 try
@@ -170,7 +169,6 @@ namespace ChatBox.API.Services.Implement
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Title generation failed for session {SessionId}, keeping default", session.Id);
-                    // Keep default title - không thay đổi gì
                     if (string.IsNullOrEmpty(session.Title))
                     {
                         session.Title = ChatConstants.DefaultSessionTitle;
@@ -179,7 +177,7 @@ namespace ChatBox.API.Services.Implement
             }
 
             _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
-            await _unitOfWork.CommitAsync(); // Commit tất cả cùng lúc
+            await _unitOfWork.CommitAsync();
 
             _logger.LogInformation("Chat message processed successfully for session {SessionId}", session.Id);
 
@@ -194,23 +192,23 @@ namespace ChatBox.API.Services.Implement
             };
         }
 
-        // 🔧 FIXED: SendMessageStreamAsync - đồng nhất logic với non-stream
         public async Task<IAsyncEnumerable<string>> SendMessageStreamAsync(ChatRequest request, string userId)
         {
             await ValidateMessageStrictAsync(request.Message);
 
-
             var session = await GetOrCreateSessionAsync(request.SessionId, request.ModelName, userId);
-          
+
+            // Model validation (same as non-stream)
             if (!string.IsNullOrEmpty(request.ModelName) &&
-                         !string.IsNullOrEmpty(session.Id) &&
-                         session.ModelName != request.ModelName)
+                !string.IsNullOrEmpty(session.Id) &&
+                session.ModelName != request.ModelName)
             {
                 throw new InvalidOperationException(
                     $"Không thể thay đổi model trong session đã có conversation. " +
                     $"Session hiện tại sử dụng {session.ModelName}. " +
                     $"Để sử dụng {request.ModelName}, vui lòng tạo session mới.");
             }
+
             var isSessionModelActive = await IsModelActiveAsync(session.ModelName);
             if (!isSessionModelActive)
             {
@@ -218,7 +216,8 @@ namespace ChatBox.API.Services.Implement
                     $"Model '{session.ModelName}' đã bị tắt bởi admin. " +
                     $"Session này không thể tiếp tục. Vui lòng tạo session mới với model khác.");
             }
-            // 🔧 Check first message (giống như non-stream)
+
+            // Check first message
             var userMessages = await _unitOfWork.GetRepository<ChatMessage>()
                 .GetListAsync(predicate: m => m.SessionId == session.Id && m.Role == MessageRole.User);
             var isFirstMessage = userMessages.Count == 0;
@@ -226,7 +225,7 @@ namespace ChatBox.API.Services.Implement
             _logger.LogInformation("Processing streaming chat for session {SessionId}, isFirstMessage: {IsFirstMessage}",
                 session.Id, isFirstMessage);
 
-            // Document search (giống như non-stream)
+            // Document search
             string documentAnswer = null;
             if (_manualDocumentSearchService.ShouldSearchDocuments(request.Message))
             {
@@ -240,9 +239,9 @@ namespace ChatBox.API.Services.Implement
                 }
             }
 
-            // 🔧 Build chat history với temp user message (giống non-stream)
+            // Build chat history
             var chatHistory = await BuildChatHistoryAsync(session.Id);
-            chatHistory.AddUserMessage(request.Message); // Add temporary
+            chatHistory.AddUserMessage(request.Message);
 
             if (!string.IsNullOrEmpty(documentAnswer))
             {
@@ -258,13 +257,16 @@ namespace ChatBox.API.Services.Implement
         {
             var modelName = request.ModelName;
 
-            // Validate requested model is active
+            // Validate requested model
             if (!string.IsNullOrEmpty(modelName))
             {
                 var isValidModel = await IsModelActiveAsync(modelName);
                 if (!isValidModel)
                 {
                     var availableModels = await GetAvailableModelNamesAsync();
+                    _logger.LogWarning("Model validation failed. Requested: '{ModelName}', Available: [{AvailableModels}]",
+                        modelName, string.Join(", ", availableModels));
+
                     throw new ArgumentException(
                         $"Model '{modelName}' không khả dụng. " +
                         $"Models có sẵn: {string.Join(", ", availableModels)}");
@@ -299,53 +301,17 @@ namespace ChatBox.API.Services.Implement
 
         public async Task<SessionDetailResponse> GetSessionAsync(string sessionId, string userId)
         {
-            var sessionCacheKey = $"session_detail_{sessionId}";
-            var cachedSession = await _cacheService.GetAsync<SessionDetailResponse>(sessionCacheKey);
-
-            if (cachedSession != null)
-            {
-                var lastMessageCacheKey = $"last_message_time_{sessionId}";
-                var cachedLastMessageTime = await _cacheService.GetDateTimeAsync(lastMessageCacheKey);
-                var actualLastMessageTime = await GetLastMessageTimeFromDB(sessionId);
-
-                if (cachedLastMessageTime >= actualLastMessageTime)
-                {
-                    _logger.LogDebug("Cache HIT: Session detail for {SessionId}", sessionId);
-
-                    // 🔧 MODERN FLOW: Check if session model is still active
-                    var isModelStillActive = await IsModelActiveAsync(cachedSession.ModelName);
-                    cachedSession.IsModelActive = isModelStillActive;
-
-                    return cachedSession;
-                }
-                else
-                {
-                    _logger.LogDebug("Cache STALE: Session detail for {SessionId}", sessionId);
-                }
-            }
-
             var session = await _unitOfWork.GetRepository<ChatSession>()
-                 .SingleOrDefaultAsync(predicate: s => s.Id == sessionId && s.UserId == userId,
-                     include: q => q.Include(a => a.Messages).Include(a => a.Preferences));
+                .SingleOrDefaultAsync(
+                    predicate: s => s.Id == sessionId && s.UserId == userId,
+                    include: q => q.Include(a => a.Messages).Include(a => a.Preferences));
 
             if (session == null)
                 throw new ArgumentException(MessageConstant.Chat.SessionNotFound);
 
             var response = _mapper.Map<SessionDetailResponse>(session);
             response.Messages = response.Messages.OrderBy(m => m.Timestamp).ToList();
-
-            // 🔧 MODERN FLOW: Add model active status
             response.IsModelActive = await IsModelActiveAsync(session.ModelName);
-
-            try
-            {
-                await _cacheService.SetAsync(sessionCacheKey, response, _sessionCacheDuration);
-                _logger.LogDebug("Cached session detail for {SessionId}", sessionId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to cache session detail for {SessionId}", sessionId);
-            }
 
             return response;
         }
@@ -353,13 +319,14 @@ namespace ChatBox.API.Services.Implement
         public async Task<List<SessionResponse>> GetUserSessionsAsync(string userId)
         {
             var sessions = await _unitOfWork.GetRepository<ChatSession>()
-                 .GetListAsync(predicate: s => s.UserId == userId && s.IsActive,
-                     orderBy: q => q.OrderByDescending(s => s.LastActiveAt),
-                     include: query => query.Include(s => s.Messages));
+                .GetListAsync(
+                    predicate: s => s.UserId == userId && s.IsActive,
+                    orderBy: q => q.OrderByDescending(s => s.LastActiveAt),
+                    include: query => query.Include(s => s.Messages));
 
             var responses = _mapper.Map<List<SessionResponse>>(sessions);
 
-            // 🔧 MODERN FLOW: Add model status for each session
+            // Add additional info for each session
             foreach (var response in responses)
             {
                 var session = sessions.First(s => s.Id == response.Id);
@@ -373,7 +340,7 @@ namespace ChatBox.API.Services.Implement
         public async Task<bool> DeleteSessionAsync(string sessionId, string userId)
         {
             var session = await _unitOfWork.GetRepository<ChatSession>()
-                 .SingleOrDefaultAsync(predicate: s => s.Id == sessionId && s.UserId == userId);
+                .SingleOrDefaultAsync(predicate: s => s.Id == sessionId && s.UserId == userId);
 
             if (session == null)
                 return false;
@@ -381,13 +348,11 @@ namespace ChatBox.API.Services.Implement
             session.IsActive = false;
             session.UpdatedAt = DateTime.UtcNow;
             session.UpdatedBy = userId;
+
             _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
             await _unitOfWork.CommitAsync();
 
-            await InvalidateChatCaches(sessionId);
-
             _logger.LogInformation("Deleted session {SessionId} for user {UserId}", sessionId, userId);
-
             return true;
         }
 
@@ -421,31 +386,17 @@ namespace ChatBox.API.Services.Implement
 
             return ApiResponse<object>.Ok(null, MessageConstant.Chat.MessageValid);
         }
-        private async Task ValidateMessageStrictAsync(string message)
-        {
-            var validation = await ValidateMessageAsync(message);
-            if (!validation.Success)
-            {
-                throw new ArgumentException(validation.Message);
-            }
-        }
+
         public async Task<List<AvailableModelResponse>> GetAvailableModelsAsync()
         {
-            var cacheKey = "active_models_cache";
-            var cached = await _cacheService.GetAsync<List<AvailableModelResponse>>(cacheKey);
-
-            if (cached != null)
-            {
-                _logger.LogDebug("Cache HIT: Available models");
-                return cached;
-            }
-
             var activeConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
-                  .GetListAsync(predicate: c => c.IsActive,
-                      orderBy: q => q.OrderBy(c => c.DisplayName));
+                .GetListAsync(
+                    predicate: c => c.IsActive,
+                    orderBy: q => q.OrderBy(c => c.DisplayName));
 
             if (!activeConfigs.Any())
             {
+                _logger.LogError("No active models found in database");
                 throw new InvalidOperationException("Không có model nào được kích hoạt. Vui lòng liên hệ quản trị viên.");
             }
 
@@ -462,28 +413,18 @@ namespace ChatBox.API.Services.Implement
                 TopP = c.TopP
             }).ToList();
 
-            try
-            {
-                await _cacheService.SetAsync(cacheKey, result, TimeSpan.FromMinutes(5));
-                _logger.LogDebug("Cached {Count} available models", result.Count);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to cache available models");
-            }
-
             return result;
         }
 
         public async Task<bool> SwitchSessionModelAsync(string sessionId, string newModelName, string userId)
         {
             var session = await _unitOfWork.GetRepository<ChatSession>()
-                          .SingleOrDefaultAsync(predicate: s => s.Id == sessionId && s.UserId == userId);
+                .SingleOrDefaultAsync(predicate: s => s.Id == sessionId && s.UserId == userId);
 
             if (session == null)
                 throw new ArgumentException(MessageConstant.Chat.SessionNotFound);
 
-            // Check if session has any messages
+            // Check if session has messages
             var hasMessages = await _unitOfWork.GetRepository<ChatMessage>()
                 .GetListAsync(predicate: m => m.SessionId == sessionId);
 
@@ -494,7 +435,7 @@ namespace ChatBox.API.Services.Implement
                     "Vui lòng tạo session mới để sử dụng model khác.");
             }
 
-            // If no messages, allow model switch (empty session)
+            // Validate new model
             var isValidModel = await IsModelActiveAsync(newModelName);
             if (!isValidModel)
             {
@@ -514,20 +455,26 @@ namespace ChatBox.API.Services.Implement
             _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
             await _unitOfWork.CommitAsync();
 
-            await InvalidateChatCaches(sessionId);
-
             _logger.LogInformation("Switched model for empty session {SessionId} to {ModelName}", sessionId, newModelName);
-
             return true;
         }
 
         #region Private Helper Methods
 
+        private async Task ValidateMessageStrictAsync(string message)
+        {
+            var validation = await ValidateMessageAsync(message);
+            if (!validation.Success)
+            {
+                throw new ArgumentException(validation.Message);
+            }
+        }
+
         private async Task<ChatSession> GetOrCreateSessionAsync(string sessionId, string modelName, string userId)
         {
             if (string.IsNullOrEmpty(sessionId))
             {
-                // Creating new session - validate model
+                // Creating new session
                 var validModelName = await GetValidActiveModelAsync(modelName);
 
                 var newSession = new ChatSession
@@ -550,7 +497,7 @@ namespace ChatBox.API.Services.Implement
                 return newSession;
             }
 
-            // Existing session - return as is
+            // Get existing session
             var session = await _unitOfWork.GetRepository<ChatSession>()
                 .SingleOrDefaultAsync(predicate: s => s.Id == sessionId && s.UserId == userId);
 
@@ -559,6 +506,7 @@ namespace ChatBox.API.Services.Implement
 
             return session;
         }
+
         private async Task<string> GetValidActiveModelAsync(string requestedModelName)
         {
             if (!string.IsNullOrEmpty(requestedModelName))
@@ -566,8 +514,6 @@ namespace ChatBox.API.Services.Implement
                 var isValid = await IsModelActiveAsync(requestedModelName);
                 if (isValid)
                     return requestedModelName;
-
-                _logger.LogWarning("Requested model {ModelName} is not active, using default", requestedModelName);
 
                 var availableModels = await GetAvailableModelNamesAsync();
                 throw new ArgumentException(
@@ -577,66 +523,29 @@ namespace ChatBox.API.Services.Implement
 
             return await GetDefaultActiveModelAsync();
         }
+
         private async Task<bool> IsModelActiveAsync(string modelName)
         {
             if (string.IsNullOrEmpty(modelName))
                 return false;
 
-            var cacheKey = $"model_active_{modelName}";
-            var cached = await _cacheService.GetStringAsync(cacheKey);
-
-            if (cached != null)
-            {
-                return cached == "true";
-            }
+            var normalizedModelName = NormalizeModelName(modelName);
 
             var config = await _unitOfWork.GetRepository<AIConfiguration>()
-                .SingleOrDefaultAsync(predicate: c => c.ModelName == NormalizeModelName(modelName) && c.IsActive);
+                .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName && c.IsActive);
 
-            var isActive = config != null;
-
-            try
-            {
-                await _cacheService.SetStringAsync(cacheKey, isActive.ToString(), TimeSpan.FromMinutes(5));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to cache model active status");
-            }
-
-            return isActive;
+            return config != null;
         }
 
         private async Task<string> GetDefaultActiveModelAsync()
         {
-            var cacheKey = "default_active_model";
-            var cached = await _cacheService.GetStringAsync(cacheKey);
-
-            if (!string.IsNullOrEmpty(cached))
-            {
-                var isStillActive = await IsModelActiveAsync(cached);
-                if (isStillActive)
-                    return cached;
-            }
-
             var activeConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
                 .GetListAsync(predicate: c => c.IsActive, orderBy: q => q.OrderBy(c => c.DisplayName));
 
             if (!activeConfigs.Any())
                 throw new InvalidOperationException("Không có model nào được kích hoạt. Vui lòng liên hệ quản trị viên.");
 
-            var defaultModel = activeConfigs.First().ModelName;
-
-            try
-            {
-                await _cacheService.SetStringAsync(cacheKey, defaultModel, TimeSpan.FromMinutes(10));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to cache default model");
-            }
-
-            return defaultModel;
+            return activeConfigs.First().ModelName;
         }
 
         private async Task<List<string>> GetAvailableModelNamesAsync()
@@ -644,61 +553,17 @@ namespace ChatBox.API.Services.Implement
             var models = await GetAvailableModelsAsync();
             return models.Select(m => m.ModelName).ToList();
         }
+
         private async Task<ChatHistory> BuildChatHistoryAsync(string sessionId)
         {
-            var historyCacheKey = $"chat_history_built_{sessionId}";
-            var messagesCacheKey = $"chat_messages_{sessionId}";
-            var lastMessageCacheKey = $"last_message_time_{sessionId}";
-
-            var cachedLastMessageTime = await _cacheService.GetDateTimeAsync(lastMessageCacheKey);
-            var actualLastMessageTime = await GetLastMessageTimeFromDB(sessionId);
-
-            bool isCacheStale = cachedLastMessageTime == null ||
-                               cachedLastMessageTime < actualLastMessageTime;
-
-            if (isCacheStale)
-            {
-                _logger.LogDebug("Cache STALE for session {SessionId} - invalidating", sessionId);
-                await InvalidateChatCaches(sessionId);
-            }
-
-            var cachedHistory = await _cacheService.GetAsync<ChatHistoryCache>(historyCacheKey);
-            if (cachedHistory != null && !isCacheStale)
-            {
-                _logger.LogDebug("Cache HIT: Chat history for session {SessionId}", sessionId);
-                return DeserializeChatHistory(cachedHistory);
-            }
-
-            _logger.LogDebug("Cache MISS: Rebuilding chat history for session {SessionId}", sessionId);
-
             var messages = await _unitOfWork.GetRepository<ChatMessage>()
-                .GetListAsync(predicate: m => m.SessionId == sessionId,
+                .GetListAsync(
+                    predicate: m => m.SessionId == sessionId,
                     orderBy: q => q.OrderBy(m => m.CreatedAt));
 
-            var chatHistory = await BuildChatHistoryFromMessages(sessionId, messages.ToList());
-
-            var historyCache = SerializeChatHistory(chatHistory);
-            var lastMessageTime = messages.LastOrDefault()?.CreatedAt ?? DateTime.UtcNow;
-
-            var cacheTasks = new[]
-            {
-                _cacheService.SetAsync(messagesCacheKey, messages, _chatHistoryCacheDuration),
-                _cacheService.SetAsync(historyCacheKey, historyCache, _chatHistoryCacheDuration),
-                _cacheService.SetDateTimeAsync(lastMessageCacheKey, lastMessageTime, _chatHistoryCacheDuration)
-            };
-
-            try
-            {
-                await Task.WhenAll(cacheTasks);
-                _logger.LogDebug("Cached chat history for session {SessionId}", sessionId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to cache chat history for session {SessionId}", sessionId);
-            }
-
-            return chatHistory;
+            return await BuildChatHistoryFromMessages(sessionId, messages.ToList());
         }
+
         private async Task<ChatHistory> BuildChatHistoryFromMessages(string sessionId, List<ChatMessage> messages)
         {
             var chatHistory = new ChatHistory();
@@ -744,78 +609,18 @@ namespace ChatBox.API.Services.Implement
 
             return chatHistory;
         }
-        private async Task<DateTime?> GetLastMessageTimeFromDB(string sessionId)
-        {
-            try
-            {
-                var lastMessage = await _unitOfWork.GetRepository<ChatMessage>()
-                    .SingleOrDefaultAsync(
-                        predicate: m => m.SessionId == sessionId,
-                        orderBy: q => q.OrderByDescending(m => m.CreatedAt));
 
-                return lastMessage?.CreatedAt;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to get last message time for session {SessionId}", sessionId);
-                return null; // Force cache refresh
-            }
-        }
-        private async Task InvalidateChatCaches(string sessionId)
-        {
-            var cacheKeys = new[]
-             {
-                $"chat_history_built_{sessionId}",
-                $"chat_messages_{sessionId}",
-                $"last_message_time_{sessionId}",
-                $"session_detail_{sessionId}"
-            };
-
-            var invalidationTasks = cacheKeys.Select(key => _cacheService.RemoveAsync(key));
-
-            try
-            {
-                await Task.WhenAll(invalidationTasks);
-                _logger.LogDebug("Invalidated all caches for session {SessionId}", sessionId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to invalidate some caches for session {SessionId}", sessionId);
-            }
-        }
-        private ChatHistoryCache SerializeChatHistory(ChatHistory history)
-        {
-            return new ChatHistoryCache
-            {
-                Messages = history.Select(msg => new CachedChatMessage
-                {
-                    Role = msg.Role.ToString(),
-                    Content = msg.Content ?? string.Empty
-                }).ToList(),
-                CachedAt = DateTime.UtcNow
-            };
-        }
-
-        private ChatHistory DeserializeChatHistory(ChatHistoryCache cache)
-        {
-            var history = new ChatHistory();
-            foreach (var msg in cache.Messages)
-            {
-                var role = Enum.Parse<AuthorRole>(msg.Role);
-                history.Add(new ChatMessageContent(role, msg.Content));
-            }
-            return history;
-        }
         private async Task<string> BuildSystemPromptAsync(string sessionId)
         {
             var session = await _unitOfWork.GetRepository<ChatSession>()
-                  .SingleOrDefaultAsync(predicate: s => s.Id == sessionId);
+                .SingleOrDefaultAsync(predicate: s => s.Id == sessionId);
 
             var baseSystemPrompt = ChatConstants.SystemPrompt;
 
             if (session != null)
             {
                 var normalizedModelName = NormalizeModelName(session.ModelName);
+
                 var aiConfig = await _unitOfWork.GetRepository<AIConfiguration>()
                     .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName && c.IsActive);
 
@@ -834,9 +639,9 @@ namespace ChatBox.API.Services.Implement
                 if (preferences.ChatbotCharacteristics.Any())
                 {
                     var characteristics = preferences.ChatbotCharacteristics
-                             .Take(ChatConstants.MaxCharacteristics)
-                             .Select(c => ChatbotCharacteristics.GetDisplayName(c))
-                             .Where(name => !string.IsNullOrEmpty(name));
+                        .Take(ChatConstants.MaxCharacteristics)
+                        .Select(c => ChatbotCharacteristics.GetDisplayName(c))
+                        .Where(name => !string.IsNullOrEmpty(name));
 
                     if (characteristics.Any())
                     {
@@ -855,9 +660,9 @@ namespace ChatBox.API.Services.Implement
             }
 
             baseSystemPrompt += $" {ChatConstants.DocumentSearchPromptAddition}";
-
             return baseSystemPrompt;
         }
+
         private async Task<string> GetCurrentModelNameAsync(string sessionId)
         {
             var session = await _unitOfWork.GetRepository<ChatSession>()
@@ -866,14 +671,29 @@ namespace ChatBox.API.Services.Implement
             return session?.ModelName ?? await GetDefaultModelNameAsync();
         }
 
-        // 🔧 FIXED: WrapStreamWithSave - save messages together như non-stream
+        private async Task<string> GetDefaultModelNameAsync()
+        {
+            try
+            {
+                var defaultConfig = await _unitOfWork.GetRepository<AIConfiguration>()
+                    .SingleOrDefaultAsync(predicate: c => c.IsActive);
+
+                return defaultConfig?.ModelName ?? ChatConstants.DefaultModelName;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get default model name, using fallback");
+                return ChatConstants.DefaultModelName;
+            }
+        }
+
         private async IAsyncEnumerable<string> WrapStreamWithSave(
-              IAsyncEnumerable<string> stream,
-              string sessionId,
-              string userId,
-              string userMessageContent,
-              bool isFirstMessage,
-              string modelName)
+            IAsyncEnumerable<string> stream,
+            string sessionId,
+            string userId,
+            string userMessageContent,
+            bool isFirstMessage,
+            string modelName)
         {
             var fullResponse = new StringBuilder();
 
@@ -978,56 +798,10 @@ namespace ChatBox.API.Services.Implement
 
             return enhancedHistory;
         }
-        private async Task<string> GetDefaultModelNameAsync()
-        {
-            try
-            {
-                // Check cache first
-                var cached = await _cacheService.GetAsync<string>("default_active_model");
-                if (!string.IsNullOrEmpty(cached))
-                {
-                    _logger.LogDebug("Cache HIT: Default model name");
-                    return cached;
-                }
 
-                // Query database for active model
-                var defaultConfig = await _unitOfWork.GetRepository<AIConfiguration>()
-                    .SingleOrDefaultAsync(predicate: c => c.IsActive);
-
-                var modelName = defaultConfig?.ModelName ?? ChatConstants.DefaultModelName;
-
-                // Cache the result
-                try
-                {
-                    await _cacheService.SetAsync("default_active_model", modelName, TimeSpan.FromMinutes(10));
-                    _logger.LogDebug("Cached default model name: {ModelName}", modelName);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to cache default model name");
-                }
-
-                return modelName;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get default model name, using fallback");
-                return ChatConstants.DefaultModelName;
-            }
-        }
-        #endregion
         private string NormalizeModelName(string modelName) =>
-    Uri.UnescapeDataString(modelName ?? string.Empty).Trim().ToLowerInvariant();
-    }
-    public class ChatHistoryCache
-    {
-        public List<CachedChatMessage> Messages { get; set; } = new();
-        public DateTime CachedAt { get; set; }
-    }
+            Uri.UnescapeDataString(modelName ?? string.Empty).Trim().ToLowerInvariant();
 
-    public class CachedChatMessage
-    {
-        public string Role { get; set; } = string.Empty;
-        public string Content { get; set; } = string.Empty;
+        #endregion
     }
 }
