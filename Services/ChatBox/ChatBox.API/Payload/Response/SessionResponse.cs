@@ -8,5 +8,6 @@
         public DateTime CreatedAt { get; set; }
         public DateTime LastActiveAt { get; set; }
         public int MessageCount { get; set; }
+        public bool IsModelActive { get; set; }
     }
 }

@@ -1,5 +1,8 @@
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
+using Document.Domain.Models;
+using Document.Infrastructure.Repository.Interfaces;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Document.API.Services.Implements;
 
@@ -10,13 +13,19 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
 {
     private readonly INameLookupService _nameLookupService;
     private readonly ILogger<DocumentEnrichmentService> _logger;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IMemoryCache _cache;
 
     public DocumentEnrichmentService(
         INameLookupService nameLookupService,
-        ILogger<DocumentEnrichmentService> logger)
+        ILogger<DocumentEnrichmentService> logger,
+        IUnitOfWork unitOfWork,
+        IMemoryCache cache)
     {
         _nameLookupService = nameLookupService;
         _logger = logger;
+        _unitOfWork = unitOfWork;
+        _cache = cache;
     }
 
     public async Task<DocumentResponse> EnrichDocumentResponseAsync(DocumentResponse document)
@@ -41,9 +50,10 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
 
         try
         {
-            // Collect all unique user and department IDs
+            // Collect all unique user, department, and document type IDs
             var userIds = new HashSet<string>();
             var departmentIds = new HashSet<string>();
+            var documentTypeIds = new HashSet<string>();
 
             foreach (var doc in documents)
             {
@@ -53,6 +63,8 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                     userIds.Add(doc.LastUpdatedby);
                 if (!string.IsNullOrEmpty(doc.DepartmentId))
                     departmentIds.Add(doc.DepartmentId);
+                if (!string.IsNullOrEmpty(doc.DocumentTypeId))
+                    documentTypeIds.Add(doc.DocumentTypeId);
             }
 
             // Bulk lookup names
@@ -60,6 +72,7 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                 userIds.ToList(),
                 departmentIds.ToList()
             );
+            var documentTypeNames = await GetDocumentTypeNamesAsync(documentTypeIds.ToList());
 
             if (nameResponse.Success)
             {
@@ -82,6 +95,12 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                         nameResponse.DepartmentNames.TryGetValue(doc.DepartmentId, out string? deptName))
                     {
                         doc.DepartmentName = deptName;
+                    }
+
+                    if (!string.IsNullOrEmpty(doc.DocumentTypeId) &&
+                        documentTypeNames.TryGetValue(doc.DocumentTypeId, out string? docTypeName))
+                    {
+                        doc.DocumentTypeName = docTypeName;
                     }
                 }
             }
@@ -106,9 +125,10 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
 
         try
         {
-            // Collect all unique user and department IDs
+            // Collect all unique user, department, and document type IDs
             var userIds = new HashSet<string>();
             var departmentIds = new HashSet<string>();
+            var documentTypeIds = new HashSet<string>();
 
             foreach (var doc in documents)
             {
@@ -118,6 +138,8 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                     userIds.Add(doc.SubmittedBy);
                 if (!string.IsNullOrEmpty(doc.DepartmentId))
                     departmentIds.Add(doc.DepartmentId);
+                if (!string.IsNullOrEmpty(doc.DocumentTypeId))
+                    documentTypeIds.Add(doc.DocumentTypeId);
             }
 
             // Bulk lookup names
@@ -125,6 +147,7 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                 userIds.ToList(),
                 departmentIds.ToList()
             );
+            var documentTypeNames = await GetDocumentTypeNamesAsync(documentTypeIds.ToList());
 
             if (nameResponse.Success)
             {
@@ -147,6 +170,12 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                         nameResponse.DepartmentNames.TryGetValue(doc.DepartmentId, out string? deptName))
                     {
                         doc.DepartmentName = deptName;
+                    }
+
+                    if (!string.IsNullOrEmpty(doc.DocumentTypeId) &&
+                        documentTypeNames.TryGetValue(doc.DocumentTypeId, out string? docTypeName))
+                    {
+                        doc.DocumentTypeName = docTypeName;
                     }
                 }
             }
@@ -182,9 +211,10 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
 
         try
         {
-            // Collect all unique user and department IDs
+            // Collect all unique user, department, and document type IDs
             var userIds = new HashSet<string>();
             var departmentIds = new HashSet<string>();
+            var documentTypeIds = new HashSet<string>();
 
             foreach (var response in responses)
             {
@@ -194,10 +224,13 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                     userIds.Add(response.LastUpdatedby);
                 if (!string.IsNullOrEmpty(response.DepartmentId))
                     departmentIds.Add(response.DepartmentId);
+                if (!string.IsNullOrEmpty(response.DocumentTypeId))
+                    documentTypeIds.Add(response.DocumentTypeId);
             }
 
             // Get names in bulk
             var names = await _nameLookupService.GetNamesAsync(userIds.ToList(), departmentIds.ToList());
+            var documentTypeNames = await GetDocumentTypeNamesAsync(documentTypeIds.ToList());
 
             // Enrich each response
             var enrichedResponses = new List<SemanticSearchResponse>();
@@ -219,6 +252,12 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                 if (!string.IsNullOrEmpty(response.DepartmentId))
                 {
                     enrichedResponse.DepartmentName = names.DepartmentNames.GetValueOrDefault(response.DepartmentId);
+                }
+
+                // Enrich document type name
+                if (!string.IsNullOrEmpty(response.DocumentTypeId))
+                {
+                    enrichedResponse.DocumentTypeName = documentTypeNames.GetValueOrDefault(response.DocumentTypeId);
                 }
 
                 enrichedResponses.Add(enrichedResponse);
@@ -377,9 +416,10 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
 
         try
         {
-            // Collect all unique user and department IDs
+            // Collect all unique user, department, and document type IDs
             var userIds = new HashSet<string>();
             var departmentIds = new HashSet<string>();
+            var documentTypeIds = new HashSet<string>();
 
             foreach (var doc in pendingDocuments)
             {
@@ -387,6 +427,8 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                     userIds.Add(doc.SubmittedBy);
                 if (!string.IsNullOrEmpty(doc.DepartmentId))
                     departmentIds.Add(doc.DepartmentId);
+                if (!string.IsNullOrEmpty(doc.DocumentTypeId))
+                    documentTypeIds.Add(doc.DocumentTypeId);
             }
 
             // Bulk lookup names
@@ -394,6 +436,7 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                 userIds.ToList(),
                 departmentIds.ToList()
             );
+            var documentTypeNames = await GetDocumentTypeNamesAsync(documentTypeIds.ToList());
 
             if (nameResponse.Success)
             {
@@ -410,6 +453,12 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                         nameResponse.DepartmentNames.TryGetValue(doc.DepartmentId, out string? deptName))
                     {
                         doc.DepartmentName = deptName;
+                    }
+
+                    if (!string.IsNullOrEmpty(doc.DocumentTypeId) &&
+                        documentTypeNames.TryGetValue(doc.DocumentTypeId, out string? docTypeName))
+                    {
+                        doc.DocumentTypeName = docTypeName;
                     }
                 }
             }
@@ -501,21 +550,28 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
 
         try
         {
-            // Collect all unique department IDs
+            // Collect all unique department and document type IDs
             var departmentIds = recommendations
                 .Where(r => !string.IsNullOrEmpty(r.DepartmentId))
                 .Select(r => r.DepartmentId)
                 .Distinct()
                 .ToList();
 
-            if (!departmentIds.Any())
+            var documentTypeIds = recommendations
+                .Where(r => !string.IsNullOrEmpty(r.DocumentTypeId))
+                .Select(r => r.DocumentTypeId)
+                .Distinct()
+                .ToList();
+
+            if (!departmentIds.Any() && !documentTypeIds.Any())
             {
-                _logger.LogInformation("No department IDs found in recommendations to enrich");
+                _logger.LogInformation("No department or document type IDs found in recommendations to enrich");
                 return recommendations;
             }
 
-            // Get names from the lookup service
+            // Get names from the lookup service and document type service
             var names = await _nameLookupService.GetNamesAsync(new List<string>(), departmentIds);
+            var documentTypeNames = await GetDocumentTypeNamesAsync(documentTypeIds);
 
             // Enrich each recommendation
             var enrichedRecommendations = new List<DocumentRecommendationResponse>();
@@ -544,6 +600,12 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                     enrichedRecommendation.DepartmentName = names.DepartmentNames.GetValueOrDefault(recommendation.DepartmentId);
                 }
 
+                // Enrich with document type name
+                if (!string.IsNullOrEmpty(recommendation.DocumentTypeId))
+                {
+                    enrichedRecommendation.DocumentTypeName = documentTypeNames.GetValueOrDefault(recommendation.DocumentTypeId);
+                }
+
                 enrichedRecommendations.Add(enrichedRecommendation);
             }
 
@@ -555,5 +617,293 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
             _logger.LogError(ex, "Failed to enrich document recommendations with names. Returning original recommendations.");
             return recommendations;
         }
+    }
+
+    public async Task<DocumentVersionResponse> EnrichDocumentVersionResponseAsync(DocumentVersionResponse documentVersion)
+    {
+        if (documentVersion == null) return documentVersion;
+
+        var documentVersions = await EnrichDocumentVersionResponsesAsync(new List<DocumentVersionResponse> { documentVersion });
+        return documentVersions.FirstOrDefault() ?? documentVersion;
+    }
+
+    public async Task<List<DocumentVersionResponse>> EnrichDocumentVersionResponsesAsync(List<DocumentVersionResponse> documentVersions)
+    {
+        if (!documentVersions.Any()) return documentVersions;
+
+        try
+        {
+            // Collect all unique user, department, and document type IDs
+            var userIds = new HashSet<string>();
+            var departmentIds = new HashSet<string>();
+            var documentTypeIds = new HashSet<string>();
+
+            foreach (var doc in documentVersions)
+            {
+                if (!string.IsNullOrEmpty(doc.OwnerId))
+                    userIds.Add(doc.OwnerId);
+                if (!string.IsNullOrEmpty(doc.SubmittedBy))
+                    userIds.Add(doc.SubmittedBy);
+                if (!string.IsNullOrEmpty(doc.DepartmentId))
+                    departmentIds.Add(doc.DepartmentId);
+                if (!string.IsNullOrEmpty(doc.DocumentTypeId))
+                    documentTypeIds.Add(doc.DocumentTypeId);
+            }
+
+            if (!userIds.Any() && !departmentIds.Any() && !documentTypeIds.Any())
+            {
+                _logger.LogInformation("No user, department, or document type IDs found in document versions to enrich");
+                return documentVersions;
+            }
+
+            // Get names from the lookup service and document type service
+            var nameResponse = await _nameLookupService.GetNamesAsync(userIds.ToList(), departmentIds.ToList());
+            var documentTypeNames = await GetDocumentTypeNamesAsync(documentTypeIds.ToList());
+
+            if (nameResponse.Success)
+            {
+                // Enrich each document version with names
+                foreach (var doc in documentVersions)
+                {
+                    if (!string.IsNullOrEmpty(doc.OwnerId) &&
+                        nameResponse.UserNames.TryGetValue(doc.OwnerId, out string? ownerName))
+                    {
+                        doc.OwnerName = ownerName;
+                    }
+
+                    if (!string.IsNullOrEmpty(doc.SubmittedBy) &&
+                        nameResponse.UserNames.TryGetValue(doc.SubmittedBy, out string? submittedByName))
+                    {
+                        doc.SubmittedByName = submittedByName;
+                    }
+
+                    if (!string.IsNullOrEmpty(doc.DepartmentId) &&
+                        nameResponse.DepartmentNames.TryGetValue(doc.DepartmentId, out string? deptName))
+                    {
+                        doc.DepartmentName = deptName;
+                    }
+
+                    if (!string.IsNullOrEmpty(doc.DocumentTypeId) &&
+                        documentTypeNames.TryGetValue(doc.DocumentTypeId, out string? docTypeName))
+                    {
+                        doc.DocumentTypeName = docTypeName;
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Failed to enrich document version responses with names: {ErrorMessage}",
+                    nameResponse.ErrorMessage);
+            }
+
+            return documentVersions;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error enriching document version responses with names");
+            return documentVersions; // Return original documents if enrichment fails
+        }
+    }
+
+    public async Task<DocumentReplacementCandidate> EnrichDocumentReplacementCandidateAsync(DocumentReplacementCandidate candidate)
+    {
+        if (candidate == null) return candidate;
+
+        var candidates = await EnrichDocumentReplacementCandidatesAsync(new List<DocumentReplacementCandidate> { candidate });
+        return candidates.FirstOrDefault() ?? candidate;
+    }
+
+    public async Task<List<DocumentReplacementCandidate>> EnrichDocumentReplacementCandidatesAsync(List<DocumentReplacementCandidate> candidates)
+    {
+        if (!candidates.Any()) return candidates;
+
+        try
+        {
+            // Collect all unique user, department, and document type IDs
+            var userIds = new HashSet<string>();
+            var departmentIds = new HashSet<string>();
+            var documentTypeIds = new HashSet<string>();
+
+            foreach (var candidate in candidates)
+            {
+                if (!string.IsNullOrEmpty(candidate.CreatedBy))
+                    userIds.Add(candidate.CreatedBy);
+                if (!string.IsNullOrEmpty(candidate.LastUpdatedBy))
+                    userIds.Add(candidate.LastUpdatedBy);
+                if (!string.IsNullOrEmpty(candidate.DepartmentId))
+                    departmentIds.Add(candidate.DepartmentId);
+                if (!string.IsNullOrEmpty(candidate.DocumentTypeId))
+                    documentTypeIds.Add(candidate.DocumentTypeId);
+            }
+
+            if (!userIds.Any() && !departmentIds.Any() && !documentTypeIds.Any())
+            {
+                _logger.LogInformation("No user, department, or document type IDs found in replacement candidates to enrich");
+                return candidates;
+            }
+
+            // Get names from the lookup service and document type service
+            var nameResponse = await _nameLookupService.GetNamesAsync(userIds.ToList(), departmentIds.ToList());
+            var documentTypeNames = await GetDocumentTypeNamesAsync(documentTypeIds.ToList());
+
+            if (nameResponse.Success)
+            {
+                // Enrich each candidate with names
+                foreach (var candidate in candidates)
+                {
+                    if (!string.IsNullOrEmpty(candidate.CreatedBy) &&
+                        nameResponse.UserNames.TryGetValue(candidate.CreatedBy, out string? createdByName))
+                    {
+                        candidate.CreatedByName = createdByName;
+                    }
+
+                    if (!string.IsNullOrEmpty(candidate.LastUpdatedBy) &&
+                        nameResponse.UserNames.TryGetValue(candidate.LastUpdatedBy, out string? lastUpdatedByName))
+                    {
+                        candidate.LastUpdatedByName = lastUpdatedByName;
+                    }
+
+                    if (!string.IsNullOrEmpty(candidate.DepartmentId) &&
+                        nameResponse.DepartmentNames.TryGetValue(candidate.DepartmentId, out string? deptName))
+                    {
+                        candidate.DepartmentName = deptName;
+                    }
+
+                    if (!string.IsNullOrEmpty(candidate.DocumentTypeId) &&
+                        documentTypeNames.TryGetValue(candidate.DocumentTypeId, out string? docTypeName))
+                    {
+                        candidate.DocumentTypeName = docTypeName;
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Failed to enrich replacement candidates with names: {ErrorMessage}",
+                    nameResponse.ErrorMessage);
+            }
+
+            return candidates;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error enriching replacement candidates with names");
+            return candidates; // Return original candidates if enrichment fails
+        }
+    }
+
+    public async Task<DocumentSourceResponse> EnrichDocumentSourceResponseAsync(DocumentSourceResponse source)
+    {
+        if (source == null) return source;
+
+        var sources = await EnrichDocumentSourceResponsesAsync(new List<DocumentSourceResponse> { source });
+        return sources.FirstOrDefault() ?? source;
+    }
+
+    public async Task<List<DocumentSourceResponse>> EnrichDocumentSourceResponsesAsync(List<DocumentSourceResponse> sources)
+    {
+        if (!sources.Any()) return sources;
+
+        try
+        {
+            // Collect all unique department IDs
+            var departmentIds = sources
+                .Where(s => !string.IsNullOrEmpty(s.DepartmentId))
+                .Select(s => s.DepartmentId)
+                .Distinct()
+                .ToList();
+
+            if (!departmentIds.Any())
+            {
+                _logger.LogInformation("No department IDs found in document sources to enrich");
+                return sources;
+            }
+
+            // Get names from the lookup service
+            var nameResponse = await _nameLookupService.GetNamesAsync(new List<string>(), departmentIds);
+
+            if (nameResponse.Success)
+            {
+                // Enrich each source with names
+                foreach (var source in sources)
+                {
+                    if (!string.IsNullOrEmpty(source.DepartmentId) &&
+                        nameResponse.DepartmentNames.TryGetValue(source.DepartmentId, out string? deptName))
+                    {
+                        source.DepartmentName = deptName;
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Failed to enrich document sources with names: {ErrorMessage}",
+                    nameResponse.ErrorMessage);
+            }
+
+            return sources;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error enriching document sources with names");
+            return sources; // Return original sources if enrichment fails
+        }
+    }
+
+    /// <summary>
+    /// Get document type names for the provided document type IDs
+    /// Uses caching for optimal performance
+    /// </summary>
+    /// <param name="documentTypeIds">List of document type IDs to lookup</param>
+    /// <returns>Dictionary mapping document type IDs to names</returns>
+    private async Task<Dictionary<string, string>> GetDocumentTypeNamesAsync(List<string> documentTypeIds)
+    {
+        var result = new Dictionary<string, string>();
+        var uncachedIds = new List<string>();
+
+        // Check cache first
+        foreach (var id in documentTypeIds.Where(id => !string.IsNullOrEmpty(id)))
+        {
+            var cacheKey = $"doctype_name_{id}";
+            if (_cache.TryGetValue(cacheKey, out string? cachedName) && cachedName != null)
+            {
+                result[id] = cachedName;
+            }
+            else
+            {
+                uncachedIds.Add(id);
+            }
+        }
+
+        // Get uncached names from database
+        if (uncachedIds.Any())
+        {
+            try
+            {
+                var documentTypes = await _unitOfWork.GetRepository<DocumentType>()
+                    .GetListAsync(
+                        predicate: dt => uncachedIds.Contains(dt.Id) && dt.DeletedTime == null,
+                        selector: dt => new { dt.Id, dt.Name }
+                    );
+
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30),
+                    SlidingExpiration = TimeSpan.FromMinutes(15)
+                };
+
+                foreach (var docType in documentTypes)
+                {
+                    var cacheKey = $"doctype_name_{docType.Id}";
+                    _cache.Set(cacheKey, docType.Name, cacheOptions);
+                    result[docType.Id] = docType.Name;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting document type names for IDs: {DocumentTypeIds}",
+                    string.Join(", ", uncachedIds));
+            }
+        }
+
+        return result;
     }
 }

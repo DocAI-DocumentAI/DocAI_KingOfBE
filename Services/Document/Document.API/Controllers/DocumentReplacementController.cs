@@ -2,7 +2,6 @@ using Document.API.Attributes;
 using Document.API.Constants;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
-using Document.API.Payload.Models;
 using Document.API.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 

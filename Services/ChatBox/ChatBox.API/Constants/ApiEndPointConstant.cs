@@ -33,16 +33,19 @@
             public const string Statistics = "statistics";                             
             public const string DailyActivity = "statistics/daily";                    
             public const string ModelUsage = "statistics/models";                      
+            public const string ModelImpact = "statistics/impact";
+            public const string Bulk = "bulk";
+
         }
 
         public static class Preference
         {
-            public const string GetUserPreferences = "user";                      
             public const string UpdateUserPreferences = "user";                   
-            public const string GetSessionPreferences = "session/{sessionId}";    
-            public const string UpdateSessionPreferences = "session/{sessionId}"; 
             public const string DeleteUserPreferences = "user";                   
-            public const string DeleteSessionPreferences = "session/{sessionId}"; 
+            public const string GetSessionPreferences = "session/{sessionId}/preferences";
+            public const string UpdateSessionPreferences = "session/{sessionId}/preferences";
+            public const string DeleteSessionPreferences = "session/{sessionId}/preferences";
+            public const string GetUserPreferences = "user/preferences";
         }
     }
 }

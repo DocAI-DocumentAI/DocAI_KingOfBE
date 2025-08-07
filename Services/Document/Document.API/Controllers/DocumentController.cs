@@ -47,6 +47,7 @@ public class DocumentController : ControllerBase
     /// <returns>Analysis results including extracted text and metadata</returns>
     [HttpPost(ApiEndPointConstant.Document.AnalyzeDocument)]
     [CustomAuthorize(Roles = new[] { Roles.Editor })]
+    [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(ApiResponse<AnalyzeDocumentResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
@@ -54,6 +55,29 @@ public class DocumentController : ControllerBase
     {
         var result = await _documentService.AnalyzeDocumentAsync(file);
         return Ok(ApiResponse<object>.Success(result, "Analyze result", 200));
+    }
+
+    /// <summary>
+    /// Generate enhanced structured summary for a document file during the creation process
+    /// </summary>
+    /// <param name="file">Document file to generate enhanced summary for</param>
+    /// <returns>Enhanced structured summary with token usage information</returns>
+    [HttpPost(ApiEndPointConstant.Document.RegenerateSummary)]
+    [CustomAuthorize(Roles = new[] { Roles.Editor })]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<RegenerateSummaryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> RegenerateDocumentSummary(IFormFile file)
+    {
+        var result = await _documentService.RegenerateSummaryAsync(file);
+
+        if (!result.Success)
+        {
+            return BadRequest(ApiResponse<RegenerateSummaryResponse>.Error("SUMMARY_GENERATION_FAILED", result.ErrorMessage, 400));
+        }
+
+        return Ok(ApiResponse<RegenerateSummaryResponse>.Success(result, "Enhanced summary generated successfully", 200));
     }
 
     /// <summary>

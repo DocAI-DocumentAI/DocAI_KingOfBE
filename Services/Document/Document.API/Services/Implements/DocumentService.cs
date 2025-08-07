@@ -33,18 +33,21 @@ public class DocumentService : IDocumentService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IDocumentReplacementService _replacementService;
     private readonly IDocumentPermissionManager _permissionManager;
+    private readonly ITokenUsageLogger _tokenUsageLogger;
 
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService, IDocumentPermissionManager permissionManager)
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService, IDocumentPermissionManager permissionManager, ITokenUsageLogger tokenUsageLogger)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
         _logger = logger;
         _memory = memory;
         _storageService = storageService;
+        _configuration = configuration;
         _enrichmentService = enrichmentService;
         _httpContextAccessor = httpContextAccessor;
         _replacementService = replacementService;
         _permissionManager = permissionManager;
+        _tokenUsageLogger = tokenUsageLogger;
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
         var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
@@ -566,7 +569,11 @@ public class DocumentService : IDocumentService
 
     public async Task<AnalyzeDocumentResponse> AnalyzeDocumentAsync(IFormFile file)
     {
-        _logger.LogInformation("Starting single-prompt AI analysis for file: {FileName}", file.FileName);
+        var startTime = DateTime.UtcNow;
+        var userId = GetCurrentUserId();
+
+        _logger.LogInformation("Starting AI analysis for file: {FileName} by user {UserId}",
+            file.FileName, userId);
 
         // File type validation is now handled by FluentValidation at the controller level
 
@@ -586,61 +593,39 @@ public class DocumentService : IDocumentService
             // 1. Build the temporary Kernel Memory instance (same as before)
             await _memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
 
-            // 2. Engineer a single, comprehensive prompt asking for a JSON response
-//            const string comprehensivePrompt = @"Analyze the document and return a single raw JSON object with the following keys:
-//- ""summary"": HTML-formatted string. Start with bold document title and number. Summarize scope and key contents. Use <ul><li> for key points.
-//Escape all quotes (\""). No markdown.
-//- ""title"": string — official document title.
-//- ""signedBy"": string — name of the signatory.
-//- ""effectiveFrom"": 'yyyy-MM-dd' (or null).
-//- ""effectiveUntil"": 'yyyy-MM-dd' (or null).
-//- ""tags"": array of up to 5 relevant keywords.
-//Requirements:
-//- Respond **only** with a valid JSON object (no extra explanation or markdown).
-//- If any value is missing, use null.
-//- Escape all double-quotes inside HTML/markdown content (e.g., `\""`).
-//";
-
-            const string comprehensivePrompt = @"Analyze the document and return a single raw JSON object with the following keys:
-- ""title"": string — official document title.
-- ""versionName"": string — the document code (eg. 80_2025_QH15_649688)(or null).
-- ""signedBy"": string — name of the signatory.
-- ""effectiveFrom"": 'yyyy-MM-dd' (or null).
-- ""effectiveUntil"": 'yyyy-MM-dd' (or null).
-- ""tags"": array of up to 5 relevant keywords.
-Requirements:
-- Respond **only** with a valid JSON object (no extra explanation or markdown).
-- If any value is missing, use null.
-- Escape all double-quotes inside HTML/markdown content (e.g., `\""`).
-";
+            // 2. Use the centralized prompt from constants
+            var comprehensivePrompt = AiPromptConstant.DocumentAnalysis.MetadataExtractionPrompt;
+            var requestTokens = _tokenUsageLogger.EstimateTokenCount(comprehensivePrompt);
 
             // 3. Make a single call to the AI model
             var filter = new MemoryFilter().ByDocument(tempDocId);
 
             
             MemoryAnswer answer = null;
-            const int maxRetries = 3;
-            const int delayBetweenRetriesMs = 1500;
-            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            for (int attempt = 1; attempt <= AiPromptConstant.Configuration.MaxRetryAttempts; attempt++)
             {
                 answer = await _memory.AskAsync(comprehensivePrompt, filter: filter);
 
-                if (answer != null && answer.RelevantSources.Any() && !answer.Result.Contains("INFO NOT FOUND", StringComparison.OrdinalIgnoreCase))
+                if (answer != null && answer.RelevantSources.Any() &&
+                    !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
+                        answer.Result.Contains(indicator, StringComparison.OrdinalIgnoreCase)))
                 {
                     _logger.LogInformation("Successfully received valid AI response on attempt {AttemptNumber}.", attempt);
                     break;
                 }
 
-                _logger.LogWarning("AI analysis attempt {AttemptNumber} of {MaxRetries} failed or returned no relevant sources. Retrying...", attempt, maxRetries);
+                _logger.LogWarning("AI analysis attempt {AttemptNumber} of {MaxRetries} failed or returned no relevant sources. Retrying...",
+                    attempt, AiPromptConstant.Configuration.MaxRetryAttempts);
 
-                if (attempt < maxRetries)
+                if (attempt < AiPromptConstant.Configuration.MaxRetryAttempts)
                 {
-                    await Task.Delay(delayBetweenRetriesMs);
+                    await Task.Delay(AiPromptConstant.Configuration.RetryDelayMs);
                 }
             }
 
             // 4. Parse the structured JSON response from the AI
-            if (!answer.Result.Contains("INFO NOT FOUND", StringComparison.OrdinalIgnoreCase))
+            if (answer != null && !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
+                answer.Result.Contains(indicator, StringComparison.OrdinalIgnoreCase)))
             {
                 _logger.LogInformation("Raw AI response for file {FileName}: {AiResponse}", file.FileName, answer.Result);
                 ParseAiJsonResponse(answer.Result, response);
@@ -656,11 +641,54 @@ Requirements:
                         _logger.LogWarning("AI-generated summary for file {FileName} exceeded {MaxLength} words and was truncated.", file.FileName, PolicyConstant.MaxSummaryLength);
                     }
                 }
+
+                // Calculate response tokens
+                var responseTokens = _tokenUsageLogger.EstimateTokenCount(answer.Result);
+                response.TokenUsage = _tokenUsageLogger.CreateTokenUsageInfo(requestTokens, responseTokens, "KernelMemory");
+
+                await _tokenUsageLogger.LogTokenUsageAsync(
+                    operation: "DocumentAnalysis",
+                    requestTokens: response.TokenUsage.RequestTokens,
+                    responseTokens: response.TokenUsage.ResponseTokens,
+                    modelUsed: "KernelMemory",
+                    userId: userId,
+                    processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                    success: true
+                );
+
+                _logger.LogInformation("Document analysis completed successfully for file {FileName}. Tokens used: {TotalTokens}",
+                    file.FileName, response.TokenUsage.TotalTokens);
+            }
+            else
+            {
+                // Log failed token usage
+                await _tokenUsageLogger.LogTokenUsageAsync(
+                    operation: "DocumentAnalysis",
+                    requestTokens: requestTokens,
+                    responseTokens: 0,
+                    modelUsed: "KernelMemory",
+                    userId: userId,
+                    processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                    success: false,
+                    errorMessage: "AI analysis returned no valid information"
+                );
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "An error occurred during single-prompt AI analysis for file: {FileName}", file.FileName);
+
+            // Log failed token usage for exception cases
+            await _tokenUsageLogger.LogTokenUsageAsync(
+                operation: "DocumentAnalysis",
+                requestTokens: _tokenUsageLogger.EstimateTokenCount(AiPromptConstant.DocumentAnalysis.MetadataExtractionPrompt),
+                responseTokens: 0,
+                modelUsed: "KernelMemory",
+                userId: userId,
+                processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                success: false,
+                errorMessage: ex.Message
+            );
         }
         finally
         {
@@ -704,8 +732,11 @@ Requirements:
             if (root.TryGetProperty("versionName", out var versionName) && versionName.ValueKind == JsonValueKind.String)
                 response.VersionName = versionName.GetString();
 
+            if (root.TryGetProperty("description", out var description) && description.ValueKind == JsonValueKind.String)
+                response.Description = description.GetString();
+
             if (root.TryGetProperty("summary", out var summary) && summary.ValueKind == JsonValueKind.String)
-                response.Summary = summary.GetString();
+                response.Summary = summary.GetString() ?? "AI analysis could not be completed.";
 
             if (root.TryGetProperty("signedBy", out var signedBy) && signedBy.ValueKind == JsonValueKind.String)
                 response.SignedBy = signedBy.GetString();
@@ -723,6 +754,7 @@ Requirements:
                 response.Tags = tags.EnumerateArray()
                     .Select(t => t.GetString())
                     .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .Cast<string>()
                     .ToList();
             }
         }
@@ -732,6 +764,149 @@ Requirements:
         }
     }
 
+    public async Task<RegenerateSummaryResponse> RegenerateSummaryAsync(IFormFile file)
+    {
+        var startTime = DateTime.UtcNow;
+        var userId = GetCurrentUserId();
+
+        _logger.LogInformation("Starting enhanced summary regeneration for file: {FileName} by user {UserId}", file.FileName, userId);
+
+        var response = new RegenerateSummaryResponse
+        {
+            Success = false,
+            ErrorMessage = "Summary regeneration could not be completed."
+        };
+
+        string? tempFilePath = null;
+        string? tempDocId = null;
+
+        try
+        {
+            // 1. Create temporary file and import to Kernel Memory
+            tempDocId = $"temp-summary-{Guid.NewGuid()}";
+            tempFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + Path.GetExtension(file.FileName));
+            await using (var fs = new FileStream(tempFilePath, FileMode.Create))
+            {
+                await file.CopyToAsync(fs);
+            }
+
+            // 2. Import document to Kernel Memory for analysis
+            await _memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
+
+            // 3. Create filter for the temporary document
+            var filter = new MemoryFilter().ByDocument(tempDocId);
+
+            // 4. Generate enhanced summary using the new structured prompt
+            var prompt = AiPromptConstant.SummaryGeneration.RegenerateSummaryPrompt;
+            var requestTokens = _tokenUsageLogger.EstimateTokenCount(prompt);
+
+            MemoryAnswer? answer = null;
+            for (int attempt = 1; attempt <= AiPromptConstant.Configuration.MaxRetryAttempts; attempt++)
+            {
+                answer = await _memory.AskAsync(prompt, filter: filter);
+
+                if (answer != null && answer.RelevantSources.Any() &&
+                    !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
+                        answer.Result.Contains(indicator, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _logger.LogInformation("Successfully generated enhanced summary on attempt {AttemptNumber} for file {FileName}",
+                        attempt, file.FileName);
+                    break;
+                }
+
+                _logger.LogWarning("Enhanced summary generation attempt {AttemptNumber} of {MaxRetries} failed for file {FileName}. Retrying...",
+                    attempt, AiPromptConstant.Configuration.MaxRetryAttempts, file.FileName);
+
+                if (attempt < AiPromptConstant.Configuration.MaxRetryAttempts)
+                {
+                    await Task.Delay(AiPromptConstant.Configuration.RetryDelayMs);
+                }
+            }
+
+            // 5. Process the response
+            if (answer != null && !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
+                answer.Result.Contains(indicator, StringComparison.OrdinalIgnoreCase)))
+            {
+                response.Summary = answer.Result.Trim();
+                response.Success = true;
+                response.ErrorMessage = null;
+
+                // Apply word limit policy
+                var words = response.Summary.Split(new char[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                if (words.Length > PolicyConstant.MaxSummaryLength)
+                {
+                    response.Summary = string.Join(" ", words.Take(PolicyConstant.MaxSummaryLength)) + "...";
+                    _logger.LogWarning("Summary for file {FileName} exceeded {MaxLength} words and was truncated.",
+                        file.FileName, PolicyConstant.MaxSummaryLength);
+                }
+
+                var responseTokens = _tokenUsageLogger.EstimateTokenCount(response.Summary);
+                response.TokenUsage = _tokenUsageLogger.CreateTokenUsageInfo(requestTokens, responseTokens, "KernelMemory");
+
+                // Log token usage
+                await _tokenUsageLogger.LogTokenUsageAsync(
+                    operation: "SummaryRegeneration",
+                    requestTokens: requestTokens,
+                    responseTokens: responseTokens,
+                    modelUsed: "KernelMemory",
+                    userId: userId,
+                    documentId: tempDocId, // Use temporary document ID since this is pre-upload
+                    processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                    success: true
+                );
+
+                _logger.LogInformation("Enhanced summary regenerated successfully for file {FileName}. Tokens used: {TotalTokens}",
+                    file.FileName, requestTokens + responseTokens);
+            }
+            else
+            {
+                response.ErrorMessage = "Could not generate enhanced summary. The document may not be properly indexed or accessible.";
+
+                await _tokenUsageLogger.LogTokenUsageAsync(
+                    operation: "SummaryRegeneration",
+                    requestTokens: requestTokens,
+                    responseTokens: 0,
+                    modelUsed: "KernelMemory",
+                    userId: userId,
+                    documentId: tempDocId,
+                    processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                    success: false,
+                    errorMessage: response.ErrorMessage
+                );
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred during enhanced summary regeneration for file {FileName}", file.FileName);
+            response.ErrorMessage = "An error occurred while regenerating the summary.";
+            response.Success = false;
+
+            await _tokenUsageLogger.LogTokenUsageAsync(
+                operation: "SummaryRegeneration",
+                requestTokens: 0,
+                responseTokens: 0,
+                userId: userId,
+                processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                success: false,
+                errorMessage: ex.Message
+            );
+        }
+        finally
+        {
+            // Clean up temporary resources
+            if (File.Exists(tempFilePath))
+            {
+                File.Delete(tempFilePath);
+            }
+            if (tempDocId != null)
+            {
+                await _memory.DeleteDocumentAsync(tempDocId);
+            }
+        }
+
+        response.ProcessingTimeMs = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
+        return response;
+    }
 
     public async Task DeleteDraftAsync(string documentId, string versionId)
     {
@@ -1007,7 +1182,9 @@ Requirements:
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
-        return _mapper.Map<DocumentVersionResponse>(documentVersion);
+        var response = _mapper.Map<DocumentVersionResponse>(documentVersion);
+        var enrichedResponse = await _enrichmentService.EnrichDocumentVersionResponseAsync(response);
+        return enrichedResponse;
     }
 
     public async Task<List<DocumentVersionResponse>> GetDocumentVersionsAsync(string documentId)
@@ -1017,7 +1194,9 @@ Requirements:
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
-        return _mapper.Map<List<DocumentVersionResponse>>(documentVersions);
+        var response = _mapper.Map<List<DocumentVersionResponse>>(documentVersions);
+        var enrichedResponse = await _enrichmentService.EnrichDocumentVersionResponsesAsync(response);
+        return enrichedResponse;
     }
 
     public async Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateNewVersionDraftRequest request)

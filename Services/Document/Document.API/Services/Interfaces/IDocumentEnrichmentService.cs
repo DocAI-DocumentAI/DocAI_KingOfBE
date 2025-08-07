@@ -75,4 +75,34 @@ public interface IDocumentEnrichmentService
     /// Enrich a single approval queue detail response with names
     /// </summary>
     Task<ApprovalQueueDetailResponse> EnrichApprovalQueueDetailResponseAsync(ApprovalQueueDetailResponse approvalDetail);
+
+    /// <summary>
+    /// Enrich a single document version response with names
+    /// </summary>
+    Task<DocumentVersionResponse> EnrichDocumentVersionResponseAsync(DocumentVersionResponse documentVersion);
+
+    /// <summary>
+    /// Enrich multiple document version responses with names (bulk operation for better performance)
+    /// </summary>
+    Task<List<DocumentVersionResponse>> EnrichDocumentVersionResponsesAsync(List<DocumentVersionResponse> documentVersions);
+
+    /// <summary>
+    /// Enrich a single document replacement candidate with names
+    /// </summary>
+    Task<DocumentReplacementCandidate> EnrichDocumentReplacementCandidateAsync(DocumentReplacementCandidate candidate);
+
+    /// <summary>
+    /// Enrich multiple document replacement candidates with names (bulk operation for better performance)
+    /// </summary>
+    Task<List<DocumentReplacementCandidate>> EnrichDocumentReplacementCandidatesAsync(List<DocumentReplacementCandidate> candidates);
+
+    /// <summary>
+    /// Enrich a single document source response with names
+    /// </summary>
+    Task<DocumentSourceResponse> EnrichDocumentSourceResponseAsync(DocumentSourceResponse source);
+
+    /// <summary>
+    /// Enrich multiple document source responses with names (bulk operation for better performance)
+    /// </summary>
+    Task<List<DocumentSourceResponse>> EnrichDocumentSourceResponsesAsync(List<DocumentSourceResponse> sources);
 }

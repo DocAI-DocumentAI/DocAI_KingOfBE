@@ -1,7 +1,6 @@
 using AutoMapper;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
-using Document.API.Payload.Models;
 using Document.API.Services.Interfaces;
 using Document.Domain.Enums;
 using Document.Domain.Model;
@@ -766,10 +765,8 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                // Use existing enrichment service to add department names, user names, etc.
-                // For now, return candidates as-is
-                // In full implementation, you would call enrichment service
-                return candidates;
+                // Use the enrichment service to add department names, user names, etc.
+                return await _enrichmentService.EnrichDocumentReplacementCandidatesAsync(candidates);
             }
             catch (Exception ex)
             {

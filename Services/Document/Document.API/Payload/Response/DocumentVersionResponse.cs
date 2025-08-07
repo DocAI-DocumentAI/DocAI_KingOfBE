@@ -13,7 +13,9 @@ namespace Document.API.Payload.Response
         public string FileType { get; set; }
         public string VersionName { get; set; }
         public string DepartmentId { get; set; }
+        public string? DepartmentName { get; set; }
         public string OwnerId { get; set; }
+        public string? OwnerName { get; set; }
         public string? ReplacementId { get; set; }
         public DocumentResponse? ReplacementDocument { get; set; }
         public string? ReplacementDocumentName { get; set; }
@@ -23,6 +25,7 @@ namespace Document.API.Payload.Response
         public List<string> Tags { get; set; }
         public DateTime? LastSubmitted { get; set; }
         public string? SubmittedBy { get; set; }
+        public string? SubmittedByName { get; set; }
         public string DocumentTypeId { get; set; }
         public string? DocumentTypeName { get; set; }
 

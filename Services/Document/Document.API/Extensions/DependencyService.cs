@@ -96,6 +96,7 @@ public static class DependencyService
         services.AddScoped<IDocumentRecommendationService, DocumentRecommendationService>();
         services.AddScoped<IDocumentReplacementService, DocumentReplacementService>();
         services.AddScoped<IDocumentPermissionManager, DocumentPermissionManager>();
+        services.AddScoped<ITokenUsageLogger, TokenUsageLogger>();
         services.AddScoped<IBookmarkService, BookmarkService>();
         // Background services
         services.AddHostedService<TokenRefreshBackgroundService>();
@@ -187,7 +188,8 @@ public static class DependencyService
         {
             TextModel = openRouterConfig.Model,
             APIKey = openRouterConfig.APIKey,
-            Endpoint = openRouterConfig.Endpoint
+            Endpoint = openRouterConfig.Endpoint,
+            TextModelMaxTokenTotal = openRouterConfig.MaxTokens
         };
 
         var openAITextEmbeddingConfig = new OpenAIConfig
@@ -211,6 +213,12 @@ public static class DependencyService
             .WithPostgresMemoryDb(postgresConfig)
             .WithOpenAITextGeneration(openRouterTextGenerationConfig, new CL100KTokenizer())
             .WithOpenAITextEmbeddingGeneration(openAITextEmbeddingConfig, new CL100KTokenizer())
+            .WithSearchClientConfig(new()
+            {
+                EmptyAnswer = "No results found. Please try again.",
+                AnswerTokens = 1000, 
+                MaxMatchesCount = 10
+            })
             .Build<MemoryServerless>(kmbOptions);
 
         services.AddSingleton<IKernelMemory>(memory);

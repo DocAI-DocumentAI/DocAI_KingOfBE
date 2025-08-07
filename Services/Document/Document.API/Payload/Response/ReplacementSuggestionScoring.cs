@@ -1,4 +1,4 @@
-namespace Document.API.Payload.Models
+namespace Document.API.Payload.Response
 {
     public class ReplacementSuggestionScoring
     {
