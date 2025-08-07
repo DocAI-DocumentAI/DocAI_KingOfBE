@@ -48,6 +48,7 @@ public class MessageConstant
     public const string SummaryTooLong = "Generated summary exceeds the maximum allowed length of {0} words.";
     public const string DocumentAlreadyClaimed = "This document is currently being reviewed by {0}.";
     public const string ClaimNotFound = "No active claim found for this document version.";
+    public const string UnauthorizedToAccessApprovalQueue = "You do not have permission to view the queue.";
 
     // DocumentType validation messages
     public const string DocumentTypeNameRequired = "Document type name is required.";

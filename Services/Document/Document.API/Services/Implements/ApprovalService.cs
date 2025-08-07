@@ -27,8 +27,8 @@ namespace Document.API.Services.Implements
         private readonly IDocumentPermissionManager _permissionManager;
         private readonly IDocumentNotificationService _notificationService;
         private readonly IHttpContextAccessor _httpContextAccessor;
-        public ApprovalService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ApprovalService> logger, IStorageService storageService, IKernelMemory kernelMemory, IDocumentEnrichmentService enrichmentService, IDocumentPermissionManager permissionManager, IDocumentNotificationService notificationService, IHttpContextAccessor httpContextAccessor)
 
+        public ApprovalService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ApprovalService> logger, IStorageService storageService, IKernelMemory kernelMemory, IDocumentEnrichmentService enrichmentService, IDocumentPermissionManager permissionManager, IDocumentNotificationService notificationService, IHttpContextAccessor httpContextAccessor)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
@@ -40,8 +40,9 @@ namespace Document.API.Services.Implements
             _notificationService = notificationService;
             _httpContextAccessor = httpContextAccessor;
         }
-        public async Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueAsync(string departmentId, Document.Infrastructure.Filter.ApprovalQueueFilter filter, int pageNumber, int pageSize)
+        public async Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueAsync(Document.Infrastructure.Filter.ApprovalQueueFilter filter, int pageNumber, int pageSize)
         {
+            var departmentId = GetCurrentUserDepartmentId() ?? throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToAccessApprovalQueue);
             var pendingDocuments = await _unitOfWork.GetRepository<DocumentVersion>()
                 .GetPagingListAsync(
                 selector: v => _mapper.Map<PendingDocumentResponse>(v),
@@ -70,8 +71,10 @@ namespace Document.API.Services.Implements
             return enrichedPaginated;
         }
 
-        public async Task ClaimDocumentForReviewAsync(string versionId, string userId)
+        public async Task ClaimDocumentForReviewAsync(string versionId)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
             var versionToClaim = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(
                     predicate: v => v.Id == versionId,
@@ -106,8 +109,10 @@ namespace Document.API.Services.Implements
             _logger.LogInformation("Document version {VersionId} claimed for review by user {UserId}", versionId, userId);
         }
 
-        public async Task ReleaseClaimAsync(string versionId, string userId)
+        public async Task ReleaseClaimAsync(string versionId)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
             var existingClaim = await _unitOfWork.GetRepository<ApprovalClaim>()
                 .SingleOrDefaultAsync(predicate: ac => ac.DocumentVersionId == versionId && ac.IsActive);
 
@@ -151,8 +156,10 @@ namespace Document.API.Services.Implements
             return enrichedResponse;
         }
 
-        public async Task ReviewDocument(string versionId, ReviewDocumentRequest request, string userId)
+        public async Task ReviewDocument(string versionId, ReviewDocumentRequest request)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
             var versionToReview = await _unitOfWork.GetRepository<DocumentVersion>()
             .SingleOrDefaultAsync(
                 predicate: v => v.Id == versionId,
@@ -428,8 +435,11 @@ namespace Document.API.Services.Implements
             }
         }
 
-        public async Task SubmitForApprovalAsync(string versionId, string userId)
+        public async Task SubmitForApprovalAsync(string versionId)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
+
             //1. Get the document
             var version = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(
@@ -501,6 +511,21 @@ namespace Document.API.Services.Implements
                 _logger.LogError(ex, "Failed to send submission notification for document {VersionId}", versionId);
                 // Don't fail the entire operation for notification errors
             }
+        }
+
+        private string GetCurrentUserId()
+        {
+            var user = _httpContextAccessor?.HttpContext?.User;
+            var userIdClaim = user?.FindFirst("userId")?.Value;
+            if (string.IsNullOrEmpty(userIdClaim))
+                throw new UnauthorizedAccessException("User ID not found in token");
+            return userIdClaim;
+        }
+
+        private string? GetCurrentUserDepartmentId()
+        {
+            var user = _httpContextAccessor?.HttpContext?.User;
+            return user?.FindFirst("departmentId")?.Value;
         }
 
         #region Helper Methods for Notifications

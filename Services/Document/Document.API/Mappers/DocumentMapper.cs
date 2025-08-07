@@ -29,13 +29,19 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().SubmittedBy))
             .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentTypeId))
             .ForMember(dest => dest.DocumentTypeName, opt => opt.MapFrom(src => src.DocumentType != null ? src.DocumentType.Name : null))
-            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().IsPublic));
+            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().IsPublic))
+            .ForMember(dest => dest.SignedBy, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().SignedBy))
+            .ForMember(dest => dest.EffectiveFrom, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().EffectiveFrom))
+            .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().EffectiveUntil));
 
         CreateMap<DocumentVersion, PendingDocumentResponse>()
             .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => src.Id.ToString()))
             .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentFile.DocumentTypeId))
             .ForMember(dest => dest.DocumentTypeName, opt => opt.MapFrom(src => src.DocumentFile.DocumentType != null ? src.DocumentFile.DocumentType.Name : null))
-            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic));
+            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic))
+            .ForMember(dest => dest.SignedBy, opt => opt.MapFrom(src => src.SignedBy))
+            .ForMember(dest => dest.EffectiveFrom, opt => opt.MapFrom(src => src.EffectiveFrom))
+            .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil));
 
         CreateMap<DocumentVersion, DocumentResponse>()
             .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src.DocumentFile.Id.ToString()))
@@ -58,7 +64,10 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.DocumentFile.IsReplaced))
             .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentFile.DocumentTypeId))
             .ForMember(dest => dest.DocumentTypeName, opt => opt.MapFrom(src => src.DocumentFile.DocumentType != null ? src.DocumentFile.DocumentType.Name : null))
-            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic));
+            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic))
+            .ForMember(dest => dest.SignedBy, opt => opt.MapFrom(src => src.SignedBy))
+            .ForMember(dest => dest.EffectiveFrom, opt => opt.MapFrom(src => src.EffectiveFrom))
+            .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil));
 
         CreateMap<DocumentVersion, DocumentDraftResponse>()
             .ForMember(dest => dest.DocumentId, opt => opt.MapFrom(src => src.DocumentFileId))
@@ -110,7 +119,10 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.DocumentFile.IsReplaced))
             .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentFile.DocumentTypeId))
             .ForMember(dest => dest.DocumentTypeName, opt => opt.MapFrom(src => src.DocumentFile.DocumentType != null ? src.DocumentFile.DocumentType.Name : null))
-            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic));
+            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic))
+            .ForMember(dest => dest.SignedBy, opt => opt.MapFrom(src => src.SignedBy))
+            .ForMember(dest => dest.EffectiveFrom, opt => opt.MapFrom(src => src.EffectiveFrom))
+            .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil));
 
         CreateMap<Tag, TagResponse>();
     }

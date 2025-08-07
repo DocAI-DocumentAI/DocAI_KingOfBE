@@ -15,6 +15,9 @@ namespace Shared.Models.Documents
         public string FileName { get; set; }
         public string FileType { get; set; }
         public long FileSize { get; set; }
+        public string? SignedBy { get; set; }
+        public DateTime? EffectiveFrom { get; set; }
+        public DateTime? EffectiveUntil { get; set; }
         public DocumentFile DocumentFile { get; set; }
     }
 }

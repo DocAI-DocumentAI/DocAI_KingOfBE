@@ -11,5 +11,20 @@
         public string? DepartmentName { get; set; }
         public DateTime? ApprovalDate { get; set; }
         public double RelevanceScore { get; set; }
+
+        /// <summary>
+        /// Person or authority who signed the document
+        /// </summary>
+        public string? SignedBy { get; set; }
+
+        /// <summary>
+        /// Effective date from which the document is valid
+        /// </summary>
+        public DateTime? EffectiveFrom { get; set; }
+
+        /// <summary>
+        /// Effective date until which the document is valid
+        /// </summary>
+        public DateTime? EffectiveUntil { get; set; }
     }
 }

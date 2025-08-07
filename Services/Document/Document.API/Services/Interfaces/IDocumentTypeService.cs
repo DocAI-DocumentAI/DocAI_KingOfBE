@@ -15,9 +15,8 @@ namespace Document.API.Services.Interfaces
         /// Creates a new document type
         /// </summary>
         /// <param name="request">The document type creation request</param>
-        /// <param name="userId">The ID of the user creating the document type</param>
         /// <returns>The created document type response</returns>
-        Task<DocumentTypeResponse> CreateDocumentTypeAsync(CreateDocumentTypeRequest request, string userId);
+        Task<DocumentTypeResponse> CreateDocumentTypeAsync(CreateDocumentTypeRequest request);
 
         /// <summary>
         /// Gets a document type by its ID
@@ -39,17 +38,15 @@ namespace Document.API.Services.Interfaces
         /// </summary>
         /// <param name="documentTypeId">The ID of the document type to update</param>
         /// <param name="request">The document type update request</param>
-        /// <param name="userId">The ID of the user updating the document type</param>
         /// <returns>The updated document type response</returns>
-        Task<DocumentTypeResponse> UpdateDocumentTypeAsync(string documentTypeId, UpdateDocumentTypeRequest request, string userId);
+        Task<DocumentTypeResponse> UpdateDocumentTypeAsync(string documentTypeId, UpdateDocumentTypeRequest request);
 
         /// <summary>
         /// Deletes a document type
         /// </summary>
         /// <param name="documentTypeId">The ID of the document type to delete</param>
-        /// <param name="userId">The ID of the user deleting the document type</param>
         /// <returns>Task representing the async operation</returns>
-        Task DeleteDocumentTypeAsync(string documentTypeId, string userId);
+        Task DeleteDocumentTypeAsync(string documentTypeId);
 
         /// <summary>
         /// Gets all document types as a simple list (for dropdown/selection purposes)

@@ -22,12 +22,18 @@ namespace Document.API.Mappers
                 .ForMember(dest => dest.LastSubmitted, opt => opt.MapFrom(src => src.LastSubmitted))
                 .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.SubmittedBy))
                 .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentFile.DocumentTypeId))
-                .ForMember(dest => dest.DocumentTypeName, opt => opt.MapFrom(src => src.DocumentFile.DocumentType != null ? src.DocumentFile.DocumentType.Name : null));
+                .ForMember(dest => dest.DocumentTypeName, opt => opt.MapFrom(src => src.DocumentFile.DocumentType != null ? src.DocumentFile.DocumentType.Name : null))
+                .ForMember(dest => dest.SignedBy, opt => opt.MapFrom(src => src.SignedBy))
+                .ForMember(dest => dest.EffectiveFrom, opt => opt.MapFrom(src => src.EffectiveFrom))
+                .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil));
 
             CreateMap<DocumentVersion, PendingDocumentResponse>()
                 .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => src.Id))
                 .ForMember(dest => dest.Status, opt => opt.MapFrom(src => src.Status.ToString()))
-                .ForMember(dest => dest.DepartmentId, opt => opt.MapFrom(src => src.DocumentFile.DepartmentId));
+                .ForMember(dest => dest.DepartmentId, opt => opt.MapFrom(src => src.DocumentFile.DepartmentId))
+                .ForMember(dest => dest.SignedBy, opt => opt.MapFrom(src => src.SignedBy))
+                .ForMember(dest => dest.EffectiveFrom, opt => opt.MapFrom(src => src.EffectiveFrom))
+                .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil));
         }
     }
 }

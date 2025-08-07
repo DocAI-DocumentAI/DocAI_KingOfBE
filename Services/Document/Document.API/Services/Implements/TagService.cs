@@ -7,7 +7,7 @@ using Document.Infrastructure.Paginate;
 using Document.Infrastructure.Repository.Interfaces;
 using Shared.Exceptions;
 using Microsoft.AspNetCore.Http;
-using Document.API.Constants; // For StatusCodes
+using Document.API.Constants;
 
 namespace Document.API.Services.Implements
 {
@@ -16,16 +16,23 @@ namespace Document.API.Services.Implements
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
         private readonly IDocumentEnrichmentService _enrichmentService;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly ILogger<TagService> _logger;
 
-        public TagService(IUnitOfWork unitOfWork, IMapper mapper, IDocumentEnrichmentService enrichmentService)
+        public TagService(IUnitOfWork unitOfWork, IMapper mapper, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, ILogger<TagService> logger)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _enrichmentService = enrichmentService;
+            _httpContextAccessor = httpContextAccessor;
+            _logger = logger;
         }
 
-        public async Task<TagResponse> CreateTagAsync(CreateTagRequest request, string userId)
+        public async Task<TagResponse> CreateTagAsync(CreateTagRequest request)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
+
             if (string.IsNullOrWhiteSpace(request.Name))
             {
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.TagNameCannotBeEmpty);
@@ -89,8 +96,11 @@ namespace Document.API.Services.Implements
             return enrichedPaginated;
         }
 
-        public async Task<TagResponse> UpdateTagAsync(string tagId, UpdateTagRequest request, string userId)
+        public async Task<TagResponse> UpdateTagAsync(string tagId, UpdateTagRequest request)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
+
             if (string.IsNullOrWhiteSpace(request.Name))
             {
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.TagNameCannotBeEmpty);
@@ -140,5 +150,29 @@ namespace Document.API.Services.Implements
             _unitOfWork.GetRepository<Tag>().DeleteAsync(tagToDelete);
             await _unitOfWork.CommitAsync();
         }
+
+        /// <summary>
+        /// Gets the current user's department ID from JWT token
+        /// </summary>
+        /// <returns>Department ID or null if not found</returns>
+        private string? GetCurrentUserDepartmentId()
+        {
+            var user = _httpContextAccessor?.HttpContext?.User;
+            return user?.FindFirst("departmentId")?.Value;
+        }
+
+        /// <summary>
+        /// Gets the current user's ID from JWT token
+        /// </summary>
+        /// <returns>User ID</returns>
+        private string GetCurrentUserId()
+        {
+            var user = _httpContextAccessor?.HttpContext?.User;
+            var userIdClaim = user?.FindFirst("userId")?.Value;
+            if (string.IsNullOrEmpty(userIdClaim))
+                throw new UnauthorizedAccessException("User ID not found in token");
+            return userIdClaim;
+        }
     }
 }
+
