@@ -20,6 +20,7 @@ public interface IDocumentService
     Task<RegenerateSummaryResponse> RegenerateSummaryAsync(IFormFile file);
     Task<DocumentDraftResponse> GetOfficialDocumentAsync(string documentFileId);
     Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize);
+    Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(OfficialDocumentsFilterRequest filter, int pageNumber, int pageSize);
     Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(MyDocumentsFilter filter, int pageNumber, int pageSize);
     Task<DocumentDraftResponse> GetMyDocumentByIdAsync(string versionId);
     Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateNewVersionDraftRequest request);

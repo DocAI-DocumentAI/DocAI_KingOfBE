@@ -136,19 +136,24 @@ public class DocumentController : ControllerBase
     }
 
     /// <summary>
-    /// Get all approved/official documents with pagination
+    /// Get all approved/official documents with comprehensive filtering and pagination
     /// </summary>
-    /// <param name="pageNumber">Page number for pagination (default: 1)</param>
-    /// <param name="pageSize">Number of items per page (default: 10)</param>
-    /// <returns>Paginated list of official documents</returns>
     [HttpGet(ApiEndPointConstant.Document.GetAllOfficialDocuments)]
     [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetAllOfficialDocuments(int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> GetAllOfficialDocuments([FromQuery] OfficialDocumentsFilterRequest filter, int pageNumber = 1, int pageSize = 10)
     {
-        var result = await _documentService.GetAllOfficialDocumentsAsync(pageNumber, pageSize);
-        return Ok(ApiResponse<object>.Success(result));
+        // If no filter is provided, use the original method for backward compatibility
+        if (IsEmptyFilter(filter))
+        {
+            var result = await _documentService.GetAllOfficialDocumentsAsync(pageNumber, pageSize);
+            return Ok(ApiResponse<object>.Success(result));
+        }
+
+        // Use the new filtered method
+        var filteredResult = await _documentService.GetAllOfficialDocumentsAsync(filter, pageNumber, pageSize);
+        return Ok(ApiResponse<object>.Success(filteredResult));
     }
 
     /// <summary>
@@ -350,5 +355,34 @@ public class DocumentController : ControllerBase
     {
         var result = await _recommendationService.GetRecommendationsAsync(documentId, request);
         return Ok(ApiResponse<DocumentRecommendationsResult>.Success(result, "Document recommendations retrieved successfully"));
+    }
+
+    /// <summary>
+    /// Checks if the filter request has any applied filters
+    /// </summary>
+    /// <param name="filter">The filter request to check</param>
+    /// <returns>True if no filters are applied, false otherwise</returns>
+    private static bool IsEmptyFilter(OfficialDocumentsFilterRequest filter)
+    {
+        return filter == null ||
+               (string.IsNullOrEmpty(filter.Title) &&
+                string.IsNullOrEmpty(filter.Keyword) &&
+                string.IsNullOrEmpty(filter.VersionName) &&
+                !filter.FromDate.HasValue &&
+                !filter.ToDate.HasValue &&
+                !filter.EffectiveFrom.HasValue &&
+                !filter.EffectiveUntil.HasValue &&
+                !filter.LastSubmittedFrom.HasValue &&
+                !filter.LastSubmittedTo.HasValue &&
+                string.IsNullOrEmpty(filter.DocumentTypeId) &&
+                (filter.Tags == null || !filter.Tags.Any()) &&
+                string.IsNullOrEmpty(filter.SignedBy) &&
+                string.IsNullOrEmpty(filter.FileType) &&
+                string.IsNullOrEmpty(filter.SubmittedBy) &&
+                !filter.IsPublic.HasValue &&
+                !filter.MinFileSize.HasValue &&
+                !filter.MaxFileSize.HasValue &&
+                !filter.MinDownloads.HasValue &&
+                !filter.MaxDownloads.HasValue);
     }
 }

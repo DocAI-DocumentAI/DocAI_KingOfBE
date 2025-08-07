@@ -1123,6 +1123,120 @@ public class DocumentService : IDocumentService
         return enrichedPaginated;
     }
 
+    public async Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(OfficialDocumentsFilterRequest filterRequest, int pageNumber, int pageSize)
+    {
+        // Get user's department ID for permission filtering
+        var userDepartmentId = GetCurrentUserDepartmentId();
+
+        // Create filter from request
+        var filter = new OfficialDocumentsFilter
+        {
+            Title = filterRequest.Title,
+            Keyword = filterRequest.Keyword,
+            VersionName = filterRequest.VersionName,
+            FromDate = filterRequest.FromDate,
+            ToDate = filterRequest.ToDate,
+            EffectiveFrom = filterRequest.EffectiveFrom,
+            EffectiveUntil = filterRequest.EffectiveUntil,
+            LastSubmittedFrom = filterRequest.LastSubmittedFrom,
+            LastSubmittedTo = filterRequest.LastSubmittedTo,
+            DocumentTypeId = filterRequest.DocumentTypeId,
+            Tags = filterRequest.Tags,
+            SignedBy = filterRequest.SignedBy,
+            FileType = filterRequest.FileType,
+            SubmittedBy = filterRequest.SubmittedBy,
+            IsPublic = filterRequest.IsPublic,
+            MinFileSize = filterRequest.MinFileSize,
+            MaxFileSize = filterRequest.MaxFileSize,
+            MinDownloads = filterRequest.MinDownloads,
+            MaxDownloads = filterRequest.MaxDownloads,
+            // Internal access control - always apply department-based security
+            DepartmentId = userDepartmentId
+        };
+
+        // Build predicate that combines filter logic with department-based access control
+        var basePredicate = filter.ToExpression();
+        var securityPredicate = BuildSecurityPredicate(userDepartmentId);
+        var combinedPredicate = CombinePredicates(basePredicate, securityPredicate);
+
+        var officialDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
+            filter: null, // We use predicate instead of filter for complex logic
+            selector: d => _mapper.Map<DocumentDraftResponse>(d),
+            predicate: combinedPredicate,
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
+            page: pageNumber,
+            size: pageSize
+        );
+
+        // Enrich all documents with names in bulk for better performance
+        var enrichedDocuments = await _enrichmentService.EnrichDocumentDraftResponsesAsync(officialDocuments.Items.ToList());
+
+        // Create new paginated result with enriched documents
+        var enrichedPaginated = new Paginate<DocumentDraftResponse>
+        {
+            Items = enrichedDocuments,
+            Page = officialDocuments.Page,
+            Size = officialDocuments.Size,
+            Total = officialDocuments.Total,
+            TotalPages = officialDocuments.TotalPages
+        };
+
+        _logger.LogInformation("Retrieved {Count} filtered official documents with {FilterCount} filters applied",
+            enrichedDocuments.Count, CountAppliedFilters(filterRequest));
+        return enrichedPaginated;
+    }
+
+    /// <summary>
+    /// Builds security predicate for department-based access control
+    /// </summary>
+    private static Expression<Func<DocumentVersion, bool>> BuildSecurityPredicate(string userDepartmentId)
+    {
+        return v => v.IsOfficial && (v.IsPublic || v.DocumentFile.DepartmentId == userDepartmentId);
+    }
+
+    /// <summary>
+    /// Combines two predicates with AND logic
+    /// </summary>
+    private static Expression<Func<DocumentVersion, bool>> CombinePredicates(
+        Expression<Func<DocumentVersion, bool>> predicate1,
+        Expression<Func<DocumentVersion, bool>> predicate2)
+    {
+        var parameter = Expression.Parameter(typeof(DocumentVersion), "v");
+        var body1 = Expression.Invoke(predicate1, parameter);
+        var body2 = Expression.Invoke(predicate2, parameter);
+        var combinedBody = Expression.AndAlso(body1, body2);
+        return Expression.Lambda<Func<DocumentVersion, bool>>(combinedBody, parameter);
+    }
+
+    /// <summary>
+    /// Counts the number of applied filters for logging purposes
+    /// </summary>
+    private static int CountAppliedFilters(OfficialDocumentsFilterRequest filterRequest)
+    {
+        var count = 0;
+        if (!string.IsNullOrEmpty(filterRequest.Title)) count++;
+        if (!string.IsNullOrEmpty(filterRequest.Keyword)) count++;
+        if (!string.IsNullOrEmpty(filterRequest.VersionName)) count++;
+        if (filterRequest.FromDate.HasValue) count++;
+        if (filterRequest.ToDate.HasValue) count++;
+        if (filterRequest.EffectiveFrom.HasValue) count++;
+        if (filterRequest.EffectiveUntil.HasValue) count++;
+        if (filterRequest.LastSubmittedFrom.HasValue) count++;
+        if (filterRequest.LastSubmittedTo.HasValue) count++;
+        if (!string.IsNullOrEmpty(filterRequest.DocumentTypeId)) count++;
+        if (filterRequest.Tags?.Any() == true) count++;
+        if (!string.IsNullOrEmpty(filterRequest.SignedBy)) count++;
+        if (!string.IsNullOrEmpty(filterRequest.FileType)) count++;
+        if (!string.IsNullOrEmpty(filterRequest.SubmittedBy)) count++;
+        if (filterRequest.IsPublic.HasValue) count++;
+        if (filterRequest.MinFileSize.HasValue) count++;
+        if (filterRequest.MaxFileSize.HasValue) count++;
+        if (filterRequest.MinDownloads.HasValue) count++;
+        if (filterRequest.MaxDownloads.HasValue) count++;
+        return count;
+    }
+
     public async Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(MyDocumentsFilter filter, int pageNumber, int pageSize)
     {
         // Get current user ID from JWT token

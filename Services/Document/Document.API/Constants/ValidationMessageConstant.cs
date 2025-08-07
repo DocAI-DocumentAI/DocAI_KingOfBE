@@ -133,6 +133,53 @@ public class ValidationMessageConstant
         // Scope validation
         public const string InvalidScope = "Phạm vi tìm kiếm không hợp lệ";
     }
+
+    public class OfficialDocumentsFilter
+    {
+        // Title validation
+        public const string TitleMaxLength = "Tiêu đề không được vượt quá {0} ký tự";
+        public const string TitleInvalidCharacters = "Tiêu đề chứa ký tự không hợp lệ";
+
+        // Keyword validation
+        public const string KeywordMaxLength = "Từ khóa tìm kiếm không được vượt quá {0} ký tự";
+        public const string KeywordInvalidCharacters = "Từ khóa tìm kiếm chứa ký tự không hợp lệ";
+
+        // Version name validation
+        public const string VersionNameMaxLength = "Tên phiên bản không được vượt quá {0} ký tự";
+        public const string VersionNameInvalidCharacters = "Tên phiên bản chứa ký tự không hợp lệ";
+
+        // Date validation
+        public const string InvalidDateRange = "Ngày bắt đầu phải nhỏ hơn ngày kết thúc";
+        public const string InvalidEffectiveDateRange = "Ngày hiệu lực bắt đầu phải nhỏ hơn ngày hiệu lực kết thúc";
+        public const string InvalidSubmittedDateRange = "Ngày gửi bắt đầu phải nhỏ hơn ngày gửi kết thúc";
+
+        // Document type validation
+        public const string DocumentTypeIdInvalid = "ID loại tài liệu không hợp lệ";
+
+        // Tags validation
+        public const string TagsMaxCount = "Không được vượt quá {0} thẻ";
+        public const string TagMaxLength = "Mỗi thẻ không được vượt quá {0} ký tự";
+        public const string TagInvalidCharacters = "Thẻ chứa ký tự không hợp lệ";
+
+        // SignedBy validation
+        public const string SignedByMaxLength = "Người ký không được vượt quá {0} ký tự";
+        public const string SignedByInvalidCharacters = "Người ký chứa ký tự không hợp lệ";
+
+        // File type validation
+        public const string FileTypeMaxLength = "Loại file không được vượt quá {0} ký tự";
+        public const string FileTypeInvalid = "Loại file không hợp lệ";
+
+        // File size validation
+        public const string FileSizeRange = "Kích thước file phải từ {0} đến {1} bytes";
+        public const string InvalidFileSizeRange = "Kích thước file tối thiểu phải nhỏ hơn kích thước file tối đa";
+
+        // Download count validation
+        public const string DownloadCountRange = "Số lượt tải phải từ {0} đến {1}";
+        public const string InvalidDownloadCountRange = "Số lượt tải tối thiểu phải nhỏ hơn số lượt tải tối đa";
+
+        // SubmittedBy validation
+        public const string SubmittedByInvalid = "ID người gửi không hợp lệ";
+    }
 }
 
 public static class ValidationConstants
@@ -172,6 +219,19 @@ public static class ValidationConstants
     public const double SemanticSearchMinRelevanceMax = 1.0;
     public const int SemanticSearchMaxResultsMin = 1;
     public const int SemanticSearchMaxResultsMax = 100;
+
+    // OfficialDocumentsFilter validation constants
+    public const int OfficialDocumentsFilterTitleMaxLength = 200;
+    public const int OfficialDocumentsFilterKeywordMaxLength = 500;
+    public const int OfficialDocumentsFilterVersionNameMaxLength = 100;
+    public const int OfficialDocumentsFilterDocumentTypeIdMaxLength = 50;
+    public const int OfficialDocumentsFilterSignedByMaxLength = 200;
+    public const int OfficialDocumentsFilterFileTypeMaxLength = 10;
+    public const int OfficialDocumentsFilterSubmittedByMaxLength = 50;
+    public const int OfficialDocumentsFilterTagMaxLength = 50;
+    public const int OfficialDocumentsFilterTagsMaxCount = 20;
+    public const long OfficialDocumentsFilterMaxFileSize = 1073741824; // 1GB
+    public const int OfficialDocumentsFilterMaxDownloads = 999999;
 
     // DocumentReplacementSuggestion validation constants
     public const int DocumentReplacementSuggestionTitleMaxLength = 200;
