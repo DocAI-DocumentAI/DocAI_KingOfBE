@@ -12,6 +12,7 @@ using DocumentFormat.OpenXml.Office2010.Word;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.KernelMemory;
 using Shared.Exceptions;
+using System.Security.Claims;
 
 namespace Document.API.Services.Implements
 {
@@ -24,8 +25,10 @@ namespace Document.API.Services.Implements
         private readonly IKernelMemory _memory;
         private readonly IDocumentEnrichmentService _enrichmentService;
         private readonly IDocumentPermissionManager _permissionManager;
-        public ApprovalService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ApprovalService> logger, IStorageService storageService, IKernelMemory kernelMemory, IDocumentEnrichmentService enrichmentService, IDocumentPermissionManager permissionManager)
+        private readonly IDocumentNotificationService _notificationService;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
+        public ApprovalService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ApprovalService> logger, IStorageService storageService, IKernelMemory kernelMemory, IDocumentEnrichmentService enrichmentService, IDocumentPermissionManager permissionManager, IDocumentNotificationService notificationService, IHttpContextAccessor httpContextAccessor)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
@@ -34,9 +37,12 @@ namespace Document.API.Services.Implements
             _memory = kernelMemory;
             _enrichmentService = enrichmentService;
             _permissionManager = permissionManager;
+            _notificationService = notificationService;
+            _httpContextAccessor = httpContextAccessor;
         }
-        public async Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueAsync(string departmentId, Document.Infrastructure.Filter.ApprovalQueueFilter filter, int pageNumber, int pageSize)
+        public async Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueAsync(Document.Infrastructure.Filter.ApprovalQueueFilter filter, int pageNumber, int pageSize)
         {
+            var departmentId = GetCurrentUserDepartmentId() ?? throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToAccessApprovalQueue);
             var pendingDocuments = await _unitOfWork.GetRepository<DocumentVersion>()
                 .GetPagingListAsync(
                 selector: v => _mapper.Map<PendingDocumentResponse>(v),
@@ -65,8 +71,10 @@ namespace Document.API.Services.Implements
             return enrichedPaginated;
         }
 
-        public async Task ClaimDocumentForReviewAsync(string versionId, string userId)
+        public async Task ClaimDocumentForReviewAsync(string versionId)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
             var versionToClaim = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(
                     predicate: v => v.Id == versionId,
@@ -101,8 +109,10 @@ namespace Document.API.Services.Implements
             _logger.LogInformation("Document version {VersionId} claimed for review by user {UserId}", versionId, userId);
         }
 
-        public async Task ReleaseClaimAsync(string versionId, string userId)
+        public async Task ReleaseClaimAsync(string versionId)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
             var existingClaim = await _unitOfWork.GetRepository<ApprovalClaim>()
                 .SingleOrDefaultAsync(predicate: ac => ac.DocumentVersionId == versionId && ac.IsActive);
 
@@ -146,8 +156,10 @@ namespace Document.API.Services.Implements
             return enrichedResponse;
         }
 
-        public async Task ReviewDocument(string versionId, ReviewDocumentRequest request, string userId)
+        public async Task ReviewDocument(string versionId, ReviewDocumentRequest request)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
             var versionToReview = await _unitOfWork.GetRepository<DocumentVersion>()
             .SingleOrDefaultAsync(
                 predicate: v => v.Id == versionId,
@@ -373,11 +385,61 @@ namespace Document.API.Services.Implements
 
             _logger.LogInformation("Manager {UserId} has {Action} document version {VersionId}", userId, logAction, versionId);
 
-            // TODO: Send a notification to the document owner.
+            // Send notification to document owner
+            try
+            {
+                var currentUser = _httpContextAccessor.HttpContext?.User;
+                if (currentUser != null)
+                {
+                    // Get owner information - we need to call Auth service to get owner details
+                    var ownerEmail = await GetUserEmailByIdAsync(versionToReview.DocumentFile.OwnerId);
+                    var ownerName = await GetUserNameByIdAsync(versionToReview.DocumentFile.OwnerId);
+
+                    if (!string.IsNullOrEmpty(ownerEmail))
+                    {
+                        if (request.IsApproved)
+                        {
+                            await _notificationService.SendDocumentApprovalNotificationAsync(
+                                versionId,
+                                versionToReview.Title,
+                                versionToReview.VersionName,
+                                ownerEmail,
+                                ownerName ?? "Document Owner",
+                                currentUser,
+                                request.Comments);
+                            _logger.LogInformation("Document approval notification sent for document {VersionId}", versionId);
+                        }
+                        else
+                        {
+                            await _notificationService.SendDocumentRejectionNotificationAsync(
+                                versionId,
+                                versionToReview.Title,
+                                versionToReview.VersionName,
+                                ownerEmail,
+                                ownerName ?? "Document Owner",
+                                currentUser,
+                                request.Comments ?? "No comments provided");
+                            _logger.LogInformation("Document rejection notification sent for document {VersionId}", versionId);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Could not find owner email for document {VersionId}, owner ID: {OwnerId}", versionId, versionToReview.DocumentFile.OwnerId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send approval/rejection notification for document {VersionId}", versionId);
+                // Don't fail the entire operation for notification errors
+            }
         }
 
-        public async Task SubmitForApprovalAsync(string versionId, string userId)
+        public async Task SubmitForApprovalAsync(string versionId)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
+
             //1. Get the document
             var version = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(
@@ -428,6 +490,89 @@ namespace Document.API.Services.Implements
                 _logger.LogError(ex, "Failed to update permissions for document {VersionId} when submitting for approval", versionId);
                 // Don't fail the entire operation for permission errors
             }
+
+            //8. Send notification to department managers
+            try
+            {
+                var currentUser = _httpContextAccessor.HttpContext?.User;
+                if (currentUser != null)
+                {
+                    await _notificationService.SendDocumentSubmissionNotificationAsync(
+                        versionId,
+                        version.Title,
+                        version.VersionName,
+                        currentUser,
+                        version.DocumentFile.DepartmentId);
+                    _logger.LogInformation("Document submission notification sent for document {VersionId}", versionId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send submission notification for document {VersionId}", versionId);
+                // Don't fail the entire operation for notification errors
+            }
         }
+
+        private string GetCurrentUserId()
+        {
+            var user = _httpContextAccessor?.HttpContext?.User;
+            var userIdClaim = user?.FindFirst("userId")?.Value;
+            if (string.IsNullOrEmpty(userIdClaim))
+                throw new UnauthorizedAccessException("User ID not found in token");
+            return userIdClaim;
+        }
+
+        private string? GetCurrentUserDepartmentId()
+        {
+            var user = _httpContextAccessor?.HttpContext?.User;
+            return user?.FindFirst("departmentId")?.Value;
+        }
+
+        #region Helper Methods for Notifications
+
+        /// <summary>
+        /// Get user email by ID from Auth service via MassTransit
+        /// </summary>
+        private async Task<string?> GetUserEmailByIdAsync(string userId)
+        {
+            try
+            {
+                // This would typically use a request client to Auth service
+                // For now, we'll use the permission manager's existing functionality
+                // In a real implementation, you might want to add a dedicated method
+                _logger.LogInformation("Getting user email for user ID: {UserId}", userId);
+
+                // TODO: Implement proper user lookup via MassTransit
+                // For now, return a placeholder that indicates we need the email
+                return $"user-{userId}@company.com"; // Placeholder - should be replaced with actual lookup
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting user email for user ID: {UserId}", userId);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Get user name by ID from Auth service via MassTransit
+        /// </summary>
+        private async Task<string?> GetUserNameByIdAsync(string userId)
+        {
+            try
+            {
+                _logger.LogInformation("Getting user name for user ID: {UserId}", userId);
+
+                // TODO: Implement proper user lookup via MassTransit
+                // For now, return a placeholder
+                return $"User {userId}"; // Placeholder - should be replaced with actual lookup
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting user name for user ID: {UserId}", userId);
+                return null;
+            }
+        }
+
+        #endregion
     }
 }

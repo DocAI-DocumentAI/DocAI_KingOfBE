@@ -8,10 +8,10 @@ namespace Document.API.Services.Interfaces
 {
     public interface ITagService
     {
-        Task<TagResponse> CreateTagAsync(CreateTagRequest request, string userId);
+        Task<TagResponse> CreateTagAsync(CreateTagRequest request);
         Task<TagResponse> GetTagByIdAsync(string tagId);
         Task<IPaginate<TagResponse>> GetAllTagsAsync(int pageNumber, int pageSize);
-        Task<TagResponse> UpdateTagAsync(string tagId, UpdateTagRequest request, string userId);
+        Task<TagResponse> UpdateTagAsync(string tagId, UpdateTagRequest request);
         Task DeleteTagAsync(string tagId);
     }
 }

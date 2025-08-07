@@ -25,11 +25,15 @@ namespace Document.API.Payload.Response
         public DocumentResponse? ReplacementDocument { get; set; }
         public string? ReplacementDocumentName { get; set; }
         public bool IsReplaced { get; set; }
+        public bool IsPublic { get; set; }
         public DateTime? LastSubmitted { get; set; }
         public string? SubmittedBy { get; set; }
         public string? SubmittedByName { get; set; }
         public string? ClaimedBy { get; set; }
         public string? ClaimedByName { get; set; }
         public DateTime? ClaimedAt { get; set; }
+        public string? SignedBy { get; set; }
+        public DateTime? EffectiveFrom { get; set; }
+        public DateTime? EffectiveUntil { get; set; }
     }
 }

@@ -106,6 +106,7 @@ public static class DependencyService
         services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 
         services.AddScoped<IDocumentRAGService, DocumentRAGService>();
+        services.AddScoped<IDocumentNotificationService, DocumentNotificationService>();
 
         return services;
     } 

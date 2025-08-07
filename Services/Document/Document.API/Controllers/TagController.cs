@@ -26,15 +26,14 @@ namespace Document.API.Controllers
         /// Create a new document tag
         /// </summary>
         /// <param name="request">Tag creation request with name and description</param>
-        /// <param name="userId">The ID of the user creating the tag</param>
         /// <returns>Created tag information</returns>
         [HttpPost(ApiEndPointConstant.Tag.CreateTag)]
         [ProducesResponseType(typeof(ApiResponse<TagResponse>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> CreateTag([FromBody] CreateTagRequest request, string userId)
+        public async Task<IActionResult> CreateTag([FromBody] CreateTagRequest request)
         {
-            var response = await _tagService.CreateTagAsync(request, userId);
+            var response = await _tagService.CreateTagAsync(request);
             return Ok(ApiResponse<object>.Success(response, "Tag created successfully.", 201));
         }
 
@@ -75,16 +74,15 @@ namespace Document.API.Controllers
         /// </summary>
         /// <param name="tagId">The ID of the tag to update</param>
         /// <param name="request">Updated tag information</param>
-        /// <param name="userId">The ID of the user updating the tag</param>
         /// <returns>Updated tag information</returns>
         [HttpPut(ApiEndPointConstant.Tag.UpdateTag)]
         [ProducesResponseType(typeof(ApiResponse<TagResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateTag([FromRoute(Name = "id")] string tagId, [FromBody] UpdateTagRequest request, string userId)
+        public async Task<IActionResult> UpdateTag([FromRoute(Name = "id")] string tagId, [FromBody] UpdateTagRequest request)
         {
-            var response = await _tagService.UpdateTagAsync(tagId, request, userId);
+            var response = await _tagService.UpdateTagAsync(tagId, request);
             return Ok(ApiResponse<object>.Success(response, "Tag updated successfully."));
         }
 

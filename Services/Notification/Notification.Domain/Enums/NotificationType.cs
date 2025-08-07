@@ -5,6 +5,9 @@ public enum NotificationType
     NearingExpiration = 1,
     Expired = 2,
     SystemEscalation = 3,
-    General = 4
+    General = 4,
+    DocumentSubmitted = 5,
+    DocumentApproved = 6,
+    DocumentRejected = 7
 
 }

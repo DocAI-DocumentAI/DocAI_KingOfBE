@@ -9,6 +9,7 @@ using Document.Infrastructure.Paginate;
 using Document.Infrastructure.Repository.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Shared.Exceptions;
+using Microsoft.AspNetCore.Http;
 
 namespace Document.API.Services.Implements
 {
@@ -20,25 +21,30 @@ namespace Document.API.Services.Implements
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
         private readonly ILogger<DocumentTypeService> _logger;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
         public DocumentTypeService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
-            ILogger<DocumentTypeService> logger)
+            ILogger<DocumentTypeService> logger,
+            IHttpContextAccessor httpContextAccessor)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _logger = logger;
+            _httpContextAccessor = httpContextAccessor;
         }
 
         /// <summary>
         /// Creates a new document type
         /// </summary>
         /// <param name="request">The document type creation request</param>
-        /// <param name="userId">The ID of the user creating the document type</param>
         /// <returns>The created document type response</returns>
-        public async Task<DocumentTypeResponse> CreateDocumentTypeAsync(CreateDocumentTypeRequest request, string userId)
+        public async Task<DocumentTypeResponse> CreateDocumentTypeAsync(CreateDocumentTypeRequest request)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
+
             _logger.LogInformation("Creating new document type with name: {Name} by user: {UserId}", request.Name, userId);
 
             // Validate business rules
@@ -125,10 +131,12 @@ namespace Document.API.Services.Implements
         /// </summary>
         /// <param name="documentTypeId">The ID of the document type to update</param>
         /// <param name="request">The document type update request</param>
-        /// <param name="userId">The ID of the user updating the document type</param>
         /// <returns>The updated document type response</returns>
-        public async Task<DocumentTypeResponse> UpdateDocumentTypeAsync(string documentTypeId, UpdateDocumentTypeRequest request, string userId)
+        public async Task<DocumentTypeResponse> UpdateDocumentTypeAsync(string documentTypeId, UpdateDocumentTypeRequest request)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
+
             _logger.LogInformation("Updating document type with ID: {DocumentTypeId} by user: {UserId}", documentTypeId, userId);
 
             var documentType = await _unitOfWork.GetRepository<DocumentType>()
@@ -160,10 +168,12 @@ namespace Document.API.Services.Implements
         /// Deletes a document type
         /// </summary>
         /// <param name="documentTypeId">The ID of the document type to delete</param>
-        /// <param name="userId">The ID of the user deleting the document type</param>
         /// <returns>Task representing the async operation</returns>
-        public async Task DeleteDocumentTypeAsync(string documentTypeId, string userId)
+        public async Task DeleteDocumentTypeAsync(string documentTypeId)
         {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
+
             _logger.LogInformation("Deleting document type with ID: {DocumentTypeId} by user: {UserId}", documentTypeId, userId);
 
             var documentType = await _unitOfWork.GetRepository<DocumentType>()
@@ -236,6 +246,21 @@ namespace Document.API.Services.Implements
                 throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
                     MessageConstant.DocumentTypeNameExists);
             }
+        }
+
+        private string GetCurrentUserId()
+        {
+            var user = _httpContextAccessor?.HttpContext?.User;
+            var userIdClaim = user?.FindFirst("userId")?.Value;
+            if (string.IsNullOrEmpty(userIdClaim))
+                throw new UnauthorizedAccessException("User ID not found in token");
+            return userIdClaim;
+        }
+
+        private string? GetCurrentUserDepartmentId()
+        {
+            var user = _httpContextAccessor?.HttpContext?.User;
+            return user?.FindFirst("departmentId")?.Value;
         }
     }
 }

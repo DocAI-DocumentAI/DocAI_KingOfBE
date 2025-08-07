@@ -409,6 +409,17 @@ namespace Document.API.Services.Implements
                         if (DateTime.TryParse(approvalDates.FirstOrDefault(), out var approvalDate))
                             source.ApprovalDate = approvalDate;
 
+                    if (docGroup.Tags.TryGetValue("signedBy", out var signedByValues))
+                        source.SignedBy = signedByValues.FirstOrDefault();
+
+                    if (docGroup.Tags.TryGetValue("effectiveFrom", out var effectiveFromValues))
+                        if (DateTime.TryParse(effectiveFromValues.FirstOrDefault(), out var effectiveFrom))
+                            source.EffectiveFrom = effectiveFrom;
+
+                    if (docGroup.Tags.TryGetValue("effectiveUntil", out var effectiveUntilValues))
+                        if (DateTime.TryParse(effectiveUntilValues.FirstOrDefault(), out var effectiveUntil))
+                            source.EffectiveUntil = effectiveUntil;
+
                     // Get from database
                     if (documentLookup.TryGetValue(docGroup.DocumentId, out var documentVersion))
                     {
@@ -416,6 +427,9 @@ namespace Document.API.Services.Implements
                         source.Summary = documentVersion.Summary;
                         source.FileType = documentVersion.FileType;
                         source.DepartmentId = documentVersion.DocumentFile.DepartmentId;
+                        source.SignedBy = documentVersion.SignedBy;
+                        source.EffectiveFrom = documentVersion.EffectiveFrom;
+                        source.EffectiveUntil = documentVersion.EffectiveUntil;
                     }
 
                     sources.Add(source);

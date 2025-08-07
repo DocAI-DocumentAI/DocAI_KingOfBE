@@ -30,7 +30,6 @@ namespace Document.API.Controllers
         /// Creates a new document type
         /// </summary>
         /// <param name="request">The document type creation request</param>
-        /// <param name="userId">The ID of the user creating the document type</param>
         /// <returns>The created document type</returns>
         [HttpPost(ApiEndPointConstant.DocumentType.CreateDocumentType)]
         [CustomAuthorize(Roles = new[] { Roles.Manager, Roles.Admin })]
@@ -38,11 +37,11 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> CreateDocumentType([FromBody] CreateDocumentTypeRequest request, string userId)
+        public async Task<IActionResult> CreateDocumentType([FromBody] CreateDocumentTypeRequest request)
         {
-            _logger.LogInformation("Creating document type with name: {Name} by user: {UserId}", request.Name, userId);
-            
-            var result = await _documentTypeService.CreateDocumentTypeAsync(request, userId);
+            _logger.LogInformation("Creating document type with name: {Name}", request.Name);
+
+            var result = await _documentTypeService.CreateDocumentTypeAsync(request);
             return Ok(ApiResponse<DocumentTypeResponse>.Success(result, "Document type created successfully", 201));
         }
 
@@ -101,7 +100,6 @@ namespace Document.API.Controllers
         /// </summary>
         /// <param name="id">The ID of the document type to update</param>
         /// <param name="request">The document type update request</param>
-        /// <param name="userId">The ID of the user updating the document type</param>
         /// <returns>The updated document type</returns>
         [HttpPut(ApiEndPointConstant.DocumentType.UpdateDocumentType)]
         [CustomAuthorize(Roles = new[] { Roles.Manager, Roles.Admin })]
@@ -110,11 +108,11 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateDocumentType([FromRoute(Name = "id")] string id, [FromBody] UpdateDocumentTypeRequest request, string userId)
+        public async Task<IActionResult> UpdateDocumentType([FromRoute(Name = "id")] string id, [FromBody] UpdateDocumentTypeRequest request)
         {
-            _logger.LogInformation("Updating document type with ID: {DocumentTypeId} by user: {UserId}", id, userId);
-            
-            var result = await _documentTypeService.UpdateDocumentTypeAsync(id, request, userId);
+            _logger.LogInformation("Updating document type with ID: {DocumentTypeId}", id);
+
+            var result = await _documentTypeService.UpdateDocumentTypeAsync(id, request);
             return Ok(ApiResponse<DocumentTypeResponse>.Success(result, "Document type updated successfully"));
         }
 
@@ -122,7 +120,6 @@ namespace Document.API.Controllers
         /// Deletes a document type
         /// </summary>
         /// <param name="id">The ID of the document type to delete</param>
-        /// <param name="userId">The ID of the user deleting the document type</param>
         /// <returns>Success response</returns>
         [HttpDelete(ApiEndPointConstant.DocumentType.DeleteDocumentType)]
         [CustomAuthorize(Roles = new[] { Roles.Manager, Roles.Admin })]
@@ -130,11 +127,11 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> DeleteDocumentType([FromRoute(Name = "id")] string id, string userId)
+        public async Task<IActionResult> DeleteDocumentType([FromRoute(Name = "id")] string id)
         {
-            _logger.LogInformation("Deleting document type with ID: {DocumentTypeId} by user: {UserId}", id, userId);
-            
-            await _documentTypeService.DeleteDocumentTypeAsync(id, userId);
+            _logger.LogInformation("Deleting document type with ID: {DocumentTypeId}", id);
+
+            await _documentTypeService.DeleteDocumentTypeAsync(id);
             return Ok(ApiResponse<object>.Success(null, "Document type deleted successfully"));
         }
     }
