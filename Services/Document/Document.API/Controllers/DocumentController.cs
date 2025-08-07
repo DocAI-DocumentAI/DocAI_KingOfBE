@@ -27,7 +27,7 @@ public class DocumentController : ControllerBase
 
     /// <summary>
     /// Upload a new document draft for review and approval
-    /// </summary>
+    /// </summary> 
     /// <param name="request">Document draft creation request with file and metadata</param>
     /// <returns>Created document draft information</returns>
     [HttpPost(ApiEndPointConstant.Document.UploadDraft)]
