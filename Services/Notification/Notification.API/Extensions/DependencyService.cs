@@ -171,30 +171,30 @@ public static class DependencyService
     {
         services.AddMassTransit(busConfig =>
         {
-            busConfig.AddConsumer<ProcessDocumentExpirationConsumer>(); // Sẽ được tích hợp sâu hơn ở bước sau
+            busConfig.AddConsumer<ProcessDocumentExpirationConsumer>();
             busConfig.AddConsumer<GeneralNotificationConsumer>();
 
             busConfig.UsingRabbitMq((context, mqConfig) =>
             {
-                //var host = configuration["RabbitMQ:Host"] ?? "rabbitmq";
-                var username = configuration["RabbitMQ:Username"] ?? "guest";
-                var password = configuration["RabbitMQ:Password"] ?? "guest";
+                // Sử dụng cùng pattern như service khác đã hoạt động
+                var rabbitMqConfig = configuration.GetSection("RabbitMQ");
 
-                mqConfig.Host("localhost", "/", h =>
+                mqConfig.Host(rabbitMqConfig["Host"], h =>
                 {
-                    h.Username(username);
-                    h.Password(password);
+                    h.Username(rabbitMqConfig["Username"]);
+                    h.Password(rabbitMqConfig["Password"]);
                 });
+
                 mqConfig.UseRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
 
-                mqConfig.ReceiveEndpoint("document-expiration-queue", e => 
+                mqConfig.ReceiveEndpoint("document-expiration-queue", e =>
                 {
                     e.ConfigureConsumer<ProcessDocumentExpirationConsumer>(context);
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
                     e.UseInMemoryOutbox();
                 });
 
-                mqConfig.ReceiveEndpoint("general-notifications-queue", e => 
+                mqConfig.ReceiveEndpoint("general-notifications-queue", e =>
                 {
                     e.ConfigureConsumer<GeneralNotificationConsumer>(context);
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
