@@ -46,5 +46,56 @@ namespace Document.API.Payload.Response
         /// Effective date until which the document is valid
         /// </summary>
         public DateTime? EffectiveUntil { get; set; }
+
+        /// <summary>
+        /// Detailed scoring breakdown for transparency (only included when hybrid scoring is enabled)
+        /// </summary>
+        public SemanticSearchScoring? Scoring { get; set; }
+
+        /// <summary>
+        /// Indicates if this result was boosted due to department preference
+        /// </summary>
+        public bool IsDepartmentBoosted { get; set; }
+
+        /// <summary>
+        /// Search result rank position
+        /// </summary>
+        public int Rank { get; set; }
+    }
+
+    /// <summary>
+    /// Detailed scoring breakdown for semantic search results
+    /// </summary>
+    public class SemanticSearchScoring
+    {
+        /// <summary>
+        /// Raw semantic similarity score from Kernel Memory
+        /// </summary>
+        public double SemanticSimilarity { get; set; }
+
+        /// <summary>
+        /// Metadata matching score
+        /// </summary>
+        public double MetadataScore { get; set; }
+
+        /// <summary>
+        /// Contextual factors score
+        /// </summary>
+        public double ContextualScore { get; set; }
+
+        /// <summary>
+        /// Final weighted score
+        /// </summary>
+        public double FinalScore { get; set; }
+
+        /// <summary>
+        /// Applied boost factors
+        /// </summary>
+        public List<string> AppliedBoosts { get; set; } = new();
+
+        /// <summary>
+        /// Matching tags that contributed to the score
+        /// </summary>
+        public List<string> MatchingTags { get; set; } = new();
     }
 }

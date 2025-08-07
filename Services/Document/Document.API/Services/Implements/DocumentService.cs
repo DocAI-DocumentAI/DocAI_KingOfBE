@@ -16,6 +16,7 @@ using Microsoft.KernelMemory;
 
 using Shared.DTOs;
 using Shared.Exceptions;
+using System.Linq.Expressions;
 using System.Security.Claims;
 using System.Text.Json;
 
@@ -1408,106 +1409,464 @@ public class DocumentService : IDocumentService
     }
 
 
+    /// <summary>
+    /// Performs enhanced semantic search on documents using AI-powered similarity matching with hybrid scoring
+    /// </summary>
+    /// <param name="request">Semantic search request with query and configuration options</param>
+    /// <param name="filter">Advanced filters for search results</param>
+    /// <param name="pageNumber">Page number for pagination</param>
+    /// <param name="pageSize">Number of items per page</param>
+    /// <returns>Paginated list of semantically similar documents with scoring details</returns>
     public async Task<IPaginate<SemanticSearchResponse>> SemanticSearch(SemanticSearchRequest request, SemanticSearchFilter filter, int pageNumber, int pageSize)
     {
-        // 1. Build the filter
+        var startTime = DateTime.UtcNow;
+        var userId = GetCurrentUserId();
+        var userDepartmentId = GetCurrentUserDepartmentId();
+
+        _logger.LogInformation("Starting semantic search - User: {UserId}, Department: {DepartmentId}, Query: '{Query}', HybridScoring: {HybridScoring}, Scope: {Scope}",
+            userId, userDepartmentId, request.Query.Substring(0, Math.Min(50, request.Query.Length)), request.EnableHybridScoring, request.Scope);
+
+        try
+        {
+            // Validate request parameters
+            if (string.IsNullOrWhiteSpace(request.Query))
+            {
+                throw new ArgumentException(ValidationMessageConstant.SemanticSearch.QueryRequired, nameof(request.Query));
+            }
+
+            // 1. Build the enhanced memory filter
+            var memoryFilter = BuildEnhancedMemoryFilter(filter, request);
+            _logger.LogDebug("Built memory filter with {FilterCount} conditions", GetFilterConditionCount(memoryFilter));
+
+            // 2. Apply search scope filtering
+            ApplySearchScopeFilter(memoryFilter, request.Scope, filter);
+
+            // 3. Fetch results from Kernel Memory with configurable parameters
+            _logger.LogDebug("Executing Kernel Memory search with limit: {Limit}, minRelevance: {MinRelevance}",
+                request.MaxResults, request.MinRelevance);
+
+            var searchResult = await _memory.SearchAsync(
+                request.Query,
+                limit: request.MaxResults,
+                filter: memoryFilter,
+                minRelevance: request.MinRelevance);
+
+            // 4. Process search results with enhanced scoring
+            if (!searchResult.Results.Any())
+            {
+                _logger.LogInformation("No semantic search results found for query: '{Query}' - Processing time: {ProcessingTime}ms",
+                    request.Query, (DateTime.UtcNow - startTime).TotalMilliseconds);
+                return new Paginate<SemanticSearchResponse>(new List<SemanticSearchResponse>(), pageNumber, pageSize, 0);
+            }
+
+            _logger.LogDebug("Found {ResultCount} raw results from Kernel Memory", searchResult.Results.Count);
+
+            // 5. Group citations by document and calculate scores
+            var documentCandidates = await ProcessSearchResults(searchResult, request, filter);
+
+            if (!documentCandidates.Any())
+            {
+                _logger.LogInformation("No accessible documents found after security filtering for query: '{Query}'", request.Query);
+                return new Paginate<SemanticSearchResponse>(new List<SemanticSearchResponse>(), pageNumber, pageSize, 0);
+            }
+
+            _logger.LogDebug("Found {CandidateCount} accessible document candidates", documentCandidates.Count);
+
+            // 6. Apply hybrid scoring if enabled
+            if (request.EnableHybridScoring)
+            {
+                _logger.LogDebug("Applying hybrid scoring to {CandidateCount} candidates", documentCandidates.Count);
+                documentCandidates = await ApplyHybridScoring(documentCandidates, request, filter);
+            }
+
+            // 7. Sort by final score and apply pagination
+            var sortedCandidates = documentCandidates.OrderByDescending(c => c.FinalScore).ToList();
+            var totalCount = sortedCandidates.Count;
+            var pagedCandidates = sortedCandidates.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();
+
+            _logger.LogDebug("Returning page {PageNumber} of {PageSize} items from {TotalCount} total results",
+                pageNumber, pageSize, totalCount);
+
+            // 8. Convert to response objects with ranking
+            var responses = new List<SemanticSearchResponse>();
+            for (int i = 0; i < pagedCandidates.Count; i++)
+            {
+                var candidate = pagedCandidates[i];
+                var response = _mapper.Map<SemanticSearchResponse>(candidate.DocumentVersion);
+                response.Relevance = candidate.FinalScore;
+                response.Rank = (pageNumber - 1) * pageSize + i + 1;
+                response.IsDepartmentBoosted = candidate.IsDepartmentMatch && request.BoostDepartmentResults;
+
+                if (request.EnableHybridScoring && candidate.Scoring != null)
+                {
+                    response.Scoring = candidate.Scoring;
+                    response.Scoring.AppliedBoosts = candidate.AppliedBoosts;
+                    response.Scoring.MatchingTags = candidate.MatchingTags;
+                }
+
+                responses.Add(response);
+            }
+
+            // 9. Enrich with names
+            var enrichedItems = await _enrichmentService.EnrichSemanticSearchResponsesAsync(responses);
+
+            var processingTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogInformation("Semantic search completed successfully - User: {UserId}, Query: '{Query}', Results: {ResultCount}/{TotalCount}, HybridScoring: {HybridScoring}, ProcessingTime: {ProcessingTime}ms",
+                userId, request.Query.Substring(0, Math.Min(50, request.Query.Length)), enrichedItems.Count, totalCount, request.EnableHybridScoring, processingTime);
+
+            return new Paginate<SemanticSearchResponse>(enrichedItems, pageNumber, pageSize, totalCount);
+        }
+        catch (ArgumentException ex)
+        {
+            var processingTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogWarning(ex, "Invalid semantic search request - User: {UserId}, Query: '{Query}', Error: {Error}, ProcessingTime: {ProcessingTime}ms",
+                userId, request.Query, ex.Message, processingTime);
+            throw;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            var processingTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogWarning(ex, "Unauthorized semantic search attempt - User: {UserId}, Query: '{Query}', ProcessingTime: {ProcessingTime}ms",
+                userId, request.Query, processingTime);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var processingTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogError(ex, "Error performing semantic search - User: {UserId}, Query: '{Query}', Error: {Error}, ProcessingTime: {ProcessingTime}ms",
+                userId, request.Query, ex.Message, processingTime);
+            throw new InvalidOperationException("An error occurred while performing semantic search. Please try again.", ex);
+        }
+    }
+
+    #region Semantic Search Helper Methods
+
+    private MemoryFilter BuildEnhancedMemoryFilter(SemanticSearchFilter filter, SemanticSearchRequest request)
+    {
         var memoryFilter = new MemoryFilter();
+
+        // Department filtering
         if (!string.IsNullOrEmpty(filter.DepartmentId))
         {
-            memoryFilter.ByTag("departmentId", filter.DepartmentId);
+            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.DepartmentId, filter.DepartmentId);
         }
+
+        // Public/private filtering
         if (filter.IsPublic.HasValue)
         {
-            memoryFilter.ByTag("isPublic", filter.IsPublic.Value.ToString());
+            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.IsPublic, filter.IsPublic.Value.ToString().ToLower());
         }
+
+        // Date range filtering
         if (filter.EffectiveFrom.HasValue)
         {
-            memoryFilter.ByTag("effectiveFrom", filter.EffectiveFrom.Value.ToString("yyyy-MM-dd"));
+            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.EffectiveFrom, filter.EffectiveFrom.Value.ToString("yyyy-MM-dd"));
         }
         if (filter.EffectiveUntil.HasValue)
         {
-            memoryFilter.ByTag("effectiveUntil", filter.EffectiveUntil.Value.ToString("yyyy-MM-dd"));
+            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.EffectiveUntil, filter.EffectiveUntil.Value.ToString("yyyy-MM-dd"));
         }
+
+        // Content filtering
         if (!string.IsNullOrEmpty(filter.SignedBy))
         {
-            memoryFilter.ByTag("signedBy", filter.SignedBy);
+            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.SignedBy, filter.SignedBy);
         }
+
+        if (!string.IsNullOrEmpty(filter.DocumentTypeId))
+        {
+            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.DocumentType, filter.DocumentTypeId);
+        }
+
+        // Tag filtering
         if (filter.Tags != null && filter.Tags.Any())
         {
             foreach (var tag in filter.Tags)
             {
-                memoryFilter.ByTag("tags", tag);
+                memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.Tags, tag);
             }
         }
 
-        // 2. Fetch results from Kernel Memory
-        var searchResult = await _memory.SearchAsync(
-            request.Query,
-            limit: 100,
-            filter: memoryFilter,
-            minRelevance: 0.2);
+        return memoryFilter;
+    }
 
-        // 3. Group citations by document and get the MAX relevance for each
+    /// <summary>
+    /// Gets the approximate number of filter conditions for logging purposes
+    /// </summary>
+    /// <param name="memoryFilter">The memory filter to analyze</param>
+    /// <returns>Estimated number of filter conditions</returns>
+    private int GetFilterConditionCount(MemoryFilter memoryFilter)
+    {
+        // This is a simple estimation since MemoryFilter doesn't expose its internal structure
+        // We count based on what we know was added
+        int count = 0;
+
+        // This is just for logging purposes, so we'll return a reasonable estimate
+        // In a real implementation, you might want to track this during filter building
+        return count; // Simplified for now
+    }
+
+    private void ApplySearchScopeFilter(MemoryFilter memoryFilter, SearchScope scope, SemanticSearchFilter filter)
+    {
+        var userDepartmentId = GetCurrentUserDepartmentId();
+
+        switch (scope)
+        {
+            case SearchScope.PublicOnly:
+                memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.IsPublic, "true");
+                break;
+            case SearchScope.DepartmentOnly:
+                if (!string.IsNullOrEmpty(userDepartmentId))
+                {
+                    memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.DepartmentId, userDepartmentId);
+                }
+                break;
+            case SearchScope.All:
+            default:
+                // No additional filtering - access control handled in database query
+                break;
+        }
+    }
+
+    private async Task<List<SemanticSearchCandidate>> ProcessSearchResults(
+        SearchResult searchResult,
+        SemanticSearchRequest request,
+        SemanticSearchFilter filter)
+    {
+        // Group citations by document and get the MAX relevance for each
         var relevantDocuments = searchResult.Results
             .Select(citation => new
             {
-                // Extract the documentId from the tags
-                DocumentId = citation.Partitions.FirstOrDefault()?.Tags.TryGetValue("documentId", out var ids) == true ? ids.FirstOrDefault() : null,
-                // Get the relevance score for this specific citation (chunk)
-                Relevance = citation.Partitions.FirstOrDefault()?.Relevance ?? 0
+                DocumentId = citation.Partitions.FirstOrDefault()?.Tags.TryGetValue(SemanticSearchConstant.MemoryTags.DocumentId, out var ids) == true ? ids.FirstOrDefault() : null,
+                Relevance = citation.Partitions.FirstOrDefault()?.Relevance ?? 0,
+                Tags = citation.Partitions.FirstOrDefault()?.Tags
             })
             .Where(x => !string.IsNullOrEmpty(x.DocumentId))
-            .GroupBy(x => x.DocumentId) // Group all chunks by their parent document ID
+            .GroupBy(x => x.DocumentId)
             .Select(g => new
             {
                 DocumentId = g.Key,
-                // Find the highest relevance score among all chunks for that document
-                MaxRelevance = g.Max(x => x.Relevance)
+                MaxRelevance = g.Max(x => x.Relevance),
+                Tags = g.FirstOrDefault()?.Tags
             })
-            .OrderByDescending(x => x.MaxRelevance) // Order documents by their best score
+            .OrderByDescending(x => x.MaxRelevance)
             .ToList();
 
         if (!relevantDocuments.Any())
         {
-            return new Paginate<SemanticSearchResponse>(new List<SemanticSearchResponse>(), pageNumber, pageSize, 0);
+            return new List<SemanticSearchCandidate>();
         }
 
-        // Create a lookup map for relevance scores for easy access later
-        var relevanceMap = relevantDocuments.ToDictionary(d => d.DocumentId, d => d.MaxRelevance);
-        var orderedUniqueDocumentIds = relevantDocuments.Select(d => d.DocumentId).ToList();
+        var orderedUniqueDocumentIds = relevantDocuments
+            .Select(d => d.DocumentId)
+            .Where(id => !string.IsNullOrEmpty(id))
+            .Cast<string>()
+            .ToList();
 
-        // 4. Fetch all documents in ONE query from the database with department-based filtering
+        // Fetch documents with enhanced filtering and security
         var userDepartmentId = GetCurrentUserDepartmentId();
+        var predicate = BuildDatabasePredicate(orderedUniqueDocumentIds, request, filter, userDepartmentId);
+
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
-            predicate: dv => orderedUniqueDocumentIds.Contains(dv.DocumentFile.Id) &&
-                            dv.Status == StatusEnum.Approved &&
-                            (dv.IsPublic || dv.DocumentFile.DepartmentId == userDepartmentId),
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            predicate: predicate,
+            include: i => i.Include(v => v.DocumentFile)
+                          .ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentTags)
+                          .ThenInclude(dt => dt.Tag)
         );
 
-        // 5. Map results and add the relevance score
-        var documentResponses = new List<SemanticSearchResponse>();
+        // Create candidates with initial scoring
+        var candidates = new List<SemanticSearchCandidate>();
         foreach (var docVersion in documentVersions)
         {
-            var response = _mapper.Map<SemanticSearchResponse>(docVersion);
-            // Assign the stored relevance score
-            response.Relevance = relevanceMap.TryGetValue(docVersion.DocumentFile.Id, out var relevance) ? relevance : 0;
-            documentResponses.Add(response);
+            var relevantDoc = relevantDocuments.FirstOrDefault(rd => rd.DocumentId == docVersion.DocumentFile.Id);
+            if (relevantDoc != null)
+            {
+                var candidate = new SemanticSearchCandidate
+                {
+                    DocumentVersion = docVersion,
+                    SemanticRelevance = relevantDoc.MaxRelevance,
+                    FinalScore = relevantDoc.MaxRelevance,
+                    IsDepartmentMatch = docVersion.DocumentFile.DepartmentId == userDepartmentId
+                };
+
+                // Extract matching tags
+                if (filter.Tags != null && filter.Tags.Any())
+                {
+                    var docTags = docVersion.DocumentTags.Select(dt => dt.Tag.Name).ToList();
+                    candidate.MatchingTags = filter.Tags.Intersect(docTags, StringComparer.OrdinalIgnoreCase).ToList();
+                }
+
+                candidates.Add(candidate);
+            }
         }
 
-        // Order the final list by the original relevance ranking
-        var orderedResponses = documentResponses.OrderByDescending(r => r.Relevance).ToList();
-
-        // 6. Apply in-memory pagination
-        var totalCount = orderedResponses.Count;
-        var pagedItems = orderedResponses.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();
-
-        // 7. Enrich the paginated items with names
-        var enrichedItems = await _enrichmentService.EnrichSemanticSearchResponsesAsync(pagedItems);
-        _logger.LogInformation("Enriched {Count} semantic search results with names", enrichedItems.Count);
-
-        return new Paginate<SemanticSearchResponse>(enrichedItems, pageNumber, pageSize, totalCount);
+        return candidates;
     }
+
+    private Expression<Func<DocumentVersion, bool>> BuildDatabasePredicate(
+        List<string> documentIds,
+        SemanticSearchRequest request,
+        SemanticSearchFilter filter,
+        string? userDepartmentId)
+    {
+        return dv => documentIds.Contains(dv.DocumentFile.Id) &&
+                    // Security: Department-based access control
+                    (dv.IsPublic || dv.DocumentFile.DepartmentId == userDepartmentId) &&
+                    // Additional filter conditions from SemanticSearchFilter.ToExpression()
+                    (!filter.FromDate.HasValue || dv.CreatedTime >= filter.FromDate.Value) &&
+                    (!filter.ToDate.HasValue || dv.CreatedTime <= filter.ToDate.Value) &&
+                    (!filter.EffectiveFrom.HasValue || dv.EffectiveFrom >= filter.EffectiveFrom.Value) &&
+                    (!filter.EffectiveUntil.HasValue || dv.EffectiveUntil <= filter.EffectiveUntil.Value) &&
+                    (string.IsNullOrEmpty(filter.DocumentTypeId) || dv.DocumentFile.DocumentTypeId == filter.DocumentTypeId);
+    }
+
+    private Task<List<SemanticSearchCandidate>> ApplyHybridScoring(
+        List<SemanticSearchCandidate> candidates,
+        SemanticSearchRequest request,
+        SemanticSearchFilter filter)
+    {
+        var userDepartmentId = GetCurrentUserDepartmentId();
+
+        foreach (var candidate in candidates)
+        {
+            var scoring = new SemanticSearchScoring
+            {
+                SemanticSimilarity = candidate.SemanticRelevance
+            };
+
+            // Calculate metadata score
+            var metadataScore = CalculateMetadataScore(candidate, filter, userDepartmentId);
+            scoring.MetadataScore = metadataScore;
+
+            // Calculate contextual score
+            var contextualScore = CalculateContextualScore(candidate, userDepartmentId);
+            scoring.ContextualScore = contextualScore;
+
+            // Apply weighted final score
+            var finalScore = (candidate.SemanticRelevance * SemanticSearchConstant.ScoringWeights.SemanticSimilarityWeight) +
+                           (metadataScore * SemanticSearchConstant.ScoringWeights.MetadataMatchWeight) +
+                           (contextualScore * SemanticSearchConstant.ScoringWeights.ContextualFactorsWeight);
+
+            // Apply boost factors
+            finalScore = ApplyBoostFactors(finalScore, candidate, request, userDepartmentId);
+
+            scoring.FinalScore = finalScore;
+            candidate.FinalScore = finalScore;
+            candidate.Scoring = scoring;
+        }
+
+        return Task.FromResult(candidates);
+    }
+
+    private double CalculateMetadataScore(SemanticSearchCandidate candidate, SemanticSearchFilter filter, string? userDepartmentId)
+    {
+        var docVersion = candidate.DocumentVersion;
+        double score = 0.0;
+
+        // Tag similarity
+        if (filter.Tags != null && filter.Tags.Any())
+        {
+            var docTags = docVersion.DocumentTags.Select(dt => dt.Tag.Name).ToList();
+            var intersection = filter.Tags.Intersect(docTags, StringComparer.OrdinalIgnoreCase).Count();
+            var union = filter.Tags.Union(docTags, StringComparer.OrdinalIgnoreCase).Count();
+            var tagSimilarity = union > 0 ? (double)intersection / union : 0.0;
+            score += tagSimilarity * SemanticSearchConstant.ScoringWeights.TagSimilarityWeight;
+        }
+
+        // Document type match
+        if (!string.IsNullOrEmpty(filter.DocumentTypeId) && docVersion.DocumentFile.DocumentTypeId == filter.DocumentTypeId)
+        {
+            score += SemanticSearchConstant.ScoringWeights.DocumentTypeMatchWeight;
+        }
+
+        // Department compatibility
+        if (docVersion.DocumentFile.DepartmentId == userDepartmentId)
+        {
+            score += SemanticSearchConstant.ScoringWeights.DepartmentCompatibilityWeight;
+        }
+
+        // Status relevance
+        if (docVersion.Status == StatusEnum.Approved)
+        {
+            score += SemanticSearchConstant.ScoringWeights.StatusRelevanceWeight;
+        }
+
+        return Math.Min(score, 1.0); // Cap at 1.0
+    }
+
+    private double CalculateContextualScore(SemanticSearchCandidate candidate, string? userDepartmentId)
+    {
+        var docVersion = candidate.DocumentVersion;
+        double score = 0.0;
+
+        // Recency score (newer documents get higher scores)
+        var daysSinceCreation = (DateTime.UtcNow - docVersion.CreatedTime).TotalDays;
+        var recencyScore = Math.Max(0, 1.0 - (daysSinceCreation / 365.0)); // Decay over a year
+        score += recencyScore * SemanticSearchConstant.ScoringWeights.RecencyWeight;
+
+        // Department bonus
+        if (candidate.IsDepartmentMatch)
+        {
+            score += SemanticSearchConstant.ScoringWeights.DepartmentBonusWeight;
+        }
+
+        // Popularity (based on download count)
+        if (docVersion.TotalDownloads.HasValue && docVersion.TotalDownloads > 0)
+        {
+            var popularityScore = Math.Min(1.0, docVersion.TotalDownloads.Value / 100.0); // Normalize to 100 downloads
+            score += popularityScore * SemanticSearchConstant.ScoringWeights.PopularityWeight;
+        }
+
+        return Math.Min(score, 1.0); // Cap at 1.0
+    }
+
+    private double ApplyBoostFactors(double baseScore, SemanticSearchCandidate candidate, SemanticSearchRequest request, string? userDepartmentId)
+    {
+        var boostedScore = baseScore;
+        var appliedBoosts = new List<string>();
+
+        // Same department boost
+        if (candidate.IsDepartmentMatch && request.BoostDepartmentResults)
+        {
+            boostedScore *= SemanticSearchConstant.BoostFactors.SameDepartmentBoost;
+            appliedBoosts.Add("Department Match");
+        }
+
+        // Public document boost
+        if (candidate.DocumentVersion.IsPublic)
+        {
+            boostedScore *= SemanticSearchConstant.BoostFactors.PublicDocumentBoost;
+            appliedBoosts.Add("Public Document");
+        }
+
+        // Recent document boost (within last 30 days)
+        var daysSinceCreation = (DateTime.UtcNow - candidate.DocumentVersion.CreatedTime).TotalDays;
+        if (daysSinceCreation <= 30)
+        {
+            boostedScore *= SemanticSearchConstant.BoostFactors.RecentDocumentBoost;
+            appliedBoosts.Add("Recent Document");
+        }
+
+        // Exact tag match boost
+        if (candidate.MatchingTags.Any())
+        {
+            boostedScore *= SemanticSearchConstant.BoostFactors.ExactTagMatchBoost;
+            appliedBoosts.Add("Tag Match");
+        }
+
+        // Approved status boost
+        if (candidate.DocumentVersion.Status == StatusEnum.Approved)
+        {
+            boostedScore *= SemanticSearchConstant.BoostFactors.ApprovedStatusBoost;
+            appliedBoosts.Add("Approved Status");
+        }
+
+        candidate.AppliedBoosts = appliedBoosts;
+        return Math.Min(boostedScore, 2.0); // Cap at 2.0 to prevent extreme scores
+    }
+
+    #endregion
 
     public async Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, int pageNumber, int pageSize)
     {

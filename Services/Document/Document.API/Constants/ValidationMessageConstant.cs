@@ -116,6 +116,23 @@ public class ValidationMessageConstant
         public const string TagsMaxCount = "Không được vượt quá {0} thẻ";
         public const string TagMaxLength = "Mỗi thẻ không được vượt quá {0} ký tự";
     }
+
+    public class SemanticSearch
+    {
+        // Query validation
+        public const string QueryRequired = "Từ khóa tìm kiếm không được để trống";
+        public const string QueryLengthRange = "Từ khóa tìm kiếm phải có từ {0} đến {1} ký tự";
+        public const string QueryInvalidCharacters = "Từ khóa tìm kiếm chứa ký tự không hợp lệ";
+
+        // MinRelevance validation
+        public const string MinRelevanceRange = "Ngưỡng độ liên quan phải từ {0} đến {1}";
+
+        // MaxResults validation
+        public const string MaxResultsRange = "Số kết quả tối đa phải từ {0} đến {1}";
+
+        // Scope validation
+        public const string InvalidScope = "Phạm vi tìm kiếm không hợp lệ";
+    }
 }
 
 public static class ValidationConstants
@@ -147,6 +164,14 @@ public static class ValidationConstants
     // DocumentRecommendation validation constants
     public const int DocumentRecommendationCountMin = 1;
     public const int DocumentRecommendationCountMax = 20;
+
+    // SemanticSearch validation constants
+    public const int SemanticSearchQueryMinLength = 3;
+    public const int SemanticSearchQueryMaxLength = 500;
+    public const double SemanticSearchMinRelevanceMin = 0.0;
+    public const double SemanticSearchMinRelevanceMax = 1.0;
+    public const int SemanticSearchMaxResultsMin = 1;
+    public const int SemanticSearchMaxResultsMax = 100;
 
     // DocumentReplacementSuggestion validation constants
     public const int DocumentReplacementSuggestionTitleMaxLength = 200;

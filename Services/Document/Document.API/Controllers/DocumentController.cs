@@ -16,11 +16,13 @@ public class DocumentController : ControllerBase
 {
     private readonly IDocumentService _documentService;
     private readonly IDocumentRecommendationService _recommendationService;
+    private readonly ILogger<DocumentController> _logger;
 
-    public DocumentController(IDocumentService documentService, IDocumentRecommendationService recommendationService)
+    public DocumentController(IDocumentService documentService, IDocumentRecommendationService recommendationService, ILogger<DocumentController> logger)
     {
         _documentService = documentService;
         _recommendationService = recommendationService;
+        _logger = logger;
     }
 
     /// <summary>
@@ -269,21 +271,49 @@ public class DocumentController : ControllerBase
     }
 
     /// <summary>
-    /// Perform semantic search on documents using AI-powered similarity matching
+    /// Perform enhanced semantic search on documents using AI-powered similarity matching with hybrid scoring
     /// </summary>
-    /// <param name="request">Semantic search request with query text</param>
-    /// <param name="filter">Additional filters for search results</param>
+    /// <param name="request">Enhanced semantic search request with query text, scoring options, and filters</param>
     /// <param name="pageNumber">Page number for pagination (default: 1)</param>
     /// <param name="pageSize">Number of items per page (default: 10)</param>
-    /// <returns>Paginated list of semantically similar documents</returns>
+    /// <returns>Paginated list of semantically similar documents with detailed scoring information</returns>
     [HttpGet(ApiEndPointConstant.Document.SemanticSearch)]
-    [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<IPaginate<SemanticSearchResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> SemanticSearch([FromQuery] SemanticSearchRequest request, [FromQuery] SemanticSearchFilter filter, int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> SemanticSearch([FromQuery] SemanticSearchRequest request, int pageNumber = 1, int pageSize = 10)
     {
-        var result = await _documentService.SemanticSearch(request,filter, pageNumber, pageSize);
-        return Ok(ApiResponse<object>.Success(result));
+        try
+        {
+            // Create filter from request parameters
+            var filter = new SemanticSearchFilter
+            {
+                DocumentTypeId = request.DocumentTypeId,
+                SignedBy = request.SignedBy,
+                FromDate = request.FromDate,
+                ToDate = request.ToDate,
+                EffectiveFrom = request.EffectiveFrom,
+                EffectiveUntil = request.EffectiveUntil
+            };
+
+            var result = await _documentService.SemanticSearch(request, filter, pageNumber, pageSize);
+
+            var message = request.EnableHybridScoring
+                ? $"Found {result.Total} documents using hybrid semantic search"
+                : $"Found {result.Total} documents using basic semantic search";
+
+            return Ok(ApiResponse<IPaginate<SemanticSearchResponse>>.Success(result, message));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error performing semantic search with query: {Query}", request.Query);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Error("SEARCH_ERROR", "An error occurred while performing semantic search"));
+        }
     }
 
     /// <summary>

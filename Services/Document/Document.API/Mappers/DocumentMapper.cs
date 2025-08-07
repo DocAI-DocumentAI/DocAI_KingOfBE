@@ -122,7 +122,16 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic))
             .ForMember(dest => dest.SignedBy, opt => opt.MapFrom(src => src.SignedBy))
             .ForMember(dest => dest.EffectiveFrom, opt => opt.MapFrom(src => src.EffectiveFrom))
-            .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil));
+            .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil))
+            // Enhanced semantic search properties - set manually in service
+            .ForMember(dest => dest.Relevance, opt => opt.Ignore())
+            .ForMember(dest => dest.Scoring, opt => opt.Ignore())
+            .ForMember(dest => dest.IsDepartmentBoosted, opt => opt.Ignore())
+            .ForMember(dest => dest.Rank, opt => opt.Ignore())
+            // Enrichment properties - set by enrichment service
+            .ForMember(dest => dest.DepartmentName, opt => opt.Ignore())
+            .ForMember(dest => dest.CreatedByName, opt => opt.Ignore())
+            .ForMember(dest => dest.LastUpdatedByName, opt => opt.Ignore());
 
         CreateMap<Tag, TagResponse>();
     }
