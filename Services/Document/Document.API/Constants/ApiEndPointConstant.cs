@@ -34,6 +34,11 @@ public class ApiEndPointConstant
         public const string DownloadFile = ApiEndpoint + "/files/{versionId}/download";
         public const string GetFileInfo = ApiEndpoint + "/files/{versionId}/info";
 
+        // Iframe viewing endpoints
+        public const string GetIframeViewingUrl = ApiEndpoint + "/files/{versionId}/iframe-url";
+        public const string GetSharingLink = ApiEndpoint + "/files/{versionId}/sharing-link";
+        public const string ValidateFileAccess = ApiEndpoint + "/files/{versionId}/validate-access";
+
         // Recommendation endpoint
         public const string GetRecommendations = ApiEndpoint + "/documents/{documentId}/recommendations";
 
@@ -42,6 +47,7 @@ public class ApiEndPointConstant
         public const string GetReplacementSuggestionsForEdit = ApiEndpoint + "/documents/{documentId}/replacement-suggestions";
         public const string GetReplacementScoringBreakdown = ApiEndpoint + "/replacement-suggestions/{candidateId}/scoring";
         public const string ValidateReplacement = ApiEndpoint + "/documents/{documentId}/can-replace";
+        public const string GetReplaceableDocuments = ApiEndpoint + "/replaceable-documents";
     }
 
     public class Approval

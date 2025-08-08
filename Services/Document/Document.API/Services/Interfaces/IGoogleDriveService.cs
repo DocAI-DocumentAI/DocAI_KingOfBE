@@ -1,4 +1,5 @@
 using Document.API.Payload.Response;
+using Document.API.Constants;
 
 namespace Document.API.Services.Interfaces
 {
@@ -98,5 +99,80 @@ namespace Document.API.Services.Interfaces
         /// <param name="fileId">Google Drive file ID</param>
         /// <returns>List of permissions</returns>
         Task<IList<Google.Apis.Drive.v3.Data.Permission>> GetFilePermissionsAsync(string fileId);
+
+        /// <summary>
+        /// Generate secure iframe viewing URL for Google Drive file
+        /// </summary>
+        /// <param name="fileId">Google Drive file ID</param>
+        /// <param name="userEmail">User email for access validation</param>
+        /// <param name="departmentId">User's department ID for access control</param>
+        /// <returns>Iframe URL with access token or null if access denied</returns>
+        Task<string?> GenerateIframeViewingUrlAsync(string fileId, string userEmail, string departmentId);
+
+        /// <summary>
+        /// Create time-limited sharing link for Google Drive file
+        /// </summary>
+        /// <param name="fileId">Google Drive file ID</param>
+        /// <param name="userEmail">User email for access validation</param>
+        /// <param name="departmentId">User's department ID for access control</param>
+        /// <param name="expirationHours">Hours until link expires (default: 24)</param>
+        /// <returns>Time-limited sharing URL or null if access denied</returns>
+        Task<string?> CreateTimeLimitedSharingLinkAsync(string fileId, string userEmail, string departmentId, int expirationHours = 24);
+
+        /// <summary>
+        /// Validate user access to specific file based on department and document status
+        /// </summary>
+        /// <param name="fileId">Google Drive file ID</param>
+        /// <param name="userEmail">User email</param>
+        /// <param name="departmentId">User's department ID</param>
+        /// <returns>True if user has access</returns>
+        Task<bool> ValidateUserAccessAsync(string fileId, string userEmail, string departmentId);
+
+        /// <summary>
+        /// Get Google Drive file metadata for iframe viewing
+        /// </summary>
+        /// <param name="fileId">Google Drive file ID</param>
+        /// <returns>File metadata including name, type, and viewing capabilities</returns>
+        Task<GoogleDriveFileMetadata> GetFileMetadataForViewingAsync(string fileId);
+
+        /// <summary>
+        /// Get iframe viewing URL for a document version with comprehensive access validation
+        /// </summary>
+        /// <param name="versionId">Document version ID</param>
+        /// <returns>Iframe viewing response with URL and metadata</returns>
+        Task<ApiResponse<IframeViewingResponse>> GetIframeViewingUrlAsync(string versionId);
+
+        /// <summary>
+        /// Get time-limited sharing link for a document version with access validation
+        /// </summary>
+        /// <param name="versionId">Document version ID</param>
+        /// <param name="expirationHours">Hours until link expires (default: 24, max: 168)</param>
+        /// <returns>Sharing link response with URL and expiration details</returns>
+        Task<ApiResponse<SharingLinkResponse>> GetSharingLinkAsync(string versionId, int expirationHours = 24);
+
+        /// <summary>
+        /// Validate user access to a document version with comprehensive metadata
+        /// </summary>
+        /// <param name="versionId">Document version ID</param>
+        /// <returns>File access validation response with detailed access information</returns>
+        Task<ApiResponse<FileAccessValidationResponse>> ValidateDocumentAccessAsync(string versionId);
+    }
+
+    /// <summary>
+    /// Google Drive file metadata for viewing
+    /// </summary>
+    public class GoogleDriveFileMetadata
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string MimeType { get; set; } = string.Empty;
+        public long? Size { get; set; }
+        public DateTime? CreatedTime { get; set; }
+        public DateTime? ModifiedTime { get; set; }
+        public bool CanViewInBrowser { get; set; }
+        public bool RequiresConversion { get; set; }
+        public string? ThumbnailLink { get; set; }
+        public string? WebViewLink { get; set; }
+        public string? WebContentLink { get; set; }
     }
 }

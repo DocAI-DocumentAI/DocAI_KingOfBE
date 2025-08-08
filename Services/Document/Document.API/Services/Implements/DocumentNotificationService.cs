@@ -1,4 +1,5 @@
 using Document.API.Services.Interfaces;
+using Document.API.Utils;
 using MassTransit;
 using Shared.Commands;
 using System.Security.Claims;

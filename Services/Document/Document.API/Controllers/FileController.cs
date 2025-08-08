@@ -1,7 +1,9 @@
 using Document.API.Attributes;
 using Document.API.Constants;
+using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace Document.API.Controllers
 {
@@ -15,16 +17,16 @@ namespace Document.API.Controllers
     {
         private readonly IDocumentService _documentService;
         private readonly IFileConversionService _fileConversionService;
-        private readonly ILogger<FileController> _logger;
+        private readonly IGoogleDriveService _googleDriveService;
 
         public FileController(
             IDocumentService documentService,
             IFileConversionService fileConversionService,
-            ILogger<FileController> logger)
+            IGoogleDriveService googleDriveService)
         {
             _documentService = documentService;
             _fileConversionService = fileConversionService;
-            _logger = logger;
+            _googleDriveService = googleDriveService;
         }
 
         /// <summary>
@@ -126,6 +128,66 @@ namespace Document.API.Controllers
             };
 
             return Ok(ApiResponse<object>.Success(fileInfo, "File information retrieved successfully"));
+        }
+
+        /// <summary>
+        /// Generate a secure iframe URL for viewing a document in the browser
+        /// </summary>
+        /// <param name="versionId">Document version ID</param>
+        /// <returns>Iframe viewing URL and metadata</returns>
+        [HttpGet(ApiEndPointConstant.Document.GetIframeViewingUrl)]
+        [CustomAuthorize]
+        [ProducesResponseType(typeof(ApiResponse<IframeViewingResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetIframeUrl([FromRoute(Name = "versionId")] string versionId)
+        {
+            var response = await _googleDriveService.GetIframeViewingUrlAsync(versionId);
+            return response.StatusCode >= 200 && response.StatusCode < 300
+                ? Ok(response)
+                : StatusCode(response.StatusCode, response);
+        }
+
+        /// <summary>
+        /// Generate a time-limited sharing link for a document
+        /// </summary>
+        /// <param name="versionId">Document version ID</param>
+        /// <param name="expirationHours">Hours until link expires (default: 24, max: 168)</param>
+        /// <returns>Time-limited sharing URL and metadata</returns>
+        [HttpGet(ApiEndPointConstant.Document.GetSharingLink)]
+        [CustomAuthorize]
+        [ProducesResponseType(typeof(ApiResponse<SharingLinkResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetSharingLink(
+            [FromRoute(Name = "versionId")] string versionId,
+            [FromQuery] int expirationHours = 24)
+        {
+            var response = await _googleDriveService.GetSharingLinkAsync(versionId, expirationHours);
+            return response.StatusCode >= 200 && response.StatusCode < 300
+                ? Ok(response)
+                : StatusCode(response.StatusCode, response);
+        }
+
+        /// <summary>
+        /// Validate user access to a document with comprehensive metadata
+        /// </summary>
+        /// <param name="versionId">Document version ID</param>
+        /// <returns>Access validation result with detailed information</returns>
+        [HttpGet(ApiEndPointConstant.Document.ValidateFileAccess)]
+        [CustomAuthorize]
+        [ProducesResponseType(typeof(ApiResponse<FileAccessValidationResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> ValidateAccess([FromRoute(Name = "versionId")] string versionId)
+        {
+            var response = await _googleDriveService.ValidateDocumentAccessAsync(versionId);
+            return response.StatusCode >= 200 && response.StatusCode < 300
+                ? Ok(response)
+                : StatusCode(response.StatusCode, response);
         }
 
 
