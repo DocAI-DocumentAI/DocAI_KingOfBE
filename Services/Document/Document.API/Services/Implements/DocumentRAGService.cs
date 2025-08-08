@@ -163,7 +163,7 @@ namespace Document.API.Services.Implements
                 request.Query,
                 limit: request.MaxResults,
                 filter: filter,
-                minRelevance: request.MinRelevanceScore ?? 0.7);
+                minRelevance: request.MinRelevanceScore ?? 0.5);
         }
 
         /// <summary>
@@ -323,31 +323,99 @@ namespace Document.API.Services.Implements
         {
             try
             {
+                Console.WriteLine($"🤖 [RAG] Generating answer for: {query}");
+
+                // ✅ CẬP NHẬT: Improved filter strategy cho answer generation
                 var filter = new MemoryFilter()
                     .ByTag("status", "approved")
                     .ByTag("isOfficial", "true");
 
-                // Don't add more specific filters for RAG generation
-                // Let it use all accessible content for better answers
+                // ✅ THÊM MỚI: Multiple answer attempts với different filters
+                MemoryAnswer ragAnswer = null;
 
-                var ragAnswer = await _memory.AskAsync(
+                // Attempt 1: Tất cả documents user có quyền access
+                Console.WriteLine($"🤖 [RAG] Attempt 1: All accessible documents");
+                ragAnswer = await _memory.AskAsync(
                     question: query,
-                    filter: filter);
+                    filter: filter,
+                    minRelevance: 0.4); // ✅ Thấp hơn cho answer generation
 
-                if (string.IsNullOrEmpty(ragAnswer.Result) ||
-                    ragAnswer.Result.Contains("INFO NOT FOUND", StringComparison.OrdinalIgnoreCase) ||
-                    ragAnswer.Result.Contains("không tìm thấy", StringComparison.OrdinalIgnoreCase))
+                // ✅ THÊM MỚI: Kiểm tra quality của answer
+                if (!IsAnswerQualityGood(ragAnswer))
                 {
-                    return "Xin lỗi, tôi không tìm thấy thông tin phù hợp trong tài liệu để trả lời câu hỏi này.";
+                    Console.WriteLine($"🤖 [RAG] Attempt 2: Public documents only");
+                    // Attempt 2: Chỉ public documents
+                    var publicFilter = new MemoryFilter()
+                        .ByTag("status", "approved")
+                        .ByTag("isOfficial", "true")
+                        .ByTag("isPublic", "true");
+
+                    ragAnswer = await _memory.AskAsync(
+                        question: query,
+                        filter: publicFilter,
+                        minRelevance: 0.3); // Còn thấp hơn nữa
                 }
 
+                if (!IsAnswerQualityGood(ragAnswer))
+                {
+                    Console.WriteLine($"🤖 [RAG] Attempt 3: Department documents");
+                    // Attempt 3: Department documents nếu user không phải admin
+                    if (!string.IsNullOrEmpty(userDepartmentId))
+                    {
+                        var deptFilter = new MemoryFilter()
+                            .ByTag("status", "approved")
+                            .ByTag("isOfficial", "true")
+                            .ByTag("departmentId", userDepartmentId);
+
+                        ragAnswer = await _memory.AskAsync(
+                            question: query,
+                            filter: deptFilter,
+                            minRelevance: 0.3);
+                    }
+                }
+
+                // ✅ THÊM MỚI: Better fallback response
+                if (!IsAnswerQualityGood(ragAnswer))
+                {
+                    Console.WriteLine($"🤖 [RAG] No good answer found");
+                    return "Xin lỗi, tôi không tìm thấy thông tin phù hợp trong tài liệu để trả lời câu hỏi này. " +
+                           "Bạn có thể thử diễn đạt câu hỏi khác hoặc liên hệ với bộ phận có thẩm quyền.";
+                }
+
+                Console.WriteLine($"🤖 [RAG] Generated answer: {ragAnswer.Result.Length} characters");
                 return ragAnswer.Result;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error generating RAG answer");
-                return "Xin lỗi, đã xảy ra lỗi khi tạo câu trả lời từ tài liệu.";
+                _logger.LogError(ex, "Error generating RAG answer for query: {Query}", query);
+                return "Xin lỗi, đã xảy ra lỗi khi tạo câu trả lời từ tài liệu. Vui lòng thử lại sau.";
             }
+        }
+        private bool IsAnswerQualityGood(MemoryAnswer answer)
+        {
+            if (answer?.Result == null) return false;
+
+            var result = answer.Result.Trim();
+
+            // Check for empty or default responses
+            var badResponses = new[]
+            {
+        "INFO NOT FOUND",
+        "không tìm thấy",
+        "no results found",
+        "no information",
+        "không có thông tin",
+        "xin lỗi"
+    };
+
+            foreach (var badResponse in badResponses)
+            {
+                if (result.Contains(badResponse, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            // Check minimum length (at least 20 characters for meaningful answer)
+            return result.Length >= 20;
         }
         private async Task<List<DocumentSourceResponse>> ExtractDocumentSources(List<Citation> citations, int maxResults)
         {
@@ -555,6 +623,101 @@ namespace Document.API.Services.Implements
 
             return answer.ToString();
         }
+        public async Task<string> TestDocumentIndexAsync()
+        {
 
+            try
+            {
+                _logger.LogInformation("🧪 [TEST] Starting document index test");
+
+                var testResults = new StringBuilder();
+                testResults.AppendLine("📊 DOCUMENT INDEX TEST RESULTS");
+                testResults.AppendLine("=====================================");
+
+                // Test 1: Basic search với từ tiếng Việt đơn giản
+                var basicTest = await _memory.SearchAsync(
+                    "tài liệu",
+                    limit: 5,
+                    minRelevance: 0.1); // Very low threshold
+
+                testResults.AppendLine($"🔍 Test 1 - Basic search 'tài liệu': {basicTest.Results.Count} results");
+
+                foreach (var searchResult in basicTest.Results.Take(3))
+                {
+                    var partition = searchResult.Partitions.FirstOrDefault();
+                    if (partition?.Tags != null)
+                    {
+                        var docId = partition.Tags.ContainsKey("documentId") ? partition.Tags["documentId"].FirstOrDefault() : "N/A";
+                        var status = partition.Tags.ContainsKey("status") ? partition.Tags["status"].FirstOrDefault() : "N/A";
+                        var isPublic = partition.Tags.ContainsKey("isPublic") ? partition.Tags["isPublic"].FirstOrDefault() : "N/A";
+
+                        testResults.AppendLine($"  - Doc: {docId}, Status: {status}, Public: {isPublic}, Relevance: {partition.Relevance:F3}");
+                    }
+                }
+
+                // Test 2: Search for approved documents
+                var approvedTest = await _memory.SearchAsync(
+                    "quy định",
+                    limit: 5,
+                    filter: new MemoryFilter().ByTag("status", "approved"),
+                    minRelevance: 0.1);
+
+                testResults.AppendLine($"\n🔍 Test 2 - Approved documents 'quy định': {approvedTest.Results.Count} results");
+
+                // Test 3: Count total documents in index
+                var allDocsTest = await _memory.SearchAsync(
+                    "document",
+                    limit: 100,
+                    minRelevance: 0.05);
+
+                testResults.AppendLine($"\n📈 Test 3 - Total indexed documents: ~{allDocsTest.Results.Count} (with very low threshold)");
+
+                // Test 4: Test RAG answer generation
+                testResults.AppendLine($"\n🤖 Test 4 - RAG Answer Generation:");
+                try
+                {
+                    var answerTest = await _memory.AskAsync(
+                        "Quy định nghỉ phép là gì?",
+                        minRelevance: 0.3);
+
+                    var answerPreview = answerTest.Result?.Length > 100
+                        ? answerTest.Result.Substring(0, 100) + "..."
+                        : answerTest.Result ?? "No answer";
+
+                    testResults.AppendLine($"  Answer preview: {answerPreview}");
+                    testResults.AppendLine($"  Sources found: {answerTest.RelevantSources?.Count ?? 0}");
+                }
+                catch (Exception ex)
+                {
+                    testResults.AppendLine($"  ❌ Answer generation failed: {ex.Message}");
+                }
+
+                // Test 5: Tag analysis
+                testResults.AppendLine($"\n🏷️ Test 5 - Available Tags Analysis:");
+                if (basicTest.Results.Any())
+                {
+                    var allTags = basicTest.Results
+                        .SelectMany(r => r.Partitions)
+                        .Where(p => p.Tags != null)
+                        .SelectMany(p => p.Tags.Keys)
+                        .Distinct()
+                        .ToList();
+
+                    testResults.AppendLine($"  Available tags: {string.Join(", ", allTags)}");
+                }
+
+                testResults.AppendLine("\n✅ Index test completed!");
+
+                var finalResult = testResults.ToString();
+                _logger.LogInformation("🧪 [TEST] Document index test completed");
+
+                return finalResult;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "🧪 [TEST] Document index test failed");
+                return $"❌ Index test failed: {ex.Message}";
+            }
+        }
     }
 }
