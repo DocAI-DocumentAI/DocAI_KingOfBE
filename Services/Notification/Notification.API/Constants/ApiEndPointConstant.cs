@@ -1,38 +1,32 @@
 ﻿namespace Notification.Api.Constants;
 
-public class ApiEndPointConstant
+public static class ApiEndpointConstant
 {
-    static ApiEndPointConstant() {}
-    
+    static ApiEndpointConstant() { }
     public const string RootEndPoint = "/api";
-    public const string ApiVersion = "/notify";
+    public const string ApiVersion = "/notification";
     public const string ApiEndpoint = RootEndPoint + ApiVersion;
-
-    public static class Notification
-    {
-        private const string NotificationBase = RootEndPoint + "/notifications";
-        public const string Send = NotificationBase + "/send";
-        public const string Logs = NotificationBase + "/logs";
-        public const string LogById = NotificationBase + "/logs/{id}";
-        public const string DismissLog = NotificationBase + "/logs/{id}/dismiss";
-    }
 
     public static class EmailTemplate
     {
-        private const string EmailTemplateBase = RootEndPoint + "/email-templates";
-        public const string Create = EmailTemplateBase;
-        public const string GetById = EmailTemplateBase + "/{id}";
-        public const string GetByName = EmailTemplateBase + "/by-name/{templateName}";
-        public const string GetAll = EmailTemplateBase;
-        public const string Update = EmailTemplateBase + "/{id}";
-        public const string Delete = EmailTemplateBase + "/{id}";
-        public const string Preview = EmailTemplateBase + "/preview";
+        public const string GetAll = "templates";
+        public const string GetById = "template/{id:guid}";
+        public const string GetByName = "template/by-name/{templateName}";
+        public const string Create = "template";
+        public const string Update = "template/{id:guid}";
+        public const string Delete = "template/{id:guid}";
     }
 
-    public static class NotificationConfig
+    public static class Notification
     {
-        private const string NotificationConfigBase = RootEndPoint + "/notification-config";
-        public const string Get = NotificationConfigBase;
-        public const string Update = NotificationConfigBase;
+        public const string GetLogs = "logs";
+        public const string Dismiss = "dismiss/{logId:guid}";
+        public const string DismissByToken = "dismiss-by-token";
+    }
+
+    public static class Config
+    {
+        public const string Get = "config";
+        public const string Update = "config";
     }
 }

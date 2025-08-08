@@ -11,6 +11,6 @@ namespace Notification.Domain.Enums
     {
         Email = 1,
         SystemAlert = 2,
-
+        SMS = 3
     }
 }

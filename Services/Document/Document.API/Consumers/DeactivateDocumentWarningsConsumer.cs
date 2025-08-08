@@ -1,0 +1,48 @@
+﻿using Document.API.Services.Interfaces;
+using MassTransit;
+using Shared.Command;
+using Shared.DTOs;
+
+namespace Document.API.Consumers
+{
+    public class DeactivateDocumentWarningsConsumer : IConsumer<DeactivateDocumentWarningsCommand>
+    {
+        private readonly IDocumentExpirationService _expirationService;
+        private readonly ILogger<DeactivateDocumentWarningsConsumer> _logger;
+
+        public DeactivateDocumentWarningsConsumer(
+            IDocumentExpirationService expirationService,
+            ILogger<DeactivateDocumentWarningsConsumer> logger)
+        {
+            _expirationService = expirationService;
+            _logger = logger;
+        }
+
+        public async Task Consume(ConsumeContext<DeactivateDocumentWarningsCommand> context)
+        {
+            try
+            {
+                var success = await _expirationService.DeactivateDocumentWarningsAsync(
+                    context.Message.DocumentId,
+                    context.Message.Version);
+
+                await context.RespondAsync(new DeactivateDocumentWarningsResponse
+                {
+                    Success = success,
+                    RequestId = context.Message.RequestId
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deactivating document warnings");
+
+                await context.RespondAsync(new DeactivateDocumentWarningsResponse
+                {
+                    Success = false,
+                    ErrorMessage = ex.Message,
+                    RequestId = context.Message.RequestId
+                });
+            }
+        }
+    }
+}

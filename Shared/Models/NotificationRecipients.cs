@@ -9,7 +9,7 @@ namespace Shared.Models
     public class NotificationRecipients
     {
         public List<Guid>? UserIds { get; set; }
-        public Guid? RoleId { get; set; }
+        public string? RoleName { get; set; } 
         public Guid? DepartmentId { get; set; }
         public List<string>? EmailAddresses { get; set; }
     }

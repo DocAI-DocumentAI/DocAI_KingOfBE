@@ -5,6 +5,7 @@ using Quartz;
 
 namespace Notification.API.Jobs
 {
+    [DisallowConcurrentExecution]
     public class NotificationScanJob : IJob
     {
         private readonly ILogger<NotificationScanJob> _logger;
@@ -21,7 +22,9 @@ namespace Notification.API.Jobs
         {
             try
             {
+                _logger.LogInformation("NotificationScanJob started");
                 await _scanService.ScanAndProcessDocumentsAsync();
+                _logger.LogInformation("NotificationScanJob completed successfully");
             }
             catch (Exception ex)
             {

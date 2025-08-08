@@ -10,9 +10,11 @@ namespace Notification.API.Services.Interfaces
         Task<EmailTemplateResponse> CreateEmailTemplateAsync(EmailTemplateRequest request);
         Task<EmailTemplateResponse?> GetEmailTemplateByIdAsync(Guid id);
         Task<EmailTemplateResponse?> GetEmailTemplateByNameAsync(string templateName);
-        Task<IPaginate<EmailTemplateResponse>> GetAllEmailTemplatesAsync(int page, int size, EmailTemplateFilter? filter, string? sortBy, bool isAsc);
+        Task<IPaginate<EmailTemplateResponse>> GetAllEmailTemplatesAsync(int page, int size, string? sortBy, bool isAsc);
         Task<EmailTemplateResponse> UpdateEmailTemplateAsync(Guid id, EmailTemplateRequest request);
         Task<bool> DeleteEmailTemplateAsync(Guid id);
-        Task<string> PreviewEmailTemplateAsync(PreviewEmailTemplateRequest request);
+        Task<string> RenderTemplateAsync(string templateName, string userEmail, string userName,
+            string documentTitle, string documentVersion, DateTime? effectiveUntil,
+            string documentLink, string dismissLink);
     }
 }

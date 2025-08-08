@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Notification.API.Consumers;
 using Notification.API.Jobs;
+using Notification.API.Mappers;
 using Notification.API.Services.Implement;
 using Notification.API.Services.Interfaces;
 using Notification.API.Utils;
@@ -17,6 +18,7 @@ using Polly.Extensions.Http;
 using Polly.Retry;
 using Quartz;
 using Serilog;
+using Shared.Command;
 
 namespace Auth.API.Extensions;
 
@@ -24,9 +26,10 @@ public static class DependencyService
 {
     public static IServiceCollection AddUnitOfWork(this IServiceCollection services)
     {
-         services.AddScoped<IUnitOfWork<NotificationDbContext>, UnitOfWork<NotificationDbContext>>();
+        services.AddScoped<IUnitOfWork<NotificationDbContext>, UnitOfWork<NotificationDbContext>>();
         return services;
     }
+
     public static IServiceCollection AddDatabase(this IServiceCollection services)
     {
         IConfiguration configuration = new ConfigurationBuilder()
@@ -36,56 +39,37 @@ public static class DependencyService
 
         var connectionString = configuration.GetConnectionString("DefaultConnection");
 
-         services.AddDbContext<NotificationDbContext>(options =>
-             options.UseNpgsql(connectionString, b => b.MigrationsAssembly("Notification.API")));
+        services.AddDbContext<NotificationDbContext>(options =>
+            options.UseNpgsql(connectionString, b => b.MigrationsAssembly("Notification.API")));
 
         services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
-        // services.AddScoped<DbContext, DocAIAuthContext>();
 
+        return services;
+    }
+    public static IServiceCollection AddAutoMapper(this IServiceCollection services)
+    {
+        services.AddAutoMapper(typeof(MappingProfile));
         return services;
     }
     public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration configuration)
     {
+        // Core services
         services.AddScoped<IEmailService, EmailService>();
         services.AddScoped<IEmailTemplateService, EmailTemplateService>();
         services.AddScoped<INotificationConfigService, NotificationConfigService>();
         services.AddScoped<INotificationLogService, NotificationLogService>();
-        services.AddScoped<INotificationSchedulerService, NotificationSchedulerService>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IDocumentScanService, DocumentScanService>();
+        services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IAuthorizationService, AuthorizationService>();
+        services.AddScoped<INotificationSchedulerService, NotificationSchedulerService>();
+        services.AddScoped<IRateLimitingService, RateLimitingService>();
+
+        // Additional services from new version
         services.AddScoped<IDocumentWorkflowNotificationService, DocumentWorkflowNotificationService>();
-        services.AddScoped<ITemplateRendererUtil, TemplateRendererUtil>();
 
-        services.AddSingleton<TemplateRendererUtil>();
-        services.AddMemoryCache(); 
-
-        return services;
-    }
-    public static IServiceCollection AddApiClients(this IServiceCollection services, IConfiguration configuration)
-    {
-        var retryPolicy = HttpPolicyExtensions
-            .HandleTransientHttpError()
-            .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
-
-        var circuitBreakerPolicy = HttpPolicyExtensions
-            .HandleTransientHttpError()
-            .CircuitBreakerAsync(5, TimeSpan.FromSeconds(30));
-
-        // Client cho Auth Microservice
-        services.AddHttpClient<IAuthClient, AuthClient>(client =>
-            client.BaseAddress = new Uri(configuration["MicroserviceUrls:Auth"]!))
-            .AddPolicyHandler(retryPolicy)
-            .AddPolicyHandler(circuitBreakerPolicy);
-
-                    // Client cho Document Microservice (sử dụng Mock trong môi trường DEBUG)
-            #if DEBUG
-                    services.AddScoped<IDocumentClient, MockDocumentClient>();
-            #else
-                        services.AddHttpClient<IDocumentClient, DocumentClient>(client => 
-                            client.BaseAddress = new Uri(configuration["MicroserviceUrls:Document"]!))
-                            .AddPolicyHandler(retryPolicy)
-                            .AddPolicyHandler(circuitBreakerPolicy);
-            #endif
+        services.AddMemoryCache();
+        services.AddHttpContextAccessor();
 
         return services;
     }
@@ -173,32 +157,46 @@ public static class DependencyService
     {
         services.AddMassTransit(busConfig =>
         {
-            busConfig.AddConsumer<ProcessDocumentExpirationConsumer>();
+            // Add consumers for notification processing
             busConfig.AddConsumer<GeneralNotificationConsumer>();
+            busConfig.AddConsumer<ProcessDocumentExpirationConsumer>();
+
+            // Document workflow notification consumers
             busConfig.AddConsumer<DocumentSubmissionNotificationConsumer>();
             busConfig.AddConsumer<DocumentApprovalNotificationConsumer>();
             busConfig.AddConsumer<DocumentRejectionNotificationConsumer>();
 
+            // Add request clients for Document service
+            busConfig.AddRequestClient<GetExpiringDocumentsCommand>();
+            busConfig.AddRequestClient<UpdateDocumentStatusCommand>();
+            busConfig.AddRequestClient<DeactivateDocumentWarningsCommand>();
+
+            // Add request clients for User service (Auth microservice)
+            busConfig.AddRequestClient<GetDepartmentUsersCommand>();
+            busConfig.AddRequestClient<GetUsersByRoleCommand>();
+            busConfig.AddRequestClient<GetDocumentStakeholdersCommand>();
+            busConfig.AddRequestClient<GetUserByIdCommand>();
+
             busConfig.UsingRabbitMq((context, mqConfig) =>
             {
-                // Sử dụng cùng pattern như service khác đã hoạt động
-                var rabbitMqConfig = configuration.GetSection("RabbitMQ");
+                var rabbitMqHost = configuration["RabbitMQ:Host"];
+                var rabbitMqUsername = configuration["RabbitMQ:Username"];
+                var rabbitMqPassword = configuration["RabbitMQ:Password"];
 
-                mqConfig.Host(rabbitMqConfig["Host"], h =>
+                if (string.IsNullOrEmpty(rabbitMqHost))
                 {
-                    h.Username(rabbitMqConfig["Username"]);
-                    h.Password(rabbitMqConfig["Password"]);
+                    throw new InvalidOperationException("RabbitMQ Host is not configured");
+                }
+
+                mqConfig.Host(rabbitMqHost, h =>
+                {
+                    h.Username(rabbitMqUsername ?? "guest");
+                    h.Password(rabbitMqPassword ?? "guest");
                 });
 
                 mqConfig.UseRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
 
-                mqConfig.ReceiveEndpoint("document-expiration-queue", e =>
-                {
-                    e.ConfigureConsumer<ProcessDocumentExpirationConsumer>(context);
-                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
-                    e.UseInMemoryOutbox();
-                });
-
+                // Configure endpoint for general notifications
                 mqConfig.ReceiveEndpoint("general-notifications-queue", e =>
                 {
                     e.ConfigureConsumer<GeneralNotificationConsumer>(context);
@@ -206,6 +204,15 @@ public static class DependencyService
                     e.UseInMemoryOutbox();
                 });
 
+                // Configure endpoint for document expiration processing
+                mqConfig.ReceiveEndpoint("document-expiration-queue", e =>
+                {
+                    e.ConfigureConsumer<ProcessDocumentExpirationConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                // Configure endpoints for document workflow notifications
                 mqConfig.ReceiveEndpoint("document-submission-notifications-queue", e =>
                 {
                     e.ConfigureConsumer<DocumentSubmissionNotificationConsumer>(context);
@@ -226,9 +233,11 @@ public static class DependencyService
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
                     e.UseInMemoryOutbox();
                 });
+
+                mqConfig.ConfigureEndpoints(context);
             });
         });
+
         return services;
     }
-
 }

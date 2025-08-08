@@ -1,3 +1,4 @@
+using Notification.API.Payload.Response;
 using Notification.API.Utils;
 
 namespace Notification.API.Services.Interfaces
