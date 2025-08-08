@@ -3,6 +3,8 @@ using Document.API.Constants;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
+using Document.Infrastructure.Filter;
+using Document.Infrastructure.Paginate;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Document.API.Controllers
@@ -178,7 +180,7 @@ namespace Document.API.Controllers
         {
             try
             {
-                _logger.LogInformation("Clearing replacement cache for type {DocumentTypeId}, department {DepartmentId}", 
+                _logger.LogInformation("Clearing replacement cache for type {DocumentTypeId}, department {DepartmentId}",
                     documentTypeId, departmentId);
 
                 if (!string.IsNullOrEmpty(documentTypeId) && !string.IsNullOrEmpty(departmentId))
@@ -189,10 +191,10 @@ namespace Document.API.Controllers
                 {
                     await _replacementService.ClearAllReplacementCachesAsync();
                 }
-                
+
                 return Ok(ApiResponse<object>.Success(
-                    null, 
-                    "Replacement cache cleared successfully", 
+                    null,
+                    "Replacement cache cleared successfully",
                     StatusCodes.Status200OK));
             }
             catch (Exception ex)
@@ -200,6 +202,46 @@ namespace Document.API.Controllers
                 _logger.LogError(ex, "Error clearing replacement cache");
                 return StatusCode(StatusCodes.Status500InternalServerError,
                     ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while clearing cache"));
+            }
+        }
+
+        /// <summary>
+        /// List all documents that can be selected as replacement candidates (with filters)
+        /// </summary>
+        /// <param name="filter">Filtering options</param>
+        /// <param name="pageNumber">Page number</param>
+        /// <param name="pageSize">Page size</param>
+        /// <returns>Paginated list of replaceable documents</returns>
+        [HttpGet(ApiEndPointConstant.Document.GetReplaceableDocuments)]
+        [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentDraftResponse>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetReplaceableDocuments([FromQuery] ReplaceableDocumentsFilterRequest filter, int pageNumber = 1, int pageSize = 10)
+        {
+            try
+            {
+                _logger.LogInformation("Listing replaceable documents with filters");
+
+                // Map request to filter
+                var repoFilter = new ReplaceableDocumentsFilter
+                {
+                    Title = filter.Title,
+                    Keyword = filter.Keyword,
+                    FromDate = filter.FromDate,
+                    ToDate = filter.ToDate,
+                    DocumentTypeId = filter.DocumentTypeId,
+                    Tags = filter.Tags,
+                    SignedBy = filter.SignedBy
+                };
+
+                var result = await _replacementService.GetReplaceableDocumentsAsync(repoFilter, pageNumber, pageSize);
+                return Ok(ApiResponse<object>.Success(result));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error listing replaceable documents");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while listing replaceable documents"));
             }
         }
     }

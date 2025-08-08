@@ -47,6 +47,7 @@ public class ApiEndPointConstant
         public const string GetReplacementSuggestionsForEdit = ApiEndpoint + "/documents/{documentId}/replacement-suggestions";
         public const string GetReplacementScoringBreakdown = ApiEndpoint + "/replacement-suggestions/{candidateId}/scoring";
         public const string ValidateReplacement = ApiEndpoint + "/documents/{documentId}/can-replace";
+        public const string GetReplaceableDocuments = ApiEndpoint + "/replaceable-documents";
     }
 
     public class Approval

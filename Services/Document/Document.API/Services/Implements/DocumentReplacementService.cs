@@ -6,6 +6,8 @@ using Document.API.Utils;
 using Document.Domain.Enums;
 using Document.Domain.Model;
 using Document.Domain.Models;
+using Document.Infrastructure.Filter;
+using Document.Infrastructure.Paginate;
 using Document.Infrastructure.Repository.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.KernelMemory;
@@ -58,6 +60,41 @@ namespace Document.API.Services.Implements
         private const int MAX_CANDIDATES_TO_EVALUATE = 500;
         private const int MAX_SUGGESTIONS_RETURNED = 20;
         private const int PROCESSING_TIMEOUT_MS = 3000;
+
+        public async Task<IPaginate<DocumentDraftResponse>> GetReplaceableDocumentsAsync(ReplaceableDocumentsFilter filter, int pageNumber, int pageSize)
+        {
+            // Extract department from JWT for access control
+            var departmentId = GetCurrentUserDepartmentId();
+            filter.DepartmentId = departmentId;
+
+            var repo = _unitOfWork.GetRepository<DocumentVersion>();
+
+            var result = await repo.GetPagingListAsync(
+                selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
+                filter: filter,
+                predicate: null,
+                include: i => i.Include(v => v.DocumentFile)
+                               .ThenInclude(df => df.DocumentType)
+                               .Include(v => v.DocumentTags)
+                               .ThenInclude(dt => dt.Tag),
+                orderBy: q => q.OrderByDescending(v => v.CreatedTime),
+                page: pageNumber,
+                size: pageSize
+            );
+
+            // Enrich responses
+            var enriched = await _enrichmentService.EnrichDocumentDraftResponsesAsync(result.Items.ToList());
+            return new Infrastructure.Paginate.Paginate<DocumentDraftResponse>
+            {
+                Items = enriched,
+                Page = result.Page,
+                Size = result.Size,
+                Total = result.Total,
+                TotalPages = result.TotalPages
+            };
+        }
+
+
 
         public DocumentReplacementService(
             IUnitOfWork unitOfWork,
