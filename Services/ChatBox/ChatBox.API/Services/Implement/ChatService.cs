@@ -77,38 +77,40 @@ namespace ChatBox.API.Services.Implement
             _logger.LogInformation("Processing chat message for session {SessionId}, isFirstMessage: {IsFirstMessage}",
                 session.Id, isFirstMessage);
 
-            // Document search if applicable
             string documentAnswer = null;
-            if (_manualDocumentSearchService.ShouldSearchDocuments(request.Message))
+            try
             {
-                _logger.LogInformation("Triggering document search for message");
-                try
+                _logger.LogInformation("🔍 [ALWAYS] Searching documents for: {Message}", request.Message);
+                Console.WriteLine($"🔍 [ALWAYS] Document search for: {request.Message}");
+
+                documentAnswer = await _manualDocumentSearchService.SearchAndAnswerAsync(request.Message, userId);
+
+                if (!string.IsNullOrEmpty(documentAnswer))
                 {
-                    documentAnswer = await _manualDocumentSearchService.SearchAndAnswerAsync(request.Message, userId);
-                    if (!string.IsNullOrEmpty(documentAnswer))
-                    {
-                        _logger.LogInformation("Document search returned {Length} characters", documentAnswer.Length);
-                    }
+                    _logger.LogInformation("✅ [ALWAYS] Document search returned {Length} characters", documentAnswer.Length);
+                    Console.WriteLine($"✅ [ALWAYS] Document found: {documentAnswer.Length} chars");
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogWarning(ex, "Document search failed, continuing without document context");
+                    _logger.LogInformation("❌ [ALWAYS] No relevant documents found");
+                    Console.WriteLine("❌ [ALWAYS] No documents found - AI will decide");
                 }
             }
-
-            // Build chat history and add temporary user message
-            var chatHistory = await BuildChatHistoryAsync(session.Id);
-            chatHistory.AddUserMessage(request.Message);
-
-            // Inject document context if available
-            if (!string.IsNullOrEmpty(documentAnswer))
+            catch (Exception ex)
             {
-                _logger.LogInformation("Injecting document context into chat history");
-                chatHistory = InjectDocumentContext(chatHistory, documentAnswer);
+                _logger.LogWarning(ex, "❌ [ALWAYS] Document search failed");
+                Console.WriteLine($"❌ [ALWAYS] Document search error: {ex.Message}");
+                documentAnswer = null;
             }
 
+            // 🔧 STEP 5: Build CLEAN chat history from database
+            var cleanChatHistory = await BuildCleanChatHistoryAsync(session.Id);
+            cleanChatHistory.AddUserMessage(request.Message);
+
+            // 🔧 STEP 6: Create ENHANCED chat history for AI (temporary, not saved)
+            var aiChatHistory = CreateEnhancedChatHistoryForAI(cleanChatHistory, documentAnswer, request.Message);
             // Get AI response
-            var aiResponse = await _semanticKernelService.GetChatResponseAsync(session.ModelName, chatHistory);
+            var aiResponse = await _semanticKernelService.GetChatResponseAsync(session.ModelName, aiChatHistory);
 
             // Validate AI response
             if (string.IsNullOrEmpty(aiResponse))
@@ -225,30 +227,21 @@ namespace ChatBox.API.Services.Implement
             _logger.LogInformation("Processing streaming chat for session {SessionId}, isFirstMessage: {IsFirstMessage}",
                 session.Id, isFirstMessage);
 
-            // Document search
             string documentAnswer = null;
-            if (_manualDocumentSearchService.ShouldSearchDocuments(request.Message))
+            try
             {
-                try
-                {
-                    documentAnswer = await _manualDocumentSearchService.SearchAndAnswerAsync(request.Message, userId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Document search failed in streaming mode");
-                }
+                documentAnswer = await _manualDocumentSearchService.SearchAndAnswerAsync(request.Message, userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Document search failed in streaming mode");
             }
 
-            // Build chat history
-            var chatHistory = await BuildChatHistoryAsync(session.Id);
-            chatHistory.AddUserMessage(request.Message);
+            var cleanChatHistory = await BuildCleanChatHistoryAsync(session.Id);
+            cleanChatHistory.AddUserMessage(request.Message);
+            var aiChatHistory = CreateEnhancedChatHistoryForAI(cleanChatHistory, documentAnswer, request.Message);
 
-            if (!string.IsNullOrEmpty(documentAnswer))
-            {
-                chatHistory = InjectDocumentContext(chatHistory, documentAnswer);
-            }
-
-            var responseStream = await _semanticKernelService.GetChatResponseStreamAsync(session.ModelName, chatHistory);
+            var responseStream = await _semanticKernelService.GetChatResponseStreamAsync(session.ModelName, aiChatHistory);
 
             return WrapStreamWithSave(responseStream, session.Id, userId, request.Message, isFirstMessage, session.ModelName);
         }
@@ -553,6 +546,198 @@ namespace ChatBox.API.Services.Implement
             var models = await GetAvailableModelsAsync();
             return models.Select(m => m.ModelName).ToList();
         }
+        private async Task<ChatHistory> BuildCleanChatHistoryAsync(string sessionId)
+        {
+            var messages = await _unitOfWork.GetRepository<ChatMessage>()
+                .GetListAsync(
+                    predicate: m => m.SessionId == sessionId,
+                    orderBy: q => q.OrderBy(m => m.CreatedAt));
+
+            return await BuildCleanChatHistoryFromMessages(sessionId, messages.ToList());
+        }
+        private async Task<ChatHistory> BuildCleanChatHistoryFromMessages(string sessionId, List<ChatMessage> messages)
+        {
+            var chatHistory = new ChatHistory();
+
+            // ✅ CLEAN system prompt - no document injection
+            var baseSystemPrompt = await BuildBaseSystemPromptAsync(sessionId);
+            chatHistory.AddSystemMessage(baseSystemPrompt);
+
+            var recentMessages = messages.TakeLast(ChatConstants.MaxHistoryMessages).ToList();
+
+            foreach (var message in recentMessages)
+            {
+                switch (message.Role)
+                {
+                    case MessageRole.User:
+                        chatHistory.AddUserMessage(message.Content);
+                        break;
+                    case MessageRole.Assistant:
+                        chatHistory.AddAssistantMessage(message.Content);
+                        break;
+                }
+            }
+
+            // Token limit check
+            var currentModelName = await GetCurrentModelNameAsync(sessionId);
+            if (!_tokenCountService.IsContextWithinLimit(chatHistory, currentModelName))
+            {
+                var reducedMessages = recentMessages.TakeLast(ChatConstants.MinHistoryMessages).ToList();
+                var reducedHistory = new ChatHistory();
+                reducedHistory.AddSystemMessage(baseSystemPrompt);
+
+                foreach (var message in reducedMessages)
+                {
+                    switch (message.Role)
+                    {
+                        case MessageRole.User:
+                            reducedHistory.AddUserMessage(message.Content);
+                            break;
+                        case MessageRole.Assistant:
+                            reducedHistory.AddAssistantMessage(message.Content);
+                            break;
+                    }
+                }
+                return reducedHistory;
+            }
+
+            return chatHistory;
+        }
+
+        // 🔧 NEW: Create enhanced chat history for AI (temporary, not saved)
+        private ChatHistory CreateEnhancedChatHistoryForAI(ChatHistory cleanHistory, string documentAnswer, string currentQuestion)
+        {
+            var enhancedHistory = new ChatHistory();
+
+            var originalSystemMessage = cleanHistory.FirstOrDefault(m => m.Role == AuthorRole.System);
+            if (originalSystemMessage != null)
+            {
+                var enhancedSystemPrompt = originalSystemMessage.Content;
+
+                // 🔧 INJECT DOCUMENT CONTEXT (if available)
+                if (!string.IsNullOrEmpty(documentAnswer))
+                {
+                    Console.WriteLine($"📄 [INJECT] Injecting document context for current question");
+                    enhancedSystemPrompt += $@"
+
+=== THÔNG TIN TÀI LIỆU NỘI BỘ (CHỈ CHO CÂU HỎI HIỆN TẠI) ===
+{documentAnswer}
+=== HẾT THÔNG TIN TÀI LIỆU ===
+
+📌 HƯỚNG DẪN XỬ LÝ CÂU HỎI HIỆN TẠI:
+1. Câu hỏi người dùng: ""{currentQuestion}""
+📌 HƯỚNG DẪN XỬ LÝ:
+
+1. Câu hỏi người dùng có liên quan đến tài liệu nội bộ, và hệ thống đã tìm thấy thông tin phù hợp trong nội dung tài liệu ở trên.
+
+2. Chỉ được sử dụng thông tin từ phần **THÔNG TIN TÀI LIỆU NỘI BỘ** để trả lời. **Tuyệt đối không sử dụng kiến thức bên ngoài**, bao gồm:
+   - Kiến thức tổng quát, học thuật hoặc từ internet.
+   - Suy luận vượt quá nội dung tài liệu.
+
+3. Câu trả lời phải:
+   - **Chính xác**, sát với nội dung tài liệu.
+   - **Ngắn gọn**, dễ hiểu, không lan man.
+   - **Trích dẫn rõ nguồn** trong tài liệu (nếu có thể), ví dụ: “Theo nội dung trong phần [tên tài liệu/mục],...”.
+
+4. Nếu tài liệu không đủ thông tin để trả lời đầy đủ, hãy phản hồi lịch sự rằng:
+   > “Theo tài liệu hiện có, chỉ có thể cung cấp thông tin như sau...” và **không được tự bổ sung thông tin bên ngoài**.
+
+🎯 Mục tiêu: Trả lời đúng, đủ, dựa trên tài liệu, không vượt phạm vi.
+
+⚠️ QUAN TRỌNG: Thông tin tài liệu trên CHỈ áp dụng cho câu hỏi hiện tại. 
+Không tham chiếu đến thông tin này trong conversation tiếp theo.";
+                }
+                else
+                {
+                    Console.WriteLine($"🧠 [AI-DECIDE] No document found - let AI decide based on context");
+                    enhancedSystemPrompt += $@"
+
+🧠 HƯỚNG DẪN XỬ LÝ CÂU HỎI HIỆN TẠI:
+Câu hỏi người dùng: ""{currentQuestion}""
+
+🔒 QUY TẮC PHẢN HỒI:
+
+1. **Luôn ưu tiên** phản hồi dựa trên tài liệu nội bộ đã được cung cấp. Nếu tìm thấy thông tin phù hợp trong tài liệu, hãy trả lời rõ ràng và ngắn gọn.
+
+2. Nếu **không có dữ liệu nội bộ phù hợp**:
+   - Nếu người dùng hỏi về **một tài liệu cụ thể hoặc một phần của tài liệu**, hãy trả lời:
+     > Hiện tại hệ thống không có tài liệu liên quan đến nội dung được yêu cầu.
+    NẾU là câu hỏi CHUNG/THƯỜNG NGÀY (chào hỏi, kiến thức phổ thông, hỗ trợ chung):    → Trả lời tự nhiên dựa trên kiến thức chung
+   - Nếu câu hỏi là **kiến thức chung vượt quá chuyên môn nội bộ** (ví dụ: “AI là gì?”, “Deep Learning hoạt động thế nào?”), thì **không được phép trả lời**, mà phải nói:
+     > Câu hỏi này vượt ngoài phạm vi tài liệu nội bộ. Bạn có thể liên hệ với bộ phận chuyên trách để được hỗ trợ thêm.
+
+3. **Không bao giờ**:
+   - Phỏng đoán câu trả lời khi không chắc chắn.
+   - Cung cấp kiến thức từ bên ngoài Internet hoặc dữ liệu không được kiểm soát.
+   - Trả lời câu hỏi có thể gây hiểu nhầm, sai lệch chính sách, hoặc vượt thẩm quyền nội bộ.
+
+🎯 Mục tiêu: Trợ lý nội bộ đáng tin cậy, chính xác, không phỏng đoán, không vượt quyền";
+                }
+
+                enhancedHistory.AddSystemMessage(enhancedSystemPrompt);
+            }
+
+            // Copy all other messages from clean history
+            foreach (var message in cleanHistory.Where(m => m.Role != AuthorRole.System))
+            {
+                enhancedHistory.Add(message);
+            }
+
+            return enhancedHistory;
+        }
+        private async Task<string> BuildBaseSystemPromptAsync(string sessionId)
+        {
+            var session = await _unitOfWork.GetRepository<ChatSession>()
+                .SingleOrDefaultAsync(predicate: s => s.Id == sessionId);
+
+            var baseSystemPrompt = ChatConstants.SystemPrompt; 
+
+            if (session != null)
+            {
+                var normalizedModelName = NormalizeModelName(session.ModelName);
+
+                var aiConfig = await _unitOfWork.GetRepository<AIConfiguration>()
+                    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName && c.IsActive);
+
+                if (aiConfig != null && !string.IsNullOrEmpty(aiConfig.SystemPrompt))
+                {
+                    baseSystemPrompt = aiConfig.SystemPrompt;
+                }
+
+                var preferences = await _preferenceService.GetEffectivePreferencesAsync(sessionId, session.UserId);
+
+                if (!string.IsNullOrEmpty(preferences.UserName))
+                {
+                    baseSystemPrompt += $" {string.Format(ChatConstants.UserNamePromptTemplate, preferences.UserName)}";
+                }
+
+                if (preferences.ChatbotCharacteristics.Any())
+                {
+                    var characteristics = preferences.ChatbotCharacteristics
+                        .Take(ChatConstants.MaxCharacteristics)
+                        .Select(c => ChatbotCharacteristics.GetDisplayName(c))
+                        .Where(name => !string.IsNullOrEmpty(name));
+
+                    if (characteristics.Any())
+                    {
+                        baseSystemPrompt += $" {string.Format(ChatConstants.CharacteristicsPromptTemplate, string.Join(", ", characteristics))}";
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(preferences.AdditionalInfo))
+                {
+                    var additionalInfo = preferences.AdditionalInfo.Length > ChatConstants.MaxAdditionalInfoLength
+                        ? preferences.AdditionalInfo.Substring(0, ChatConstants.MaxAdditionalInfoLength) + "..."
+                        : preferences.AdditionalInfo;
+
+                    baseSystemPrompt += $" {string.Format(ChatConstants.AdditionalInfoPromptTemplate, additionalInfo)}";
+                }
+            }
+
+            // ✅ KHÔNG thêm DocumentSearchPromptAddition - giữ clean
+            return baseSystemPrompt;
+        }
+        [Obsolete("Use BuildCleanChatHistoryAsync instead")]
 
         private async Task<ChatHistory> BuildChatHistoryAsync(string sessionId)
         {
@@ -609,6 +794,7 @@ namespace ChatBox.API.Services.Implement
 
             return chatHistory;
         }
+        [Obsolete("Use BuildBaseSystemPromptAsync instead")]
 
         private async Task<string> BuildSystemPromptAsync(string sessionId)
         {
@@ -775,7 +961,7 @@ namespace ChatBox.API.Services.Implement
                 _logger.LogError(ex, "Failed to save streaming chat data for session {SessionId}", sessionId);
             }
         }
-
+        [Obsolete("Use CreateEnhancedChatHistoryForAI instead")]
         private ChatHistory InjectDocumentContext(ChatHistory originalHistory, string documentContext)
         {
             var enhancedHistory = new ChatHistory();
@@ -783,12 +969,31 @@ namespace ChatBox.API.Services.Implement
             var originalSystemMessage = originalHistory.FirstOrDefault(m => m.Role == AuthorRole.System);
             if (originalSystemMessage != null)
             {
-                var enhancedSystemPrompt = originalSystemMessage.Content +
-                    $"\n\n=== THÔNG TIN TÀI LIỆU LIÊN QUAN ===\n{documentContext}\n=== HẾT THÔNG TIN TÀI LIỆU ===\n\n" +
-                    "Hãy sử dụng thông tin tài liệu trên để trả lời câu hỏi của người dùng.";
+                var enhancedSystemPrompt = originalSystemMessage.Content + $@"
+
+=== THÔNG TIN TÀI LIỆU NỘI BỘ ===
+{documentContext}
+=== HẾT THÔNG TIN TÀI LIỆU ===
+
+📌 HƯỚNG DẪN XỬ LÝ:
+
+1. Câu hỏi người dùng có liên quan đến tài liệu nội bộ, và hệ thống đã tìm thấy thông tin phù hợp trong nội dung tài liệu ở trên.
+
+2. Chỉ được sử dụng thông tin từ phần **THÔNG TIN TÀI LIỆU NỘI BỘ** để trả lời. **Tuyệt đối không sử dụng kiến thức bên ngoài**, bao gồm:
+   - Kiến thức tổng quát, học thuật hoặc từ internet.
+   - Suy luận vượt quá nội dung tài liệu.
+
+3. Câu trả lời phải:
+   - **Chính xác**, sát với nội dung tài liệu.
+   - **Ngắn gọn**, dễ hiểu, không lan man.
+   - **Trích dẫn rõ nguồn** trong tài liệu (nếu có thể), ví dụ: “Theo nội dung trong phần [tên tài liệu/mục],...”.
+
+4. Nếu tài liệu không đủ thông tin để trả lời đầy đủ, hãy phản hồi lịch sự rằng:
+   > “Theo tài liệu hiện có, chỉ có thể cung cấp thông tin như sau...” và **không được tự bổ sung thông tin bên ngoài**.
+
+🎯 Mục tiêu: Trả lời đúng, đủ, dựa trên tài liệu, không vượt phạm vi.";
 
                 enhancedHistory.AddSystemMessage(enhancedSystemPrompt);
-                _logger.LogDebug("Enhanced system prompt with document context for session");
             }
 
             foreach (var message in originalHistory.Where(m => m.Role != AuthorRole.System))
@@ -799,6 +1004,49 @@ namespace ChatBox.API.Services.Implement
             return enhancedHistory;
         }
 
+        // 🔧 NEW: Handle case when no documents found
+        [Obsolete("Use CreateEnhancedChatHistoryForAI instead")]
+        private ChatHistory InjectNoDocumentFoundContext(ChatHistory originalHistory)
+        {
+            var enhancedHistory = new ChatHistory();
+
+            var originalSystemMessage = originalHistory.FirstOrDefault(m => m.Role == AuthorRole.System);
+            if (originalSystemMessage != null)
+            {
+                var enhancedSystemPrompt = originalSystemMessage.Content + $@"
+
+Bạn là một trợ lý AI nội bộ, chỉ được phép trả lời dựa trên các tài liệu đã được cung cấp trong hệ thống.  
+Tuân thủ nghiêm các quy tắc dưới đây để đảm bảo bảo mật và tính chính xác.
+
+🔒 QUY TẮC PHẢN HỒI:
+
+1. **Luôn ưu tiên** phản hồi dựa trên tài liệu nội bộ đã được cung cấp. Nếu tìm thấy thông tin phù hợp trong tài liệu, hãy trả lời rõ ràng và ngắn gọn.
+
+2. Nếu **không có dữ liệu nội bộ phù hợp**:
+   - Nếu người dùng hỏi về **một tài liệu cụ thể hoặc một phần của tài liệu**, hãy trả lời:
+     > Hiện tại hệ thống không có tài liệu liên quan đến nội dung được yêu cầu.
+    NẾU là câu hỏi CHUNG/THƯỜNG NGÀY (chào hỏi, kiến thức phổ thông, hỗ trợ chung):    → Trả lời tự nhiên dựa trên kiến thức chung
+   - Nếu câu hỏi là **kiến thức chung vượt quá chuyên môn nội bộ** (ví dụ: “AI là gì?”, “Deep Learning hoạt động thế nào?”), thì **không được phép trả lời**, mà phải nói:
+     > Câu hỏi này vượt ngoài phạm vi tài liệu nội bộ. Bạn có thể liên hệ với bộ phận chuyên trách để được hỗ trợ thêm.
+
+3. **Không bao giờ**:
+   - Phỏng đoán câu trả lời khi không chắc chắn.
+   - Cung cấp kiến thức từ bên ngoài Internet hoặc dữ liệu không được kiểm soát.
+   - Trả lời câu hỏi có thể gây hiểu nhầm, sai lệch chính sách, hoặc vượt thẩm quyền nội bộ.
+
+🎯 Mục tiêu: Trợ lý nội bộ đáng tin cậy, chính xác, không phỏng đoán, không vượt quyền. ";
+
+
+                enhancedHistory.AddSystemMessage(enhancedSystemPrompt);
+            }
+
+            foreach (var message in originalHistory.Where(m => m.Role != AuthorRole.System))
+            {
+                enhancedHistory.Add(message);
+            }
+
+            return enhancedHistory;
+        }
         private string NormalizeModelName(string modelName) =>
             Uri.UnescapeDataString(modelName ?? string.Empty).Trim().ToLowerInvariant();
 

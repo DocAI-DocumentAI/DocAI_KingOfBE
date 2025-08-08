@@ -50,9 +50,9 @@ namespace ChatBox.API.Services.Implement
                 var kernel = builder.Build();
 
                 //  DOCUMENT SEARCH PLUGIN INTEGRATION - FEATURE PRESERVED
-                var documentPlugin = new DocumentSearchPlugin(_documentSearchService);
-                kernel.Plugins.AddFromObject(documentPlugin, "DocumentSearch");
-                kernel.Plugins.AddFromType<TimePlugin>("Time");
+                //var documentPlugin = new DocumentSearchPlugin(_documentSearchService);
+                //kernel.Plugins.AddFromObject(documentPlugin, "DocumentSearch");
+                //kernel.Plugins.AddFromType<TimePlugin>("Time");
 
                 return kernel;
             }
@@ -242,16 +242,17 @@ namespace ChatBox.API.Services.Implement
             };
 
             //  DISABLE tool calling cho Mistral, enable cho models khác
-            settings.ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions;
+            settings.ToolCallBehavior = null;
+            //    ToolCallBehavior.AutoInvokeKernelFunctions;
 
-            if (isMistralModel)
-            {
-                Console.WriteLine($"🔧 [MISTRAL] Function calling enabled via OpenRouter (format handled by proxy)");
-            }
-            else
-            {
-                Console.WriteLine($"🔧 [TOOLS] Function calling enabled");
-            }
+            //if (isMistralModel)
+            //{
+            //    Console.WriteLine($"🔧 [MISTRAL] Function calling enabled via OpenRouter (format handled by proxy)");
+            //}
+            //else
+            //{
+            //    Console.WriteLine($"🔧 [TOOLS] Function calling enabled");
+            //}
             return settings;
         }
 

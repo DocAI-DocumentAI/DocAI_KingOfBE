@@ -7,23 +7,6 @@ namespace ChatBox.API.Services.Implement
         private readonly IDocumentSearchService _documentSearchService;
         private readonly ILogger<ManualDocumentSearchService> _logger;
 
-        // 🔧 IMPROVED: Better categorized keywords
-        private static readonly Dictionary<string, string[]> DocumentCategories = new()
-        {
-            ["legal"] = new[] { "quyết định", "nghị định", "thông tư", "luật", "pháp lý", "quy định", "điều lệ" },
-            ["procedure"] = new[] { "thủ tục", "quy trình", "hướng dẫn", "cách thức", "procedure", "process" },
-            ["policy"] = new[] { "chính sách", "policy", "guideline", "regulation" },
-            ["document"] = new[] { "tài liệu", "văn bản", "document", "file", "công bố" },
-            ["admin"] = new[] { "hành chính", "administrative", "quản lý", "management" }
-        };
-
-        // 🔧 IMPROVED: Exclusion phrases để tránh false positive
-        private static readonly string[] ExclusionPhrases = new[]
-        {
-            "không cần", "không muốn", "không có", "chưa có",
-            "don't need", "don't want", "no document", "without"
-        };
-
         public ManualDocumentSearchService(
             IDocumentSearchService documentSearchService,
             ILogger<ManualDocumentSearchService> logger)
@@ -36,94 +19,64 @@ namespace ChatBox.API.Services.Implement
         {
             try
             {
-                _logger.LogInformation("🔍 [MANUAL] Searching documents for: {Query}", query);
-                Console.WriteLine($"🔍 [MANUAL] Manual document search triggered for: {query}");
+                _logger.LogInformation("🔍 [AUTO] Searching documents for: {Query}", query);
+                Console.WriteLine($"🔍 [AUTO] Auto document search for: {query}");
 
                 var result = await _documentSearchService.GetRAGAnswerWithSourcesAsync(query, userId);
 
                 if (!string.IsNullOrEmpty(result) &&
                     !result.Contains("Xin lỗi, tôi không tìm thấy thông tin"))
                 {
-                    _logger.LogInformation("✅ [MANUAL] Found document answer: {Length} chars", result.Length);
-                    Console.WriteLine($"✅ [MANUAL] Document search successful: {result.Length} chars");
+                    _logger.LogInformation("✅ [AUTO] Found document answer: {Length} chars", result.Length);
+                    Console.WriteLine($"✅ [AUTO] Document search successful: {result.Length} chars");
                     return result;
                 }
 
-                _logger.LogWarning("❌ [MANUAL] No relevant documents found");
-                Console.WriteLine("❌ [MANUAL] No relevant documents found");
-                return null; // Trả null để AI tự trả lời
+                _logger.LogInformation("❌ [AUTO] No relevant documents found, AI will use general knowledge");
+                Console.WriteLine("❌ [AUTO] No relevant documents found");
+                return null; // AI sẽ tự trả lời
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ [MANUAL] Document search error");
-                Console.WriteLine($"❌ [MANUAL] Document search error: {ex.Message}");
+                _logger.LogError(ex, "❌ [AUTO] Document search error");
+                Console.WriteLine($"❌ [AUTO] Document search error: {ex.Message}");
                 return null;
             }
         }
 
-        // 🔧 IMPROVED: Better keyword detection logic
+        // 🔧 SIMPLIFIED: Always return true - let AI handle everything
         public bool ShouldSearchDocuments(string message)
         {
+            // Bỏ tất cả logic phức tạp - luôn search
             if (string.IsNullOrWhiteSpace(message))
-            {
                 return false;
-            }
 
-            var lowerMessage = message.ToLowerInvariant().Trim();
+            //// Skip certain types of messages that clearly don't need document search
+            //var lowerMessage = message.ToLowerInvariant().Trim();
 
-            // 🔧 IMPROVED: Check exclusion phrases first
-            if (ExclusionPhrases.Any(phrase => lowerMessage.Contains(phrase)))
-            {
-                Console.WriteLine($"🔍 [MANUAL] Excluded due to negative phrase: {message.Substring(0, Math.Min(50, message.Length))}...");
-                return false;
-            }
+            //// Skip greetings and simple interactions
+            //var skipPhrases = new[]
+            //{
+            //    "xin chào", "hello", "hi", "chào", "good morning", "good afternoon",
+            //    "cảm ơn", "thank you", "thanks", "ok", "được rồi", "tốt",
+            //    "bye", "tạm biệt", "goodbye", "see you"
+            //};
 
-            // 🔧 IMPROVED: Better category matching
-            var matchedCategories = 0;
-            var totalMatches = 0;
+            //if (skipPhrases.Any(phrase => lowerMessage == phrase || lowerMessage.StartsWith(phrase + " ")))
+            //{
+            //    Console.WriteLine($"⏭️ [AUTO] Skipping document search for greeting/simple interaction");
+            //    return false;
+            //}
 
-            foreach (var category in DocumentCategories)
-            {
-                var categoryMatches = category.Value.Count(keyword => lowerMessage.Contains(keyword));
-                if (categoryMatches > 0)
-                {
-                    matchedCategories++;
-                    totalMatches += categoryMatches;
-                }
-            }
+            //// Skip very short messages (< 3 words)
+            //if (lowerMessage.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length < 3)
+            //{
+            //    Console.WriteLine($"⏭️ [AUTO] Skipping document search for very short message");
+            //    return false;
+            //}
 
-            //  IMPROVED: More sophisticated logic
-            var shouldSearch = false;
-
-            if (matchedCategories >= 2) // Multiple categories matched
-            {
-                shouldSearch = true;
-            }
-            else if (matchedCategories == 1 && totalMatches >= 2) // Multiple keywords in same category
-            {
-                shouldSearch = true;
-            }
-            else if (IsDirectDocumentQuery(lowerMessage)) // Direct document query
-            {
-                shouldSearch = true;
-            }
-
-            Console.WriteLine($"🔍 [MANUAL] Should search: {shouldSearch} (categories: {matchedCategories}, matches: {totalMatches}) for: {message.Substring(0, Math.Min(50, message.Length))}...");
-
-            return shouldSearch;
-        }
-
-        // 🔧 IMPROVED: Detect direct document queries
-        private static bool IsDirectDocumentQuery(string message)
-        {
-            var directQueries = new[]
-            {
-                "tìm tài liệu", "search document", "có tài liệu nào",
-                "văn bản về", "quy định về", "chính sách về",
-                "hướng dẫn về", "thủ tục về", "quy trình về"
-            };
-
-            return directQueries.Any(query => message.Contains(query));
+            //Console.WriteLine($"🔍 [AUTO] Will search documents for: {message.Substring(0, Math.Min(50, message.Length))}...");
+            return true;
         }
     }
 }

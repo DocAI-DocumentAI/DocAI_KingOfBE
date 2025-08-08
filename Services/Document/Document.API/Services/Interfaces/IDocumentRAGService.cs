@@ -11,5 +11,7 @@ namespace Document.API.Services.Interfaces
 
         Task<string> GetRAGAnswerAsync(string query, string userId);
         Task<string> GetRAGAnswerWithSourcesAsync(string query, string userId);
+        Task<string> TestDocumentIndexAsync();
+
     }
 }
