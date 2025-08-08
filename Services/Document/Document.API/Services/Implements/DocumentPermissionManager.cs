@@ -1,4 +1,5 @@
 using Document.API.Services.Interfaces;
+using Document.API.Utils;
 using Document.Domain.Enums;
 using MassTransit;
 using Shared.DTOs;
@@ -493,14 +494,7 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                var user = _httpContextAccessor?.HttpContext?.User;
-                if (user == null)
-                {
-                    return null;
-                }
-
-                var email = user.FindFirst("email")?.Value;
-                return email;
+                return JwtTokenHelper.GetUserEmailOrNull(_httpContextAccessor);
             }
             catch (Exception ex)
             {
@@ -516,14 +510,7 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                var user = _httpContextAccessor?.HttpContext?.User;
-                if (user == null)
-                {
-                    return null;
-                }
-
-                var userId = user.FindFirst("userId")?.Value;
-                return userId;
+                return JwtTokenHelper.GetUserIdOrNull(_httpContextAccessor);
             }
             catch (Exception ex)
             {

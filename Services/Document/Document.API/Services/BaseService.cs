@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using Document.API.Utils;
 using Document.Infrastructure.Repository.Interfaces;
 using System.Security.Authentication;
 using System.Security.Claims;
@@ -29,49 +30,37 @@ namespace Document.API.Services
 
         protected string GetUserIdFromJwt()
         {
-            var user = _httpContextAccessor?.HttpContext?.User;
-
-            if (user == null || !user.Identity.IsAuthenticated)
+            if (!JwtTokenHelper.IsAuthenticated(_httpContextAccessor))
             {
                 _logger.LogWarning("User is not authenticated");
                 throw new AuthenticationException("User is not authenticated.");
             }
 
-            var userIdClaim = user.FindFirst("userId");
-
-            if (userIdClaim == null || string.IsNullOrEmpty(userIdClaim.Value))
+            try
+            {
+                return JwtTokenHelper.GetUserId(_httpContextAccessor);
+            }
+            catch (UnauthorizedAccessException ex)
             {
                 _logger.LogError("userId claim not found in token");
-                throw new AuthenticationException("User ID claim not found in token.");
+                throw new AuthenticationException("User ID claim not found in token.", ex);
             }
-
-            return userIdClaim.Value;
         }
 
         protected string GetDepartmentFromJwt()
         {
-            var user = _httpContextAccessor?.HttpContext?.User;
-
-            if (user == null || !user.Identity.IsAuthenticated)
+            if (!JwtTokenHelper.IsAuthenticated(_httpContextAccessor))
             {
                 return string.Empty;
             }
 
-            var departmentClaim = user.FindFirst("departmentID");
-            return departmentClaim?.Value ?? string.Empty;
+            // Note: Using GetDepartmentIdOrNull to handle both "departmentId" and "departmentID" claims
+            return JwtTokenHelper.GetDepartmentIdOrNull(_httpContextAccessor) ?? string.Empty;
         }
 
         protected string GetRoleFromJwt()
         {
-            var user = _httpContextAccessor?.HttpContext?.User;
-
-            if (user == null)
-            {
-                return string.Empty;
-            }
-
-            var roleClaim = user.FindFirst(ClaimTypes.Role);
-            return roleClaim?.Value ?? string.Empty;
+            return JwtTokenHelper.GetUserRole(_httpContextAccessor);
         }
 
         /// <summary>

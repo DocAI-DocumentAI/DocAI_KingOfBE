@@ -2,6 +2,7 @@ using AutoMapper;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
+using Document.API.Utils;
 using Document.Domain.Models;
 using Document.Infrastructure.Paginate;
 using Document.Infrastructure.Repository.Interfaces;
@@ -157,8 +158,7 @@ namespace Document.API.Services.Implements
         /// <returns>Department ID or null if not found</returns>
         private string? GetCurrentUserDepartmentId()
         {
-            var user = _httpContextAccessor?.HttpContext?.User;
-            return user?.FindFirst("departmentId")?.Value;
+            return JwtTokenHelper.GetDepartmentIdOrNull(_httpContextAccessor);
         }
 
         /// <summary>
@@ -167,11 +167,7 @@ namespace Document.API.Services.Implements
         /// <returns>User ID</returns>
         private string GetCurrentUserId()
         {
-            var user = _httpContextAccessor?.HttpContext?.User;
-            var userIdClaim = user?.FindFirst("userId")?.Value;
-            if (string.IsNullOrEmpty(userIdClaim))
-                throw new UnauthorizedAccessException("User ID not found in token");
-            return userIdClaim;
+            return JwtTokenHelper.GetUserId(_httpContextAccessor);
         }
     }
 }

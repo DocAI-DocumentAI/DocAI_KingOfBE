@@ -4,6 +4,7 @@ using Document.API.Models;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
+using Document.API.Utils;
 using Document.Domain.Enums;
 using Document.Domain.Model;
 using Document.Domain.Models;
@@ -85,8 +86,7 @@ public class DocumentService : IDocumentService
     /// <returns>Department ID or null if not found</returns>
     private string? GetCurrentUserDepartmentId()
     {
-        var user = _httpContextAccessor?.HttpContext?.User;
-        return user?.FindFirst("departmentId")?.Value;
+        return JwtTokenHelper.GetDepartmentIdOrNull(_httpContextAccessor);
     }
 
     /// <summary>
@@ -95,11 +95,7 @@ public class DocumentService : IDocumentService
     /// <returns>User ID</returns>
     private string GetCurrentUserId()
     {
-        var user = _httpContextAccessor?.HttpContext?.User;
-        var userIdClaim = user?.FindFirst("userId")?.Value;
-        if (string.IsNullOrEmpty(userIdClaim))
-            throw new UnauthorizedAccessException("User ID not found in token");
-        return userIdClaim;
+        return JwtTokenHelper.GetUserId(_httpContextAccessor);
     }
 
     /// <summary>

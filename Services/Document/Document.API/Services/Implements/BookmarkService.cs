@@ -2,6 +2,7 @@ using AutoMapper;
 using Document.API.Constants;
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
+using Document.API.Utils;
 using Document.Domain.Enums;
 using Document.Domain.Model;
 using Document.Domain.Models;
@@ -35,11 +36,7 @@ namespace Document.API.Services.Implements
         /// <returns>User ID</returns>
         private string GetCurrentUserId()
         {
-            var user = _httpContextAccessor?.HttpContext?.User;
-            var userIdClaim = user?.FindFirst("userId")?.Value;
-            if (string.IsNullOrEmpty(userIdClaim))
-                throw new UnauthorizedAccessException("User ID not found in token");
-            return userIdClaim;
+            return JwtTokenHelper.GetUserId(_httpContextAccessor);
         }
 
         public async Task AddBookmarkAsync(string documentId)

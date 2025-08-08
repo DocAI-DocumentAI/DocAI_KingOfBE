@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Document.API.Services.Interfaces;
+using Document.API.Utils;
 
 namespace Document.API.Services.Implements
 {
@@ -19,9 +20,9 @@ namespace Document.API.Services.Implements
 
         public Guid GetCurrentUserId()
         {
-            var userIdClaim = GetCurrentUser().FindFirst("userId")?.Value;
-            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
-                throw new UnauthorizedAccessException("Invalid user ID in token");
+            var userIdString = JwtTokenHelper.GetUserId(_httpContextAccessor);
+            if (!Guid.TryParse(userIdString, out var userId))
+                throw new UnauthorizedAccessException("Invalid user ID format in token");
             return userId;
         }
 

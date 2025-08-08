@@ -3,6 +3,7 @@ using Document.API.Constants;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
+using Document.API.Utils;
 using Document.Domain.Model;
 using Document.Domain.Models;
 using Document.Infrastructure.Paginate;
@@ -250,17 +251,12 @@ namespace Document.API.Services.Implements
 
         private string GetCurrentUserId()
         {
-            var user = _httpContextAccessor?.HttpContext?.User;
-            var userIdClaim = user?.FindFirst("userId")?.Value;
-            if (string.IsNullOrEmpty(userIdClaim))
-                throw new UnauthorizedAccessException("User ID not found in token");
-            return userIdClaim;
+            return JwtTokenHelper.GetUserId(_httpContextAccessor);
         }
 
         private string? GetCurrentUserDepartmentId()
         {
-            var user = _httpContextAccessor?.HttpContext?.User;
-            return user?.FindFirst("departmentId")?.Value;
+            return JwtTokenHelper.GetDepartmentIdOrNull(_httpContextAccessor);
         }
     }
 }
