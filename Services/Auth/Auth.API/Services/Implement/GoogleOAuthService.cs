@@ -424,7 +424,67 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
             RequirePasswordChange = false
         };
     }
+    
+    public async Task<string> HandleGoogleCallbackAndGenerateRedirectUrlAsync(GoogleOAuthRequest request)
+    {
+        // 1. Gọi logic xác thực hiện có của bạn
+        var authResponse = await AuthenticateWithGoogleAsync(request);
 
+        // 2. Tìm lại thông tin user và user setting để tạo LoginResponse hoàn chỉnh
+        var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Email == authResponse.Email,
+            include: u => u.Include(x => x.Role)
+                .Include(x => x.Department)
+                .Include(x => x.UserPermissions)
+                .ThenInclude(up => up.Permission));
+        var userSetting = await _unitOfWork.GetRepository<UserSetting>().SingleOrDefaultAsync(
+            predicate: us => us.UserId == user.Id
+        );
+
+        // 3. Tạo đối tượng LoginResponse
+        var loginResponse = CreateGoogleOAuthResponse(user, userSetting, 
+            authResponse.DocaiToken, 
+            authResponse.DocaiRefreshToken,
+            authResponse.GoogleAccessToken,
+            authResponse.GoogleRefreshToken 
+        );
+
+        // 4. Tạo code sử dụng một lần và key cho Redis
+        var oneTimeCode = Guid.NewGuid().ToString("N");
+        var redisKey = $"google-auth-code:{oneTimeCode}";
+
+        // 5. SỬA ĐỔI: Serialize đối tượng LoginResponse thành một chuỗi JSON
+        var loginResponseJson = JsonSerializer.Serialize(loginResponse);
+
+        // 6. SỬA ĐỔI: Gọi SetStringAsync để lưu chuỗi JSON vào Redis với TTL là 1 phút
+        await _redisService.SetStringAsync(redisKey, loginResponseJson, TimeSpan.FromMinutes(1)); //
+
+        // 7. Xây dựng URL để redirect về frontend
+        var frontendCallbackUrl = _configuration["FrontEnd:GoogleCallbackUrl"];
+        return $"{frontendCallbackUrl}?code={oneTimeCode}";
+    }
+    
+    public async Task<LoginResponse> ExchangeCodeForLoginResponseAsync(string code)
+    {
+        var redisKey = $"google-auth-code:{code}";
+
+        // 1. SỬA ĐỔI: Gọi GetStringAsync để lấy chuỗi JSON từ Redis
+        var loginResponseJson = await _redisService.GetStringAsync(redisKey); //
+
+        // 2. Kiểm tra xem code có tồn tại không
+        if (string.IsNullOrEmpty(loginResponseJson))
+        {
+            throw new UnauthorizedAccessException("Invalid or expired code.");
+        }
+
+        // 3. SỬA ĐỔI: Gọi RemoveKeyAsync để xóa code ngay sau khi sử dụng
+        await _redisService.RemoveKeyAsync(redisKey); //
+
+        // 4. SỬA ĐỔI: Deserialize chuỗi JSON ngược lại thành đối tượng LoginResponse
+        var loginResponse = JsonSerializer.Deserialize<LoginResponse>(loginResponseJson);
+
+        return loginResponse;
+    }
 }
 
 

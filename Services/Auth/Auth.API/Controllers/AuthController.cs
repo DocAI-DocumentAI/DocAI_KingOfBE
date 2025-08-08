@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Threading.Tasks;
 using Auth.API.Attributes;
 using Auth.API.Constants;
+using Auth.API.DTOs.Request;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.ActiveKey;
 using Auth.API.Payload.Request.Auth;
@@ -35,6 +36,7 @@ public class AuthController : ControllerBase
     private IUserService _userService;
     private IRedisService _redisService;
     private IGoogleOAuthService _googleOAuthService;
+    private IConfiguration _configuration;
     readonly ILogger<AuthController> _logger;
 
     public AuthController(ILogger<AuthController> logger, IUserService userService, IRedisService redisService, IGoogleOAuthService googleOAuthService)
@@ -256,16 +258,63 @@ public class AuthController : ControllerBase
     }
 
     [HttpGet(ApiEndPointConstant.User.GoogleCallback)]
-    [ProducesResponseType(typeof(GoogleOAuthResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GoogleCallback(string code, string state = null)
+{
+    if (string.IsNullOrEmpty(code))
     {
-        var response = await _userService.GoogleCallbackAsync(code, state);
-        if (response == null)
-        {
-            return BadRequest("Google OAuth callback failed");
-        }
+        // Nếu không có code, chuyển hướng về trang lỗi của frontend
+        var errorUrl = _configuration["FrontEnd:ErrorUrl"] ?? "https://docai.asia/error";
+        return Redirect($"{errorUrl}?message=auth_code_missing");
+    }
 
-        return Ok(response);
+    try
+    {
+        // 1. Tạo request object để truyền vào service
+        var googleRequest = new GoogleOAuthRequest { Code = code, State = state };
+
+        // 2. GỌI HÀM SERVICE ĐÚNG:
+        // Hàm này sẽ xử lý code từ Google, tạo one-time-code mới
+        // và trả về một URL hoàn chỉnh để redirect về frontend.
+        var redirectUrl = await _googleOAuthService.HandleGoogleCallbackAndGenerateRedirectUrlAsync(googleRequest);
+
+        // 3. THỰC HIỆN CHUYỂN HƯỚNG:
+        // Đây là bước quan trọng nhất. Trình duyệt sẽ nhận lệnh này và
+        // tự động điều hướng đến URL của frontend.
+        // URL sẽ có dạng: "https://docai.asia/auth/callback?code=..."
+        return Redirect(redirectUrl);
+    }
+    catch (UnauthorizedAccessException ex)
+    {
+        // Xử lý lỗi nếu người dùng không được phép
+        var frontendLoginUrl = _configuration["FrontEnd:LoginUrl"] ?? "https://docai.asia/login";
+        return Redirect($"{frontendLoginUrl}?error={Uri.EscapeDataString(ex.Message)}");
+    }
+    catch (Exception ex)
+    {
+        // Xử lý các lỗi server khác
+        _logger.LogError(ex, "An error occurred during Google OAuth callback processing.");
+        var frontendErrorUrl = _configuration["FrontEnd:ErrorUrl"] ?? "https://docai.asia/error";
+        return Redirect($"{frontendErrorUrl}?message=server_error");
+    }
+}
+    
+    [HttpPost("exchange-code")]
+    public async Task<IActionResult> ExchangeCode([FromBody] ExchangeCodeRequest request)
+    {
+        try
+        {
+            var loginResponse = await _googleOAuthService.ExchangeCodeForLoginResponseAsync(request.Code);
+            return Ok(loginResponse);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            // Log lỗi
+            return StatusCode(500, new { message = "An error occurred while exchanging the code." });
+        }
     }
 
     [HttpGet(ApiEndPointConstant.User.GoogleAuthUrl)]
