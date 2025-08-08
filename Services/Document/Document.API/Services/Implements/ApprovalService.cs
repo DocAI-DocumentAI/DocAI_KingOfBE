@@ -74,8 +74,10 @@ namespace Document.API.Services.Implements
 
         public async Task ClaimDocumentForReviewAsync(string versionId)
         {
-            // Get current user ID from JWT token
+            // Get current user ID and department ID from JWT token
             var userId = GetCurrentUserId();
+            var managerDepartmentId = GetCurrentUserDepartmentId();
+
             var versionToClaim = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(
                     predicate: v => v.Id == versionId,
@@ -85,6 +87,12 @@ namespace Document.API.Services.Implements
             if (versionToClaim.Status != StatusEnum.Pending)
             {
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.NotPendingApproval, versionToClaim.Status));
+            }
+
+            // Check if manager's department matches the document's department
+            if (versionToClaim.DocumentFile.DepartmentId != managerDepartmentId)
+            {
+                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToAccessApprovalQueue);
             }
 
             var existingClaim = await _unitOfWork.GetRepository<ApprovalClaim>()
@@ -139,6 +147,9 @@ namespace Document.API.Services.Implements
 
         public async Task<ApprovalQueueDetailResponse> GetApprovalQueueDetailAsync(string versionId)
         {
+            // Get current manager's department ID from JWT token
+            var managerDepartmentId = GetCurrentUserDepartmentId();
+
             var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(
                     predicate: v => v.Id == versionId && (v.Status == StatusEnum.Pending || v.Status == StatusEnum.Rejected),
@@ -150,6 +161,12 @@ namespace Document.API.Services.Implements
                 throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
             }
 
+            // Check if manager's department matches the document's department
+            if (documentVersion.DocumentFile.DepartmentId != managerDepartmentId)
+            {
+                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToAccessApprovalQueue);
+            }
+
             var response = _mapper.Map<ApprovalQueueDetailResponse>(documentVersion);
             var enrichedResponse = await _enrichmentService.EnrichApprovalQueueDetailResponseAsync(response);
 
@@ -159,8 +176,10 @@ namespace Document.API.Services.Implements
 
         public async Task ReviewDocument(string versionId, ReviewDocumentRequest request)
         {
-            // Get current user ID from JWT token
+            // Get current user ID and department ID from JWT token
             var userId = GetCurrentUserId();
+            var managerDepartmentId = GetCurrentUserDepartmentId();
+
             var versionToReview = await _unitOfWork.GetRepository<DocumentVersion>()
             .SingleOrDefaultAsync(
                 predicate: v => v.Id == versionId,
@@ -168,9 +187,9 @@ namespace Document.API.Services.Implements
             ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
             var documentFile = versionToReview.DocumentFile;
 
-            //// --- Permission and State Validation ---
-            //if (documentFile.DepartmentId != managerDepartmentId)
-            //    throw new ErrorException(StatusCodes.Status403Forbidden, "You do not have permission to review documents for this department.");
+            // --- Permission and State Validation ---
+            if (documentFile.DepartmentId != managerDepartmentId)
+                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToAccessApprovalQueue);
 
             if (versionToReview.Status != StatusEnum.Pending)
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.NotPendingApproval, versionToReview.Status));

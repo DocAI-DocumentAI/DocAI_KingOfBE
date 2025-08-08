@@ -1,4 +1,5 @@
 using AutoMapper;
+using Document.API.Attributes;
 using Document.API.Constants;
 using Document.API.Models;
 using Document.API.Payload.Request;
@@ -87,6 +88,41 @@ public class DocumentService : IDocumentService
     private string? GetCurrentUserDepartmentId()
     {
         return JwtTokenHelper.GetDepartmentIdOrNull(_httpContextAccessor);
+    }
+
+    /// <summary>
+    /// Determines if a user can access a specific document version based on status, ownership, and department
+    /// </summary>
+    /// <param name="version">Document version to check access for</param>
+    /// <param name="userId">Current user ID</param>
+    /// <param name="userDepartmentId">Current user's department ID</param>
+    /// <returns>True if user has access, false otherwise</returns>
+    private bool CanUserAccessDocumentVersion(DocumentVersion version, string userId, string? userDepartmentId)
+    {
+        switch (version.Status)
+        {
+            case StatusEnum.Draft:
+            case StatusEnum.Rejected:
+                // Only the owner can access draft and rejected documents
+                return version.DocumentFile.OwnerId == userId;
+
+            case StatusEnum.Pending:
+                // Owner can access, and managers from the same department can access
+                if (version.DocumentFile.OwnerId == userId)
+                    return true;
+
+                // Check if user is a manager in the same department
+                var userRole = JwtTokenHelper.GetUserRole(_httpContextAccessor);
+                return userRole == Roles.Manager && version.DocumentFile.DepartmentId == userDepartmentId;
+
+            case StatusEnum.Approved:
+            case StatusEnum.Archived:
+                // Public documents or documents from the same department
+                return version.IsPublic || version.DocumentFile.DepartmentId == userDepartmentId;
+
+            default:
+                return false;
+        }
     }
 
     /// <summary>
@@ -1071,8 +1107,11 @@ public class DocumentService : IDocumentService
 
     public async Task<DocumentDraftResponse> GetOfficialDocumentAsync(string documentFileId)
     {
+        // Get user's department ID for permission filtering
+        var userDepartmentId = GetCurrentUserDepartmentId();
+
         var officialDocument = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
-            predicate: v => v.DocumentFileId == documentFileId && v.IsOfficial,
+            predicate: v => v.DocumentFileId == documentFileId && v.IsOfficial && (v.IsPublic || v.DocumentFile.DepartmentId == userDepartmentId),
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
@@ -1288,10 +1327,25 @@ public class DocumentService : IDocumentService
 
     public async Task<DocumentVersionResponse> GetDocumentVersionByVersionIdAsync(string documentId, string versionId)
     {
+        // Get current user information for access control
+        var userId = GetCurrentUserId();
+        var userDepartmentId = GetCurrentUserDepartmentId();
+
         var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: dv => dv.DocumentFileId == documentId && dv.Id == versionId,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
+
+        if (documentVersion == null)
+        {
+            throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
+        }
+
+        // Apply access control based on document status and user role
+        if (!CanUserAccessDocumentVersion(documentVersion, userId, userDepartmentId))
+        {
+            throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToAccessDocument);
+        }
 
         var response = _mapper.Map<DocumentVersionResponse>(documentVersion);
         var enrichedResponse = await _enrichmentService.EnrichDocumentVersionResponseAsync(response);
@@ -1300,12 +1354,19 @@ public class DocumentService : IDocumentService
 
     public async Task<List<DocumentVersionResponse>> GetDocumentVersionsAsync(string documentId)
     {
+        // Get current user information for access control
+        var userId = GetCurrentUserId();
+        var userDepartmentId = GetCurrentUserDepartmentId();
+
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
             predicate: dv => dv.DocumentFileId == documentId,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
-        var response = _mapper.Map<List<DocumentVersionResponse>>(documentVersions);
+        // Filter versions based on user access rights
+        var accessibleVersions = documentVersions.Where(version => CanUserAccessDocumentVersion(version, userId, userDepartmentId)).ToList();
+
+        var response = _mapper.Map<List<DocumentVersionResponse>>(accessibleVersions);
         var enrichedResponse = await _enrichmentService.EnrichDocumentVersionResponsesAsync(response);
         return enrichedResponse;
     }
