@@ -42,14 +42,13 @@ try
     });
 
     builder.Services.AddOpenApi();
-
-    builder.Services.AddUnitOfWork()
-                    .AddDatabase()
-                    .AddServices(builder.Configuration)
-                    .AddApiClients(builder.Configuration)
-                    .AddJwtAuthentication(builder.Configuration)
-                    .AddQuartzJobs(builder.Configuration)
-                    .AddMassTransit(builder.Configuration);
+    builder.Services.AddDatabase();
+    builder.Services.AddUnitOfWork();
+    builder.Services.AddServices(builder.Configuration);
+    builder.Services.AddAutoMapper();
+    builder.Services.AddJwtAuthentication(builder.Configuration);
+    builder.Services.AddQuartzJobs(builder.Configuration);
+    builder.Services.AddMassTransit(builder.Configuration);
 
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 

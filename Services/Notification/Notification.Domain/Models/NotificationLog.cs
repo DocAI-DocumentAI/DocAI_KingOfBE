@@ -28,7 +28,7 @@ public class NotificationLog : BaseEntity
     public bool IsSent { get; set; }
     public DateTime? SentAt { get; set; }
     public string? ErrorMessage { get; set; }
-    public bool IsDismissed { get; set; } = false; 
+    public bool IsDismissed { get; set; } = false;
     public DateTime? DismissedAt { get; set; }
     public Guid? DismissedByUserId { get; set; }
     public Guid? DismissToken { get; set; }

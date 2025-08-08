@@ -9,10 +9,10 @@ namespace Notification.Domain.Models
         [MaxLength(50)]
         public string ConfigKey { get; set; } = "Default";
 
-        public int WarningThresholdDays { get; set; } = 7; // BR-037
+        public int WarningThresholdDays { get; set; } = 7;
 
         [Required]
-        public string ScanCronExpression { get; set; } = "0 0 7 * * ?"; // Daily at 7 AM
+        public string ScanCronExpression { get; set; } = "0 0 7 * * ?";
 
         public bool QuartzEnabled { get; set; } = true;
 

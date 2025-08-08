@@ -12,8 +12,14 @@ namespace Notification.Domain.Models
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
-        public DateTime CreateAt { get; set; } = DateTime.UtcNow;
+        [MaxLength(100)]
+        public string CreatedBy { get; set; } = string.Empty;
 
-        public DateTime UpdateAt { get; set; } = DateTime.UtcNow;
+        [MaxLength(100)]
+        public string? LastUpdatedBy { get; set; }
+
+        public DateTime CreateAt { get; set; } = DateTime.UtcNow;
+        public DateTime? UpdateAt { get; set; }
+        public bool IsDeleted { get; set; } = false;
     }
 }

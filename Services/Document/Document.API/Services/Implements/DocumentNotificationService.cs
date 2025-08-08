@@ -40,7 +40,7 @@ namespace Document.API.Services.Implements
                     DocumentTitle = documentTitle,
                     DocumentVersion = documentVersion,
                     DocumentLink = documentLink,
-                    SubmitterId = GetUserId(submitterUser),
+                    SubmitterId = GetUserIdAsGuid(submitterUser),
                     SubmitterEmail = GetUserEmail(submitterUser),
                     SubmitterName = GetUserFullName(submitterUser),
                     DepartmentId = departmentId,
@@ -79,7 +79,7 @@ namespace Document.API.Services.Implements
                     DocumentLink = documentLink,
                     OwnerEmail = ownerEmail,
                     OwnerName = ownerName,
-                    ApproverId = GetUserId(approverUser),
+                    ApproverId = GetUserIdAsGuid(approverUser),
                     ApproverEmail = GetUserEmail(approverUser),
                     ApproverName = GetUserFullName(approverUser),
                     Comments = comments
@@ -117,7 +117,7 @@ namespace Document.API.Services.Implements
                     DocumentLink = documentLink,
                     OwnerEmail = ownerEmail,
                     OwnerName = ownerName,
-                    ReviewerId = GetUserId(reviewerUser),
+                    ReviewerId = GetUserIdAsGuid(reviewerUser),
                     ReviewerEmail = GetUserEmail(reviewerUser),
                     ReviewerName = GetUserFullName(reviewerUser),
                     RejectionComments = rejectionComments
@@ -135,9 +135,14 @@ namespace Document.API.Services.Implements
 
         #region Helper Methods
 
-        private static string GetUserId(ClaimsPrincipal user)
+        private static Guid GetUserIdAsGuid(ClaimsPrincipal user)
         {
-            return user?.FindFirst("userId")?.Value ?? "Unknown";
+            var userIdString = user?.FindFirst("userId")?.Value;
+            if (Guid.TryParse(userIdString, out var userId))
+            {
+                return userId;
+            }
+            return Guid.Empty; // Return empty Guid if parsing fails
         }
 
         private static string GetUserEmail(ClaimsPrincipal user)
@@ -153,6 +158,11 @@ namespace Document.API.Services.Implements
         private static string GetDepartmentName(ClaimsPrincipal user)
         {
             return user?.FindFirst("departmentName")?.Value ?? "Unknown Department";
+        }
+
+        private static string GetDepartmentId(ClaimsPrincipal user)
+        {
+            return user?.FindFirst("departmentId")?.Value ?? "Unknown";
         }
 
         #endregion

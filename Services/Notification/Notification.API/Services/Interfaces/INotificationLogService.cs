@@ -7,12 +7,8 @@ namespace Notification.API.Services.Interfaces
 {
     public interface INotificationLogService
     {
-        //Task<NotificationResponse?> GetNotificationLogByIdAsync(string id);
-
         Task CreateLogAsync(NotificationLog log);
-
         Task<IPaginate<NotificationResponse>> GetNotificationLogsAsync(NotificationRequest request);
-
         Task CleanUpOldLogsAsync();
     }
 }

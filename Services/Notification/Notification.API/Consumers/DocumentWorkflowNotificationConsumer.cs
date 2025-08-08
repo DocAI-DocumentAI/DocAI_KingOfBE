@@ -1,6 +1,6 @@
 using MassTransit;
+using Notification.API.Payload.Response;
 using Notification.API.Services.Interfaces;
-using Notification.API.Utils;
 using Shared.Commands;
 
 namespace Notification.API.Consumers
@@ -33,9 +33,9 @@ namespace Notification.API.Consumers
                 {
                     UserId = command.SubmitterId,
                     Email = command.SubmitterEmail,
-                    FullName = command.SubmitterName,
+                    Name = command.SubmitterName,
                     DepartmentId = command.DepartmentId,
-                    DepartmentName = command.DepartmentName
+                    Department = command.DepartmentName
                 };
 
                 await _notificationService.SendDocumentSubmissionNotificationAsync(
@@ -84,7 +84,7 @@ namespace Notification.API.Consumers
                 {
                     UserId = command.ApproverId,
                     Email = command.ApproverEmail,
-                    FullName = command.ApproverName
+                    Name = command.ApproverName
                 };
 
                 await _notificationService.SendDocumentApprovalNotificationAsync(
@@ -135,7 +135,7 @@ namespace Notification.API.Consumers
                 {
                     UserId = command.ReviewerId,
                     Email = command.ReviewerEmail,
-                    FullName = command.ReviewerName
+                    Name = command.ReviewerName
                 };
 
                 await _notificationService.SendDocumentRejectionNotificationAsync(

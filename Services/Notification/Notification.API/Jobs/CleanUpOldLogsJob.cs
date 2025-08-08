@@ -31,10 +31,13 @@ namespace Notification.API.Jobs
         {
             try
             {
+                _logger.LogInformation("CleanUpOldLogsJob started");
                 await _logService.CleanUpOldLogsAsync();
+                _logger.LogInformation("CleanUpOldLogsJob completed successfully");
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "CleanUpOldLogsJob failed - will retry on next schedule");
             }
         }
     }

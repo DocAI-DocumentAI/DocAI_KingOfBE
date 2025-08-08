@@ -17,7 +17,7 @@ namespace Shared.Commands
     /// </summary>
     public class DocumentSubmissionNotificationCommand : DocumentWorkflowNotificationCommand
     {
-        public string SubmitterId { get; set; } = string.Empty;
+        public Guid SubmitterId { get; set; } = Guid.Empty;
         public string SubmitterEmail { get; set; } = string.Empty;
         public string SubmitterName { get; set; } = string.Empty;
         public string DepartmentId { get; set; } = string.Empty;
@@ -31,7 +31,7 @@ namespace Shared.Commands
     {
         public string OwnerEmail { get; set; } = string.Empty;
         public string OwnerName { get; set; } = string.Empty;
-        public string ApproverId { get; set; } = string.Empty;
+        public Guid ApproverId { get; set; } = Guid.Empty;
         public string ApproverEmail { get; set; } = string.Empty;
         public string ApproverName { get; set; } = string.Empty;
         public string? Comments { get; set; }
@@ -44,7 +44,7 @@ namespace Shared.Commands
     {
         public string OwnerEmail { get; set; } = string.Empty;
         public string OwnerName { get; set; } = string.Empty;
-        public string ReviewerId { get; set; } = string.Empty;
+        public Guid ReviewerId { get; set; } = Guid.Empty;
         public string ReviewerEmail { get; set; } = string.Empty;
         public string ReviewerName { get; set; } = string.Empty;
         public string RejectionComments { get; set; } = string.Empty;

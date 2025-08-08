@@ -91,6 +91,10 @@ public static class DependencyService
             x.AddConsumer<CompanyEmployeeConsumer>();
             x.AddConsumer<UserEmailConsumer>();
 
+            x.AddConsumer<GetDepartmentUsersConsumer>();
+            x.AddConsumer<GetUsersByRoleConsumer>();
+            x.AddConsumer<GetUserByIdConsumer>();
+
             x.UsingRabbitMq((context, cfg) =>
             {
                 var host = configuration["RabbitMQ:Host"] ?? "rabbitmq";
@@ -141,6 +145,26 @@ public static class DependencyService
                 cfg.ReceiveEndpoint("user-email-queue", e =>
                 {
                     e.ConfigureConsumer<UserEmailConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+                cfg.ReceiveEndpoint("get-department-users-queue", e =>
+                {
+                    e.ConfigureConsumer<GetDepartmentUsersConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                cfg.ReceiveEndpoint("get-users-by-role-queue", e =>
+                {
+                    e.ConfigureConsumer<GetUsersByRoleConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                cfg.ReceiveEndpoint("get-user-by-id-queue", e =>
+                {
+                    e.ConfigureConsumer<GetUserByIdConsumer>(context);
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
                     e.UseInMemoryOutbox();
                 });

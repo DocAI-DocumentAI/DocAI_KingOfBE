@@ -1,6 +1,7 @@
-﻿using System.Security.Claims;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
+using Notification.Api.Constants;
+using Notification.API.Attributes;
+using Notification.API.Constants;
 using Notification.API.Payload.Request;
 using Notification.API.Payload.Response;
 using Notification.API.Services.Interfaces;
@@ -8,70 +9,114 @@ using Notification.Infrastructure.Paginate;
 
 namespace Notification.API.Controllers;
 
+/// <summary>
+/// API quản lý thông báo - xem logs, dismiss notifications
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
-[Authorize]
+[Route(ApiEndpointConstant.ApiEndpoint)]
 public class NotificationController : ControllerBase
 {
     private readonly INotificationLogService _logService;
     private readonly INotificationService _notificationService;
+    private readonly IAuthorizationService _authService;
     private readonly ILogger<NotificationController> _logger;
+
     public NotificationController(
-           INotificationLogService logService,
-           INotificationService notificationService,
-           ILogger<NotificationController> logger)
+        INotificationLogService logService,
+        INotificationService notificationService,
+        IAuthorizationService authService,
+        ILogger<NotificationController> logger)
     {
         _logService = logService;
         _notificationService = notificationService;
+        _authService = authService;
         _logger = logger;
     }
-    [Authorize(Roles = "Admin,Manager")]
-    [HttpGet("logs")]
+
+    private string GetUserId()
+    {
+        return User.FindFirst("userId")?.Value ??
+               throw new UnauthorizedAccessException("User ID not found in token");
+    }
+
+    /// <summary>
+    /// Lấy danh sách notification logs - Admin/Manager xem tất cả, user khác chỉ xem của mình
+    /// </summary>
+    [HttpGet(ApiEndpointConstant.Notification.GetLogs)]
+    [CustomAuthorize]
     [ProducesResponseType(typeof(IPaginate<NotificationResponse>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetNotificationLogs([FromQuery] NotificationRequest request)
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetNotificationLogsAsync([FromQuery] NotificationRequest request)
     {
-        var logs = await _logService.GetNotificationLogsAsync(request);
-        return Ok(logs);
-    }
-    [AllowAnonymous]
-    [HttpGet("dismiss-by-token")]
-    [ProducesResponseType(typeof(string), StatusCodes.Status200OK, "text/html")]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> DismissNotificationByToken([FromQuery] Guid token)
-    {
-        if (token == Guid.Empty)
+        try
         {
-            return BadRequest("Invalid token format.");
+            // Only Admin and Manager can view all logs, others can only see their own
+            if (!_authService.HasAnyRole(Roles.Admin, Roles.Manager))
+            {
+                var currentUserEmail = User.FindFirst("email")?.Value;
+                if (!string.IsNullOrEmpty(currentUserEmail))
+                {
+                    request.Recipient = currentUserEmail;
+                }
+            }
+
+            var logs = await _logService.GetNotificationLogsAsync(request);
+            return Ok(logs);
         }
-
-        _logger.LogInformation("Processing dismiss request with token: {Token}", token);
-        var resultMessage = await _notificationService.DismissNotificationByTokenAsync(token);
-
-        var htmlResponse = $"<html><head><title>Notification Status</title><style>body{{font-family: sans-serif; text-align: center; padding-top: 50px;}}</style></head><body><h1>Notification Status</h1><p>{resultMessage}</p></body></html>";
-        return Content(htmlResponse, "text/html");
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get notification logs");
+            return Problem("Failed to retrieve notification logs");
+        }
     }
-    [Authorize(Roles = "Admin,Manager")]
-    [HttpPatch("logs/{logId:guid}/dismiss")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+
+    /// <summary>
+    /// Dismiss notification bằng user action
+    /// </summary>
+    [HttpPost(ApiEndpointConstant.Notification.Dismiss)]
+    [CustomAuthorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> DismissNotificationByUser(Guid logId)
+    public async Task<IActionResult> DismissNotificationAsync(Guid logId)
     {
-        // Lấy ID của người dùng đang thực hiện hành động từ JWT token
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out var userId))
+        try
         {
-            return Unauthorized("Invalid user identifier in token.");
+            var userId = Guid.Parse(GetUserId());
+            var success = await _notificationService.DismissNotificationByUserAsync(logId, userId);
+
+            if (!success)
+                return NotFound(MessageConstant.Notification.NotFound);
+
+            _logger.LogInformation("Notification dismissed: {LogId} by {UserId}", logId, userId);
+            return Ok(MessageConstant.Notification.DismissSuccess);
         }
-
-        _logger.LogInformation("User {UserId} attempting to dismiss notification log {LogId}", userId, logId);
-        var success = await _notificationService.DismissNotificationByUserAsync(logId, userId);
-
-        if (success)
+        catch (Exception ex)
         {
-            return NoContent();
+            _logger.LogError(ex, "Failed to dismiss notification {LogId}", logId);
+            return Problem("Failed to dismiss notification");
         }
+    }
 
-        return NotFound($"Notification log with ID {logId} not found or has already been dismissed.");
+    /// <summary>
+    /// Dismiss notification bằng token (từ email link) - không cần authentication
+    /// </summary>
+    [HttpGet(ApiEndpointConstant.Notification.DismissByToken)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> DismissNotificationByTokenAsync([FromQuery] Guid token)
+    {
+        try
+        {
+            var message = await _notificationService.DismissNotificationByTokenAsync(token);
+
+            _logger.LogInformation("Notification dismissed by token: {Token}", token);
+            return Ok(new { Message = message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to dismiss notification by token {Token}", token);
+            return Problem("Failed to dismiss notification");
+        }
     }
 }

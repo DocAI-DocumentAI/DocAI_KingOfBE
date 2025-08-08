@@ -42,6 +42,9 @@ public static class DependencyService
         {
             x.AddConsumer<UserRequestMessageConsumer>();
             x.AddConsumer<DocumentSearchConsumer>();
+            x.AddConsumer<GetExpiringDocumentsConsumer>();
+            x.AddConsumer<UpdateDocumentStatusConsumer>();
+            x.AddConsumer<DeactivateDocumentWarningsConsumer>();
 
             // Add request client for name lookup
             x.AddRequestClient<NameLookupRequest>(new Uri("queue:name-lookup-queue"));
@@ -73,6 +76,29 @@ public static class DependencyService
                     e.UseConcurrencyLimit(10);
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(2)));
                 });
+                cfg.ReceiveEndpoint("document-expiring-queue", e =>
+                {
+                    e.ConfigureConsumer<GetExpiringDocumentsConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                cfg.ReceiveEndpoint("document-status-update-queue", e =>
+                {
+                    e.ConfigureConsumer<UpdateDocumentStatusConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                cfg.ReceiveEndpoint("document-warnings-deactivate-queue", e =>
+                {
+                    e.ConfigureConsumer<DeactivateDocumentWarningsConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                cfg.ConfigureEndpoints(context);
+
             });
         });
 
@@ -107,6 +133,8 @@ public static class DependencyService
 
         services.AddScoped<IDocumentRAGService, DocumentRAGService>();
         services.AddScoped<IDocumentNotificationService, DocumentNotificationService>();
+        services.AddScoped<IDocumentExpirationService, DocumentExpirationService>();
+
 
         return services;
     } 
