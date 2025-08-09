@@ -207,7 +207,7 @@ public class DocumentService : IDocumentService
         {
             documentToReplace = await _unitOfWork.GetRepository<DocumentFile>()
                 .SingleOrDefaultAsync(
-                    predicate: d => d.Id.ToString() == request.ReplacementDocumentId,
+                    predicate: d => d.Id == request.ReplacementDocumentId,
                     include: i => i.Include(d => d.DocumentVersions)
                 ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
 

@@ -3,6 +3,7 @@ using Document.API.Services.Interfaces;
 using Document.Domain.Enums;
 using Document.Domain.Models;
 using Document.Infrastructure.Repository.Interfaces;
+using DocumentFormat.OpenXml.Office2010.Word;
 using Microsoft.EntityFrameworkCore;
 using Shared.Models;
 
@@ -61,7 +62,7 @@ namespace Document.API.Services.Implements
             return result;
         }
 
-        public async Task<bool> UpdateDocumentStatusAsync(Guid documentId, string version, string newStatus)
+        public async Task<bool> UpdateDocumentStatusAsync(string documentId, string version, string newStatus)
         {
             _logger.LogInformation("Updating document {DocumentId} version {Version} to status {NewStatus}",
                 documentId, version, newStatus);
@@ -70,7 +71,7 @@ namespace Document.API.Services.Implements
             {
                 var document = await _unitOfWork.GetRepository<DocumentVersion>()
                     .SingleOrDefaultAsync(
-                        predicate: dv => dv.DocumentFile.Id == documentId.ToString() &&
+                        predicate: dv => dv.DocumentFile.Id == documentId &&
                                         dv.VersionName == version,
                         include: i => i.Include(dv => dv.DocumentFile)
                     );
@@ -107,7 +108,7 @@ namespace Document.API.Services.Implements
             }
         }
 
-        public async Task<bool> DeactivateDocumentWarningsAsync(Guid documentId, string version)
+        public async Task<bool> DeactivateDocumentWarningsAsync(string documentId, string version)
         {
             _logger.LogInformation("Deactivating warnings for document {DocumentId} version {Version}",
                 documentId, version);
@@ -118,7 +119,7 @@ namespace Document.API.Services.Implements
                 // This could involve updating a flag or creating a record
                 var document = await _unitOfWork.GetRepository<DocumentVersion>()
                     .SingleOrDefaultAsync(
-                        predicate: dv => dv.DocumentFile.Id == documentId.ToString() &&
+                        predicate: dv => dv.DocumentFile.Id == documentId &&
                                         dv.VersionName == version
                     );
 
