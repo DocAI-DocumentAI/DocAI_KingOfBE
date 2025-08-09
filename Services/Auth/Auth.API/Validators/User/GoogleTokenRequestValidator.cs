@@ -1,6 +1,6 @@
 using FluentValidation;
 using Auth.API.Payload.Request.User;
-using Auth.API.DTOs.Request;
+using Auth.API.Payload.Request.GG;
 
 namespace Auth.API.Validators.User;
 
