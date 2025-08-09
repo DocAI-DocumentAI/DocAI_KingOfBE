@@ -1,4 +1,4 @@
-namespace Auth.API.DTOs.Response;
+namespace Auth.API.Payload.Response.GG;
 
 public class GoogleAuthUrlResponse
 {

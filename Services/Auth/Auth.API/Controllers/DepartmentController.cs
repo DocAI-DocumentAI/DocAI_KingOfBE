@@ -26,6 +26,9 @@ public class DepartmentController : ControllerBase
         _logger = logger;
     }
 
+    /// <summary>
+    /// Lấy danh sách tất cả phòng ban có phân trang và bộ lọc
+    /// </summary>
     [HttpGet(ApiEndPointConstant.Department.Departments)]
     [SkipRateLimit]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
@@ -39,6 +42,9 @@ public class DepartmentController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Lấy thông tin chi tiết của một phòng ban theo ID
+    /// </summary>
     [HttpGet(ApiEndPointConstant.Department.DepartmentInformation + "/{departmentId}")]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status200OK)]
@@ -50,6 +56,9 @@ public class DepartmentController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Tạo một phòng ban mới
+    /// </summary>
     [HttpPost(ApiEndPointConstant.Department.CreateDepartment)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status201Created)]
@@ -68,6 +77,9 @@ public class DepartmentController : ControllerBase
         return Created($"{ApiEndPointConstant.Department.DepartmentInformation}/{response.Id}", response);
     }
 
+    /// <summary>
+    /// Cập nhật thông tin một phòng ban đã có theo ID
+    /// </summary>
     [HttpPatch(ApiEndPointConstant.Department.UpdateDepartment)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status200OK)]
@@ -87,6 +99,9 @@ public class DepartmentController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Xóa một phòng ban theo ID
+    /// </summary>
     [HttpDelete(ApiEndPointConstant.Department.DeleteDepartment)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(DepartmentResponse), StatusCodes.Status200OK)]

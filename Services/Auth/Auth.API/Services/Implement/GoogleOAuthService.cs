@@ -1,8 +1,8 @@
 using System.Text.Json;
-using Auth.API.DTOs.Request;
-using Auth.API.DTOs.Response;
+using Auth.API.Payload.Request.GG;
 using Auth.API.Payload.Response;
 using Auth.API.Payload.Response.Department;
+using Auth.API.Payload.Response.GG;
 using Auth.API.Payload.Response.Permission;
 using Auth.API.Payload.Response.Role;
 using Auth.API.Payload.Response.UserSetting;
@@ -38,27 +38,6 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
         _clientId = configuration["GoogleOAuth:ClientId"] ?? throw new InvalidOperationException("GoogleOAuth:ClientId is missing");
         _clientSecret = configuration["GoogleOAuth:ClientSecret"] ?? throw new InvalidOperationException("GoogleOAuth:ClientSecret is missing");
         _redirectUri = configuration["GoogleOAuth:RedirectUri"] ?? throw new InvalidOperationException("GoogleOAuth:RedirectUri is missing");
-    }
-
-    public async Task<GoogleAuthUrlResponse> GetAuthUrlAsync()
-    {
-        var state = Guid.NewGuid().ToString();
-        var scopes = "openid email profile";
-
-        var authUrl = $"https://accounts.google.com/o/oauth2/v2/auth?" +
-                     $"client_id={_clientId}&" +
-                     $"redirect_uri={Uri.EscapeDataString(_redirectUri)}&" +
-                     $"scope={Uri.EscapeDataString(scopes)}&" +
-                     $"response_type=code&" +
-                     $"state={state}&" +
-                     $"access_type=offline&" +
-                     $"prompt=consent";
-
-        return new GoogleAuthUrlResponse
-        {
-            AuthUrl = authUrl,
-            State = state
-        };
     }
 
     public async Task<GoogleOAuthResponse> AuthenticateWithGoogleAsync(GoogleOAuthRequest request)
@@ -424,7 +403,7 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
             RequirePasswordChange = false
         };
     }
-    
+
     public async Task<string> HandleGoogleCallbackAndGenerateRedirectUrlAsync(GoogleOAuthRequest request)
     {
         // 1. Gọi logic xác thực hiện có của bạn
@@ -442,11 +421,11 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
         );
 
         // 3. Tạo đối tượng LoginResponse
-        var loginResponse = CreateGoogleOAuthResponse(user, userSetting, 
-            authResponse.DocaiToken, 
+        var loginResponse = CreateGoogleOAuthResponse(user, userSetting,
+            authResponse.DocaiToken,
             authResponse.DocaiRefreshToken,
             authResponse.GoogleAccessToken,
-            authResponse.GoogleRefreshToken 
+            authResponse.GoogleRefreshToken
         );
 
         // 4. Tạo code sử dụng một lần và key cho Redis
@@ -463,7 +442,7 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
         var frontendCallbackUrl = _configuration["FrontEnd:GoogleCallbackUrl"];
         return $"{frontendCallbackUrl}?code={oneTimeCode}";
     }
-    
+
     public async Task<LoginResponse> ExchangeCodeForLoginResponseAsync(string code)
     {
         var redisKey = $"google-auth-code:{code}";

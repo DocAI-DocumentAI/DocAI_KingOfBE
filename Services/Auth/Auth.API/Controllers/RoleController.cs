@@ -1,4 +1,4 @@
-using Auth.API.Attributes;
+﻿using Auth.API.Attributes;
 using Auth.API.Constants;
 using Auth.API.Payload.Request.Role;
 using Auth.API.Payload.Response.Role;
@@ -23,6 +23,9 @@ public class RoleController : ControllerBase
         _logger = logger;
     }
 
+    /// <summary>
+    /// Lấy danh sách tất cả vai trò có phân trang và bộ lọc
+    /// </summary>
     [HttpGet(ApiEndPointConstant.Role.Roles)]
     [SkipRateLimit]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
@@ -34,6 +37,9 @@ public class RoleController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Lấy thông tin chi tiết của một vai trò theo ID
+    /// </summary>
     [HttpGet(ApiEndPointConstant.Role.RoleInformation + "/{roleId}")]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status200OK)]
@@ -43,6 +49,9 @@ public class RoleController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Tạo một vai trò mới
+    /// </summary>
     [HttpPost(ApiEndPointConstant.Role.CreateRole)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status201Created)]
@@ -59,6 +68,9 @@ public class RoleController : ControllerBase
         return Created($"{ApiEndPointConstant.Role.RoleInformation}/{response.Id}", response);
     }
 
+    /// <summary>
+    /// Cập nhật thông tin một vai trò đã có theo ID
+    /// </summary>
     [HttpPatch(ApiEndPointConstant.Role.UpdateRole)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RoleResponse), StatusCodes.Status200OK)]
@@ -75,6 +87,9 @@ public class RoleController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Xóa một vai trò theo ID
+    /// </summary>
     [HttpDelete(ApiEndPointConstant.Role.DeleteRole)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

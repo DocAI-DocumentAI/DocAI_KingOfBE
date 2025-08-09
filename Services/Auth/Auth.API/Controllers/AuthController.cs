@@ -4,10 +4,10 @@ using System.Reflection.Metadata.Ecma335;
 using System.Threading.Tasks;
 using Auth.API.Attributes;
 using Auth.API.Constants;
-using Auth.API.DTOs.Request;
 using Auth.API.Payload.Request;
 using Auth.API.Payload.Request.ActiveKey;
 using Auth.API.Payload.Request.Auth;
+using Auth.API.Payload.Request.GG;
 using Auth.API.Payload.Request.User;
 using Auth.API.Payload.Response;
 using Auth.API.Payload.Response.Auth;
@@ -46,7 +46,9 @@ public class AuthController : ControllerBase
         _redisService = redisService ?? throw new ArgumentNullException(nameof(redisService));
         _googleOAuthService = googleOAuthService ?? throw new ArgumentNullException(nameof(googleOAuthService));
     }
-
+    /// <summary>
+    /// Login
+    /// </summary>
     [HttpPost(ApiEndPointConstant.User.Login)]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status400BadRequest)]
@@ -62,7 +64,9 @@ public class AuthController : ControllerBase
         _logger.LogInformation($"Login succeeded with {request.Email}");
         return Ok(response);
     }
-
+    /// <summary>
+    /// Tạo tài khoản của user
+    /// </summary>
     [HttpPost(ApiEndPointConstant.User.CreateUser)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
@@ -81,7 +85,9 @@ public class AuthController : ControllerBase
     }
 
 
-
+    /// <summary>
+    /// Láy mã OTP
+    /// </summary>
     [HttpPost(ApiEndPointConstant.User.SendOtp)]
     [ProducesResponseType(typeof(string), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
@@ -95,7 +101,9 @@ public class AuthController : ControllerBase
 
         return CreatedAtAction(nameof(SendOtp), result);
     }
-
+    /// <summary>
+    /// Thay đổi Roel cho user
+    /// </summary>
     [HttpPatch(ApiEndPointConstant.User.ChangeRole)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(UserRoleChangeResponse), StatusCodes.Status200OK)]
@@ -125,7 +133,9 @@ public class AuthController : ControllerBase
             return Problem(ex.Message);
         }
     }
-
+    /// <summary>
+    /// Thay đổi Department cho user
+    /// </summary>
     [HttpPatch(ApiEndPointConstant.User.ChangeDepartment)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(ChangeDepartmentResponse), StatusCodes.Status200OK)]
@@ -181,6 +191,10 @@ public class AuthController : ControllerBase
     //     }
     // }
 
+
+    /// <summary>
+    /// Lấy toàn bộ user có filter
+    /// </summary>    
     [HttpGet(ApiEndPointConstant.User.Users)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [SkipRateLimit]
@@ -208,6 +222,9 @@ public class AuthController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Logout user
+    /// </summary>
     [HttpPost(ApiEndPointConstant.User.Logout)]
     [CustomAuthorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -241,6 +258,9 @@ public class AuthController : ControllerBase
         return Ok(new { message = "Logged out successfully" });
     }
 
+    /// <summary>
+    /// Login GG with GG token
+    /// </summary>
     [HttpPost(ApiEndPointConstant.User.GoogleLogin)]
     [ProducesResponseType(typeof(GoogleOAuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(GoogleOAuthResponse), StatusCodes.Status400BadRequest)]
@@ -257,47 +277,53 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Login GG callback
+    /// </summary>
     [HttpGet(ApiEndPointConstant.User.GoogleCallback)]
     public async Task<IActionResult> GoogleCallback(string code, string state = null)
-{
-    if (string.IsNullOrEmpty(code))
     {
-        // Nếu không có code, chuyển hướng về trang lỗi của frontend
-        var errorUrl = _configuration["FrontEnd:ErrorUrl"] ?? "https://docai.asia/error";
-        return Redirect($"{errorUrl}?message=auth_code_missing");
+        if (string.IsNullOrEmpty(code))
+        {
+            // Nếu không có code, chuyển hướng về trang lỗi của frontend
+            var errorUrl = _configuration["FrontEnd:ErrorUrl"] ?? "https://docai.asia/error";
+            return Redirect($"{errorUrl}?message=auth_code_missing");
+        }
+
+        try
+        {
+            // 1. Tạo request object để truyền vào service
+            var googleRequest = new GoogleOAuthRequest { Code = code, State = state };
+
+            // 2. GỌI HÀM SERVICE ĐÚNG:
+            // Hàm này sẽ xử lý code từ Google, tạo one-time-code mới
+            // và trả về một URL hoàn chỉnh để redirect về frontend.
+            var redirectUrl = await _googleOAuthService.HandleGoogleCallbackAndGenerateRedirectUrlAsync(googleRequest);
+
+            // 3. THỰC HIỆN CHUYỂN HƯỚNG:
+            // Đây là bước quan trọng nhất. Trình duyệt sẽ nhận lệnh này và
+            // tự động điều hướng đến URL của frontend.
+            // URL sẽ có dạng: "https://docai.asia/auth/callback?code=..."
+            return Redirect(redirectUrl);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // Xử lý lỗi nếu người dùng không được phép
+            var frontendLoginUrl = _configuration["FrontEnd:LoginUrl"] ?? "https://docai.asia/login";
+            return Redirect($"{frontendLoginUrl}?error={Uri.EscapeDataString(ex.Message)}");
+        }
+        catch (Exception ex)
+        {
+            // Xử lý các lỗi server khác
+            _logger.LogError(ex, "An error occurred during Google OAuth callback processing.");
+            var frontendErrorUrl = _configuration["FrontEnd:ErrorUrl"] ?? "https://docai.asia/error";
+            return Redirect($"{frontendErrorUrl}?message=server_error");
+        }
     }
 
-    try
-    {
-        // 1. Tạo request object để truyền vào service
-        var googleRequest = new GoogleOAuthRequest { Code = code, State = state };
-
-        // 2. GỌI HÀM SERVICE ĐÚNG:
-        // Hàm này sẽ xử lý code từ Google, tạo one-time-code mới
-        // và trả về một URL hoàn chỉnh để redirect về frontend.
-        var redirectUrl = await _googleOAuthService.HandleGoogleCallbackAndGenerateRedirectUrlAsync(googleRequest);
-
-        // 3. THỰC HIỆN CHUYỂN HƯỚNG:
-        // Đây là bước quan trọng nhất. Trình duyệt sẽ nhận lệnh này và
-        // tự động điều hướng đến URL của frontend.
-        // URL sẽ có dạng: "https://docai.asia/auth/callback?code=..."
-        return Redirect(redirectUrl);
-    }
-    catch (UnauthorizedAccessException ex)
-    {
-        // Xử lý lỗi nếu người dùng không được phép
-        var frontendLoginUrl = _configuration["FrontEnd:LoginUrl"] ?? "https://docai.asia/login";
-        return Redirect($"{frontendLoginUrl}?error={Uri.EscapeDataString(ex.Message)}");
-    }
-    catch (Exception ex)
-    {
-        // Xử lý các lỗi server khác
-        _logger.LogError(ex, "An error occurred during Google OAuth callback processing.");
-        var frontendErrorUrl = _configuration["FrontEnd:ErrorUrl"] ?? "https://docai.asia/error";
-        return Redirect($"{frontendErrorUrl}?message=server_error");
-    }
-}
-    
+    /// <summary>
+    /// Lấy thông tin của user từ code login 
+    /// </summary>
     [HttpPost("exchange-code")]
     public async Task<IActionResult> ExchangeCode([FromBody] ExchangeCodeRequest request)
     {
@@ -317,6 +343,9 @@ public class AuthController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Lấy URL để tiến hành login GG
+    /// </summary>
     [HttpGet(ApiEndPointConstant.User.GoogleAuthUrl)]
     [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
     public IActionResult GetGoogleAuthUrl(string state = null)
@@ -340,6 +369,9 @@ public class AuthController : ControllerBase
         return Ok(new { success = result });
     }
 
+    /// <summary>
+    /// Lấy Refresh token của GG
+    /// </summary>
     [HttpPost(ApiEndPointConstant.User.GoogleRefreshToken)]
     [ProducesResponseType(typeof(RefreshTokenResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -356,6 +388,9 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Dổi mật khẩu cho lần đầu login thường
+    /// </summary>
     [HttpPatch(ApiEndPointConstant.User.ChangePassword)]
     [CustomAuthorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -379,6 +414,9 @@ public class AuthController : ControllerBase
         return Ok(new { message = "Password changed successfully" });
     }
 
+    /// <summary>
+    /// Cập nhật thoogn tin của user
+    /// </summary>
     [HttpPatch(ApiEndPointConstant.User.AdminUpdateUser)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(UserResponse), StatusCodes.Status200OK)]
@@ -390,6 +428,9 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Cập nhật thông tin của chính mình
+    /// </summary>
     [HttpPatch(ApiEndPointConstant.User.UpdateProfile)]
     [CustomAuthorize]
     [ProducesResponseType(typeof(UserResponse), StatusCodes.Status200OK)]
@@ -400,6 +441,9 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Cập nhật setting của mình
+    /// </summary>
     [HttpPatch(ApiEndPointConstant.User.UpdateSettings)]
     [CustomAuthorize]
     [ProducesResponseType(typeof(UserSettingResponse), StatusCodes.Status200OK)]
@@ -410,6 +454,9 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Lấy user bằng id
+    /// </summary>
     [HttpGet(ApiEndPointConstant.User.GetUserById)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(UserResponse), StatusCodes.Status200OK)]

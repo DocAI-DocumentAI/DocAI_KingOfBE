@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Auth.API.Controllers;
 
 [ApiController]
-[Route(ApiEndPointConstant.UserPermission.UserPermissions)]
+[Route(ApiEndPointConstant.ApiEndpoint)]
 public class UserPermissionController : ControllerBase
 {
     private readonly IUserPermissionService _userPermissionService;
@@ -20,6 +20,9 @@ public class UserPermissionController : ControllerBase
         _userPermissionService = userPermissionService;
     }
 
+    /// <summary>
+    /// Gán một quyền cụ thể cho người dùng.
+    /// </summary>
     [HttpPost(ApiEndPointConstant.UserPermission.AddPermissionToUser)]
     public async Task<IActionResult> AddPermissionToUser([FromBody] AddUserPermissionRequest request)
     {
@@ -27,6 +30,9 @@ public class UserPermissionController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Xóa một quyền đã được gán cho người dùng.
+    /// </summary>
     [HttpDelete(ApiEndPointConstant.UserPermission.RemovePermissionFromUser)]
     public async Task<IActionResult> RemovePermissionFromUser(Guid userId, Guid permissionId)
     {
@@ -34,6 +40,9 @@ public class UserPermissionController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Lấy danh sách các quyền của một người dùng cụ thể.
+    /// </summary>
     [HttpGet(ApiEndPointConstant.UserPermission.UserPermissions)]
     public async Task<IActionResult> GetUserPermissions(Guid userId)
     {

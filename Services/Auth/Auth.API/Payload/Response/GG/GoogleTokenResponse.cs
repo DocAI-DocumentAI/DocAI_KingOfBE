@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Auth.API.DTOs.Response;
+namespace Auth.API.Payload.Response.GG;
 
 public class GoogleTokenResponse
 {

@@ -1,4 +1,4 @@
-namespace Auth.API.DTOs.Request;
+namespace Auth.API.Payload.Request.GG;
 
 public class GoogleTokenRequest
 {

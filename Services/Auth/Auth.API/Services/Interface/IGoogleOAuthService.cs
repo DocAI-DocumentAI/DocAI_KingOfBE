@@ -1,6 +1,5 @@
 using System.Threading.Tasks;
-using Auth.API.DTOs.Request;
-using Auth.API.DTOs.Response;
+using Auth.API.Payload.Request.GG;
 using Auth.API.Payload.Response;
 
 namespace Auth.API.Services.Interface;
@@ -9,7 +8,6 @@ public interface IGoogleOAuthService
 {
     Task<GoogleTokenValidationResult> ValidateGoogleTokenAsync(string googleToken);
     Task<(string accessToken, string refreshToken)?> RefreshGoogleTokenAsync(string refreshToken);
-    Task<GoogleAuthUrlResponse> GetAuthUrlAsync();
     Task<GoogleOAuthResponse> AuthenticateWithGoogleAsync(GoogleOAuthRequest request);
     Task<bool> RevokeGoogleTokenAsync(string userId);
     string GetGoogleAuthUrl(string state = null);

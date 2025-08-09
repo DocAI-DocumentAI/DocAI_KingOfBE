@@ -26,6 +26,9 @@ public class PermissionController : ControllerBase
         _logger = logger;
     }
 
+    /// <summary>
+    /// Lấy danh sách tất cả quyền có phân trang và bộ lọc
+    /// </summary>
     [HttpGet(ApiEndPointConstant.Permission.Permissions)]
     [SkipRateLimit]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
@@ -39,6 +42,9 @@ public class PermissionController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Lấy thông tin chi tiết của một quyền theo ID
+    /// </summary>
     [HttpGet(ApiEndPointConstant.Permission.PermissionInformation + "/{permissionId}")]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status200OK)]
@@ -50,6 +56,9 @@ public class PermissionController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Tạo một quyền mới
+    /// </summary>
     [HttpPost(ApiEndPointConstant.Permission.CreatePermission)]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status201Created)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
@@ -68,6 +77,9 @@ public class PermissionController : ControllerBase
         return Created($"{ApiEndPointConstant.Permission.PermissionInformation}/{response.Id}", response);
     }
 
+    /// <summary>
+    /// Cập nhật thông tin một quyền đã có theo ID
+    /// </summary>
     [HttpPatch(ApiEndPointConstant.Permission.UpdatePermission)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status200OK)]
@@ -87,6 +99,9 @@ public class PermissionController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Xóa một quyền theo ID
+    /// </summary>
     [HttpDelete(ApiEndPointConstant.Permission.DeletePermission)]
     [CustomAuthorize(Roles = new[] { Roles.Admin })]
     [ProducesResponseType(typeof(PermissionResponse), StatusCodes.Status200OK)]
