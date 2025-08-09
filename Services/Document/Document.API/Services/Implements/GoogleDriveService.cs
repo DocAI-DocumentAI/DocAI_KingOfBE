@@ -310,12 +310,35 @@ namespace Document.API.Services.Implements
                     EmailAddress = userEmail
                 };
 
+                // First attempt: try without notification email
                 var request = driveService.Permissions.Create(permission, fileId);
                 request.SendNotificationEmail = false;
 
-                await ExecuteWithRetryAsync(async () => await request.ExecuteAsync());
+                try
+                {
+                    await ExecuteWithRetryAsync(async () => await request.ExecuteAsync());
+                    _logger.LogInformation("Access granted successfully to user '{UserEmail}' for file '{FileId}'", userEmail, fileId);
+                }
+                catch (GoogleApiException gex) when (gex.Error?.Errors?.Any(e => e.Reason == "invalidSharingRequest") == true)
+                {
+                    // User doesn't have a Google account, try with notification email
+                    _logger.LogWarning("User '{UserEmail}' doesn't have a Google account, retrying with notification email", userEmail);
 
-                _logger.LogInformation("Access granted successfully to user '{UserEmail}' for file '{FileId}'", userEmail, fileId);
+                    var retryRequest = driveService.Permissions.Create(permission, fileId);
+                    retryRequest.SendNotificationEmail = true;
+
+                    try
+                    {
+                        await ExecuteWithRetryAsync(async () => await retryRequest.ExecuteAsync());
+                        _logger.LogInformation("Access granted successfully to user '{UserEmail}' for file '{FileId}' with notification email", userEmail, fileId);
+                    }
+                    catch (Exception retryEx)
+                    {
+                        _logger.LogWarning(retryEx, "Failed to grant access to user '{UserEmail}' for file '{FileId}' even with notification email. Skipping this user.", userEmail, fileId);
+                        // Don't throw - continue with other users
+                        return;
+                    }
+                }
             }
             catch (Exception ex)
             {

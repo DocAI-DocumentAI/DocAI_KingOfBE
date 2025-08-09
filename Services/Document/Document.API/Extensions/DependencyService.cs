@@ -22,6 +22,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
 using System.Text;
+using static System.Net.WebRequestMethods;
 
 
 
@@ -223,6 +224,7 @@ public static class DependencyService
         var openAITextEmbeddingConfig = new OpenAIConfig
         {
             EmbeddingModel = openAIConfig.EmbeddingModel,
+            Endpoint = "https://gpt1.shupremium.com/v1",
             APIKey = openAIConfig.APIKey
         };
 

@@ -15,18 +15,32 @@ public static class AiPromptConstant
         /// </summary>
         public const string MetadataExtractionPrompt = @"Phân tích tài liệu và trả về một đối tượng JSON duy nhất với các khóa sau:
 - ""title"": string — tiêu đề chính thức của tài liệu.
-- ""versionName"": string — mã số/số hiệu tài liệu. Tìm kiếm cẩn thận ở phần đầu/tiêu đề tài liệu các mẫu như:
-  * ""Luật số: 80/2025/QH15"" (Số luật)
-  * ""Nghị định số: 123/2024/NĐ-CP"" (Số nghị định)
-  * ""Thông tư số: 45/2023/TT-BTC"" (Số thông tư)
-  * ""Quyết định số: 789/2024/QĐ-TTg"" (Số quyết định)
-  * ""Chỉ thị số: 15/2024/CT-TTg"" (Số chỉ thị)
-  Trích xuất đầy đủ mã định danh bao gồm tất cả tiền tố và hậu tố. Thông tin này thường ở những dòng đầu tiên của tài liệu.
+- ""versionName"": string — mã số/số hiệu tài liệu (bao gồm loại văn bản + mã/ký hiệu).
+  Vị trí: thường ở 10–25 dòng đầu tiên, trong phần tiêu đề/đầu trang.
+  Mẫu thường gặp (không giới hạn):
+  * ""Luật số: 80/2025/QH15""
+  * ""Nghị định số: 123/2024/NĐ-CP""
+  * ""Thông tư số 45/2023/TT-BTC""
+  * ""Quyết định số: 789/2024/QĐ-TTg""
+  * ""Chỉ thị số: 15/2024/CT-TTg""
+  * ""Công văn số: 123/UBND-TH""
+  * ""QCVN 01:2023/BYT"", ""TCVN 7450:2004""
+  * ""Decision No. 12/2023/QD-TTg"", ""Decree No. 10/2024/ND-CP"", ""Circular No. 45/2023/TT-BTC""
+  Quy tắc trích xuất:
+  * Bao gồm đầy đủ tiền tố loại văn bản và từ ""số"" (nếu có) cùng toàn bộ mã/ký hiệu.
+  * KHÔNG kèm phần mô tả/đơn vị phát hành theo sau (vd: ""của Bộ Tài chính"", ""ban hành kèm theo..."" ).
+  * Không nhầm với ngày tháng (dd/mm/yyyy, yyyy-mm-dd) hoặc số trang.
+  * Nếu có nhiều mã, ưu tiên mã xuất hiện sớm nhất ở phần đầu tài liệu.
 - ""description"": string — Tạo mô tả rõ ràng, ngắn gọn (2-3 câu) giải thích tài liệu này về gì, mục đích chính và đối tượng ảnh hưởng. Tập trung vào mục tiêu và phạm vi của tài liệu.
-- ""signedBy"": string — Tìm tên người ký tài liệu này. Tìm ở CUỐI tài liệu trong phần chữ ký với các cụm từ như:
-  * ""Ký tên:"", ""Thay mặt:"", ""Bộ trưởng:"", ""Thủ tướng:"", ""Chủ tịch:"", ""Giám đốc:"", ""Tổng Giám đốc:""
-  * Tiếng Anh: ""Signed by:"", ""Director:"", ""Minister:"", ""Prime Minister:"", ""Chairman:""
-  Chỉ trích xuất tên người, không bao gồm chức danh.
+- ""signedBy"": string — người ký văn bản ở phần CUỐI tài liệu (khối chữ ký). Bao gồm tên và (nếu có) chức danh.
+  Dấu hiệu: ""Ký tên:"", ""Người ký:"", ""Bộ trưởng:"", ""Thủ tướng:"", ""Chủ tịch:"", ""Giám đốc:"", ""Tổng Giám đốc:"", các tiền tố ""KT."", ""TM."", ""TL.""; tiếng Anh: ""Signed by:"", ""Director:"", ""Minister:"", ""Prime Minister:"", ""Chairman:"".
+  Quy tắc trích xuất:
+  * Nếu thấy mẫu ""<Chức danh>: <Tên>"", trả về ""<Tên> (<Chức danh>)"".
+  * Với ""KT.""/""TM.""/""TL."": bỏ tiền tố này; nếu tên nằm cùng dòng hoặc ngay dưới chức danh, trả về ""<Tên> (<Chức danh>)"".
+  * Nếu chỉ có chức danh mà không rõ tên, trả về chính chức danh.
+  * Bỏ các cụm không phải tên: ""Đã ký"", ""Đã ký điện tử"", ""Ký thay"", ""Nơi nhận"", ngày tháng, dấu mộc.
+  * Ưu tiên tên viết HOA gần các chỉ dấu chữ ký; nếu nhiều tên, chọn tên sát chỉ dấu nhất.
+  Ví dụ: ""Nguyễn Văn A (Bộ trưởng)"", ""Trần Thị B (Giám đốc)"", ""John Doe (Chairman)"", ""Chủ tịch UBND tỉnh: Lê Văn C"".
 - ""summary"": string — tóm tắt có cấu trúc toàn diện với các điểm chính và phần bao gồm Điểm Chính, Chi Tiết Quan Trọng, Hành Động Cần Thực Hiện, và Kết Luận (tương tự định dạng Google NotebookLM).
 - ""effectiveFrom"": 'yyyy-MM-dd' (hoặc null).
 - ""effectiveUntil"": 'yyyy-MM-dd' (hoặc null).

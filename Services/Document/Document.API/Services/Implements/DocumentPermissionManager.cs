@@ -128,13 +128,25 @@ namespace Document.API.Services.Implements
             try
             {
                 var allEmployeeEmails = await GetAllCompanyEmployeeEmailsAsync();
-                
+                var successCount = 0;
+                var failureCount = 0;
+
                 foreach (var email in allEmployeeEmails)
                 {
-                    await _googleDriveService.GrantUserAccessAsync(fileId, email, "reader");
+                    try
+                    {
+                        await _googleDriveService.GrantUserAccessAsync(fileId, email, "reader");
+                        successCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to grant access to employee '{Email}' for file {FileId}. Continuing with other employees.", email, fileId);
+                        failureCount++;
+                    }
                 }
 
-                _logger.LogInformation("Granted access to {Count} company employees for file {FileId}", allEmployeeEmails.Count, fileId);
+                _logger.LogInformation("Granted access to {SuccessCount}/{TotalCount} company employees for file {FileId} (Failed: {FailureCount})",
+                    successCount, allEmployeeEmails.Count, fileId, failureCount);
             }
             catch (Exception ex)
             {
@@ -153,13 +165,25 @@ namespace Document.API.Services.Implements
             try
             {
                 var departmentEmails = await GetDepartmentEmployeeEmailsAsync(departmentId);
-                
+                var successCount = 0;
+                var failureCount = 0;
+
                 foreach (var email in departmentEmails)
                 {
-                    await _googleDriveService.GrantUserAccessAsync(fileId, email, "reader");
+                    try
+                    {
+                        await _googleDriveService.GrantUserAccessAsync(fileId, email, "reader");
+                        successCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to grant access to employee '{Email}' for file {FileId}. Continuing with other employees.", email, fileId);
+                        failureCount++;
+                    }
                 }
 
-                _logger.LogInformation("Granted access to {Count} department employees for file {FileId}", departmentEmails.Count, fileId);
+                _logger.LogInformation("Granted access to {SuccessCount}/{TotalCount} department employees for file {FileId} (Failed: {FailureCount})",
+                    successCount, departmentEmails.Count, fileId, failureCount);
             }
             catch (Exception ex)
             {
@@ -178,13 +202,25 @@ namespace Document.API.Services.Implements
             try
             {
                 var managerEmails = await GetDepartmentManagerEmailsAsync(departmentId);
-                
+                var successCount = 0;
+                var failureCount = 0;
+
                 foreach (var email in managerEmails)
                 {
-                    await _googleDriveService.GrantUserAccessAsync(fileId, email, "reader");
+                    try
+                    {
+                        await _googleDriveService.GrantUserAccessAsync(fileId, email, "reader");
+                        successCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to grant access to manager '{Email}' for file {FileId}. Continuing with other managers.", email, fileId);
+                        failureCount++;
+                    }
                 }
 
-                _logger.LogInformation("Granted access to {Count} department managers for file {FileId}", managerEmails.Count, fileId);
+                _logger.LogInformation("Granted access to {SuccessCount}/{TotalCount} department managers for file {FileId} (Failed: {FailureCount})",
+                    successCount, managerEmails.Count, fileId, failureCount);
             }
             catch (Exception ex)
             {
