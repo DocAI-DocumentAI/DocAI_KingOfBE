@@ -3,6 +3,7 @@ using AutoMapper;
 using ChatBox.API.Payload.Request;
 using ChatBox.API.Payload.Response;
 using ChatBox.Domain.Models;
+using Shared.DTOs;
 
 namespace ChatBox.API.Mappers
 {
@@ -32,6 +33,7 @@ namespace ChatBox.API.Mappers
             CreateMap<SetMultipleModelsRequest, List<string>>()
                 .ConvertUsing(src => src.ModelNames);
 
+            CreateMap<ChatBoxDocumentSource, DocumentInfo>();
 
         }
     }

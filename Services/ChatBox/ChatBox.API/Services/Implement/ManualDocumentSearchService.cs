@@ -1,4 +1,5 @@
-﻿using ChatBox.API.Services.Interfaces;
+﻿using ChatBox.API.Payload.Response;
+using ChatBox.API.Services.Interfaces;
 
 namespace ChatBox.API.Services.Implement
 {
@@ -6,77 +7,107 @@ namespace ChatBox.API.Services.Implement
     {
         private readonly IDocumentSearchService _documentSearchService;
         private readonly ILogger<ManualDocumentSearchService> _logger;
+        private readonly ICacheService _cacheService;
 
         public ManualDocumentSearchService(
             IDocumentSearchService documentSearchService,
-            ILogger<ManualDocumentSearchService> logger)
+            ILogger<ManualDocumentSearchService> logger,
+            ICacheService cacheService)
         {
             _documentSearchService = documentSearchService;
             _logger = logger;
+            _cacheService = cacheService;
         }
 
+        /// <summary>
+        /// ✅ UPDATED: Get raw document content instead of processed answer
+        /// </summary>
         public async Task<string> SearchAndAnswerAsync(string query, string userId)
         {
             try
             {
-                _logger.LogInformation("🔍 [AUTO] Searching documents for: {Query}", query);
-                Console.WriteLine($"🔍 [AUTO] Auto document search for: {query}");
+                var simplifiedQuery = SimplifyQueryForCache(query);
+                var cacheKey = $"doc_raw_minimal_{simplifiedQuery.GetHashCode()}_{userId}";
 
-                var result = await _documentSearchService.GetRAGAnswerWithSourcesAsync(query, userId);
-
-                if (!string.IsNullOrEmpty(result) &&
-                    !result.Contains("Xin lỗi, tôi không tìm thấy thông tin"))
+                var cached = await _cacheService.GetStringAsync(cacheKey);
+                if (!string.IsNullOrEmpty(cached))
                 {
-                    _logger.LogInformation("✅ [AUTO] Found document answer: {Length} chars", result.Length);
-                    Console.WriteLine($"✅ [AUTO] Document search successful: {result.Length} chars");
-                    return result;
+                    _logger.LogInformation("💾 [MINIMAL] Cache hit for simplified query");
+                    return cached == "NO_RESULT" ? null : cached;
                 }
 
-                _logger.LogInformation("❌ [AUTO] No relevant documents found, AI will use general knowledge");
-                Console.WriteLine("❌ [AUTO] No relevant documents found");
-                return null; // AI sẽ tự trả lời
+                _logger.LogInformation("🔍 [MINIMAL] Minimal cost RAW CONTENT search for: {Query}",
+                    query.Substring(0, Math.Min(30, query.Length)));
+
+                // ✅ Get raw content instead of processed answer
+                var rawContent = await _documentSearchService.GetRawContentAsync(query, userId);
+
+                if (!string.IsNullOrEmpty(rawContent))
+                {
+                    _logger.LogInformation("✅ [MINIMAL] Found RAW CONTENT: {Length} chars", rawContent.Length);
+                }
+                else
+                {
+                    _logger.LogInformation("❌ [MINIMAL] No relevant documents found");
+                }
+
+                // Cache both positive and negative results for 2 hours
+                var cacheValue = string.IsNullOrEmpty(rawContent) ? "NO_RESULT" : rawContent;
+                await _cacheService.SetStringAsync(cacheKey, cacheValue, TimeSpan.FromHours(2));
+
+                return rawContent; // ✅ Return raw content, not processed answer
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ [AUTO] Document search error");
-                Console.WriteLine($"❌ [AUTO] Document search error: {ex.Message}");
+                _logger.LogError(ex, "💥 [MINIMAL] Search error");
                 return null;
             }
         }
 
-        // 🔧 SIMPLIFIED: Always return true - let AI handle everything
+        /// <summary>
+        /// ✅ UPDATED: Get raw content with sources
+        /// </summary>
+        public async Task<(string RawContent, List<DocumentInfo> Sources)> SearchWithSourcesAsync(string query, string userId)
+        {
+            try
+            {
+                var (rawContent, sources) = await _documentSearchService.GetRawContentWithSourcesAsync(query, userId);
+
+                return (rawContent, sources);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in search with sources");
+                return (null, new List<DocumentInfo>());
+            }
+        }
+
         public bool ShouldSearchDocuments(string message)
         {
-            // Bỏ tất cả logic phức tạp - luôn search
-            if (string.IsNullOrWhiteSpace(message))
+            if (string.IsNullOrWhiteSpace(message) || message.Trim().Length < 5)
                 return false;
 
-            //// Skip certain types of messages that clearly don't need document search
-            //var lowerMessage = message.ToLowerInvariant().Trim();
+            var lowerMessage = message.ToLowerInvariant().Trim();
 
-            //// Skip greetings and simple interactions
-            //var skipPhrases = new[]
-            //{
-            //    "xin chào", "hello", "hi", "chào", "good morning", "good afternoon",
-            //    "cảm ơn", "thank you", "thanks", "ok", "được rồi", "tốt",
-            //    "bye", "tạm biệt", "goodbye", "see you"
-            //};
+            // Skip greetings and small talk
+            var skipPatterns = new[] { "chào", "hello", "hi", "cảm ơn", "thank", "ok", "được", "rồi" };
+            if (lowerMessage.Length < 15 && skipPatterns.Any(p => lowerMessage.Contains(p)))
+                return false;
 
-            //if (skipPhrases.Any(phrase => lowerMessage == phrase || lowerMessage.StartsWith(phrase + " ")))
-            //{
-            //    Console.WriteLine($"⏭️ [AUTO] Skipping document search for greeting/simple interaction");
-            //    return false;
-            //}
+            // Require document-related content
+            var docKeywords = new[] { "tài liệu", "hợp đồng", "quy định", "thủ tục", "đăng ký" };
+            return docKeywords.Any(k => lowerMessage.Contains(k));
+        }
 
-            //// Skip very short messages (< 3 words)
-            //if (lowerMessage.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length < 3)
-            //{
-            //    Console.WriteLine($"⏭️ [AUTO] Skipping document search for very short message");
-            //    return false;
-            //}
-
-            //Console.WriteLine($"🔍 [AUTO] Will search documents for: {message.Substring(0, Math.Min(50, message.Length))}...");
-            return true;
+        private string SimplifyQueryForCache(string query)
+        {
+            return query.Trim()
+                .ToLowerInvariant()
+                .Replace("?", "").Replace("!", "").Replace(".", "")
+                .Replace("  ", " ")
+                .Replace("xin chào", "").Replace("hello", "").Replace("hi", "")
+                .Replace("cảm ơn", "").Replace("thank", "")
+                .Trim();
         }
     }
 }

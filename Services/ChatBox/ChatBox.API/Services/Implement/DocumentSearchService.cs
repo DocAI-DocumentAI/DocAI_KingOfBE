@@ -2,7 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-
+using ChatBox.API.Payload.Response;
 using ChatBox.API.Services.Interfaces;
 using MassTransit;
 using Microsoft.AspNetCore.Connections;
@@ -17,38 +17,45 @@ namespace ChatBox.API.Services.Implement
         private readonly IRequestClient<ChatBoxDocumentRequest> _requestClient;
         private readonly IConfiguration _configuration;
         private readonly ILogger<DocumentSearchService> _logger;
-        private readonly ICacheService _cacheService; //  THÊM Redis cache
+        private readonly ICacheService _cacheService;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
         public DocumentSearchService(
             IRequestClient<ChatBoxDocumentRequest> requestClient,
             IConfiguration configuration,
             ILogger<DocumentSearchService> logger,
-            ICacheService cacheService) //  THÊM dependency
+            ICacheService cacheService,
+            IHttpContextAccessor httpContextAccessor)
         {
             _requestClient = requestClient;
             _configuration = configuration;
             _logger = logger;
-            _cacheService = cacheService; //  ASSIGN
+            _cacheService = cacheService;
+            _httpContextAccessor = httpContextAccessor;
         }
 
-        public async Task<ChatBoxDocumentResponse?> SearchDocumentsWithRAGAsync(string query, string userId, int maxResults = 5)
+        /// <summary>
+        /// ✅ UPDATED: Get raw document content from Document microservice
+        /// </summary>
+        public async Task<ChatBoxDocumentResponse?> SearchDocumentsWithRAGAsync(string query, string userId, int maxResults = 3)
         {
-            // 🔧 FIXED: Sử dụng Redis cache thay vì static cache
-            var cacheKey = $"doc_search_{query.GetHashCode()}_{userId}_{maxResults}";
+            maxResults = Math.Min(maxResults, 3);
+
+            var userContext = GetUserContextFromJWT();
+            var cacheKey = $"doc_raw_{query.GetHashCode()}_{userId}_{userContext.DepartmentId}_{maxResults}";
 
             try
             {
                 var cached = await _cacheService.GetAsync<ChatBoxDocumentResponse>(cacheKey);
                 if (cached != null)
                 {
-                    _logger.LogInformation("Returning cached document result for query: {Query} (user: {UserId})",
-                        query.Substring(0, Math.Min(50, query.Length)), userId);
+                    _logger.LogInformation("💾 [CACHE] Raw content cache hit for user: {UserId}, dept: {DeptId}", userId, userContext.DepartmentId);
                     return cached;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to get cached result, proceeding with fresh search");
+                _logger.LogWarning(ex, "Cache read failed, proceeding with fresh search");
             }
 
             try
@@ -56,178 +63,249 @@ namespace ChatBox.API.Services.Implement
                 var request = new ChatBoxDocumentRequest
                 {
                     RequestId = Guid.NewGuid().ToString(),
-                    Query = query,
+                    Query = TruncateQueryForOptimization(query),
                     UserId = userId,
+                    Email = userContext.Email,
+                    FullName = userContext.FullName,
+                    Phone = userContext.Phone,
+                    Role = userContext.Role,
+                    DepartmentId = userContext.DepartmentId,
+                    DepartmentName = userContext.DepartmentName,
+                    Permissions = userContext.Permissions,
                     MaxResults = maxResults,
-                    MinRelevanceScore = 0.7,
-                    OnlyPublic = true,
-                    OnlyOfficial = false,
+                    MinRelevanceScore = 0.28,
+                    OnlyPublic = false,
+                    OnlyOfficial = true,
                     RequestTime = DateTime.UtcNow
                 };
 
-                _logger.LogInformation("Sending document search: {RequestId} - Query: {Query} - User: {UserId}",
-                    request.RequestId, query.Substring(0, Math.Min(50, query.Length)), userId);
+                _logger.LogInformation("🔍 [SEARCH] Raw content request - User: {FullName} ({Role}), Dept: {DeptName}, MaxResults: {MaxResults}",
+                    request.FullName, request.Role, request.DepartmentName, request.MaxResults);
 
-                var timeout = TimeSpan.FromSeconds(_configuration.GetValue<int>("RabbitMQ:DocumentService:RequestTimeoutSeconds", 5));
+                var timeout = TimeSpan.FromSeconds(_configuration.GetValue<int>("RabbitMQ:DocumentService:RequestTimeoutSeconds", 45));
                 var response = await _requestClient.GetResponse<ChatBoxDocumentResponse>(request, timeout: timeout);
                 var result = response.Message;
 
-                if (result.Success)
+                if (result.Success && !string.IsNullOrEmpty(result.RawContent))
                 {
-                    // 🔧 FIXED: Cache với Redis
+                    _logger.LogInformation("✅ [SEARCH] Raw content received: {Length} chars", result.RawContent.Length);
+
                     try
                     {
-                        await _cacheService.SetAsync(cacheKey, result, TimeSpan.FromMinutes(5));
+                        await _cacheService.SetAsync(cacheKey, result, TimeSpan.FromMinutes(30));
+                        _logger.LogInformation("✅ [CACHE] Stored raw content result for 30 minutes");
                     }
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "Failed to cache search result");
                     }
-
-                    _logger.LogInformation("Document search success: {RequestId} - Sources: {SourceCount} - Time: {ProcessingTime}ms",
-                        request.RequestId, result.Sources?.Count ?? 0, result.ProcessingTimeMs);
                 }
                 else
                 {
-                    _logger.LogWarning("Document search failed: {RequestId} - Error: {Error}",
-                        request.RequestId, result.ErrorMessage);
+                    _logger.LogInformation("❌ [SEARCH] No raw content found or request failed");
                 }
 
                 return result;
             }
             catch (RequestTimeoutException ex)
             {
-                _logger.LogError(ex, "Document search timeout for query: {Query} (user: {UserId})",
-                    query.Substring(0, Math.Min(50, query.Length)), userId);
-                return new ChatBoxDocumentResponse
-                {
-                    Success = false,
-                    ErrorMessage = "Tìm kiếm tài liệu quá thời gian chờ (5s).",
-                    QueryProcessed = query,
-                    Sources = new List<ChatBoxDocumentSource>()
-                };
+                _logger.LogError(ex, "⏰ [TIMEOUT] Document search timeout for user: {UserId}", userId);
+                return CreateOptimizedEmptyResponse(query);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Document search error for query: {Query} (user: {UserId})",
-                    query.Substring(0, Math.Min(50, query.Length)), userId);
-                return new ChatBoxDocumentResponse
-                {
-                    Success = false,
-                    ErrorMessage = "Đã xảy ra lỗi khi tìm kiếm tài liệu.",
-                    QueryProcessed = query,
-                    Sources = new List<ChatBoxDocumentSource>()
-                };
+                _logger.LogError(ex, "💥 [ERROR] Document search error for user: {UserId}", userId);
+                return CreateOptimizedEmptyResponse(query);
             }
         }
 
+        /// <summary>
+        /// ✅ UPDATED: Get raw content only
+        /// </summary>
+        public async Task<string> GetRawContentAsync(string query, string userId)
+        {
+            var result = await SearchDocumentsWithRAGAsync(query, userId, 3);
+            return result?.Success == true && !string.IsNullOrEmpty(result.RawContent) ? result.RawContent : null;
+        }
+
+        /// <summary>
+        /// ✅ UPDATED: Get raw content with sources
+        /// </summary>
+        public async Task<(string RawContent, List<DocumentInfo> Sources)> GetRawContentWithSourcesAsync(string query, string userId)
+        {
+            var result = await SearchDocumentsWithRAGAsync(query, userId, 3);
+
+            if (result?.Success == true && !string.IsNullOrEmpty(result.RawContent))
+            {
+                var sources = result.Sources?.Select(s => new DocumentInfo
+                {
+                    DocumentId = s.DocumentId,
+                    Title = s.Title,
+                    VersionName = s.VersionName,
+                    DepartmentName = s.DepartmentName,
+                    RelevanceScore = s.RelevanceScore
+                }).ToList() ?? new List<DocumentInfo>();
+
+                return (result.RawContent, sources);
+            }
+
+            return (null, new List<DocumentInfo>());
+        }
+
+        #region Legacy Method Support (Deprecated)
+
+        /// <summary>
+        /// ❌ DEPRECATED: Use GetRawContentAsync instead
+        /// </summary>
+        [Obsolete("Use GetRawContentAsync instead. This method is deprecated.")]
         public async Task<ChatBoxDocumentResponse?> SearchOfficialDocumentsAsync(string query, string userId)
         {
-            // 🔧 FIXED: Cũng sử dụng Redis cache cho official documents
-            var cacheKey = $"official_doc_search_{query.GetHashCode()}_{userId}";
-
-            try
-            {
-                var cached = await _cacheService.GetAsync<ChatBoxDocumentResponse>(cacheKey);
-                if (cached != null)
-                {
-                    _logger.LogInformation("Returning cached official document result for query: {Query}",
-                        query.Substring(0, Math.Min(50, query.Length)));
-                    return cached;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to get cached official document result");
-            }
-
-            try
-            {
-                var request = new ChatBoxDocumentRequest
-                {
-                    RequestId = Guid.NewGuid().ToString(),
-                    Query = query,
-                    UserId = userId,
-                    MaxResults = 5,
-                    MinRelevanceScore = 0.8, // Higher threshold for official docs
-                    OnlyPublic = true,
-                    OnlyOfficial = true,
-                    RequestTime = DateTime.UtcNow
-                };
-
-                var timeout = TimeSpan.FromSeconds(_configuration.GetValue<int>("RabbitMQ:DocumentService:RequestTimeoutSeconds", 5));
-                var response = await _requestClient.GetResponse<ChatBoxDocumentResponse>(request, timeout: timeout);
-                var result = response.Message;
-
-                if (result.Success)
-                {
-                    // Cache official documents longer (30 minutes)
-                    try
-                    {
-                        await _cacheService.SetAsync(cacheKey, result, TimeSpan.FromMinutes(30));
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to cache official document result");
-                    }
-                }
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Official document search error for query: {Query}",
-                    query.Substring(0, Math.Min(50, query.Length)));
-                return new ChatBoxDocumentResponse
-                {
-                    Success = false,
-                    ErrorMessage = "Đã xảy ra lỗi khi tìm kiếm tài liệu chính thức.",
-                    QueryProcessed = query,
-                    Sources = new List<ChatBoxDocumentSource>()
-                };
-            }
+            return await SearchDocumentsWithRAGAsync(query, userId, 3);
         }
 
+        /// <summary>
+        /// ❌ DEPRECATED: Use GetRawContentAsync instead
+        /// </summary>
+        [Obsolete("Use GetRawContentAsync instead. This method returns raw content now.")]
         public async Task<string> GetRAGAnswerAsync(string query, string userId)
         {
-            var result = await SearchDocumentsWithRAGAsync(query, userId);
-
-            if (result?.Success == true && !string.IsNullOrEmpty(result.Answer))
-            {
-                return result.Answer;
-            }
-
-            return "Xin lỗi, tôi không tìm thấy thông tin phù hợp trong tài liệu để trả lời câu hỏi này.";
+            return await GetRawContentAsync(query, userId);
         }
 
+        /// <summary>
+        /// ❌ DEPRECATED: Use GetRawContentWithSourcesAsync instead
+        /// </summary>
+        [Obsolete("Use GetRawContentWithSourcesAsync instead. This method returns raw content now.")]
         public async Task<string> GetRAGAnswerWithSourcesAsync(string query, string userId)
         {
-            var result = await SearchDocumentsWithRAGAsync(query, userId);
+            var (rawContent, sources) = await GetRawContentWithSourcesAsync(query, userId);
 
-            if (result?.Success == true && !string.IsNullOrEmpty(result.Answer))
+            if (!string.IsNullOrEmpty(rawContent))
             {
-                var answer = new StringBuilder();
-                answer.AppendLine(result.Answer);
+                var response = new StringBuilder();
+                response.AppendLine("📄 **Nội dung tài liệu:**");
+                response.AppendLine(rawContent);
 
-                if (result.Sources?.Any() == true)
+                if (sources?.Any() == true)
                 {
-                    answer.AppendLine();
-                    answer.AppendLine("📚 **Nguồn tham khảo:**");
+                    response.AppendLine();
+                    response.AppendLine("📚 **Nguồn tài liệu:**");
 
-                    foreach (var source in result.Sources.Take(3))
+                    for (int i = 0; i < sources.Count; i++)
                     {
-                        answer.AppendLine($"• {source.Title} v{source.VersionName} (Score: {source.RelevanceScore:F2})");
+                        var source = sources[i];
+                        response.AppendLine($"• {source.Title} v{source.VersionName}");
                         if (!string.IsNullOrEmpty(source.DepartmentName))
                         {
-                            answer.AppendLine($"  📂 {source.DepartmentName}");
+                            response.AppendLine($"  📂 {source.DepartmentName}");
                         }
                     }
                 }
 
-                return answer.ToString();
+                return response.ToString();
             }
 
-            return "Xin lỗi, tôi không tìm thấy thông tin phù hợp trong tài liệu để trả lời câu hỏi này.";
+            return null;
         }
+
+        #endregion
+
+        #region Private Helper Methods (Unchanged)
+
+        private UserContextFromJWT GetUserContextFromJWT()
+        {
+            try
+            {
+                var user = _httpContextAccessor.HttpContext?.User;
+                if (user?.Identity?.IsAuthenticated != true)
+                {
+                    _logger.LogWarning("User is not authenticated, using default context");
+                    return GetDefaultUserContext();
+                }
+
+                var userContext = new UserContextFromJWT
+                {
+                    UserId = user.FindFirst("userId")?.Value ?? string.Empty,
+                    Email = user.FindFirst("email")?.Value ?? string.Empty,
+                    FullName = user.FindFirst("fullName")?.Value ?? string.Empty,
+                    Phone = user.FindFirst("phone")?.Value ?? string.Empty,
+                    Role = user.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value ?? string.Empty,
+                    DepartmentId = user.FindFirst("departmentId")?.Value ?? string.Empty,
+                    DepartmentName = user.FindFirst("departmentName")?.Value ?? string.Empty,
+                    Permissions = ParsePermissions(user.FindFirst("permissions")?.Value)
+                };
+
+                return userContext;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to extract user context from JWT, using default");
+                return GetDefaultUserContext();
+            }
+        }
+
+        private List<string> ParsePermissions(string permissionsString)
+        {
+            if (string.IsNullOrEmpty(permissionsString))
+                return new List<string>();
+
+            return permissionsString.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => p.Trim())
+                .ToList();
+        }
+
+        private UserContextFromJWT GetDefaultUserContext()
+        {
+            return new UserContextFromJWT
+            {
+                UserId = "anonymous",
+                Email = "anonymous@system.com",
+                FullName = "Anonymous User",
+                Phone = "",
+                Role = "Guest",
+                DepartmentId = "",
+                DepartmentName = "",
+                Permissions = new List<string>()
+            };
+        }
+
+        private string TruncateQueryForOptimization(string query)
+        {
+            const int maxLength = 120;
+            if (query.Length <= maxLength) return query;
+
+            var truncated = query.Substring(0, maxLength);
+            var lastSpace = truncated.LastIndexOf(' ');
+            return lastSpace > 90 ? truncated.Substring(0, lastSpace) : truncated;
+        }
+
+        private ChatBoxDocumentResponse CreateOptimizedEmptyResponse(string query)
+        {
+            return new ChatBoxDocumentResponse
+            {
+                Success = true,
+                RawContent = null, // ✅ No raw content found
+                QueryProcessed = query,
+                Sources = new List<ChatBoxDocumentSource>(),
+                ProcessingTimeMs = 0
+            };
+        }
+
+        #endregion
+    }
+
+    /// <summary>
+    /// User context extracted from JWT token
+    /// </summary>
+    public class UserContextFromJWT
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string FullName { get; set; } = string.Empty;
+        public string Phone { get; set; } = string.Empty;
+        public string Role { get; set; } = string.Empty;
+        public string DepartmentId { get; set; } = string.Empty;
+        public string DepartmentName { get; set; } = string.Empty;
+        public List<string> Permissions { get; set; } = new List<string>();
     }
 }

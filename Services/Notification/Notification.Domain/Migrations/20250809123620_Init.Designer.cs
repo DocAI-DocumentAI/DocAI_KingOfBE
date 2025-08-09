@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Notification.Domain.Migrations
 {
     [DbContext(typeof(NotificationDbContext))]
-    [Migration("20250712090611_Init")]
+    [Migration("20250809123620_Init")]
     partial class Init
     {
         /// <inheritdoc />
@@ -42,6 +42,18 @@ namespace Notification.Domain.Migrations
                     b.Property<DateTime>("CreateAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LastUpdatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Subject")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -52,7 +64,7 @@ namespace Notification.Domain.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<DateTime>("UpdateAt")
+                    b.Property<DateTime?>("UpdateAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
@@ -69,6 +81,8 @@ namespace Notification.Domain.Migrations
                             AssociatedEvent = "NearingExpiration",
                             BodyHtml = "<p>Dear User,</p><p>This is a reminder that the document <b>'{{DocumentTitle}}'</b> (version <b>{{DocumentVersion}}</b>) is scheduled to expire on <b>{{EffectiveUntil}}</b>.</p><p>Please review and take necessary action: <a href='{{DocumentLink}}'>View Document</a>.</p><hr><p><small>If you have already taken action, you can <a href='{{DismissLink}}'>dismiss future notifications for this version</a>.</small></p>",
                             CreateAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CreatedBy = "",
+                            IsDeleted = false,
                             Subject = "[DocAI Reminder] Document '{{DocumentTitle}}' is Nearing Expiration",
                             TemplateName = "DocumentNearingExpiration",
                             UpdateAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
@@ -79,8 +93,46 @@ namespace Notification.Domain.Migrations
                             AssociatedEvent = "Expired",
                             BodyHtml = "<p>Dear User,</p><p>The document <b>'{{DocumentTitle}}'</b> (version <b>{{DocumentVersion}}</b>) expired on <b>{{EffectiveUntil}}</b> and is no longer active.</p><p>The document's status has been automatically updated to 'Expired'. Please review: <a href='{{DocumentLink}}'>View Document</a>.</p><hr><p><small>You can <a href='{{DismissLink}}'>dismiss any further related notifications for this version</a>.</small></p>",
                             CreateAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CreatedBy = "",
+                            IsDeleted = false,
                             Subject = "[DocAI Alert] Document '{{DocumentTitle}}' Has Expired",
                             TemplateName = "DocumentExpired",
+                            UpdateAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
+                        },
+                        new
+                        {
+                            Id = new Guid("c3d4e5f6-a7b8-9012-3456-7890abcdef12"),
+                            AssociatedEvent = "DocumentSubmitted",
+                            BodyHtml = "<p>Dear Manager,</p><p>A new document has been submitted for your review and approval:</p><ul><li><b>Document Title:</b> {{DocumentTitle}}</li><li><b>Version:</b> {{DocumentVersion}}</li><li><b>Submitted By:</b> {{SubmittedBy}}</li><li><b>Department:</b> {{DepartmentName}}</li><li><b>Submission Date:</b> {{SubmissionDate}}</li></ul><p>Please review the document and take appropriate action: <a href='{{DocumentLink}}'>Review Document</a></p><p>You can approve or reject this document through the approval queue in the DocAI system.</p><hr><p><small>This is an automated notification from the DocAI document management system.</small></p>",
+                            CreateAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CreatedBy = "",
+                            IsDeleted = false,
+                            Subject = "[DocAI Workflow] Document '{{DocumentTitle}}' Submitted for Approval",
+                            TemplateName = "DocumentSubmitted",
+                            UpdateAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
+                        },
+                        new
+                        {
+                            Id = new Guid("d4e5f6a7-b8c9-0123-4567-890abcdef123"),
+                            AssociatedEvent = "DocumentApproved",
+                            BodyHtml = "<p>Dear {{DocumentOwner}},</p><p>Great news! Your document has been approved:</p><ul><li><b>Document Title:</b> {{DocumentTitle}}</li><li><b>Version:</b> {{DocumentVersion}}</li><li><b>Approved By:</b> {{ApprovedBy}}</li><li><b>Approval Date:</b> {{ApprovalDate}}</li><li><b>Comments:</b> {{Comments}}</li></ul><p>Your document is now available to authorized users. You can view it here: <a href='{{DocumentLink}}'>View Document</a></p><hr><p><small>This is an automated notification from the DocAI document management system.</small></p>",
+                            CreateAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CreatedBy = "",
+                            IsDeleted = false,
+                            Subject = "[DocAI Workflow] Document '{{DocumentTitle}}' Approved",
+                            TemplateName = "DocumentApproved",
+                            UpdateAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
+                        },
+                        new
+                        {
+                            Id = new Guid("e5f6a7b8-c9d0-1234-5678-90abcdef1234"),
+                            AssociatedEvent = "DocumentRejected",
+                            BodyHtml = "<p>Dear {{DocumentOwner}},</p><p>Your document submission requires revision before approval:</p><ul><li><b>Document Title:</b> {{DocumentTitle}}</li><li><b>Version:</b> {{DocumentVersion}}</li><li><b>Reviewed By:</b> {{ReviewedBy}}</li><li><b>Review Date:</b> {{ReviewDate}}</li><li><b>Reason for Revision:</b> {{Comments}}</li></ul><p>Please review the feedback, make necessary changes, and resubmit your document: <a href='{{DocumentLink}}'>Edit Document</a></p><p>If you have questions about the feedback, please contact the reviewer or your department manager.</p><hr><p><small>This is an automated notification from the DocAI document management system.</small></p>",
+                            CreateAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CreatedBy = "",
+                            IsDeleted = false,
+                            Subject = "[DocAI Workflow] Document '{{DocumentTitle}}' Requires Revision",
+                            TemplateName = "DocumentRejected",
                             UpdateAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
                         });
                 });
@@ -99,6 +151,18 @@ namespace Notification.Domain.Migrations
                     b.Property<DateTime>("CreateAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LastUpdatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<int>("LogRetentionDays")
                         .HasColumnType("integer");
 
@@ -109,7 +173,7 @@ namespace Notification.Domain.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<DateTime>("UpdateAt")
+                    b.Property<DateTime?>("UpdateAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("WarningThresholdDays")
@@ -128,6 +192,8 @@ namespace Notification.Domain.Migrations
                             Id = new Guid("c3d4e5f6-a7b8-9012-3456-7890abcdef12"),
                             ConfigKey = "Default",
                             CreateAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CreatedBy = "",
+                            IsDeleted = false,
                             LogRetentionDays = 90,
                             QuartzEnabled = true,
                             ScanCronExpression = "0 0 7 * * ?",
@@ -144,6 +210,11 @@ namespace Notification.Domain.Migrations
 
                     b.Property<DateTime>("CreateAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<Guid?>("DismissToken")
                         .HasColumnType("uuid");
@@ -163,11 +234,18 @@ namespace Notification.Domain.Migrations
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsDismissed")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsSent")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("LastUpdatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Message")
                         .IsRequired()
@@ -190,7 +268,7 @@ namespace Notification.Domain.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<DateTime>("UpdateAt")
+                    b.Property<DateTime?>("UpdateAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");

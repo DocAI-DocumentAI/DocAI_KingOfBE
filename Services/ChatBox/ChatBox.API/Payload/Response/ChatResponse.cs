@@ -10,5 +10,8 @@ namespace ChatBox.API.Payload.Response
         public int TokenCount { get; set; }
         public DateTime Timestamp { get; set; }
         public string ModelUsed { get; set; }
+
+        public List<DocumentInfo>? DocumentSources { get; set; }
+        public bool HasDocumentContext { get; set; } = false;
     }
 }

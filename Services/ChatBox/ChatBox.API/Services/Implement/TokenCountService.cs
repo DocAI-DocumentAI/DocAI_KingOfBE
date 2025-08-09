@@ -12,36 +12,28 @@ namespace ChatBox.API.Services.Implement
 {
     public class TokenCountService : ITokenCountService
     {
+        #region Fields
         private readonly IConfiguration _configuration;
         private readonly ILogger<TokenCountService> _logger;
 
-        // 🔧 Cache tokenizers để tránh tải lại nhiều lần
+        // Cache tokenizers to avoid reloading multiple times
         private readonly ConcurrentDictionary<string, Tokenizer> _tokenizerCache = new();
 
-        // 🔧 Fallback tokenizer (CL100K)
+        // Fallback tokenizer (CL100K/GPT-4 style)
         private readonly Lazy<Tokenizer> _fallbackTokenizer;
+        #endregion
 
+        #region Constructor
         public TokenCountService(IConfiguration configuration, ILogger<TokenCountService> logger)
         {
             _configuration = configuration;
             _logger = logger;
 
-            // 🔧 Initialize fallback tokenizer (CL100K/GPT-4 style)
-            _fallbackTokenizer = new Lazy<Tokenizer>(() =>
-            {
-                try
-                {
-                    // Microsoft.ML.Tokenizers equivalent of CL100K
-                    return TiktokenTokenizer.CreateForModel("gpt-4");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to create fallback tokenizer, using basic estimation");
-                    return null;
-                }
-            });
+            _fallbackTokenizer = new Lazy<Tokenizer>(CreateFallbackTokenizer);
         }
+        #endregion
 
+        #region Public Methods
         public int CountTokens(string text, string modelName = null)
         {
             if (string.IsNullOrEmpty(text))
@@ -53,10 +45,7 @@ namespace ChatBox.API.Services.Implement
                 if (tokenizer != null)
                 {
                     var tokens = tokenizer.EncodeToTokens(text, out _);
-                    var count = tokens.Count;
-
-                    // 🔧 Apply model-specific adjustments
-                    count = ApplyModelTokenAdjustment(count, modelName);
+                    var count = ApplyModelTokenAdjustment(tokens.Count, modelName);
 
                     _logger.LogDebug("Token count for model {ModelName}: {Count} tokens",
                         modelName ?? "fallback", count);
@@ -70,27 +59,93 @@ namespace ChatBox.API.Services.Implement
                     modelName ?? "unknown");
             }
 
-            // 🔧 Fallback to estimation
             return EstimateTokenCount(text);
         }
 
         public int CountTokens(string text) => CountTokens(text, null);
+
+        public bool IsWithinLimit(string text, int? maxTokens = null)
+        {
+            var limit = maxTokens ?? ChatConstants.DefaultMaxTokens;
+            return CountTokens(text) <= limit;
+        }
+
+        public bool IsWithinLimit(string text, int? maxTokens, string modelName)
+        {
+            var limit = maxTokens ?? ChatConstants.DefaultMaxTokens;
+            return CountTokens(text, modelName) <= limit;
+        }
+
+        public int GetMaxTokensForModel(string modelName)
+        {
+            if (string.IsNullOrEmpty(modelName))
+                return ChatConstants.DefaultMaxTokens;
+
+            return GetModelSpecificTokenLimit(modelName.ToLowerInvariant());
+        }
+
+        public int EstimateContextTokens(ChatHistory chatHistory) => EstimateContextTokens(chatHistory, null);
+
+        public int EstimateContextTokens(ChatHistory chatHistory, string modelName = null)
+        {
+            return chatHistory.Sum(message => CountTokens(message.Content ?? "", modelName));
+        }
+
+        public bool IsContextWithinLimit(ChatHistory chatHistory, string modelName)
+        {
+            var maxContextTokens = GetMaxContextTokensForModel(modelName);
+            var currentTokens = EstimateContextTokens(chatHistory, modelName);
+            return currentTokens <= maxContextTokens;
+        }
+
+        public void ClearTokenizerCache()
+        {
+            _tokenizerCache.Clear();
+            _logger.LogInformation("Tokenizer cache cleared");
+        }
+
+        public TokenizerCacheStats GetCacheStats()
+        {
+            return new TokenizerCacheStats
+            {
+                CachedTokenizerCount = _tokenizerCache.Count,
+                CachedModels = _tokenizerCache.Keys.ToList()
+            };
+        }
+        #endregion
+
+        #region Private Methods - Tokenizer Management
+        private Tokenizer CreateFallbackTokenizer()
+        {
+            try
+            {
+                return TiktokenTokenizer.CreateForModel("gpt-4");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create fallback tokenizer, using basic estimation");
+                return null;
+            }
+        }
 
         private Tokenizer GetTokenizerForModel(string modelName)
         {
             if (string.IsNullOrEmpty(modelName))
                 return _fallbackTokenizer.Value;
 
-            // 🔧 Check cache first
             if (_tokenizerCache.TryGetValue(modelName, out var cachedTokenizer))
                 return cachedTokenizer;
 
+            return CreateAndCacheTokenizer(modelName);
+        }
+
+        private Tokenizer CreateAndCacheTokenizer(string modelName)
+        {
             try
             {
                 var tokenizer = CreateTokenizerForModel(modelName);
                 if (tokenizer != null)
                 {
-                    // 🔧 Cache successful tokenizer
                     _tokenizerCache.TryAdd(modelName, tokenizer);
                     _logger.LogInformation("Created and cached tokenizer for model: {ModelName}", modelName);
                 }
@@ -109,56 +164,17 @@ namespace ChatBox.API.Services.Implement
 
             try
             {
-                // 🔧 DeepSeek models - use LLaMA 2 tokenizer
-                if (normalizedName.Contains("deepseek"))
+                return normalizedName switch
                 {
-                    _logger.LogDebug("Creating LLaMA tokenizer for DeepSeek model: {ModelName}", modelName);
-                    return TiktokenTokenizer.CreateForModel("gpt-3.5-turbo"); // Closest equivalent
-                }
-
-                // 🔧 LLaMA 3.3 models - use LLaMA 3 tokenizer  
-                if (normalizedName.Contains("llama-3") || normalizedName.Contains("llama3"))
-                {
-                    _logger.LogDebug("Creating LLaMA 3 tokenizer for model: {ModelName}", modelName);
-                    // LLaMA 3 uses different tokenizer than LLaMA 2
-                    return TiktokenTokenizer.CreateForModel("gpt-4"); // Better approximation for LLaMA 3
-                }
-
-                // 🔧 General LLaMA models (LLaMA 2 style)
-                if (normalizedName.Contains("llama") && !normalizedName.Contains("llama-3"))
-                {
-                    _logger.LogDebug("Creating LLaMA 2 tokenizer for model: {ModelName}", modelName);
-                    return TiktokenTokenizer.CreateForModel("gpt-3.5-turbo");
-                }
-
-                // 🔧 Mistral models - use Mistral-specific approach
-                if (normalizedName.Contains("mistral"))
-                {
-                    _logger.LogDebug("Creating Mistral tokenizer for model: {ModelName}", modelName);
-                    // Mistral tokenizer approximation
-                    return TiktokenTokenizer.CreateForModel("gpt-3.5-turbo"); // Reasonable approximation
-                }
-
-                // 🔧 GPT models - use appropriate Tiktoken
-                if (normalizedName.Contains("gpt-4"))
-                {
-                    return TiktokenTokenizer.CreateForModel("gpt-4");
-                }
-
-                if (normalizedName.Contains("gpt-3.5"))
-                {
-                    return TiktokenTokenizer.CreateForModel("gpt-3.5-turbo");
-                }
-
-                // 🔧 Claude models - approximate with GPT-4
-                if (normalizedName.Contains("claude"))
-                {
-                    return TiktokenTokenizer.CreateForModel("gpt-4");
-                }
-
-                // 🔧 Default fallback
-                _logger.LogDebug("Using fallback tokenizer for unknown model: {ModelName}", modelName);
-                return _fallbackTokenizer.Value;
+                    var name when name.Contains("deepseek") => CreateDeepSeekTokenizer(modelName),
+                    var name when name.Contains("llama-3") || name.Contains("llama3") => CreateLlama3Tokenizer(modelName),
+                    var name when name.Contains("llama") && !name.Contains("llama-3") => CreateLlama2Tokenizer(modelName),
+                    var name when name.Contains("mistral") => CreateMistralTokenizer(modelName),
+                    var name when name.Contains("gpt-4") => TiktokenTokenizer.CreateForModel("gpt-4"),
+                    var name when name.Contains("gpt-3.5") => TiktokenTokenizer.CreateForModel("gpt-3.5-turbo"),
+                    var name when name.Contains("claude") => TiktokenTokenizer.CreateForModel("gpt-4"), // Approximation
+                    _ => CreateDefaultTokenizer(modelName)
+                };
             }
             catch (Exception ex)
             {
@@ -167,62 +183,83 @@ namespace ChatBox.API.Services.Implement
             }
         }
 
+        private Tokenizer CreateDeepSeekTokenizer(string modelName)
+        {
+            _logger.LogDebug("Creating LLaMA tokenizer for DeepSeek model: {ModelName}", modelName);
+            return TiktokenTokenizer.CreateForModel("gpt-3.5-turbo"); // Closest equivalent
+        }
+
+        private Tokenizer CreateLlama3Tokenizer(string modelName)
+        {
+            _logger.LogDebug("Creating LLaMA 3 tokenizer for model: {ModelName}", modelName);
+            return TiktokenTokenizer.CreateForModel("gpt-4"); // Better approximation for LLaMA 3
+        }
+
+        private Tokenizer CreateLlama2Tokenizer(string modelName)
+        {
+            _logger.LogDebug("Creating LLaMA 2 tokenizer for model: {ModelName}", modelName);
+            return TiktokenTokenizer.CreateForModel("gpt-3.5-turbo");
+        }
+
+        private Tokenizer CreateMistralTokenizer(string modelName)
+        {
+            _logger.LogDebug("Creating Mistral tokenizer for model: {ModelName}", modelName);
+            return TiktokenTokenizer.CreateForModel("gpt-3.5-turbo"); // Reasonable approximation
+        }
+
+        private Tokenizer CreateDefaultTokenizer(string modelName)
+        {
+            _logger.LogDebug("Using fallback tokenizer for unknown model: {ModelName}", modelName);
+            return _fallbackTokenizer.Value;
+        }
+        #endregion
+
+        #region Private Methods - Token Calculations
         private int ApplyModelTokenAdjustment(int baseCount, string modelName)
         {
             if (string.IsNullOrEmpty(modelName))
                 return baseCount;
 
-            var normalizedName = modelName.ToLowerInvariant();
+            var adjustment = GetModelTokenAdjustment(modelName.ToLowerInvariant());
+            return (int)(baseCount * adjustment);
+        }
 
-            // 🔧 Model-specific token adjustments
-            var adjustment = normalizedName switch
+        private double GetModelTokenAdjustment(string normalizedModelName)
+        {
+            return normalizedModelName switch
             {
                 var name when name.Contains("mistral") => ChatConstants.MistralTokenAdjustment,
-                var name when name.Contains("deepseek") => 1.0, // No adjustment needed
-                var name when name.Contains("llama") => 1.0, // No adjustment needed  
+                var name when name.Contains("deepseek") => 1.0,
+                var name when name.Contains("llama") => 1.0,
                 _ => 1.0
             };
-
-            return (int)(baseCount * adjustment);
         }
 
         private int EstimateTokenCount(string text)
         {
-            // 🔧 Improved estimation based on text characteristics
-            if (string.IsNullOrEmpty(text)) return 0;
+            if (string.IsNullOrEmpty(text))
+                return 0;
 
             // Basic estimation: ~4 characters per token for English/Vietnamese
             var baseEstimate = Math.Max(1, (int)Math.Ceiling(text.Length / 4.0));
 
-            // 🔧 Adjust for Vietnamese text (tends to have more tokens)
+            // Adjust for Vietnamese text (tends to have more tokens)
+            return ApplyVietnameseAdjustment(text, baseEstimate);
+        }
+
+        private int ApplyVietnameseAdjustment(string text, int baseEstimate)
+        {
             var vietnameseChars = text.Count(c => c > 127); // Non-ASCII chars
             if (vietnameseChars > text.Length * 0.3) // > 30% non-ASCII
             {
-                baseEstimate = (int)(baseEstimate * 1.2); // 20% more tokens for Vietnamese
+                return (int)(baseEstimate * 1.2); // 20% more tokens for Vietnamese
             }
-
             return baseEstimate;
         }
 
-        // 🔧 Enhanced methods với model-aware functionality
-        public bool IsWithinLimit(string text, int? maxTokens = null)
+        private int GetModelSpecificTokenLimit(string normalizedModelName)
         {
-            var limit = maxTokens ?? ChatConstants.DefaultMaxTokens;
-            return CountTokens(text) <= limit;
-        }
-
-        public bool IsWithinLimit(string text, int? maxTokens, string modelName)
-        {
-            var limit = maxTokens ?? ChatConstants.DefaultMaxTokens;
-            return CountTokens(text, modelName) <= limit;
-        }
-
-        public int GetMaxTokensForModel(string modelName)
-        {
-            if (string.IsNullOrEmpty(modelName))
-                return ChatConstants.DefaultMaxTokens;
-
-            return modelName.ToLowerInvariant() switch
+            return normalizedModelName switch
             {
                 var name when name.Contains("gpt-4") => ChatConstants.GPT4MaxTokens,
                 var name when name.Contains("gpt-3.5") => ChatConstants.GPT35MaxTokens,
@@ -233,31 +270,18 @@ namespace ChatBox.API.Services.Implement
                 _ => ChatConstants.DefaultMaxTokens
             };
         }
-        public int EstimateContextTokens(ChatHistory chatHistory) => EstimateContextTokens(chatHistory, null);
-
-        public int EstimateContextTokens(ChatHistory chatHistory, string modelName = null)
-        {
-            var totalTokens = 0;
-            foreach (var message in chatHistory)
-            {
-                totalTokens += CountTokens(message.Content ?? "", modelName);
-            }
-            return totalTokens;
-        }
-
-        public bool IsContextWithinLimit(ChatHistory chatHistory, string modelName)
-        {
-            var maxContextTokens = GetMaxContextTokensForModel(modelName);
-            var currentTokens = EstimateContextTokens(chatHistory, modelName);
-            return currentTokens <= maxContextTokens;
-        }
 
         private int GetMaxContextTokensForModel(string modelName)
         {
             if (string.IsNullOrEmpty(modelName))
                 return ChatConstants.DefaultMaxContextTokens;
 
-            return modelName.ToLowerInvariant() switch
+            return GetModelSpecificContextLimit(modelName.ToLowerInvariant());
+        }
+
+        private int GetModelSpecificContextLimit(string normalizedModelName)
+        {
+            return normalizedModelName switch
             {
                 var name when name.Contains("mistral") => ChatConstants.MistralMaxContextTokens,
                 var name when name.Contains("gpt-4") => ChatConstants.GPT4MaxContextTokens,
@@ -268,26 +292,13 @@ namespace ChatBox.API.Services.Implement
                 _ => ChatConstants.DefaultMaxContextTokens
             };
         }
-
-        // 🔧 Cleanup method to prevent memory leaks
-        public void ClearTokenizerCache()
-        {
-            _tokenizerCache.Clear();
-            _logger.LogInformation("Tokenizer cache cleared");
-        }
-
-        // 🔧 Get cache statistics for monitoring
-        public TokenizerCacheStats GetCacheStats()
-        {
-            return new TokenizerCacheStats
-            {
-                CachedTokenizerCount = _tokenizerCache.Count,
-                CachedModels = _tokenizerCache.Keys.ToList()
-            };
-        }
+        #endregion
     }
 
-        public class TokenizerCacheStats
+    /// <summary>
+    /// Statistics about the tokenizer cache
+    /// </summary>
+    public class TokenizerCacheStats
     {
         public int CachedTokenizerCount { get; set; }
         public List<string> CachedModels { get; set; } = new();
