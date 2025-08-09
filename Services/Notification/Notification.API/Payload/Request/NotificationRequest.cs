@@ -9,7 +9,7 @@ public class NotificationRequest
 
     public int Size { get; set; } = 10;
 
-    public Guid? DocumentId { get; set; }
+    public string? DocumentId { get; set; }
 
     public string? NotificationType { get; set; }
 

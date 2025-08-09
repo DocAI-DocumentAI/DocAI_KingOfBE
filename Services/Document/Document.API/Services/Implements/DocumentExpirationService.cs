@@ -46,7 +46,7 @@ namespace Document.API.Services.Implements
             {
                 result.Add(new DocumentExpirationDto
                 {
-                    DocumentId = Guid.Parse(doc.DocumentFile.Id),
+                    DocumentId = doc.DocumentFile.Id,
                     Title = doc.Title,
                     Version = doc.VersionName,
                     DepartmentId = Guid.Parse(doc.DocumentFile.DepartmentId),

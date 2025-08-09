@@ -6,7 +6,7 @@ namespace Notification.Domain.Models;
 public class NotificationLog : BaseEntity
 {
     [Required]
-    public Guid DocumentId { get; set; }
+    public string DocumentId { get; set; }
 
     public string? DocumentVersion { get; set; }
 

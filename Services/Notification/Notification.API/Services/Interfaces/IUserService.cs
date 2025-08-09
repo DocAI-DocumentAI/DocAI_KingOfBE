@@ -6,7 +6,7 @@ namespace Notification.API.Services.Interfaces
     {
         Task<List<UserInfo>> GetDepartmentManagersAsync(Guid departmentId);
         Task<List<UserInfo>> GetDepartmentEditorsAsync(Guid departmentId);
-        Task<List<UserInfo>> GetDocumentStakeholdersAsync(Guid documentId);
+        Task<List<UserInfo>> GetDocumentStakeholdersAsync(string documentId);
         Task<UserInfo?> GetUserByIdAsync(Guid userId);
         Task<List<UserInfo>> GetUsersByRoleAsync(string roleName);
         Task<List<UserInfo>> GetUsersByDepartmentAsync(Guid departmentId);

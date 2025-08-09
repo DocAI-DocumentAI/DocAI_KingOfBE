@@ -7,6 +7,7 @@ using Notification.Domain.Models;
 using Notification.Infrastructure.Paginate;
 using Notification.Infrastructure.Repository.Interfaces;
 using Quartz.Impl.AdoJobStore;
+using Quartz.Util;
 using System.Linq.Expressions;
 
 namespace Notification.API.Services.Implement
@@ -47,7 +48,7 @@ namespace Notification.API.Services.Implement
             var repo = _unitOfWork.GetRepository<NotificationLog>();
 
             Expression<Func<NotificationLog, bool>> predicate = l =>
-                (!request.DocumentId.HasValue || l.DocumentId == request.DocumentId.Value) &&
+                (!request.DocumentId.IsNullOrWhiteSpace() || l.DocumentId == request.DocumentId) &&
                 (string.IsNullOrEmpty(request.NotificationType) || l.NotificationType.ToString() == request.NotificationType) &&
                 (string.IsNullOrEmpty(request.Recipient) ||
                  (!string.IsNullOrEmpty(l.RecipientAddress) && l.RecipientAddress.Contains(request.Recipient)));

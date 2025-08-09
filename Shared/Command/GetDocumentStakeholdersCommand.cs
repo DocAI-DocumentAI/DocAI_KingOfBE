@@ -8,7 +8,7 @@ namespace Shared.Command
 {
     public class GetDocumentStakeholdersCommand
     {
-        public Guid DocumentId { get; set; }
+        public string DocumentId { get; set; }
         public Guid RequestId { get; set; } = Guid.NewGuid();
     }
 }
