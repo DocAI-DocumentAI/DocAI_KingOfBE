@@ -113,7 +113,7 @@ namespace ChatBox.API.Controllers
                 await foreach (var chunk in responseStream)
                 {
                     if (HttpContext.RequestAborted.IsCancellationRequested) break;
-                    await writer.WriteAsync(chunk);
+                    await writer.WriteAsync($"data: {chunk}\n\n");
                     await writer.FlushAsync();
                 }
             }
