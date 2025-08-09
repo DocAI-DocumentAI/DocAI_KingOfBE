@@ -34,15 +34,15 @@ public class DocumentReplacementSuggestionRequestValidator : AbstractValidator<D
             .InclusiveBetween(0.0, 1.0)
             .WithMessage("Ngưỡng tương đồng tối thiểu phải từ 0.0 đến 1.0");
 
-        RuleFor(x => x.Tags)
-            .Must(tags => tags == null || tags.Count <= ValidationConstants.DocumentReplacementSuggestionTagsMaxCount)
-            .WithMessage(string.Format(ValidationMessageConstant.DocumentReplacementSuggestion.TagsMaxCount,
-                ValidationConstants.DocumentReplacementSuggestionTagsMaxCount));
+        // RuleFor(x => x.Tags)
+        //     .Must(tags => tags == null || tags.Count <= ValidationConstants.DocumentReplacementSuggestionTagsMaxCount)
+        //     .WithMessage(string.Format(ValidationMessageConstant.DocumentReplacementSuggestion.TagsMaxCount,
+        //         ValidationConstants.DocumentReplacementSuggestionTagsMaxCount));
 
-        RuleForEach(x => x.Tags)
-            .MaximumLength(ValidationConstants.DocumentReplacementSuggestionTagMaxLength)
-            .WithMessage(string.Format(ValidationMessageConstant.DocumentReplacementSuggestion.TagMaxLength,
-                ValidationConstants.DocumentReplacementSuggestionTagMaxLength))
-            .When(x => x.Tags != null);
+        // RuleForEach(x => x.Tags)
+        //     .MaximumLength(ValidationConstants.DocumentReplacementSuggestionTagMaxLength)
+        //     .WithMessage(string.Format(ValidationMessageConstant.DocumentReplacementSuggestion.TagMaxLength,
+        //         ValidationConstants.DocumentReplacementSuggestionTagMaxLength))
+        //     .When(x => x.Tags != null);
     }
 }

@@ -61,19 +61,19 @@ public class OfficialDocumentsFilterRequestValidator : AbstractValidator<Officia
             .When(x => !string.IsNullOrEmpty(x.DocumentTypeId));
 
         // Tags validation
-        RuleFor(x => x.Tags)
-            .Must(tags => tags == null || tags.Count <= ValidationConstants.OfficialDocumentsFilterTagsMaxCount)
-            .WithMessage(string.Format(ValidationMessageConstant.OfficialDocumentsFilter.TagsMaxCount, 
-                ValidationConstants.OfficialDocumentsFilterTagsMaxCount))
-            .When(x => x.Tags != null);
+        // RuleFor(x => x.Tags)
+        //     .Must(tags => tags == null || tags.Count <= ValidationConstants.OfficialDocumentsFilterTagsMaxCount)
+        //     .WithMessage(string.Format(ValidationMessageConstant.OfficialDocumentsFilter.TagsMaxCount, 
+        //         ValidationConstants.OfficialDocumentsFilterTagsMaxCount))
+        //     .When(x => x.Tags != null);
 
-        RuleForEach(x => x.Tags)
-            .MaximumLength(ValidationConstants.OfficialDocumentsFilterTagMaxLength)
-            .WithMessage(string.Format(ValidationMessageConstant.OfficialDocumentsFilter.TagMaxLength, 
-                ValidationConstants.OfficialDocumentsFilterTagMaxLength))
-            .Matches(ValidationConstants.TagRegex)
-            .WithMessage(ValidationMessageConstant.OfficialDocumentsFilter.TagInvalidCharacters)
-            .When(x => x.Tags != null);
+        // RuleForEach(x => x.Tags)
+        //     .MaximumLength(ValidationConstants.OfficialDocumentsFilterTagMaxLength)
+        //     .WithMessage(string.Format(ValidationMessageConstant.OfficialDocumentsFilter.TagMaxLength, 
+        //         ValidationConstants.OfficialDocumentsFilterTagMaxLength))
+        //     .Matches(ValidationConstants.TagRegex)
+        //     .WithMessage(ValidationMessageConstant.OfficialDocumentsFilter.TagInvalidCharacters)
+        //     .When(x => x.Tags != null);
 
         // SignedBy validation
         RuleFor(x => x.SignedBy)

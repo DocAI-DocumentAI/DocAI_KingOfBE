@@ -187,10 +187,10 @@ public static class ValidationConstants
     // Document validation constants
     public const int DocumentTitleMaxLength = 200;
     public const int DocumentVersionNameMaxLength = 100;
-    public const int DocumentSummaryMaxLength = 1000;
+    public const int DocumentSummaryMaxLength = 10000;
     public const int DocumentDescriptionMaxLength = 2000;
     public const int DocumentSignedByMaxLength = 100;
-    public const int DocumentTagMaxLength = 50;
+    public const int DocumentTagMaxLength = 500;
     public const int DocumentTagsMaxCount = 10;
 
     // DocumentType validation constants
@@ -200,13 +200,13 @@ public static class ValidationConstants
 
     // DocumentRAG validation constants
     public const int DocumentRAGQueryMinLength = 3;
-    public const int DocumentRAGQueryMaxLength = 500;
+    public const int DocumentRAGQueryMaxLength = 5000;
     public const int DocumentRAGMaxResultsMin = 1;
     public const int DocumentRAGMaxResultsMax = 50;
     public const double DocumentRAGMinRelevanceScoreMin = 0.0;
     public const double DocumentRAGMinRelevanceScoreMax = 1.0;
-    public const int DocumentRAGTagMaxLength = 50;
-    public const int DocumentRAGTagsMaxCount = 10;
+    public const int DocumentRAGTagMaxLength = 5000;
+    public const int DocumentRAGTagsMaxCount = 100;
 
     // DocumentRecommendation validation constants
     public const int DocumentRecommendationCountMin = 1;
@@ -228,7 +228,7 @@ public static class ValidationConstants
     public const int OfficialDocumentsFilterSignedByMaxLength = 200;
     public const int OfficialDocumentsFilterFileTypeMaxLength = 10;
     public const int OfficialDocumentsFilterSubmittedByMaxLength = 50;
-    public const int OfficialDocumentsFilterTagMaxLength = 50;
+    public const int OfficialDocumentsFilterTagMaxLength = 500;
     public const int OfficialDocumentsFilterTagsMaxCount = 20;
     public const long OfficialDocumentsFilterMaxFileSize = 1073741824; // 1GB
     public const int OfficialDocumentsFilterMaxDownloads = 999999;

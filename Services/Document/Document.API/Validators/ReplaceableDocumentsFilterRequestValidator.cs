@@ -26,9 +26,9 @@ public class ReplaceableDocumentsFilterRequestValidator : AbstractValidator<Repl
             .MaximumLength(ValidationConstants.DocumentTypeNameMaxLength)
             .When(x => !string.IsNullOrEmpty(x.DocumentTypeId));
 
-        RuleForEach(x => x.Tags)
-            .MaximumLength(ValidationConstants.DocumentTagMaxLength)
-            .Matches(ValidationConstants.TagRegex);
+        // RuleForEach(x => x.Tags)
+        //     .MaximumLength(ValidationConstants.DocumentTagMaxLength)
+        //     .Matches(ValidationConstants.TagRegex);
 
         RuleFor(x => x.SignedBy)
             .MaximumLength(ValidationConstants.DocumentSignedByMaxLength)

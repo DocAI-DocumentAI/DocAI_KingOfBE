@@ -25,8 +25,8 @@ public class CreateDraftRequestValidator : AbstractValidator<CreateDraftRequest>
         RuleFor(x => x.Summary)
             .MaximumLength(ValidationConstants.DocumentSummaryMaxLength)
             .WithMessage(string.Format(ValidationMessageConstant.Document.SummaryMaxLength, ValidationConstants.DocumentSummaryMaxLength))
-            .Matches(ValidationConstants.VietnameseTextRegex)
-            .WithMessage(ValidationMessageConstant.Document.SummaryInvalidCharacters)
+            // .Matches(ValidationConstants.VietnameseTextRegex)
+            // .WithMessage(ValidationMessageConstant.Document.SummaryInvalidCharacters)
             .When(x => !string.IsNullOrEmpty(x.Summary));
 
         RuleFor(x => x.SignedBy)
@@ -48,16 +48,16 @@ public class CreateDraftRequestValidator : AbstractValidator<CreateDraftRequest>
             .WithMessage(ValidationMessageConstant.Document.EffectiveDateRangeInvalid)
             .When(x => x.EffectiveFrom.HasValue && x.EffectiveUntil.HasValue);
 
-        RuleFor(x => x.Tags)
-            .Must(tags => tags == null || tags.Count <= ValidationConstants.DocumentTagsMaxCount)
-            .WithMessage(string.Format(ValidationMessageConstant.Document.TagsMaxCount, ValidationConstants.DocumentTagsMaxCount));
+        // RuleFor(x => x.Tags)
+        //     .Must(tags => tags == null || tags.Count <= ValidationConstants.DocumentTagsMaxCount)
+        //     .WithMessage(string.Format(ValidationMessageConstant.Document.TagsMaxCount, ValidationConstants.DocumentTagsMaxCount));
 
-        RuleForEach(x => x.Tags)
-            .MaximumLength(ValidationConstants.DocumentTagMaxLength)
-            .WithMessage(string.Format(ValidationMessageConstant.Document.TagMaxLength, ValidationConstants.DocumentTagMaxLength))
-            .Matches(ValidationConstants.TagRegex)
-            .WithMessage(ValidationMessageConstant.Document.TagInvalidCharacters)
-            .When(x => x.Tags != null);
+        // RuleForEach(x => x.Tags)
+        //     .MaximumLength(ValidationConstants.DocumentTagMaxLength)
+        //     .WithMessage(string.Format(ValidationMessageConstant.Document.TagMaxLength, ValidationConstants.DocumentTagMaxLength))
+        //     // .Matches(ValidationConstants.TagRegex)
+        //     // .WithMessage(ValidationMessageConstant.Document.TagInvalidCharacters)
+        //     .When(x => x.Tags != null);
 
         RuleFor(x => x.File)
             .NotNull().WithMessage(ValidationMessageConstant.Document.FileRequired)

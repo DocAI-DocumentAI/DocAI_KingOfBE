@@ -28,13 +28,13 @@ public class DocumentRAGRequestValidator : AbstractValidator<DocumentRAGRequest>
                 ValidationConstants.DocumentRAGMinRelevanceScoreMin, ValidationConstants.DocumentRAGMinRelevanceScoreMax))
             .When(x => x.MinRelevanceScore.HasValue);
 
-        RuleFor(x => x.Tags)
-            .Must(tags => tags == null || tags.Count <= ValidationConstants.DocumentRAGTagsMaxCount)
-            .WithMessage(string.Format(ValidationMessageConstant.DocumentRAG.TagsMaxCount, ValidationConstants.DocumentRAGTagsMaxCount));
+        // RuleFor(x => x.Tags)
+        //     .Must(tags => tags == null || tags.Count <= ValidationConstants.DocumentRAGTagsMaxCount)
+        //     .WithMessage(string.Format(ValidationMessageConstant.DocumentRAG.TagsMaxCount, ValidationConstants.DocumentRAGTagsMaxCount));
 
-        RuleForEach(x => x.Tags)
-            .MaximumLength(ValidationConstants.DocumentRAGTagMaxLength)
-            .WithMessage(string.Format(ValidationMessageConstant.DocumentRAG.TagMaxLength, ValidationConstants.DocumentRAGTagMaxLength))
-            .When(x => x.Tags != null);
+        // RuleForEach(x => x.Tags)
+        //     .MaximumLength(ValidationConstants.DocumentRAGTagMaxLength)
+        //     .WithMessage(string.Format(ValidationMessageConstant.DocumentRAG.TagMaxLength, ValidationConstants.DocumentRAGTagMaxLength))
+        //     .When(x => x.Tags != null);
     }
 }
