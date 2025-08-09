@@ -20,13 +20,6 @@ try
 {
     var builder = WebApplication.CreateBuilder(args);
 
-    // ✅ Configure Kestrel for streaming
-    builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(options =>
-    {
-        options.AllowSynchronousIO = true;
-        options.Limits.MinResponseDataRate = null; // Disable minimum data rate for streaming
-    });
-
     builder.Services.AddSerilog((services, lc) => lc
         .ReadFrom.Configuration(builder.Configuration)
         .ReadFrom.Services(services)
