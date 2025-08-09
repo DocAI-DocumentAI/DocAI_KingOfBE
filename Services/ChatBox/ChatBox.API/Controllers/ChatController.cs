@@ -105,16 +105,26 @@ namespace ChatBox.API.Controllers
                 var responseStream = await _chatService.SendMessageStreamAsync(request, userId);
 
                 Response.StatusCode = 200;
-                Response.ContentType = "text/event-stream";
+                Response.ContentType = "text/plain; charset=utf-8";
                 Response.Headers["Cache-Control"] = "no-cache";
                 Response.Headers["Connection"] = "keep-alive";
+                Response.Headers["X-Accel-Buffering"] = "no"; // Disable nginx buffering
 
-                await using var writer = new StreamWriter(Response.Body);
+                _logger.LogInformation("Starting streaming response for user {UserId}", userId);
+
+                await using var writer = new StreamWriter(Response.Body, leaveOpen: true);
                 await foreach (var chunk in responseStream)
                 {
-                    if (HttpContext.RequestAborted.IsCancellationRequested) break;
+                    if (HttpContext.RequestAborted.IsCancellationRequested)
+                    {
+                        _logger.LogInformation("Streaming cancelled by client");
+                        break;
+                    }
+
+                    _logger.LogDebug("Sending chunk: {Chunk}", chunk);
                     await writer.WriteAsync(chunk);
                     await writer.FlushAsync();
+                    await Response.Body.FlushAsync(); // Force flush the response body
                 }
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("thay đổi model"))

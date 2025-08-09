@@ -6,6 +6,8 @@ using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel;
 using ChatBox.Infrastructure.Repository.Interfaces;
 using ChatBox.API.Constants;
+using System.Text;
+using System.Text.Json;
 
 namespace ChatBox.API.Services.Implement
 {
@@ -60,14 +62,25 @@ namespace ChatBox.API.Services.Implement
         }
         public async Task<IAsyncEnumerable<string>> GetChatResponseStreamAsync(string modelName, ChatHistory chatHistory)
         {
-            var kernel = await GetKernelAsync(modelName);
             var config = await GetAIConfigurationAsync(modelName);
-            var chatService = kernel.GetRequiredService<IChatCompletionService>();
-
             var optimizedHistory = await OptimizeChatHistoryForModel(chatHistory, modelName);
             var executionSettings = CreateExecutionSettings(config, optimizedHistory);
 
-            return StreamTokensAsync(chatService, optimizedHistory, executionSettings);
+            // ✅ Try direct HTTP streaming first for better control
+            var useDirectStreaming = _configuration.GetValue<bool>("OpenRouter:UseDirectStreaming", true);
+
+            if (useDirectStreaming)
+            {
+                _logger.LogInformation("🔥 Using DIRECT HTTP streaming for better control");
+                return StreamTokensDirectAsync(modelName, optimizedHistory, executionSettings);
+            }
+            else
+            {
+                _logger.LogInformation("🔥 Using Semantic Kernel streaming");
+                var kernel = await GetKernelAsync(modelName);
+                var chatService = kernel.GetRequiredService<IChatCompletionService>();
+                return StreamTokensAsync(chatService, optimizedHistory, executionSettings);
+            }
         }
         public async Task<ChatHistory> ReduceChatHistoryAsync(ChatHistory chatHistory)
         {
@@ -140,10 +153,16 @@ namespace ChatBox.API.Services.Implement
 
         private void ConfigureOpenAIConnection(IKernelBuilder builder, AIConfiguration config)
         {
+            // ✅ Configure OpenAI client with custom HttpClient for better streaming control
+            var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("HTTP-Referer", "https://docai.asia");
+            httpClient.DefaultRequestHeaders.Add("X-Title", "DocAI ChatBot");
+
             builder.AddOpenAIChatCompletion(
                 modelId: config.ModelName,
                 apiKey: _configuration["OpenRouter:APIKey"],
-                endpoint: new Uri(_configuration["OpenRouter:Endpoint"]));
+                endpoint: new Uri(_configuration["OpenRouter:Endpoint"]),
+                httpClient: httpClient);
         }
         #endregion
 
@@ -309,13 +328,118 @@ namespace ChatBox.API.Services.Implement
             ChatHistory chatHistory,
             OpenAIPromptExecutionSettings executionSettings)
         {
+            _logger.LogInformation("🔥 Starting streaming with settings: Temperature={Temperature}, MaxTokens={MaxTokens}",
+                executionSettings.Temperature, executionSettings.MaxTokens);
+
+            var tokenCount = 0;
+            var startTime = DateTime.UtcNow;
+
             await foreach (var token in chatService.GetStreamingChatMessageContentsAsync(chatHistory, executionSettings))
             {
                 if (!string.IsNullOrEmpty(token.Content))
                 {
+                    tokenCount++;
+                    var elapsed = DateTime.UtcNow - startTime;
+
+                    _logger.LogInformation("🔥 Token #{TokenCount} received after {ElapsedMs}ms: '{Content}' (Length: {Length})",
+                        tokenCount, elapsed.TotalMilliseconds, token.Content, token.Content.Length);
+
                     yield return token.Content;
                 }
             }
+
+            _logger.LogInformation("🔥 Streaming completed. Total tokens: {TokenCount}, Total time: {TotalMs}ms",
+                tokenCount, (DateTime.UtcNow - startTime).TotalMilliseconds);
+        }
+
+        /// <summary>
+        /// Alternative streaming implementation using direct HTTP client for debugging
+        /// </summary>
+        private async IAsyncEnumerable<string> StreamTokensDirectAsync(
+            string modelName,
+            ChatHistory chatHistory,
+            OpenAIPromptExecutionSettings executionSettings)
+        {
+            _logger.LogInformation("🔥 Starting DIRECT streaming for model: {ModelName}", modelName);
+
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_configuration["OpenRouter:APIKey"]}");
+            httpClient.DefaultRequestHeaders.Add("HTTP-Referer", "https://docai.asia");
+            httpClient.DefaultRequestHeaders.Add("X-Title", "DocAI ChatBot");
+
+            var messages = chatHistory.Select(msg => new
+            {
+                role = msg.Role.ToString().ToLower(),
+                content = msg.Content
+            }).ToArray();
+
+            var requestBody = new
+            {
+                model = modelName,
+                messages = messages,
+                temperature = executionSettings.Temperature,
+                max_tokens = executionSettings.MaxTokens,
+                stream = true // ✅ Explicitly enable streaming
+            };
+
+            var json = JsonSerializer.Serialize(requestBody);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            _logger.LogInformation("🔥 Sending request to OpenRouter: {Json}", json);
+
+            var response = await httpClient.PostAsync($"{_configuration["OpenRouter:Endpoint"]}/chat/completions", content);
+            response.EnsureSuccessStatusCode();
+
+            using var stream = await response.Content.ReadAsStreamAsync();
+            using var reader = new StreamReader(stream);
+
+            var tokenCount = 0;
+            var startTime = DateTime.UtcNow;
+
+            while (!reader.EndOfStream)
+            {
+                var line = await reader.ReadLineAsync();
+                if (string.IsNullOrEmpty(line) || !line.StartsWith("data: ")) continue;
+
+                var data = line.Substring(6); // Remove "data: " prefix
+                if (data == "[DONE]") break;
+
+                var tokenContent = ParseStreamingToken(data);
+                if (!string.IsNullOrEmpty(tokenContent))
+                {
+                    tokenCount++;
+                    var elapsed = DateTime.UtcNow - startTime;
+
+                    _logger.LogInformation("🔥 DIRECT Token #{TokenCount} after {ElapsedMs}ms: '{Content}' (Length: {Length})",
+                        tokenCount, elapsed.TotalMilliseconds, tokenContent, tokenContent.Length);
+
+                    yield return tokenContent;
+                }
+            }
+
+            _logger.LogInformation("🔥 DIRECT streaming completed. Total tokens: {TokenCount}, Total time: {TotalMs}ms",
+                tokenCount, (DateTime.UtcNow - startTime).TotalMilliseconds);
+        }
+
+        private string? ParseStreamingToken(string data)
+        {
+            try
+            {
+                var jsonDoc = JsonDocument.Parse(data);
+                var delta = jsonDoc.RootElement
+                    .GetProperty("choices")[0]
+                    .GetProperty("delta");
+
+                if (delta.TryGetProperty("content", out var contentElement))
+                {
+                    return contentElement.GetString();
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning("Failed to parse streaming response: {Error}, Data: {Data}", ex.Message, data);
+            }
+            return null;
         }
         #endregion
 
