@@ -24,32 +24,30 @@ namespace Document.API.Consumers
             _logger = logger;
         }
 
-
         public async Task Consume(ConsumeContext<ChatBoxDocumentRequest> context)
         {
             var request = context.Message;
             var startTime = DateTime.UtcNow;
 
-            _logger.LogInformation("🔥🔥🔥 [CONSUMER] Processing document search: {RequestId} - Query: {Query} - User: {UserId}",
-                request.RequestId, request.Query, request.UserId);
-
-            Console.WriteLine($"🔥🔥🔥 [CONSUMER] RECEIVED REQUEST: {request.RequestId}");
-            Console.WriteLine($"🔥 [CONSUMER] Query: '{request.Query}'");
-            Console.WriteLine($"🔥 [CONSUMER] UserId: {request.UserId}");
-            Console.WriteLine($"🔥 [CONSUMER] MaxResults: {request.MaxResults}");
-            Console.WriteLine($"🔥 [CONSUMER] MinRelevanceScore: {request.MinRelevanceScore}");
+            _logger.LogInformation("🔥 [CONSUMER] Processing RAW CONTENT request: {RequestId} - User: {FullName} ({Role}) - Dept: {DeptName}",
+                request.RequestId, request.FullName, request.Role, request.DepartmentName);
 
             try
             {
-                Console.WriteLine($"🔥 [CONSUMER] Converting to internal RAG request...");
-
-                // ✅ Convert shared DTO to internal RAG request
                 var ragRequest = new Document.API.Payload.Request.DocumentRAGRequest
                 {
                     RequestId = request.RequestId,
                     Query = request.Query,
-                    MaxResults = request.MaxResults,
-                    MinRelevanceScore = request.MinRelevanceScore,
+                    UserId = request.UserId,
+                    Email = request.Email,
+                    FullName = request.FullName,
+                    Phone = request.Phone,
+                    Role = request.Role,
+                    DepartmentId = request.DepartmentId,
+                    DepartmentName = request.DepartmentName,
+                    Permissions = request.Permissions,
+                    MaxResults = Math.Min(request.MaxResults, 3),
+                    MinRelevanceScore = Math.Max(request.MinRelevanceScore ?? 0.28, 0.28),
                     OnlyPublic = request.OnlyPublic,
                     OnlyOfficial = request.OnlyOfficial,
                     Tags = request.Tags,
@@ -58,101 +56,67 @@ namespace Document.API.Consumers
                     RequestTime = request.RequestTime
                 };
 
-                Console.WriteLine($"🔥 [CONSUMER] Calling RAG service...");
-
-                // ✅ Process RAG search
                 var ragResponse = await _ragService.SearchDocumentsWithRAGAsync(ragRequest);
                 var processingTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
 
-                Console.WriteLine($"🔥 [CONSUMER] RAG service response - Success: {ragResponse.Success}");
-                Console.WriteLine($"🔥 [CONSUMER] RAG answer length: {ragResponse.Answer?.Length ?? 0}");
-                Console.WriteLine($"🔥 [CONSUMER] RAG sources count: {ragResponse.Sources?.Count ?? 0}");
-                Console.WriteLine($"🔥 [CONSUMER] RAG error: {ragResponse.ErrorMessage ?? "None"}");
+                _logger.LogInformation("🔥 [CONSUMER] RAG response - Success: {Success}, RawContent: {HasContent}, Sources: {SourceCount}",
+                    ragResponse.Success, !string.IsNullOrEmpty(ragResponse.RawContent), ragResponse.Sources?.Count ?? 0);
 
-                // ✅ Convert internal response to shared DTO
+                if (!string.IsNullOrEmpty(ragResponse.RawContent))
+                {
+                    _logger.LogInformation("🔥 [CONSUMER] Raw content preview: '{Content}'",
+                        ragResponse.RawContent.Substring(0, Math.Min(100, ragResponse.RawContent.Length)) + "...");
+                }
+
+                // ✅ Convert to shared DTO with RAW CONTENT
                 var response = new ChatBoxDocumentResponse
                 {
                     RequestId = request.RequestId,
                     Success = ragResponse.Success,
-                    Answer = ragResponse.Answer,
+                    RawContent = ragResponse.RawContent, // ✅ Raw content instead of Answer
                     QueryProcessed = ragResponse.QueryProcessed,
                     ErrorMessage = ragResponse.ErrorMessage,
                     ProcessingTimeMs = (long)processingTime,
                     Sources = await ConvertToDocumentSourcesAsync(ragResponse.Sources)
                 };
 
-                Console.WriteLine($"🔥 [CONSUMER] Final response - Success: {response.Success}");
-                Console.WriteLine($"🔥 [CONSUMER] Final answer: '{response.Answer?.Substring(0, Math.Min(100, response.Answer?.Length ?? 0))}...'");
-                Console.WriteLine($"🔥 [CONSUMER] Final sources: {response.Sources?.Count ?? 0}");
+                _logger.LogInformation("✅ [CONSUMER] Final response - Success: {Success}, RawContentLength: {Length}, Sources: {SourceCount}",
+                    response.Success, response.RawContent?.Length ?? 0, response.Sources.Count);
 
-                _logger.LogInformation("✅ [CONSUMER] Document search completed: {RequestId} - Success: {Success} - Sources: {SourceCount} - Time: {ProcessingTime}ms",
-                    request.RequestId, response.Success, response.Sources.Count, processingTime);
-
-                Console.WriteLine($"🔥 [CONSUMER] Sending response back to ChatBox...");
-
-                // ✅ Send response back to ChatBox
                 await context.RespondAsync(response);
-
-                Console.WriteLine($"✅ [CONSUMER] Response sent successfully!");
-                _logger.LogInformation("✅ [CONSUMER] Response sent for request: {RequestId}", request.RequestId);
             }
             catch (Exception ex)
             {
                 var processingTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                _logger.LogError(ex, "❌ [CONSUMER] Error: {RequestId} - {Error}", request.RequestId, ex.Message);
 
-                _logger.LogError(ex, "❌ [CONSUMER] Error processing document search: {RequestId} - Time: {ProcessingTime}ms - Error: {Error}",
-                    request.RequestId, processingTime, ex.Message);
-
-                Console.WriteLine($"❌ [CONSUMER] EXCEPTION: {ex.Message}");
-                Console.WriteLine($"❌ [CONSUMER] Stack trace: {ex.StackTrace}");
-
-                // ✅ Send error response
                 var errorResponse = new ChatBoxDocumentResponse
                 {
                     RequestId = request.RequestId,
                     Success = false,
-                    Answer = string.Empty,
+                    RawContent = string.Empty, // ✅ Empty raw content on error
                     QueryProcessed = request.Query,
                     ErrorMessage = $"Lỗi xử lý: {ex.Message}",
                     ProcessingTimeMs = (long)processingTime,
                     Sources = new List<ChatBoxDocumentSource>()
                 };
 
-                try
-                {
-                    await context.RespondAsync(errorResponse);
-                    Console.WriteLine($"❌ [CONSUMER] Error response sent");
-                }
-                catch (Exception responseEx)
-                {
-                    Console.WriteLine($"❌ [CONSUMER] Failed to send error response: {responseEx.Message}");
-                    _logger.LogError(responseEx, "Failed to send error response for request: {RequestId}", request.RequestId);
-                }
+                await context.RespondAsync(errorResponse);
             }
         }
 
-
-        // ✅ Convert internal DocumentSourceResponse to shared DocumentSource
         private async Task<List<ChatBoxDocumentSource>> ConvertToDocumentSourcesAsync(
-             List<Document.API.Payload.Response.DocumentSourceResponse> internalSources)
+            List<Document.API.Payload.Response.DocumentSourceResponse> internalSources)
         {
-            Console.WriteLine($"🔥 [CONSUMER] Converting {internalSources?.Count ?? 0} internal sources to shared DTOs");
-
             if (internalSources == null || !internalSources.Any())
-            {
-                Console.WriteLine($"🔥 [CONSUMER] No internal sources to convert");
                 return new List<ChatBoxDocumentSource>();
-            }
 
             var sources = new List<ChatBoxDocumentSource>();
 
             foreach (var internalSource in internalSources)
             {
-                Console.WriteLine($"🔥 [CONSUMER] Converting source: {internalSource.DocumentId} - {internalSource.Title}");
-
                 try
                 {
-                    // ✅ Get additional document details from database
                     var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
                         .SingleOrDefaultAsync(
                             predicate: dv => dv.DocumentFile.Id == internalSource.DocumentId && dv.IsOfficial,
@@ -172,36 +136,23 @@ namespace Document.API.Consumers
                         RelevanceScore = internalSource.RelevanceScore
                     };
 
-                    // ✅ Add additional details from database if available
                     if (documentVersion != null)
                     {
-                        Console.WriteLine($"🔥 [CONSUMER] Found document version for {internalSource.DocumentId}");
-
                         source.Description = documentVersion.DocumentFile.Description;
                         source.FileType = documentVersion.FileType ?? "";
                         source.FileSize = documentVersion.FileSize;
                         source.Status = documentVersion.Status.ToString();
                         source.EffectiveFrom = documentVersion.EffectiveFrom;
                         source.EffectiveUntil = documentVersion.EffectiveUntil;
-
-                        // ✅ Add tags
-                        source.Tags = documentVersion.DocumentTags
-                            .Select(dt => dt.Tag.Name)
-                            .ToList();
-                    }
-                    else
-                    {
-                        Console.WriteLine($"❌ [CONSUMER] No document version found for {internalSource.DocumentId}");
+                        source.Tags = documentVersion.DocumentTags.Select(dt => dt.Tag.Name).ToList();
                     }
 
                     sources.Add(source);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"❌ [CONSUMER] Error converting source {internalSource.DocumentId}: {ex.Message}");
-                    _logger.LogError(ex, "Error converting document source: {DocumentId}", internalSource.DocumentId);
+                    _logger.LogError(ex, "❌ [CONVERT] Error converting source: {DocumentId}", internalSource.DocumentId);
 
-                    // Add basic source info even if database lookup fails
                     sources.Add(new ChatBoxDocumentSource
                     {
                         DocumentId = internalSource.DocumentId,
@@ -213,7 +164,6 @@ namespace Document.API.Consumers
                 }
             }
 
-            Console.WriteLine($"✅ [CONSUMER] Converted {sources.Count} sources successfully");
             return sources;
         }
     }

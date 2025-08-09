@@ -14,52 +14,29 @@ namespace ChatBox.API.Services.Implement
         private readonly IUnitOfWork<ChatBoxDbContext> _unitOfWork;
         private readonly IConfiguration _configuration;
         private readonly IDocumentSearchService _documentSearchService;
+        private readonly ILogger<SemanticKernelService> _logger;
+
 
         public SemanticKernelService(
-            IUnitOfWork<ChatBoxDbContext> unitOfWork,
-            IConfiguration configuration,
-            IDocumentSearchService documentSearchService)
+           IUnitOfWork<ChatBoxDbContext> unitOfWork,
+           IConfiguration configuration,
+           IDocumentSearchService documentSearchService,
+           ILogger<SemanticKernelService> logger)
         {
             _unitOfWork = unitOfWork;
             _configuration = configuration;
             _documentSearchService = documentSearchService;
+            _logger = logger;
         }
 
         public async Task<Kernel> GetKernelAsync(string modelName)
         {
-            var config = await _unitOfWork.GetRepository<AIConfiguration>()
-                           .SingleOrDefaultAsync(predicate: c => c.ModelName == modelName && c.IsActive);
+            var config = await GetAIConfigurationAsync(modelName);
 
             if (config == null)
                 throw new ArgumentException(string.Format(MessageConstant.Admin.ModelNotFound, modelName));
 
             return await CreateKernelForOpenRouterAsync(config);
-        }
-
-        private async Task<Kernel> CreateKernelForOpenRouterAsync(AIConfiguration config)
-        {
-            var builder = Kernel.CreateBuilder();
-
-            try
-            {
-                builder.AddOpenAIChatCompletion(
-                    modelId: config.ModelName,
-                    apiKey: _configuration["OpenRouter:APIKey"],
-                    endpoint: new Uri(_configuration["OpenRouter:Endpoint"]));
-
-                var kernel = builder.Build();
-
-                //  DOCUMENT SEARCH PLUGIN INTEGRATION - FEATURE PRESERVED
-                //var documentPlugin = new DocumentSearchPlugin(_documentSearchService);
-                //kernel.Plugins.AddFromObject(documentPlugin, "DocumentSearch");
-                //kernel.Plugins.AddFromType<TimePlugin>("Time");
-
-                return kernel;
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException(string.Format(MessageConstant.AI.KernelCreationFailed, config.ModelName), ex);
-            }
         }
         public async Task<string> GetChatResponseAsync(string modelName, ChatHistory chatHistory)
         {
@@ -69,55 +46,264 @@ namespace ChatBox.API.Services.Implement
                 var config = await GetAIConfigurationAsync(modelName);
                 var chatService = kernel.GetRequiredService<IChatCompletionService>();
 
-                bool isMistralModel = IsMistralModel(modelName);
-                if (isMistralModel && chatHistory.Count > ChatConstants.MistralMaxHistoryCount)
-                {
-                    chatHistory = await ReduceChatHistoryForMistralAsync(chatHistory);
-                }
+                var optimizedHistory = await OptimizeChatHistoryForModel(chatHistory, modelName);
+                var executionSettings = CreateExecutionSettings(config, optimizedHistory);
 
-                bool hasSystemMessage = chatHistory.Any(m => m.Role == AuthorRole.System);
-                var executionSettings = CreateExecutionSettings(config, hasSystemMessage, isMistralModel);
-
-                // ADD USERID to kernel arguments for document search
-                var kernelArguments = new KernelArguments();
-                if (chatHistory.Any())
-                {
-                    kernelArguments["userId"] = "system"; 
-                }
-
-                var result = await chatService.GetChatMessageContentAsync(chatHistory, executionSettings);
-
-                if (string.IsNullOrEmpty(result?.Content))
-                {
-                    return await TryFallbackResponseAsync(chatService, executionSettings, chatHistory);
-                }
-
-                return result.Content;
+                var result = await ExecuteChatCompletion(chatService, optimizedHistory, executionSettings);
+                return ProcessChatResult(result, chatService, executionSettings, optimizedHistory);
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Failed to get chat response for model {ModelName}", modelName);
                 return MessageConstant.AI.ResponseGenerationFailed;
             }
         }
-
         public async Task<IAsyncEnumerable<string>> GetChatResponseStreamAsync(string modelName, ChatHistory chatHistory)
         {
             var kernel = await GetKernelAsync(modelName);
             var config = await GetAIConfigurationAsync(modelName);
             var chatService = kernel.GetRequiredService<IChatCompletionService>();
 
-            bool isMistralModel = IsMistralModel(modelName);
-            if (isMistralModel && chatHistory.Count > ChatConstants.MistralMaxHistoryCount)
+            var optimizedHistory = await OptimizeChatHistoryForModel(chatHistory, modelName);
+            var executionSettings = CreateExecutionSettings(config, optimizedHistory);
+
+            return StreamTokensAsync(chatService, optimizedHistory, executionSettings);
+        }
+        public async Task<ChatHistory> ReduceChatHistoryAsync(ChatHistory chatHistory)
+        {
+            if (chatHistory.Count <= ChatConstants.MaxChatHistoryCount)
+                return chatHistory;
+
+            return CreateReducedChatHistory(chatHistory);
+        }
+        public async Task<(bool Success, string Response, int TokensUsed, long ResponseTimeMs, string Error)> TestModelAsync(string modelName)
+        {
+            var startTime = DateTimeOffset.UtcNow;
+
+            try
             {
-                chatHistory = await ReduceChatHistoryForMistralAsync(chatHistory);
+                var config = await ValidateModelForTesting(modelName);
+                if (config.Error != null)
+                {
+                    return CreateTestFailureResult(startTime, config.Error);
+                }
+
+                var testResult = await ExecuteModelTest(modelName, startTime);
+                return testResult;
             }
+            catch (Exception ex)
+            {
+                return CreateTestExceptionResult(startTime, ex);
+            }
+        }
+        public async Task<string> GenerateTitleAsync(string message)
+        {
+            try
+            {
+                var config = await GetDefaultAIConfigurationAsync();
+                var kernel = await GetKernelAsync(config.ModelName);
 
-            bool hasSystemMessage = chatHistory.Any(m => m.Role == AuthorRole.System);
-            var executionSettings = CreateExecutionSettings(config, hasSystemMessage, isMistralModel);
+                var titleFunction = kernel.CreateFunctionFromPrompt(ChatConstants.TitleGenerationPrompt);
+                var result = await titleFunction.InvokeAsync(kernel, new KernelArguments { ["input"] = message });
 
-            return StreamTokensAsync(chatService, chatHistory, executionSettings);
+                return ProcessGeneratedTitle(result.ToString());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Title generation failed, using default title");
+                return ChatConstants.DefaultSessionTitle;
+            }
+        }
+        #region Private Methods - Kernel Management
+        private async Task<Kernel> CreateKernelForOpenRouterAsync(AIConfiguration config)
+        {
+            try
+            {
+                var builder = Kernel.CreateBuilder();
+                ConfigureOpenAIConnection(builder, config);
+
+                var kernel = builder.Build();
+
+                // Document search plugin integration - feature preserved but commented for future use
+                // var documentPlugin = new DocumentSearchPlugin(_documentSearchService);
+                // kernel.Plugins.AddFromObject(documentPlugin, "DocumentSearch");
+                // kernel.Plugins.AddFromType<TimePlugin>("Time");
+
+                return kernel;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    string.Format(MessageConstant.AI.KernelCreationFailed, config.ModelName), ex);
+            }
         }
 
+        private void ConfigureOpenAIConnection(IKernelBuilder builder, AIConfiguration config)
+        {
+            builder.AddOpenAIChatCompletion(
+                modelId: config.ModelName,
+                apiKey: _configuration["OpenRouter:APIKey"],
+                endpoint: new Uri(_configuration["OpenRouter:Endpoint"]));
+        }
+        #endregion
+
+        #region Private Methods - Chat History Optimization
+        private async Task<ChatHistory> OptimizeChatHistoryForModel(ChatHistory chatHistory, string modelName)
+        {
+            var isMistralModel = IsMistralModel(modelName);
+
+            if (isMistralModel && chatHistory.Count > ChatConstants.MistralMaxHistoryCount)
+            {
+                return await ReduceChatHistoryForMistralAsync(chatHistory);
+            }
+
+            return chatHistory;
+        }
+
+        private async Task<ChatHistory> ReduceChatHistoryForMistralAsync(ChatHistory original)
+        {
+            var reduced = new ChatHistory();
+
+            PreserveSystemMessage(original, reduced);
+            AddRecentNonSystemMessages(original, reduced);
+
+            return reduced;
+        }
+
+        private void PreserveSystemMessage(ChatHistory source, ChatHistory destination)
+        {
+            var systemMsg = source.FirstOrDefault(m => m.Role == AuthorRole.System);
+            if (systemMsg != null)
+            {
+                destination.Add(systemMsg);
+            }
+        }
+
+        private void AddRecentNonSystemMessages(ChatHistory source, ChatHistory destination)
+        {
+            var nonSystemMessages = source.Where(m => m.Role != AuthorRole.System)
+                           .TakeLast(ChatConstants.MistralKeepMessageCount);
+
+            foreach (var msg in nonSystemMessages)
+            {
+                destination.Add(msg);
+            }
+        }
+
+        private ChatHistory CreateReducedChatHistory(ChatHistory original)
+        {
+            var reduced = new ChatHistory();
+
+            PreserveSystemMessage(original, reduced);
+
+            var recentMessages = original.Where(m => m.Role != AuthorRole.System)
+                           .TakeLast(ChatConstants.RecentMessagesCount);
+
+            foreach (var message in recentMessages)
+            {
+                reduced.Add(message);
+            }
+
+            return reduced;
+        }
+        #endregion
+
+        #region Private Methods - Execution Settings
+        private OpenAIPromptExecutionSettings CreateExecutionSettings(AIConfiguration config, ChatHistory chatHistory)
+        {
+            var isMistralModel = IsMistralModel(config.ModelName);
+            var hasSystemMessage = chatHistory.Any(m => m.Role == AuthorRole.System);
+
+            return new OpenAIPromptExecutionSettings
+            {
+                ChatSystemPrompt = null,
+                Temperature = isMistralModel ? Math.Min(config.Temperature, 0.8f) : config.Temperature,
+                TopP = isMistralModel ? Math.Min(config.TopP, 0.9f) : config.TopP,
+                MaxTokens = isMistralModel ? Math.Min(config.MaxTokens, 2000) : config.MaxTokens,
+                ToolCallBehavior = null // Disabled for compatibility
+            };
+        }
+
+        private bool IsMistralModel(string modelName)
+        {
+            return !string.IsNullOrEmpty(modelName) &&
+                   modelName.ToLower().Contains("mistral");
+        }
+        #endregion
+
+        #region Private Methods - Chat Completion
+        private async Task<ChatMessageContent> ExecuteChatCompletion(
+            IChatCompletionService chatService,
+            ChatHistory chatHistory,
+            OpenAIPromptExecutionSettings settings)
+        {
+            var kernelArguments = new KernelArguments();
+            if (chatHistory.Any())
+            {
+                kernelArguments["userId"] = "system";
+            }
+
+            return await chatService.GetChatMessageContentAsync(chatHistory, settings);
+        }
+
+        private string ProcessChatResult(
+            ChatMessageContent result,
+            IChatCompletionService chatService,
+            OpenAIPromptExecutionSettings settings,
+            ChatHistory chatHistory)
+        {
+            if (!string.IsNullOrEmpty(result?.Content))
+                return result.Content;
+
+            _logger.LogWarning("Empty response from AI service, attempting fallback");
+            return TryFallbackResponseAsync(chatService, settings, chatHistory).GetAwaiter().GetResult();
+        }
+
+        private async Task<string> TryFallbackResponseAsync(
+            IChatCompletionService chatService,
+            OpenAIPromptExecutionSettings settings,
+            ChatHistory originalHistory)
+        {
+            try
+            {
+                var fallbackHistory = CreateFallbackChatHistory(originalHistory);
+                var fallbackSettings = CreateFallbackSettings(settings);
+
+                var result = await chatService.GetChatMessageContentAsync(fallbackHistory, fallbackSettings);
+                return result?.Content ?? MessageConstant.AI.ResponseGenerationFailed;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Fallback response generation also failed");
+                return MessageConstant.AI.ResponseGenerationFailed;
+            }
+        }
+
+        private ChatHistory CreateFallbackChatHistory(ChatHistory originalHistory)
+        {
+            var fallbackHistory = new ChatHistory();
+            fallbackHistory.AddSystemMessage(ChatConstants.FallbackSystemPrompt);
+
+            var lastUserMessage = originalHistory.LastOrDefault(m => m.Role == AuthorRole.User);
+            var messageContent = lastUserMessage?.Content ?? ChatConstants.DefaultFallbackMessage;
+            fallbackHistory.AddUserMessage(messageContent);
+
+            return fallbackHistory;
+        }
+
+        private OpenAIPromptExecutionSettings CreateFallbackSettings(OpenAIPromptExecutionSettings originalSettings)
+        {
+            return new OpenAIPromptExecutionSettings
+            {
+                Temperature = originalSettings.Temperature,
+                TopP = originalSettings.TopP,
+                MaxTokens = Math.Min(originalSettings.MaxTokens ?? 1000, 500), // Reduced for fallback
+                ToolCallBehavior = null // Disable tools for fallback
+            };
+        }
+        #endregion
+
+        #region Private Methods - Streaming
         private async IAsyncEnumerable<string> StreamTokensAsync(
             IChatCompletionService chatService,
             ChatHistory chatHistory,
@@ -131,181 +317,75 @@ namespace ChatBox.API.Services.Implement
                 }
             }
         }
+        #endregion
 
-        public async Task<ChatHistory> ReduceChatHistoryAsync(ChatHistory chatHistory)
+        #region Private Methods - Title Generation
+        private string ProcessGeneratedTitle(string rawTitle)
         {
-            if (chatHistory.Count <= ChatConstants.MaxChatHistoryCount)
-                return chatHistory;
+            var title = rawTitle.Trim().Replace("\"", "");
 
-            var reducedHistory = new ChatHistory();
-
-            var systemMessage = chatHistory.FirstOrDefault(m => m.Role == AuthorRole.System);
-            if (systemMessage != null)
-            {
-                reducedHistory.Add(systemMessage);
-            }
-
-            var recentMessages = chatHistory.Skip(Math.Max(0, chatHistory.Count - ChatConstants.RecentMessagesCount)).ToList();
-
-            foreach (var message in recentMessages)
-            {
-                if (message.Role != AuthorRole.System)
-                {
-                    reducedHistory.Add(message);
-                }
-            }
-
-            return reducedHistory;
+            return title.Length > ChatConstants.MaxTitleLength
+                ? title.Substring(0, ChatConstants.MaxTitleLength) + "..."
+                : title;
         }
-        public async Task<string> GenerateTitleAsync(string message)
+        #endregion
+
+        #region Private Methods - Model Testing
+        private async Task<(AIConfiguration Config, string Error)> ValidateModelForTesting(string modelName)
         {
-            try
-            {
-                var config = await GetDefaultAIConfigurationAsync();
-                var kernel = await GetKernelAsync(config.ModelName);
+            var config = await _unitOfWork.GetRepository<AIConfiguration>()
+                .SingleOrDefaultAsync(predicate: c => c.ModelName == modelName);
 
-                var titleFunction = kernel.CreateFunctionFromPrompt(ChatConstants.TitleGenerationPrompt);
+            if (config == null)
+                return (null, string.Format(MessageConstant.Admin.ModelNotFound, modelName));
 
-                var result = await titleFunction.InvokeAsync(kernel, new KernelArguments { ["input"] = message });
-                var title = result.ToString().Trim().Replace("\"", "");
+            if (!config.IsActive)
+                return (null, $"Model '{modelName}' chưa được kích hoạt");
 
-                // Limit title length
-                return title.Length > ChatConstants.MaxTitleLength ? title.Substring(0, ChatConstants.MaxTitleLength) + "..." : title;
-            }
-            catch
-            {
-                return ChatConstants.DefaultSessionTitle;
-            }
+            return (config, null);
         }
-        public async Task<(bool Success, string Response, int TokensUsed, long ResponseTimeMs, string Error)> TestModelAsync(string modelName)
+
+        private async Task<(bool Success, string Response, int TokensUsed, long ResponseTimeMs, string Error)> ExecuteModelTest(string modelName, DateTimeOffset startTime)
         {
-            var startTime = DateTimeOffset.UtcNow;
+            var testHistory = CreateTestChatHistory();
+            var response = await GetChatResponseAsync(modelName, testHistory);
+            var endTime = DateTimeOffset.UtcNow;
+            var responseTime = (long)(endTime - startTime).TotalMilliseconds;
+            var tokensUsed = EstimateTokens(testHistory.ToString() + response);
 
-            try
-            {
-                var config = await _unitOfWork.GetRepository<AIConfiguration>()
-                    .SingleOrDefaultAsync(predicate: c => c.ModelName == modelName);
-
-                if (config == null)
-                {
-                    var endTime = DateTimeOffset.UtcNow;
-                    var responseTime = (endTime - startTime).TotalMilliseconds;
-                    return (false, "", 0, (long)responseTime, string.Format(MessageConstant.Admin.ModelNotFound, modelName));
-                }
-
-                if (!config.IsActive)
-                {
-                    var endTime = DateTimeOffset.UtcNow;
-                    var responseTime = (endTime - startTime).TotalMilliseconds;
-                    return (false, "", 0, (long)responseTime, $"Model '{modelName}' chưa được kích hoạt");
-                }
-
-                var testHistory = new ChatHistory();
-                testHistory.AddSystemMessage(ChatConstants.TestSystemPrompt);
-                testHistory.AddUserMessage(ChatConstants.TestUserMessage);
-
-                var response = await GetChatResponseAsync(modelName, testHistory);
-                var finalEndTime = DateTimeOffset.UtcNow;
-                var finalResponseTime = (finalEndTime - startTime).TotalMilliseconds;
-
-                var tokensUsed = EstimateTokens(testHistory.ToString() + response);
-
-                return (true, response, tokensUsed, (long)finalResponseTime, null);
-            }
-            catch (Exception ex)
-            {
-                var endTime = DateTimeOffset.UtcNow;
-                var responseTime = (endTime - startTime).TotalMilliseconds;
-                return (false, "", 0, (long)responseTime, ex.Message);
-            }
+            return (true, response, tokensUsed, responseTime, null);
         }
+
+        private ChatHistory CreateTestChatHistory()
+        {
+            var testHistory = new ChatHistory();
+            testHistory.AddSystemMessage(ChatConstants.TestSystemPrompt);
+            testHistory.AddUserMessage(ChatConstants.TestUserMessage);
+            return testHistory;
+        }
+
+        private (bool Success, string Response, int TokensUsed, long ResponseTimeMs, string Error) CreateTestFailureResult(DateTimeOffset startTime, string error)
+        {
+            var responseTime = (long)(DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+            return (false, "", 0, responseTime, error);
+        }
+
+        private (bool Success, string Response, int TokensUsed, long ResponseTimeMs, string Error) CreateTestExceptionResult(DateTimeOffset startTime, Exception ex)
+        {
+            var responseTime = (long)(DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+            return (false, "", 0, responseTime, ex.Message);
+        }
+
         private int EstimateTokens(string text)
         {
-            if (string.IsNullOrEmpty(text)) return 0;
+            if (string.IsNullOrEmpty(text))
+                return 0;
+
             return Math.Max(1, (int)Math.Ceiling(text.Length / 4.0));
         }
+        #endregion
 
-        //  MISTRAL-SPECIFIC OPTIMIZATION METHODS
-        private bool IsMistralModel(string modelName)
-        {
-            return !string.IsNullOrEmpty(modelName) &&
-                   modelName.ToLower().Contains("mistral");
-        }
-        private OpenAIPromptExecutionSettings CreateExecutionSettings(AIConfiguration config, bool hasSystemMessageInHistory, bool isMistralModel = false)
-        {
-            var settings = new OpenAIPromptExecutionSettings
-            {
-                ChatSystemPrompt = null,
-                Temperature = isMistralModel ? Math.Min(config.Temperature, 0.8f) : config.Temperature,
-                TopP = isMistralModel ? Math.Min(config.TopP, 0.9f) : config.TopP,
-                MaxTokens = isMistralModel ? Math.Min(config.MaxTokens, 2000) : config.MaxTokens,
-            };
-
-            //  DISABLE tool calling cho Mistral, enable cho models khác
-            settings.ToolCallBehavior = null;
-            //    ToolCallBehavior.AutoInvokeKernelFunctions;
-
-            //if (isMistralModel)
-            //{
-            //    Console.WriteLine($"🔧 [MISTRAL] Function calling enabled via OpenRouter (format handled by proxy)");
-            //}
-            //else
-            //{
-            //    Console.WriteLine($"🔧 [TOOLS] Function calling enabled");
-            //}
-            return settings;
-        }
-
-        private async Task<ChatHistory> ReduceChatHistoryForMistralAsync(ChatHistory original)
-        {
-            var reduced = new ChatHistory();
-
-            var systemMsg = original.FirstOrDefault(m => m.Role == AuthorRole.System);
-            if (systemMsg != null)
-            {
-                reduced.Add(systemMsg);
-            }
-
-            var nonSystemMessages = original.Where(m => m.Role != AuthorRole.System)
-                           .TakeLast(ChatConstants.MistralKeepMessageCount);
-            foreach (var msg in nonSystemMessages)
-            {
-                reduced.Add(msg);
-            }
-
-            return reduced;
-        }
-        private async Task<string> TryFallbackResponseAsync(IChatCompletionService chatService, OpenAIPromptExecutionSettings settings, ChatHistory originalHistory)
-        {
-            try
-            {
-                var fallbackHistory = new ChatHistory();
-                fallbackHistory.AddSystemMessage(ChatConstants.FallbackSystemPrompt);
-
-                var lastUserMessage = originalHistory.LastOrDefault(m => m.Role == AuthorRole.User);
-                if (lastUserMessage != null)
-                {
-                    fallbackHistory.AddUserMessage(lastUserMessage.Content);
-                }
-                else
-                {
-                    fallbackHistory.AddUserMessage(ChatConstants.DefaultFallbackMessage);
-                }
-                var fallbackSettings = new OpenAIPromptExecutionSettings
-                {
-                    Temperature = settings.Temperature,
-                    TopP = settings.TopP,
-                    MaxTokens = Math.Min(settings.MaxTokens ?? 1000, 500), // Reduced for fallback
-                    ToolCallBehavior = null // Disable tools for fallback
-                };
-                var result = await chatService.GetChatMessageContentAsync(fallbackHistory, settings);
-                return result?.Content ?? MessageConstant.AI.ResponseGenerationFailed;
-            }
-            catch
-            {
-                return MessageConstant.AI.ResponseGenerationFailed;
-            }
-        }
+        #region Private Methods - Configuration Management
         private async Task<AIConfiguration> GetAIConfigurationAsync(string modelName)
         {
             return await _unitOfWork.GetRepository<AIConfiguration>()
@@ -319,5 +399,7 @@ namespace ChatBox.API.Services.Implement
 
             return config ?? throw new InvalidOperationException(MessageConstant.Admin.NoActiveConfig);
         }
+        #endregion
     }
 }
+
