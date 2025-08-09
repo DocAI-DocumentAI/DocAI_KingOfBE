@@ -1,6 +1,5 @@
-using FluentValidation;
-using Auth.API.Payload.Request.User;
 using Auth.API.Payload.Request.GG;
+using FluentValidation;
 
 namespace Auth.API.Validators.User;
 
