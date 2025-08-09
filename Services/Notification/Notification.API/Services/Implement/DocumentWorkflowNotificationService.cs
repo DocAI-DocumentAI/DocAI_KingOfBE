@@ -239,7 +239,7 @@ namespace Notification.API.Services.Implement
                 // Create notification log
                 var log = new NotificationLog
                 {
-                    DocumentId = Guid.TryParse(documentId, out var docGuid) ? docGuid : Guid.Empty,
+                    DocumentId = documentId,
                     DocumentVersion = version,
                     NotificationType = notificationType,
                     RecipientType = RecipientType.Email,

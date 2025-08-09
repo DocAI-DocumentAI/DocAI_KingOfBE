@@ -8,7 +8,7 @@ namespace Shared.Command
 {
     public class DeactivateDocumentWarningsCommand
     {
-        public Guid DocumentId { get; set; }
+        public string DocumentId { get; set; }
         public string Version { get; set; } = string.Empty;
         public Guid RequestId { get; set; } = Guid.NewGuid();
     }

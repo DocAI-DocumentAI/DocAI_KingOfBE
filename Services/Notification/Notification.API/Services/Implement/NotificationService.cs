@@ -390,7 +390,7 @@ public class NotificationService : INotificationService
 
             var log = new NotificationLog
             {
-                DocumentId = Guid.Empty,
+                DocumentId = null,
                 DocumentVersion = null,
                 NotificationType = NotificationType.General,
                 RecipientType = RecipientType.Email,

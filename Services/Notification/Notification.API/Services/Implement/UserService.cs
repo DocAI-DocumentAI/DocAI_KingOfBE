@@ -133,7 +133,7 @@ namespace Notification.API.Services.Implement
             }
         }
 
-        public async Task<List<UserInfo>> GetDocumentStakeholdersAsync(Guid documentId)
+        public async Task<List<UserInfo>> GetDocumentStakeholdersAsync(string documentId)
         {
             try
             {
