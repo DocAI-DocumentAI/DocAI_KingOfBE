@@ -31,7 +31,7 @@ using System.IdentityModel.Tokens.Jwt;
 using Auth.API.Payload.Response.Permission;
 using Auth.API.Payload.Request.Auth;
 using Auth.API.Payload.Response.Auth;
-using Auth.API.DTOs.Request;
+using Auth.API.Payload.Request.GG;
 
 namespace Auth.API.Services.Interface;
 

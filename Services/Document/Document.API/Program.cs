@@ -3,6 +3,7 @@ using System.Linq;
 using Document.API.Constants;
 using Document.API.Extensions;
 using Document.API.Middlewares;
+using Document.API.Filters;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -57,12 +58,16 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
     builder.Services.AddHttpContextAccessor();
-    builder.Services.AddControllers();
+    builder.Services.AddControllers(options =>
+    {
+        // Register a global action filter that converts ModelState/FluentValidation errors
+        options.Filters.Add<ValidationActionFilter>();
+    });
     builder.Services.AddJwtAuthentication(configuration);
     builder.Services.AddAuthorization();
     //builder.Services.AddKernelMemory();
     builder.Services.AddKernelMemory(configuration);
-    
+
 
     // Register the NSwag services
     builder.Services.AddOpenApiDocument(options =>
