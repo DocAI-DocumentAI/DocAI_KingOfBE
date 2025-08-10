@@ -4,7 +4,10 @@ using Document.Domain.Enums;
 using Document.Domain.Models;
 using Document.Infrastructure.Repository.Interfaces;
 using DocumentFormat.OpenXml.Office2010.Word;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using Shared.Command;
+using Shared.DTOs;
 using Shared.Models;
 
 namespace Document.API.Services.Implements
@@ -14,15 +17,18 @@ namespace Document.API.Services.Implements
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
         private readonly ILogger<DocumentExpirationService> _logger;
+        private readonly IRequestClient<GetDepartmentNamesCommand> _departmentClient;
 
         public DocumentExpirationService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
-            ILogger<DocumentExpirationService> logger)
+            ILogger<DocumentExpirationService> logger,
+            IRequestClient<GetDepartmentNamesCommand> departmentClient)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _logger = logger;
+            _departmentClient = departmentClient;
         }
 
         public async Task<List<DocumentExpirationDto>> GetExpiringDocumentsAsync(DateTime warningDate)
@@ -42,14 +48,30 @@ namespace Document.API.Services.Implements
 
             var result = new List<DocumentExpirationDto>();
 
+            // Get unique department IDs
+            var departmentIds = expiringDocuments
+                .Select(doc => doc.DocumentFile.DepartmentId)
+                .Where(id => !string.IsNullOrEmpty(id))
+                .Select(id => Guid.TryParse(id, out var guid) ? guid : Guid.Empty)
+                .Where(id => id != Guid.Empty)
+                .Distinct()
+                .ToList();
+
+            // Get department names from Auth service
+            var departmentNames = await GetDepartmentNamesAsync(departmentIds);
+
             foreach (var doc in expiringDocuments)
             {
+                var departmentId = Guid.TryParse(doc.DocumentFile.DepartmentId, out var deptId) ? deptId : Guid.Empty;
+                var departmentName = departmentNames.TryGetValue(departmentId, out var name) ? name : "Unknown Department";
+
                 result.Add(new DocumentExpirationDto
                 {
                     DocumentId = doc.DocumentFile.Id,
                     Title = doc.Title,
                     Version = doc.VersionName,
-                    DepartmentId = Guid.Parse(doc.DocumentFile.DepartmentId),
+                    DepartmentId = departmentId,
+                    DepartmentName = departmentName,
                     EffectiveUntil = doc.EffectiveUntil,
                     Status = doc.Status.ToString(),
                     DocumentLink = GenerateDocumentLink(doc.DocumentFile.Id, doc.Id),
@@ -62,6 +84,46 @@ namespace Document.API.Services.Implements
             return result;
         }
 
+        private async Task<Dictionary<Guid, string>> GetDepartmentNamesAsync(List<Guid> departmentIds)
+        {
+            if (!departmentIds.Any())
+                return new Dictionary<Guid, string>();
+
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+                var response = await _departmentClient.GetResponse<GetDepartmentNamesResponse>(
+                    new GetDepartmentNamesCommand { DepartmentIds = departmentIds },
+                    timeout.Token
+                );
+
+                if (response.Message.Success)
+                {
+                    _logger.LogInformation("Successfully retrieved {Count} department names",
+                        response.Message.DepartmentNames.Count);
+                    return response.Message.DepartmentNames;
+                }
+
+                _logger.LogWarning("Failed to get department names: {Error}", response.Message.ErrorMessage);
+            }
+            catch (RequestTimeoutException)
+            {
+                _logger.LogWarning("Timeout getting department names, using fallback");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting department names, using fallback");
+            }
+
+            // Fallback: Use department ID as name
+            return departmentIds.ToDictionary(
+                id => id,
+                id => $"Department-{id.ToString()[..8]}"
+            );
+        }
+
+        // ... rest of the methods stay the same
         public async Task<bool> UpdateDocumentStatusAsync(string documentId, string version, string newStatus)
         {
             _logger.LogInformation("Updating document {DocumentId} version {Version} to status {NewStatus}",
@@ -88,7 +150,7 @@ namespace Document.API.Services.Implements
                     document.LastUpdatedTime = DateTime.UtcNow;
                     document.LastUpdatedBy = "system_notification";
 
-                    _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(document);
+                     _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(document);
                     await _unitOfWork.CommitAsync();
 
                     _logger.LogInformation("Successfully updated document {DocumentId} to status {NewStatus}",
@@ -115,8 +177,6 @@ namespace Document.API.Services.Implements
 
             try
             {
-                // Business logic to deactivate warnings
-                // This could involve updating a flag or creating a record
                 var document = await _unitOfWork.GetRepository<DocumentVersion>()
                     .SingleOrDefaultAsync(
                         predicate: dv => dv.DocumentFile.Id == documentId &&
@@ -125,9 +185,6 @@ namespace Document.API.Services.Implements
 
                 if (document != null)
                 {
-                    // Add custom logic here if needed
-                    // For example, setting a flag or updating metadata
-
                     _logger.LogInformation("Warnings deactivated for document {DocumentId}", documentId);
                     return true;
                 }

@@ -8,7 +8,7 @@ namespace Shared.Models
 {
     public class DocumentExpirationDto
     {
-        public string DocumentId { get; set; }
+        public string DocumentId { get; set; } = string.Empty;
         public string Title { get; set; } = string.Empty;
         public string Version { get; set; } = string.Empty;
         public Guid DepartmentId { get; set; }

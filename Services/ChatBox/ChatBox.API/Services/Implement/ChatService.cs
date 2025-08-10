@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using AutoMapper;
 using ChatBox.API.Constants;
@@ -220,18 +221,25 @@ namespace ChatBox.API.Services.Implement
                     // ✅ UNCHANGED: Same flexible prompt for no document cases
                     enhancedSystemPrompt = originalSystemMessage.Content + $@"
 
-🚨 KHÔNG TÌM THẤY TÀI LIỆU NỘI BỘ
+🚨 KHÔNG TÌM THẤY TÀI LIỆU NỘI BỘ - TỪ CHỐI HOÀN TOÀN
 
- QUY TẮC NGHIÊM NGẶT:
-- Hệ thống không tìm thấy tài liệu nội bộ liên quan
-- TUYỆT ĐỐI KHÔNG được sử dụng kiến thức bên ngoài
-- CHỈ được trả lời một trong hai cách sau:
+🔒 QUY TẮC NGHIÊM NGẶT TUYỆT ĐỐI:
+- Hệ thống KHÔNG tìm thấy tài liệu nội bộ liên quan
+- BẠN PHẢI TỪ CHỐI trả lời MỌI câu hỏi không có tài liệu
+- TUYỆT ĐỐI KHÔNG được sử dụng kiến thức chung hoặc bên ngoài
+- KHÔNG được trả lời về bất kỳ chủ đề nào khác
 
-A) Câu hỏi về tài liệu: 
-'Xin lỗi, hiện tại không có tài liệu nội bộ nào liên quan đến câu hỏi này. Bạn có thể liên hệ bộ phận quản lý tài liệu.'
+🚫 CHỈ ĐƯỢC TRẢ LỜI DUY NHẤT:
+'Xin lỗi, hiện tại không có tài liệu nội bộ nào liên quan đến câu hỏi này. Tôi chỉ có thể trả lời các câu hỏi dựa trên tài liệu nội bộ của công ty. Bạn có thể liên hệ bộ phận quản lý tài liệu để được hỗ trợ thêm.'
 
-B) Chào hỏi/hỗ trợ chung:
-'Xin chào! Tôi là trợ lý tìm kiếm tài liệu nội bộ. Bạn có câu hỏi gì về tài liệu của công ty không?'";
+⛔ TUYỆT ĐỐI KHÔNG ĐƯỢC:
+- Trả lời về trứng gà, con gà, hay bất kỳ chủ đề chung nào
+- Giải thích về triết học, khoa học, lịch sử
+- Đưa ra ý kiến cá nhân hoặc thảo luận
+- Chào hỏi dài dòng hoặc hướng dẫn chung
+- Thể hiện sự hiểu biết về bất kỳ vấn đề nào ngoài tài liệu nội bộ
+
+🔴 BẮT BUỘC: Chỉ trả lời đúng câu từ chối ở trên, KHÔNG THÊM BỚT GÌ KHÁC!";
                 }
 
                 enhancedHistory.AddSystemMessage(enhancedSystemPrompt);
@@ -269,7 +277,7 @@ B) Chào hỏi/hỗ trợ chung:
 
         private async Task<ChatSession> CreateNewSession(string modelName, string userId)
         {
-            var validModelName = await GetValidActiveModelAsync(modelName);
+            var validModelName = await DetermineModelForNewSession(modelName, userId);
 
             var newSession = new ChatSession
             {
@@ -675,23 +683,62 @@ B) Chào hỏi/hỗ trợ chung:
 
         private async Task<string> GetDefaultActiveModelAsync()
         {
-            var activeConfigs = await GetActiveAIConfigurations();
+            // Priority 1: Look for IsDefault = true model
+            var defaultModel = await _unitOfWork.GetRepository<AIConfiguration>()
+                .SingleOrDefaultAsync(predicate: c => c.IsActive && c.IsDefault);
 
-            if (!activeConfigs.Any())
-                throw new InvalidOperationException("Không có model nào được kích hoạt. Vui lòng liên hệ quản trị viên.");
+            if (defaultModel != null)
+            {
+                _logger.LogInformation("Using default model: {ModelName}", defaultModel.ModelName);
+                return defaultModel.ModelName;
+            }
 
-            return activeConfigs.First().ModelName;
+            // Priority 2: Fallback to any active model (shouldn't happen if admin sets default properly)
+            var anyActiveModel = await _unitOfWork.GetRepository<AIConfiguration>()
+                .SingleOrDefaultAsync(predicate: c => c.IsActive);
+
+            if (anyActiveModel != null)
+            {
+                _logger.LogWarning("No default model set, using first active model: {ModelName}", anyActiveModel.ModelName);
+                return anyActiveModel.ModelName;
+            }
+
+            // Priority 3: Emergency fallback
+            _logger.LogError("No active models found in system");
+            throw new InvalidOperationException("Không có model nào được kích hoạt. Vui lòng liên hệ quản trị viên.");
         }
-
-        private async Task<List<AIConfiguration>> GetActiveAIConfigurations()
+        /// <summary>
+        /// ✅ UPDATED: Enhanced model selection for new sessions
+        /// </summary>
+        private async Task<string> DetermineModelForNewSession(string requestedModelName, string userId)
         {
-            var result = await _unitOfWork.GetRepository<AIConfiguration>()
-                .GetListAsync(
-                    predicate: c => c.IsActive,
-                    orderBy: q => q.OrderBy(c => c.DisplayName));
+            // Priority 1: Explicitly requested model
+            if (!string.IsNullOrEmpty(requestedModelName))
+            {
+                var isValid = await IsModelActiveAsync(requestedModelName);
+                if (isValid)
+                {
+                    _logger.LogInformation("Using requested model: {ModelName} for user {UserId}", requestedModelName, userId);
+                    return requestedModelName;
+                }
 
-            return result.ToList();
+                var availableModels = await GetAvailableModelNamesAsync();
+                throw new ArgumentException(
+                    $"Model '{requestedModelName}' không khả dụng. " +
+                    $"Models có sẵn: {string.Join(", ", availableModels)}");
+            }
+
+            // Priority 2: User's preferred model (if PreferenceService exists)
+            // TODO: Implement when PreferenceService is ready
+            // var userPreferredModel = await _preferenceService.GetUserPreferredModelAsync(userId);
+            // if (!string.IsNullOrEmpty(userPreferredModel))...
+
+            // Priority 3: System default model
+            var defaultModel = await GetDefaultActiveModelAsync();
+            _logger.LogInformation("Using default model: {ModelName} for user {UserId}", defaultModel, userId);
+            return defaultModel;
         }
+
 
         private async Task<List<string>> GetAvailableModelNamesAsync()
         {
@@ -701,15 +748,36 @@ B) Chào hỏi/hỗ trợ chung:
 
         public async Task<List<AvailableModelResponse>> GetAvailableModelsAsync()
         {
-            var activeConfigs = await GetActiveAIConfigurations();
-
-            if (!activeConfigs.Any())
+            try
             {
-                _logger.LogError("No active models found in database");
-                throw new InvalidOperationException("Không có model nào được kích hoạt. Vui lòng liên hệ quản trị viên.");
-            }
+                var activeConfigs = await GetActiveAIConfigurations();
 
-            return CreateAvailableModelResponses(activeConfigs);
+                if (!activeConfigs.Any())
+                {
+                    _logger.LogError("No active models found in database");
+                    throw new InvalidOperationException("Không có model nào được kích hoạt. Vui lòng liên hệ quản trị viên.");
+                }
+
+                return CreateAvailableModelResponses(activeConfigs);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("không có model nào"))
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get available models");
+                throw;
+            }
+        }
+        private async Task<List<AIConfiguration>> GetActiveAIConfigurations()
+        {
+            var result = await _unitOfWork.GetRepository<AIConfiguration>()
+                .GetListAsync(
+                    predicate: c => c.IsActive,
+                    orderBy: q => q.OrderByDescending(c => c.IsDefault).ThenBy(c => c.DisplayName)); // ✅ Order default first
+
+            return result.ToList();
         }
 
         private List<AvailableModelResponse> CreateAvailableModelResponses(List<AIConfiguration> activeConfigs)

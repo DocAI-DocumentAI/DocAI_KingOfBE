@@ -65,7 +65,8 @@ public static class DependencyService
         services.AddScoped<INotificationSchedulerService, NotificationSchedulerService>();
         services.AddScoped<IRateLimitingService, RateLimitingService>();
 
-        // Additional services from new version
+        // Enhanced services with user preferences
+        services.AddScoped<IUserPreferencesService, UserPreferencesService>();
         services.AddScoped<IDocumentWorkflowNotificationService, DocumentWorkflowNotificationService>();
 
         services.AddMemoryCache();
@@ -176,6 +177,9 @@ public static class DependencyService
             busConfig.AddRequestClient<GetUsersByRoleCommand>();
             busConfig.AddRequestClient<GetDocumentStakeholdersCommand>();
             busConfig.AddRequestClient<GetUserByIdCommand>();
+            busConfig.AddRequestClient<GetUserNotificationPreferencesCommand>();
+            busConfig.AddRequestClient<GetUsersNotificationPreferencesCommand>();
+            //busConfig.AddRequestClient<GetDepartmentNamesCommand>();
 
             busConfig.UsingRabbitMq((context, mqConfig) =>
             {

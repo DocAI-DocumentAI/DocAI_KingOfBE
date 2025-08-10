@@ -35,7 +35,8 @@ namespace Auth.API.Consumers
                             Email = user.Email ?? "",
                             Name = user.FullName ?? "",
                             DepartmentName = user.Department?.Name ?? "",
-                            Role = user.Role?.RoleName ?? ""
+                            Role = user.Role?.RoleName ?? "",
+                            DepartmentId = user.Department?.Id
                         },
                         Success = true,
                         RequestId = command.RequestId

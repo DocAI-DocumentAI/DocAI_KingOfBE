@@ -6,6 +6,7 @@ using ChatBox.API.Payload.Response;
 using ChatBox.API.Services.Interfaces;
 using ChatBox.Domain.Models;
 using ChatBox.Infrastructure.Repository.Interfaces;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
 
 namespace ChatBox.API.Services.Implement
@@ -41,7 +42,9 @@ namespace ChatBox.API.Services.Implement
             try
             {
                 var configs = await _unitOfWork.GetRepository<AIConfiguration>()
-                    .GetListAsync(orderBy: q => q.OrderByDescending(c => c.IsActive).ThenBy(c => c.DisplayName));
+                      .GetListAsync(orderBy: q => q.OrderByDescending(c => c.IsActive)
+                                                 .ThenByDescending(c => c.IsDefault)
+                                                 .ThenBy(c => c.DisplayName));
 
                 return _mapper.Map<List<AIConfigurationResponse>>(configs);
             }
@@ -56,20 +59,24 @@ namespace ChatBox.API.Services.Implement
         {
             try
             {
-                var normalizedModelName = NormalizeModelName(request.ModelName);
+                var decodedModelName = Uri.UnescapeDataString(request.ModelName ?? string.Empty);
+                var normalizedModelName = NormalizeModelName(decodedModelName);
 
                 // Check duplicate
                 var existingConfig = await _unitOfWork.GetRepository<AIConfiguration>()
-    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
+                    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
 
                 if (existingConfig != null)
                     throw new ArgumentException(string.Format(MessageConstant.Admin.ModelExists, request.ModelName));
 
                 var config = _mapper.Map<AIConfiguration>(request);
+                config.ModelName = normalizedModelName; 
                 config.CreatedBy = userId;
                 config.UpdatedBy = userId;
                 config.CreatedAt = DateTime.UtcNow;
                 config.UpdatedAt = DateTime.UtcNow;
+                config.IsActive = false; 
+                config.IsDefault = false; 
 
                 // Set system prompt
                 if (string.IsNullOrEmpty(config.SystemPrompt))
@@ -84,7 +91,6 @@ namespace ChatBox.API.Services.Implement
                 await _unitOfWork.GetRepository<AIConfiguration>().InsertAsync(config);
                 await _unitOfWork.CommitAsync();
 
-                // Clear cache
                 await ClearAllModelCaches();
 
                 _logger.LogInformation("Created AI configuration: {ModelName} by {UserId}", request.ModelName, userId);
@@ -97,7 +103,6 @@ namespace ChatBox.API.Services.Implement
                 throw;
             }
         }
-
         public async Task<AIConfigurationResponse> UpdateAIConfigurationAsync(string id, AIConfigurationRequest request, string userId)
         {
             try
@@ -108,7 +113,9 @@ namespace ChatBox.API.Services.Implement
                 if (config == null)
                     throw new ArgumentException(MessageConstant.Admin.ConfigNotFound);
 
-                var normalizedModelName = NormalizeModelName(request.ModelName);
+                // ✅ FIX: Add URL decoding for update too
+                var decodedModelName = Uri.UnescapeDataString(request.ModelName ?? string.Empty);
+                var normalizedModelName = NormalizeModelName(decodedModelName);
 
                 if (normalizedModelName != config.ModelName)
                 {
@@ -116,13 +123,12 @@ namespace ChatBox.API.Services.Implement
                         .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName && c.Id != id);
 
                     if (duplicate != null)
-                        throw new ArgumentException(string.Format(MessageConstant.Admin.ModelExists, request.ModelName));
+                        throw new ArgumentException(string.Format(MessageConstant.Admin.ModelExists, decodedModelName)); // ✅ FIX: Use decoded
                 }
 
                 var oldModelName = config.ModelName;
                 var wasActive = config.IsActive;
 
-                // ✅ Map request & override normalized ModelName
                 _mapper.Map(request, config);
                 config.ModelName = normalizedModelName;
                 config.UpdatedAt = DateTime.UtcNow;
@@ -141,7 +147,7 @@ namespace ChatBox.API.Services.Implement
                 _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(config);
                 await _unitOfWork.CommitAsync();
 
-                // ✅ Clear caches nếu có thay đổi quan trọng
+                // ✅ Clear caches if important changes
                 if (wasActive || oldModelName != config.ModelName)
                 {
                     await ClearAllModelCaches(oldModelName);
@@ -206,33 +212,116 @@ namespace ChatBox.API.Services.Implement
                 throw;
             }
         }
-
-        public async Task<bool> SetActiveModelAsync(string modelName, string userId)
+        public async Task<ModelActivationResponse> TestAndActivateModelAsync(string modelName, string userId)
         {
             try
             {
-                var normalizedModelName = NormalizeModelName(modelName);
+                var decodedModelName = Uri.UnescapeDataString(modelName ?? string.Empty);
+                var normalizedModelName = NormalizeModelName(decodedModelName);
+
+                _logger.LogInformation("Testing model - Input: {Input}, Decoded: {Decoded}, Normalized: {Normalized}",
+                    modelName, decodedModelName, normalizedModelName);
 
                 var targetConfig = await _unitOfWork.GetRepository<AIConfiguration>()
                     .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
 
                 if (targetConfig == null)
-                    return false;
+                    return new ModelActivationResponse
+                    {
+                        Success = false,
+                        Error = string.Format(MessageConstant.Admin.ModelNotFound, decodedModelName) // ✅ FIX: Use decoded
+                    };
 
-                // Toggle logic - if already active, deactivate; if inactive, activate
-                var newActiveState = !targetConfig.IsActive;
+                // ✅ FIX: Use decoded name for testing
+                _logger.LogInformation("Testing model {ModelName} before activation", decodedModelName);
 
-                // Safety check - ensure at least one model remains active
-                if (!newActiveState) // trying to deactivate
+                var testResult = await _kernelService.TestModelAsync(decodedModelName); // ✅ FIX: Use decoded
+
+                if (!testResult.Success)
+                    return new ModelActivationResponse
+                    {
+                        Success = false,
+                        Error = $"Model test failed: {testResult.Error}",
+                        TestResponse = testResult.Response,
+                        ResponseTimeMs = (int)testResult.ResponseTimeMs
+                    };
+
+                // ✅ STEP 2: Test passed → Activate
+                bool wasAlreadyActive = targetConfig.IsActive;
+
+                if (!targetConfig.IsActive)
                 {
-                    var otherActiveConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
-                        .GetListAsync(predicate: c => c.IsActive && c.Id != targetConfig.Id);
+                    targetConfig.IsActive = true;
+                    targetConfig.UpdatedAt = DateTime.UtcNow;
+                    targetConfig.UpdatedBy = userId;
 
-                    if (!otherActiveConfigs.Any())
-                        throw new InvalidOperationException("Không thể tắt model active cuối cùng. Hệ thống cần ít nhất 1 model active.");
+                    _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(targetConfig);
+                    await _unitOfWork.CommitAsync();
+
+                    await ClearAllModelCaches(targetConfig.ModelName);
                 }
 
-                targetConfig.IsActive = newActiveState;
+                // ✅ FIX: Use decoded name in logs and response
+                _logger.LogInformation("Model {ModelName} tested successfully and {Action} by {UserId}",
+                    decodedModelName, wasAlreadyActive ? "confirmed active" : "activated", userId);
+
+                return new ModelActivationResponse
+                {
+                    Success = true,
+                    ModelName = decodedModelName, // ✅ FIX: Return decoded name
+                    TestResponse = testResult.Response,
+                    ResponseTimeMs = (int)testResult.ResponseTimeMs,
+                    Message = wasAlreadyActive
+                        ? "Model test successful (already active)"
+                        : "Model tested and activated successfully",
+                    WasAlreadyActive = wasAlreadyActive
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to test and activate model {ModelName}", modelName);
+                return new ModelActivationResponse
+                {
+                    Success = false,
+                    Error = $"System error: {ex.Message}"
+                };
+            }
+        }
+
+        public async Task<bool> DeactivateModelAsync(string modelName, string userId)
+        {
+            try
+            {
+                var decodedModelName = Uri.UnescapeDataString(modelName ?? string.Empty);
+                var normalizedModelName = NormalizeModelName(decodedModelName);
+
+                var targetConfig = await _unitOfWork.GetRepository<AIConfiguration>()
+                    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
+
+                if (targetConfig == null || !targetConfig.IsActive)
+                    return false;
+
+                // ✅ Safety: Don't allow deactivating last active model
+                var otherActiveConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
+                    .GetListAsync(predicate: c => c.IsActive && c.Id != targetConfig.Id);
+
+                if (!otherActiveConfigs.Any())
+                    throw new InvalidOperationException("Không thể tắt model cuối cùng. Hệ thống cần ít nhất 1 model active.");
+
+                // ✅ If this is default model, set another active model as default
+                if (targetConfig.IsDefault && otherActiveConfigs.Any())
+                {
+                    var newDefault = otherActiveConfigs.First();
+                    newDefault.IsDefault = true;
+                    newDefault.UpdatedAt = DateTime.UtcNow;
+                    newDefault.UpdatedBy = userId;
+                    _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(newDefault);
+
+                    _logger.LogInformation("Model {ModelName} set as new default", newDefault.ModelName);
+                }
+
+                targetConfig.IsActive = false;
+                targetConfig.IsDefault = false;
                 targetConfig.UpdatedAt = DateTime.UtcNow;
                 targetConfig.UpdatedBy = userId;
 
@@ -241,18 +330,69 @@ namespace ChatBox.API.Services.Implement
 
                 await ClearAllModelCaches(targetConfig.ModelName);
 
-                _logger.LogInformation("Model {ModelName} {Action} by {UserId}",
-                    modelName, newActiveState ? "activated" : "deactivated", userId);
-
+                // ✅ FIX: Use decoded name in logs
+                _logger.LogInformation("Model {ModelName} deactivated by {UserId}", decodedModelName, userId);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to toggle model active state: {ModelName}", modelName);
+                _logger.LogError(ex, "Failed to deactivate model: {ModelName}", modelName);
                 throw;
             }
         }
 
+
+        public async Task<bool> SetDefaultModelAsync(string modelName, string userId)
+        {
+            try
+            {
+                var decodedModelName = Uri.UnescapeDataString(modelName ?? string.Empty);
+                var normalizedModelName = NormalizeModelName(decodedModelName);
+
+                var targetConfig = await _unitOfWork.GetRepository<AIConfiguration>()
+                    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
+
+                if (targetConfig == null)
+                    throw new ArgumentException($"Model '{decodedModelName}' không tồn tại"); // ✅ FIX: Use decoded
+
+                if (!targetConfig.IsActive)
+                    throw new InvalidOperationException($"Model '{decodedModelName}' phải được kích hoạt trước khi đặt làm mặc định"); // ✅ FIX: Use decoded
+
+                if (targetConfig.IsDefault)
+                    return true; // Already default
+
+                // ✅ Clear current default
+                var currentDefault = await _unitOfWork.GetRepository<AIConfiguration>()
+                    .SingleOrDefaultAsync(predicate: c => c.IsDefault);
+
+                if (currentDefault != null)
+                {
+                    currentDefault.IsDefault = false;
+                    currentDefault.UpdatedAt = DateTime.UtcNow;
+                    currentDefault.UpdatedBy = userId;
+                    _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(currentDefault);
+                }
+
+                // ✅ Set new default
+                targetConfig.IsDefault = true;
+                targetConfig.UpdatedAt = DateTime.UtcNow;
+                targetConfig.UpdatedBy = userId;
+
+                _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(targetConfig);
+                await _unitOfWork.CommitAsync();
+
+                await ClearAllModelCaches();
+
+                // ✅ FIX: Use decoded name in logs
+                _logger.LogInformation("Model {ModelName} set as default by {UserId}", decodedModelName, userId);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to set default model {ModelName}", modelName);
+                throw;
+            }
+        }
         public async Task<bool> SetMultipleActiveModelsAsync(List<string> modelNames, string userId)
         {
             try
@@ -439,8 +579,8 @@ namespace ChatBox.API.Services.Implement
         {
             try
             {
-                modelName = HttpUtility.UrlDecode(modelName);
-                var normalizedModelName = NormalizeModelName(modelName);
+                var decodedModelName = HttpUtility.UrlDecode(modelName);
+                var normalizedModelName = NormalizeModelName(decodedModelName);
 
                 var targetConfig = await _unitOfWork.GetRepository<AIConfiguration>()
                     .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
@@ -450,15 +590,17 @@ namespace ChatBox.API.Services.Implement
                     return new ModelTestResponse
                     {
                         Success = false,
-                        Error = string.Format(MessageConstant.Admin.ModelNotFound, modelName),
+                        Error = string.Format(MessageConstant.Admin.ModelNotFound, decodedModelName), // ✅ FIX: Use decoded
                         TestTime = DateTime.UtcNow
                     };
                 }
 
-                var testResult = await _kernelService.TestModelAsync(modelName);
+                // ✅ FIX: Use decoded name for API call
+                var testResult = await _kernelService.TestModelAsync(decodedModelName);
 
+                // ✅ FIX: Use decoded name in logs
                 _logger.LogInformation("Model test completed: {ModelName}, Success: {Success}",
-                    modelName, testResult.Success);
+                    decodedModelName, testResult.Success);
 
                 return new ModelTestResponse
                 {
@@ -619,9 +761,15 @@ namespace ChatBox.API.Services.Implement
             }
         }
 
-        private string NormalizeModelName(string modelName) =>
-            Uri.UnescapeDataString(modelName ?? string.Empty).Trim().ToLowerInvariant();
+        private string NormalizeModelName(string modelName)
+        {
+            if (string.IsNullOrEmpty(modelName))
+                return string.Empty;
 
+            // ✅ DON'T double-decode if already decoded
+            // Just normalize the already decoded string
+            return modelName.Trim().ToLowerInvariant();
+        }
         #endregion
     }
 }

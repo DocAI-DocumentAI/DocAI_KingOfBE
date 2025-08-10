@@ -96,7 +96,7 @@ namespace ChatBox.API.Controllers
 
                 if (!result)
                 {
-                    return BadRequest("Cập nhật models thất bại");
+                    return BadRequest(MessageConstant.Admin.UpdateFailed);
                 }
 
                 _logger.LogInformation("Multiple models updated by {UserId}: {Models}",
@@ -112,7 +112,7 @@ namespace ChatBox.API.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to set multiple active models");
-                return Problem("Cập nhật bulk models thất bại");
+                return Problem(MessageConstant.Admin.UpdateFailed);
             }
         }
 
@@ -134,7 +134,7 @@ namespace ChatBox.API.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to get model impact analysis for {ModelName}", modelName);
-                return Problem("Lấy phân tích ảnh hưởng thất bại");
+                return Problem(MessageConstant.System.SystemError);
             }
         }
         /// <summary>
@@ -149,13 +149,13 @@ namespace ChatBox.API.Controllers
         {
             try
             {
-                var response = await _adminService.GetAIConfigurationsAsync();
+                var response = await _adminService.GetAIConfigurationsAsync(); 
                 return Ok(response);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to get AI configurations");
-                return Problem("Lấy danh sách cấu hình AI thất bại");
+                return Problem(MessageConstant.System.SystemError);
             }
         }
         /// <summary>
@@ -266,7 +266,8 @@ namespace ChatBox.API.Controllers
         /// </summary>
         [HttpPost(ApiEndPointConstant.Admin.SetActiveModel)]
         [CustomAuthorize(Roles = new[] { Roles.Admin })]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ModelActivationResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -275,12 +276,35 @@ namespace ChatBox.API.Controllers
             try
             {
                 var userId = GetUserId();
-                var result = await _adminService.SetActiveModelAsync(modelName, userId);
+                var result = await _adminService.TestAndActivateModelAsync(modelName, userId);
+
+                if (!result.Success)
+                    return BadRequest(result);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to test and activate model");
+                return Problem(MessageConstant.Admin.ActivateModelFailed);
+            }
+        }
+        [HttpPost(ApiEndPointConstant.Admin.DeactivateModel)]
+        [CustomAuthorize(Roles = new[] { Roles.Admin })]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> DeactivateModelAsync(string modelName)
+        {
+            try
+            {
+                var userId = GetUserId();
+                var result = await _adminService.DeactivateModelAsync(modelName, userId);
 
                 if (!result)
                     return NotFound(string.Format(MessageConstant.Admin.ModelNotFound, modelName));
 
-                return Ok(MessageConstant.Admin.ModelActivated);
+                return Ok($"Model '{modelName}' đã được tắt");
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("model cuối cùng"))
             {
@@ -288,11 +312,41 @@ namespace ChatBox.API.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to toggle model");
-                return Problem(MessageConstant.Admin.ActivateModelFailed);
+                _logger.LogError(ex, "Failed to deactivate model {ModelName}", modelName);
+                return Problem(MessageConstant.Admin.UpdateFailed);
             }
         }
+        [HttpPost(ApiEndPointConstant.Admin.SetDefaultModel)]
+        [CustomAuthorize(Roles = new[] { Roles.Admin })]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> SetDefaultModelAsync(string modelName)
+        {
+            try
+            {
+                var userId = GetUserId();
+                var result = await _adminService.SetDefaultModelAsync(modelName, userId);
 
+                if (!result)
+                    return BadRequest(MessageConstant.Admin.UpdateFailed);
+
+                return Ok($"Model '{modelName}' đã được đặt làm mặc định");
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to set default model {ModelName}", modelName);
+                return Problem(MessageConstant.Admin.UpdateFailed);
+            }
+        }
         [HttpPost(ApiEndPointConstant.Admin.TestModel)]
         [CustomAuthorize(Roles = new[] { Roles.Admin })]
         [ProducesResponseType(typeof(ModelTestResponse), StatusCodes.Status200OK)]

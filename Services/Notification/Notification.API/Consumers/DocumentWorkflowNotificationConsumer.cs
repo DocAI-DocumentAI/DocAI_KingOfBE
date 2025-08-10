@@ -2,6 +2,7 @@ using MassTransit;
 using Notification.API.Payload.Response;
 using Notification.API.Services.Interfaces;
 using Shared.Commands;
+using Shared.DTOs;
 
 namespace Notification.API.Consumers
 {
@@ -29,13 +30,13 @@ namespace Notification.API.Consumers
             {
                 _logger.LogInformation("Processing document submission notification for document {DocumentId}", command.DocumentId);
 
-                var submitterInfo = new UserInfo
+                var submitterInfo = new UserDto
                 {
                     UserId = command.SubmitterId,
                     Email = command.SubmitterEmail,
                     Name = command.SubmitterName,
                     DepartmentId = command.DepartmentId,
-                    Department = command.DepartmentName
+                    DepartmentName = command.DepartmentName
                 };
 
                 await _notificationService.SendDocumentSubmissionNotificationAsync(
@@ -80,7 +81,7 @@ namespace Notification.API.Consumers
             {
                 _logger.LogInformation("Processing document approval notification for document {DocumentId}", command.DocumentId);
 
-                var approverInfo = new UserInfo
+                var approverInfo = new UserDto
                 {
                     UserId = command.ApproverId,
                     Email = command.ApproverEmail,
@@ -131,7 +132,7 @@ namespace Notification.API.Consumers
             {
                 _logger.LogInformation("Processing document rejection notification for document {DocumentId}", command.DocumentId);
 
-                var reviewerInfo = new UserInfo
+                var reviewerInfo = new UserDto
                 {
                     UserId = command.ReviewerId,
                     Email = command.ReviewerEmail,

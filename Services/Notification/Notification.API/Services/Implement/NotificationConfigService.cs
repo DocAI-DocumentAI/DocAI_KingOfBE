@@ -46,7 +46,6 @@ namespace Notification.API.Services.Implement
 
             var response = _mapper.Map<NotificationConfigResponse>(config);
             _cache.Set(cacheKey, response, TimeSpan.FromMinutes(ApiConstants.CACHE_DURATION_MINUTES));
-
             return response;
         }
 
@@ -70,7 +69,6 @@ namespace Notification.API.Services.Implement
             await _unitOfWork.CommitAsync();
 
             _cache.Remove("notification_config");
-
             _logger.LogInformation("Notification configuration updated");
             return _mapper.Map<NotificationConfigResponse>(config);
         }
