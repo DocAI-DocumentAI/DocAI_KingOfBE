@@ -71,16 +71,13 @@ namespace Document.API.Services.Implements
 
         public string GetContentDisposition(string fileExtension, string fileName, bool forceDownload = false)
         {
-            // Sanitize filename to prevent header injection
-            var sanitizedFileName = SanitizeFileName(fileName);
-            
             if (forceDownload || !CanViewInline(fileExtension))
             {
-                return $"attachment; filename=\"{sanitizedFileName}\"; filename*=UTF-8''{Uri.EscapeDataString(sanitizedFileName)}";
+                return $"attachment; filename*=UTF-8''{Uri.EscapeDataString(fileName)}";
             }
             else
             {
-                return $"inline; filename=\"{sanitizedFileName}\"; filename*=UTF-8''{Uri.EscapeDataString(sanitizedFileName)}";
+                return $"inline; filename*=UTF-8''{Uri.EscapeDataString(fileName)}";
             }
         }
 
@@ -145,25 +142,6 @@ namespace Document.API.Services.Implements
             return headers;
         }
 
-        private static string SanitizeFileName(string fileName)
-        {
-            if (string.IsNullOrEmpty(fileName))
-                return "download";
 
-            // Remove or replace potentially dangerous characters
-            var invalidChars = Path.GetInvalidFileNameChars()
-                .Concat(new[] { '"', '\'', '\\', '/', ':', '*', '?', '<', '>', '|' })
-                .ToArray();
-
-            var sanitized = fileName;
-            foreach (var invalidChar in invalidChars)
-            {
-                sanitized = sanitized.Replace(invalidChar, '_');
-            }
-
-            // Limit length and ensure it's not empty
-            sanitized = sanitized.Length > 255 ? sanitized.Substring(0, 255) : sanitized;
-            return string.IsNullOrWhiteSpace(sanitized) ? "download" : sanitized;
-        }
     }
 }
