@@ -609,30 +609,30 @@ namespace Document.API.Services.Implements
                 // // But we need to ensure the user has proper access
                 // await EnsureUserHasFileAccessAsync(fileId, userEmail);
 
-                // Try to get user's Google access token for iframe embedding
+                // Use company access token for iframe embedding (temporary - allows everyone to view)
                 string iframeUrl;
                 try
                 {
-                    // Get user ID from JWT token to retrieve their Google access token
-                    var userId = JwtTokenHelper.GetUserId(_httpContextAccessor);
+                    // // TEMPORARILY COMMENTED OUT: Get user ID from JWT token to retrieve their Google access token
+                    // var userId = JwtTokenHelper.GetUserId(_httpContextAccessor);
 
-                    // Try to get user's personal Google access token first
-                    var userAccessToken = await _oauthService.GetUserAccessTokenAsync(userId);
+                    // // TEMPORARILY COMMENTED OUT: Try to get user's personal Google access token first
+                    // var userAccessToken = await _oauthService.GetUserAccessTokenAsync(userId);
 
-                    if (!string.IsNullOrEmpty(userAccessToken))
-                    {
-                        // Include user's access token in the iframe URL for authentication
-                        iframeUrl = $"https://drive.google.com/file/d/{fileId}/preview?access_token={userAccessToken}";
-                        _logger.LogInformation("Generated iframe URL with user access token for file {FileId}", fileId);
-                    }
-                    else
-                    {
-                        // Fallback: Try to use company access token
+                    // if (!string.IsNullOrEmpty(userAccessToken))
+                    // {
+                    //     // Include user's access token in the iframe URL for authentication
+                    //     iframeUrl = $"https://drive.google.com/file/d/{fileId}/preview?access_token={userAccessToken}";
+                    //     _logger.LogInformation("Generated iframe URL with user access token for file {FileId}", fileId);
+                    // }
+                    // else
+                    // {
+                        // Use company access token for all users (temporary)
                         var companyAccessToken = await _oauthService.GetCompanyAccessTokenAsync();
                         if (!string.IsNullOrEmpty(companyAccessToken))
                         {
                             iframeUrl = $"https://drive.google.com/file/d/{fileId}/preview?access_token={companyAccessToken}";
-                            _logger.LogInformation("Generated iframe URL with company access token for file {FileId}", fileId);
+                            _logger.LogInformation("Generated iframe URL with company access token for file {FileId} (temporary - all users)", fileId);
                         }
                         else
                         {
@@ -640,11 +640,11 @@ namespace Document.API.Services.Implements
                             iframeUrl = $"https://drive.google.com/file/d/{fileId}/preview";
                             _logger.LogWarning("Generated iframe URL without access token for file {FileId} - user may need to sign in", fileId);
                         }
-                    }
+                    // }
                 }
                 catch (Exception tokenEx)
                 {
-                    _logger.LogWarning(tokenEx, "Failed to get access token for iframe URL, using basic URL for file {FileId}", fileId);
+                    _logger.LogWarning(tokenEx, "Failed to get company access token for iframe URL, using basic URL for file {FileId}", fileId);
                     // Fallback to basic URL
                     iframeUrl = $"https://drive.google.com/file/d/{fileId}/preview";
                 }

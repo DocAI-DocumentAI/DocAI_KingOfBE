@@ -20,6 +20,7 @@ using Shared.DTOs;
 using Shared.Exceptions;
 using System.Linq.Expressions;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace Document.API.Services.Implements;
@@ -604,11 +605,40 @@ public class DocumentService : IDocumentService
     {
         var startTime = DateTime.UtcNow;
         var userId = GetCurrentUserId();
+        var userDepartmentId = GetCurrentUserDepartmentId();
 
         _logger.LogInformation("Starting AI analysis for file: {FileName} by user {UserId}",
             file.FileName, userId);
 
         // File type validation is now handled by FluentValidation at the controller level
+
+        // 1. Calculate MD5 hash for duplicate detection before any expensive processing
+        string fileHash;
+        using (var stream = file.OpenReadStream())
+        {
+            using var md5 = MD5.Create();
+            var hashBytes = await md5.ComputeHashAsync(stream);
+            fileHash = Convert.ToBase64String(hashBytes);
+        }
+
+        _logger.LogInformation("Calculated MD5 hash for file: {FileName}, Hash: {FileHash}", file.FileName, fileHash);
+
+        // 2. Check for duplicate files in approved and archived statuses
+        var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
+            .SingleOrDefaultAsync(
+                predicate: v => v.FileHash == fileHash &&
+                               (v.Status == StatusEnum.Approved || v.Status == StatusEnum.Archived) &&
+                               (v.IsPublic || v.DocumentFile.DepartmentId == userDepartmentId),
+                include: i => i.Include(v => v.DocumentFile));
+
+        if (existingFile != null)
+        {
+            _logger.LogWarning("Duplicate file detected for {FileName}. Existing file: {ExistingTitle} (Version: {ExistingVersion}, Status: {ExistingStatus})",
+                file.FileName, existingFile.Title, existingFile.VersionName, existingFile.Status);
+
+            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
+                string.Format(MessageConstant.FileAlreadyExists, existingFile.Title, existingFile.VersionName, existingFile.Status));
+        }
 
         var response = new AnalyzeDocumentResponse
         {
