@@ -467,4 +467,37 @@ public class AuthController : ControllerBase
         var response = await _userService.GetUserByIdAminAsync(userId);
         return Ok(response);
     }
+    
+    /// <summary>
+    /// Reset mật khẩu cho user bằng email
+    /// </summary>
+    [HttpPost(ApiEndPointConstant.User.ResetPassword)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
+    [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ResetPasswordByEmail([FromBody] ResetPasswordByEmailRequest request)
+    {
+        try
+        {
+            var result = await _userService.ResetPasswordByEmailAsync(request);
+            return Ok(result);
+        }
+        catch (BadHttpRequestException ex)
+        {
+            _logger.LogError($"Failed to reset password for email {request.Email}: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            _logger.LogError($"User not found with email {request.Email}: {ex.Message}");
+            return NotFound(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error resetting password for email {request.Email}: {ex.Message}");
+            return Problem(ex.Message);
+        }
+    }
 }

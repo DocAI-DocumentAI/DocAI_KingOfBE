@@ -29,6 +29,7 @@ public class ApiEndPointConstant
         public const string AdminUpdateUser = "admin/users";
         public const string UpdateSettings = "settings";
         public const string GetUserById = "user/{userId}";
+        public const string ResetPassword = "reset-password";
     }
 
     public static class UserPermission

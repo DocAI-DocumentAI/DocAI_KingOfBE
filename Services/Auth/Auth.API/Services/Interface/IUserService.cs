@@ -44,4 +44,5 @@ public interface IUserService
     public Task<UserResponse> UpdateUserProfileAsync(UserUpdateProfileRequest request);
     public Task<UserSettingResponse> UpdateUserSettingAsync(UpdateUserSettingRequest request);
     public Task<UserResponse> GetUserByIdAminAsync(Guid userId);
+    Task<bool> ResetPasswordByEmailAsync(ResetPasswordByEmailRequest request);
 }
