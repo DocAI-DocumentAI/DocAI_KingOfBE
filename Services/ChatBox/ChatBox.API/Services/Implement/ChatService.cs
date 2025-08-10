@@ -192,6 +192,7 @@ namespace ChatBox.API.Services.Implement
 === HẾT THÔNG TIN TÀI LIỆU ===
 
 🚨 QUY TẮC BẮT BUỘC KHÔNG ĐƯỢC VI PHẠM:
+0. ĐƯỢC GIAO TIẾP CƠ BẢN
 
 1. **TUYỆT ĐỐI CHỈ SỬ DỤNG THÔNG TIN TRÊN**
    - Chỉ được trả lời dựa trên thông tin trong phần 'THÔNG TIN TÀI LIỆU NỘI BỘ'
@@ -221,7 +222,7 @@ namespace ChatBox.API.Services.Implement
                     // ✅ UNCHANGED: Same flexible prompt for no document cases
                     enhancedSystemPrompt = originalSystemMessage.Content + $@"
 
-🚨 KHÔNG TÌM THẤY TÀI LIỆU NỘI BỘ - TỪ CHỐI HOÀN TOÀN
+🚨 KHÔNG TÌM THẤY TÀI LIỆU NỘI BỘ - CHỈ ĐƯỢC GIAO TIẾP CƠ BẢN
 
 🔒 QUY TẮC NGHIÊM NGẶT TUYỆT ĐỐI:
 - Hệ thống KHÔNG tìm thấy tài liệu nội bộ liên quan
