@@ -1421,7 +1421,6 @@ public class UserService : BaseService<UserService>, IUserService
         return response;
     }
 
-    #region Permission-related methods for Document service
 
     public async Task<List<string>> GetDepartmentEmployeeEmailsAsync(string departmentId)
     {
@@ -1541,6 +1540,24 @@ public class UserService : BaseService<UserService>, IUserService
             return null;
         }
     }
+    
+    public async Task<bool> ResetPasswordByEmailAsync(ResetPasswordByEmailRequest request)
+    {
+        var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Email == request.Email
+            );
+        if (user == null)
+        {
+            throw new KeyNotFoundException("User not found");
+        }
+        
+        user.Password = PasswordUtil.HashPassword(request.Password);
+        user.UpdateAt = DateTime.UtcNow;
 
-    #endregion
+        _unitOfWork.GetRepository<User>().UpdateAsync(user);
+        var result = await _unitOfWork.CommitAsync();
+
+        return result > 0;
+    }
+
 }
