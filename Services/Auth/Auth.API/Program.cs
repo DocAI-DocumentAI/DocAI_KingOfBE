@@ -54,7 +54,9 @@ try
 
     // Tải file .env
     DotNetEnv.Env.Load();
-
+    
+    builder.Services.AddMemoryCache();
+    
     builder.Services.AddOpenApi();
     builder.Services.AddDatabase();
     builder.Services.AddRedis(builder.Configuration);

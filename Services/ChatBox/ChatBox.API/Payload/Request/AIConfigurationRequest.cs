@@ -25,4 +25,4 @@ namespace ChatBox.API.Payload.Request
 
         public bool IsFree { get; set; } = false;
     }
-}
+}   

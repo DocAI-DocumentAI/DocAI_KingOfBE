@@ -49,7 +49,6 @@ namespace Notification.API.Services.Implement
         {
             IncrementCount(HOURLY_KEY, TimeSpan.FromHours(1));
             IncrementCount(DAILY_KEY, TimeSpan.FromDays(1));
-
             _logger.LogDebug("Email sent recorded. Hourly: {Hourly}, Daily: {Daily}",
                 GetCurrentCount(HOURLY_KEY), GetCurrentCount(DAILY_KEY));
         }
@@ -58,10 +57,8 @@ namespace Notification.API.Services.Implement
         {
             var hourlyCount = GetCurrentCount(HOURLY_KEY);
             var dailyCount = GetCurrentCount(DAILY_KEY);
-
             var hourlyRemaining = Math.Max(0, _maxEmailsPerHour - hourlyCount);
             var dailyRemaining = Math.Max(0, _maxEmailsPerDay - dailyCount);
-
             return Math.Min(hourlyRemaining, dailyRemaining);
         }
 

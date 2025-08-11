@@ -222,8 +222,9 @@ namespace Notification.Domain.Migrations
                     b.Property<Guid?>("DismissedByUserId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("DocumentId")
-                        .HasColumnType("uuid");
+                    b.Property<string>("DocumentId")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<string>("DocumentVersion")
                         .HasColumnType("text");

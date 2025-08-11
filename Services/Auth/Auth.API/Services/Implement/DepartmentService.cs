@@ -198,5 +198,6 @@ public class DepartmentService : BaseService<DepartmentService>, IDepartmentServ
             _logger.LogError(ex, "Error retrieving department names by IDs");
             return new Dictionary<string, string>();
         }
+
     }
 }

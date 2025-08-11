@@ -43,7 +43,7 @@ namespace Document.API.Services.Implements
                     SubmitterId = GetUserIdAsGuid(submitterUser),
                     SubmitterEmail = GetUserEmail(submitterUser),
                     SubmitterName = GetUserFullName(submitterUser),
-                    DepartmentId = departmentId,
+                    DepartmentId = Guid.Parse(departmentId),
                     DepartmentName = GetDepartmentName(submitterUser)
                 };
 

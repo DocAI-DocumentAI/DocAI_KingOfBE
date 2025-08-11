@@ -23,6 +23,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
 using System.Text;
 using static System.Net.WebRequestMethods;
+using Shared.Command;
 
 
 
@@ -60,6 +61,8 @@ public static class DependencyService
             x.AddRequestClient<CompanyEmployeeRequest>(new Uri("queue:company-employee-queue"));
             x.AddRequestClient<GetAllDepartmentsRequest>(new Uri("queue:get-all-departments-queue"));
             x.AddRequestClient<UserEmailRequest>(new Uri("queue:user-email-queue"));
+            x.AddRequestClient<GetDepartmentNamesCommand>(new Uri("queue:get-department-names-queue"));
+
             x.UsingRabbitMq((context, cfg) =>
             {
                 var rabbitMqConfig = configuration.GetSection("RabbitMQ");

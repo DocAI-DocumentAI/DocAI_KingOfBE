@@ -8,7 +8,6 @@ namespace Notification.API.Services.Implement
     {
         private readonly ISchedulerFactory _schedulerFactory;
         private readonly ILogger<NotificationSchedulerService> _logger;
-        private readonly TriggerKey _triggerKey = new TriggerKey("NotificationScanJob-trigger");
 
         public NotificationSchedulerService(
             ISchedulerFactory schedulerFactory,
@@ -18,44 +17,27 @@ namespace Notification.API.Services.Implement
             _logger = logger;
         }
 
-        public async Task UpdateDocumentScanJobSchedule(string newCronExpression)
+        public async Task UpdateDocumentScanJobSchedule(string cronExpression)
         {
             try
             {
                 var scheduler = await _schedulerFactory.GetScheduler();
-                if (scheduler == null)
+                var triggerKey = new TriggerKey("NotificationScanTrigger");
+
+                if (await scheduler.CheckExists(triggerKey))
                 {
-                    _logger.LogError("Scheduler is not available");
-                    return;
+                    var newTrigger = TriggerBuilder.Create()
+                        .WithIdentity(triggerKey)
+                        .WithCronSchedule(cronExpression)
+                        .Build();
+
+                    await scheduler.RescheduleJob(triggerKey, newTrigger);
+                    _logger.LogInformation("Updated notification scan job schedule to: {CronExpression}", cronExpression);
                 }
-
-                var existingTrigger = await scheduler.GetTrigger(_triggerKey);
-                if (existingTrigger == null)
-                {
-                    _logger.LogWarning("Trigger not found: {TriggerKey}, cannot update schedule", _triggerKey);
-                    return;
-                }
-
-                // Validate cron expression
-                if (!CronExpression.IsValidExpression(newCronExpression))
-                {
-                    _logger.LogError("Invalid cron expression: {CronExpression}", newCronExpression);
-                    return;
-                }
-
-                var newTrigger = TriggerBuilder.Create()
-                    .ForJob(existingTrigger.JobKey)
-                    .WithIdentity(_triggerKey)
-                    .WithCronSchedule(newCronExpression)
-                    .Build();
-
-                await scheduler.RescheduleJob(_triggerKey, newTrigger);
-                _logger.LogInformation("Successfully updated job schedule: {CronExpression}", newCronExpression);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating document scan job schedule");
-                // Don't throw - scheduler issues shouldn't break config updates
+                _logger.LogError(ex, "Error updating notification scan job schedule");
             }
         }
     }

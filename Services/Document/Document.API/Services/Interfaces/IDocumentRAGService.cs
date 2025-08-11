@@ -11,11 +11,6 @@ namespace Document.API.Services.Interfaces
         Task<DocumentRAGResponse> SearchDocumentsWithRAGAsync(DocumentRAGRequest request);
 
         /// <summary>
-        /// Search only official documents with raw content
-        /// </summary>
-        Task<DocumentRAGResponse> SearchOfficialDocumentsAsync(DocumentRAGRequest request);
-
-        /// <summary>
         /// ✅ NEW: Get raw content only for simple queries
         /// </summary>
         Task<string> GetRawContentAsync(string query, string userId);

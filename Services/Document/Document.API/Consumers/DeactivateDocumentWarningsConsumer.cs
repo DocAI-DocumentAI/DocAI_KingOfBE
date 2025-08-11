@@ -22,20 +22,22 @@ namespace Document.API.Consumers
         {
             try
             {
-                var success = await _expirationService.DeactivateDocumentWarningsAsync(
+                _logger.LogInformation("Processing DeactivateDocumentWarningsCommand for document {DocumentId}",
+                    context.Message.DocumentId);
+
+                var result = await _expirationService.DeactivateDocumentWarningsAsync(
                     context.Message.DocumentId,
                     context.Message.Version);
 
                 await context.RespondAsync(new DeactivateDocumentWarningsResponse
                 {
-                    Success = success,
+                    Success = result,
                     RequestId = context.Message.RequestId
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error deactivating document warnings");
-
+                _logger.LogError(ex, "Error processing DeactivateDocumentWarningsCommand");
                 await context.RespondAsync(new DeactivateDocumentWarningsResponse
                 {
                     Success = false,

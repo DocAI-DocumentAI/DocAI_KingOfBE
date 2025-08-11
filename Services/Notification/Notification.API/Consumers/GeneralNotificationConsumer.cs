@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Notification.API.Payload.Response;
 using Notification.API.Services.Interfaces;
 using Shared.Command;
+using Shared.DTOs;
 using Shared.Models;
 
 namespace Notification.API.Consumers
@@ -59,9 +60,9 @@ namespace Notification.API.Consumers
             }
         }
 
-        private async Task<List<UserInfo>> ResolveRecipientsAsync(NotificationRecipients recipients)
+        private async Task<List<UserDto>> ResolveRecipientsAsync(NotificationRecipients recipients)
         {
-            var resolvedUsers = new List<UserInfo>();
+            var resolvedUsers = new List<UserDto>();
 
             try
             {
@@ -101,12 +102,12 @@ namespace Notification.API.Consumers
                         var existingUser = resolvedUsers.FirstOrDefault(u => u.Email.Equals(email, StringComparison.OrdinalIgnoreCase));
                         if (existingUser == null)
                         {
-                            resolvedUsers.Add(new UserInfo
+                            resolvedUsers.Add(new UserDto
                             {
                                 UserId = Guid.NewGuid(),
                                 Email = email,
                                 Name = await GetDisplayNameForEmailAsync(email),
-                                Department = "External"
+                                DepartmentName = "External"
                             });
                         }
                     }
@@ -125,7 +126,7 @@ namespace Notification.API.Consumers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error resolving recipients for general notification");
-                return new List<UserInfo>();
+                return new List<UserDto>();
             }
         }
 
