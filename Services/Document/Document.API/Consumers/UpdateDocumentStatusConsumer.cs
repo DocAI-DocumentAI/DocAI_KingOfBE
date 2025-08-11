@@ -22,21 +22,23 @@ namespace Document.API.Consumers
         {
             try
             {
-                var success = await _expirationService.UpdateDocumentStatusAsync(
+                _logger.LogInformation("Processing UpdateDocumentStatusCommand for document {DocumentId}",
+                    context.Message.DocumentId);
+
+                var result = await _expirationService.UpdateDocumentStatusAsync(
                     context.Message.DocumentId,
                     context.Message.Version,
                     context.Message.NewStatus);
 
                 await context.RespondAsync(new UpdateDocumentStatusResponse
                 {
-                    Success = success,
+                    Success = result,
                     RequestId = context.Message.RequestId
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating document status");
-
+                _logger.LogError(ex, "Error processing UpdateDocumentStatusCommand");
                 await context.RespondAsync(new UpdateDocumentStatusResponse
                 {
                     Success = false,

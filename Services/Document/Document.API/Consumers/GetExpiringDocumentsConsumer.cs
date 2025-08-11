@@ -38,7 +38,6 @@ namespace Document.API.Consumers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing GetExpiringDocumentsCommand");
-
                 await context.RespondAsync(new GetExpiringDocumentsResponse
                 {
                     Documents = new List<DocumentExpirationDto>(),

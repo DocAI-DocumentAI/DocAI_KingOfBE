@@ -34,7 +34,6 @@ namespace Notification.API.Services.Implement
             {
                 await _unitOfWork.GetRepository<NotificationLog>().InsertAsync(log);
                 await _unitOfWork.CommitAsync();
-
                 _logger.LogDebug("Notification log created for {Recipient}", log.RecipientAddress);
             }
             catch (Exception ex)
@@ -48,7 +47,7 @@ namespace Notification.API.Services.Implement
             var repo = _unitOfWork.GetRepository<NotificationLog>();
 
             Expression<Func<NotificationLog, bool>> predicate = l =>
-                (!request.DocumentId.IsNullOrWhiteSpace() || l.DocumentId == request.DocumentId) &&
+                (string.IsNullOrEmpty(request.DocumentId) || l.DocumentId == request.DocumentId) &&
                 (string.IsNullOrEmpty(request.NotificationType) || l.NotificationType.ToString() == request.NotificationType) &&
                 (string.IsNullOrEmpty(request.Recipient) ||
                  (!string.IsNullOrEmpty(l.RecipientAddress) && l.RecipientAddress.Contains(request.Recipient)));
@@ -72,7 +71,6 @@ namespace Notification.API.Services.Implement
             {
                 var configRepo = _unitOfWork.GetRepository<NotificationConfig>();
                 var config = await configRepo.SingleOrDefaultAsync(predicate: c => c.ConfigKey == ApiConstants.DEFAULT_CONFIG_KEY);
-
                 var retentionDays = config?.LogRetentionDays ?? 90;
                 var cutoffDate = DateTime.UtcNow.AddDays(-retentionDays);
 

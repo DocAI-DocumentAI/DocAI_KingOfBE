@@ -51,7 +51,7 @@ namespace Auth.API.Consumers
         {
             try
             {
-                // Get all users in department
+                // This should use your actual UserService methods
                 var allUsers = await _userService.GetAllUsersAsync(1, 1000, new UserFilter
                 {
                     DepartmentId = departmentId
@@ -59,7 +59,6 @@ namespace Auth.API.Consumers
 
                 var users = allUsers.Items.AsEnumerable();
 
-                // Filter by role if specified
                 if (!string.IsNullOrEmpty(roleFilter))
                 {
                     users = users.Where(u => u.Role.RoleName.Equals(roleFilter, StringComparison.OrdinalIgnoreCase));
@@ -71,7 +70,8 @@ namespace Auth.API.Consumers
                     Email = u.Email ?? "",
                     Name = u.FullName ?? "",
                     DepartmentName = u.Department?.Name ?? "",
-                    Role = u.Role?.RoleName ?? ""
+                    Role = u.Role?.RoleName ?? "",
+                    DepartmentId = u.Department?.Id
                 }).ToList();
             }
             catch (Exception ex)

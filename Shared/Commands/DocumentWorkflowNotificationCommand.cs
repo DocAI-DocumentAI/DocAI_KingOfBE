@@ -20,7 +20,7 @@ namespace Shared.Commands
         public Guid SubmitterId { get; set; } = Guid.Empty;
         public string SubmitterEmail { get; set; } = string.Empty;
         public string SubmitterName { get; set; } = string.Empty;
-        public string DepartmentId { get; set; } = string.Empty;
+        public Guid DepartmentId { get; set; } = Guid.Empty;
         public string DepartmentName { get; set; } = string.Empty;
     }
 

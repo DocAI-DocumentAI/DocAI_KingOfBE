@@ -20,6 +20,7 @@ using MassTransit;
 using Shared.DTOs;
 using Quartz.Impl.AdoJobStore;
 using Notification.API.Constants;
+using System.Collections.Generic;
 
 namespace Notification.API.Services.Implement;
 
@@ -34,7 +35,6 @@ public class NotificationService : INotificationService
     private readonly IConfiguration _configuration;
     private readonly IServiceProvider _serviceProvider;
     private readonly IUserService _userService;
-    private readonly IAuthorizationService _authorizationService;
 
     public NotificationService(
         IUnitOfWork<NotificationDbContext> unitOfWork,
@@ -45,8 +45,7 @@ public class NotificationService : INotificationService
         IHubContext<NotificationHub> hubContext,
         IConfiguration configuration,
         IServiceProvider serviceProvider,
-        IUserService userService,
-        IAuthorizationService authorizationService)
+        IUserService userService)
     {
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -57,7 +56,6 @@ public class NotificationService : INotificationService
         _configuration = configuration;
         _serviceProvider = serviceProvider;
         _userService = userService;
-        _authorizationService = authorizationService;
     }
 
     public async Task ProcessNearingExpirationNotification(DocumentExpirationDto document)
@@ -105,32 +103,32 @@ public class NotificationService : INotificationService
         }
     }
 
-    private async Task<List<Payload.Response.UserInfo>> GetAuthorizedRecipientsAsync(DocumentExpirationDto document)
+    private async Task<List<UserDto>> GetAuthorizedRecipientsAsync(DocumentExpirationDto document)
     {
-        var recipients = new List<Payload.Response.UserInfo>();
+        var recipients = new List<UserDto>();
 
         try
         {
-            // Rule 1: Get department managers for the document's department
+            // Get department managers
             var departmentManagers = await _userService.GetDepartmentManagersAsync(document.DepartmentId);
             recipients.AddRange(departmentManagers);
 
-            // Rule 2: Get department editors for the document's department  
+            // Get department editors
             var departmentEditors = await _userService.GetDepartmentEditorsAsync(document.DepartmentId);
             recipients.AddRange(departmentEditors);
 
-            // Rule 3: Get document-specific stakeholders (if any)
+            // Get document stakeholders
             var documentStakeholders = await _userService.GetDocumentStakeholdersAsync(document.DocumentId);
             recipients.AddRange(documentStakeholders);
 
-            // Rule 4: If document is public, notify admins
+            // If public, notify admins
             if (document.IsPublic)
             {
                 var admins = await _userService.GetUsersByRoleAsync("Admin");
                 recipients.AddRange(admins);
             }
 
-            // Rule 5: Always notify document creator if available
+            // Always notify creator
             if (!string.IsNullOrEmpty(document.CreatedBy) && Guid.TryParse(document.CreatedBy, out var creatorId))
             {
                 var creator = await _userService.GetUserByIdAsync(creatorId);
@@ -140,36 +138,35 @@ public class NotificationService : INotificationService
                 }
             }
 
-            // Remove duplicates by email
+            // Remove duplicates
             var uniqueRecipients = recipients
                 .Where(r => !string.IsNullOrEmpty(r.Email))
                 .GroupBy(r => r.Email.ToLower())
                 .Select(g => g.First())
                 .ToList();
 
-            _logger.LogInformation("Found {Count} authorized recipients for document {DocId} in department {DeptName}",
-                uniqueRecipients.Count, document.DocumentId, document.DepartmentName);
+            _logger.LogInformation("Found {Count} authorized recipients for document {DocId}",
+                uniqueRecipients.Count, document.DocumentId);
 
             return uniqueRecipients;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting authorized recipients for document {DocId}", document.DocumentId);
-            return new List<Payload.Response.UserInfo>();
+            return new List<UserDto>();
         }
     }
 
     private async Task SendNotificationsToRecipientsAsync(DocumentExpirationDto document,
-        NotificationType type, string templateName, List<Payload.Response.UserInfo> recipients)
+        NotificationType type, string templateName, List<UserDto> recipients)
     {
         foreach (var user in recipients)
         {
             try
             {
-                // Check if user has access to this document
                 if (!HasDocumentAccess(user, document))
                 {
-                    _logger.LogDebug("User {Email} does not have access to document {DocId}, skipping notification",
+                    _logger.LogDebug("User {Email} does not have access to document {DocId}, skipping",
                         user.Email, document.DocumentId);
                     continue;
                 }
@@ -183,21 +180,14 @@ public class NotificationService : INotificationService
         }
     }
 
-    private bool HasDocumentAccess(Payload.Response.UserInfo user, DocumentExpirationDto document)
+    private bool HasDocumentAccess(UserDto user, DocumentExpirationDto document)
     {
         try
         {
-            // Public documents can be accessed by anyone
             if (document.IsPublic) return true;
-
-            // Check if user is in the same department
-            if (user.Department.Equals(document.DepartmentName, StringComparison.OrdinalIgnoreCase))
+            if (user.DepartmentName.Equals(document.DepartmentName, StringComparison.OrdinalIgnoreCase))
                 return true;
-
-            // Admin and Manager roles can access cross-department documents
-            // Note: In real implementation, you'd get user's role from User service
-            // For now, we'll allow all recipients from our authorized list
-            return true;
+            return true; // For now, allow all authorized recipients
         }
         catch (Exception ex)
         {
@@ -207,7 +197,7 @@ public class NotificationService : INotificationService
     }
 
     private async Task SendSingleNotificationAsync(DocumentExpirationDto document,
-        NotificationType type, string templateName, Payload.Response.UserInfo user)
+        NotificationType type, string templateName, UserDto user)
     {
         var dismissToken = Guid.NewGuid();
         var dismissLink = $"https://docai.asia/api/notifications/dismiss-by-token?token={dismissToken}";
@@ -242,12 +232,9 @@ public class NotificationService : INotificationService
 
         // Send SignalR notification
         await SendSignalRNotificationAsync(user, type, subject, document);
-
-        _logger.LogInformation("Sent {Type} notification to {Email} for document {DocId}",
-            type, user.Email, document.DocumentId);
     }
 
-    private async Task SendSignalRNotificationAsync(Payload.Response.UserInfo user, NotificationType type,
+    private async Task SendSignalRNotificationAsync(UserDto user, NotificationType type,
         string subject, DocumentExpirationDto document)
     {
         try

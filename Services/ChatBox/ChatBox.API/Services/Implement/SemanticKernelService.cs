@@ -6,6 +6,7 @@ using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel;
 using ChatBox.Infrastructure.Repository.Interfaces;
 using ChatBox.API.Constants;
+using System.Runtime.CompilerServices;
 
 namespace ChatBox.API.Services.Implement
 {
@@ -29,21 +30,21 @@ namespace ChatBox.API.Services.Implement
             _logger = logger;
         }
 
-        public async Task<Kernel> GetKernelAsync(string modelName)
+        public async Task<Kernel> GetKernelAsync(string modelName, bool requireActive = true)
         {
-            var config = await GetAIConfigurationAsync(modelName);
+            var config = await GetAIConfigurationAsync(modelName, requireActive);
 
             if (config == null)
                 throw new ArgumentException(string.Format(MessageConstant.Admin.ModelNotFound, modelName));
 
             return await CreateKernelForOpenRouterAsync(config);
         }
-        public async Task<string> GetChatResponseAsync(string modelName, ChatHistory chatHistory)
+        public async Task<string> GetChatResponseAsync(string modelName, ChatHistory chatHistory, bool requireActive = true)
         {
             try
             {
-                var kernel = await GetKernelAsync(modelName);
-                var config = await GetAIConfigurationAsync(modelName);
+                var kernel = await GetKernelAsync(modelName, requireActive); // ← ADD requireActive!
+                var config = await GetAIConfigurationAsync(modelName, requireActive);
                 var chatService = kernel.GetRequiredService<IChatCompletionService>();
 
                 var optimizedHistory = await OptimizeChatHistoryForModel(chatHistory, modelName);
@@ -58,9 +59,17 @@ namespace ChatBox.API.Services.Implement
                 return MessageConstant.AI.ResponseGenerationFailed;
             }
         }
+        public async Task<string> GetChatResponseAsync(string modelName, ChatHistory chatHistory)
+        {
+            return await GetChatResponseAsync(modelName, chatHistory, requireActive: true);
+        }
+        public async Task<Kernel> GetKernelAsync(string modelName)
+        {
+            return await GetKernelAsync(modelName, requireActive: true);
+        }
         public async Task<IAsyncEnumerable<string>> GetChatResponseStreamAsync(string modelName, ChatHistory chatHistory)
         {
-            var kernel = await GetKernelAsync(modelName);
+            var kernel = await GetKernelAsync(modelName, requireActive: true);
             var config = await GetAIConfigurationAsync(modelName);
             var chatService = kernel.GetRequiredService<IChatCompletionService>();
 
@@ -82,17 +91,30 @@ namespace ChatBox.API.Services.Implement
 
             try
             {
+                // ✅ LOG: Input model name
+                _logger.LogInformation("SemanticKernel testing model: {ModelName}", modelName);
+
                 var config = await ValidateModelForTesting(modelName);
                 if (config.Error != null)
                 {
+                    _logger.LogError("Model validation failed: {Error}", config.Error);
                     return CreateTestFailureResult(startTime, config.Error);
                 }
 
+                // ✅ LOG: Model config found
+                _logger.LogInformation("Model config found, proceeding with test");
+
                 var testResult = await ExecuteModelTest(modelName, startTime);
+
+                // ✅ LOG: Test result
+                _logger.LogInformation("Model test result - Success: {Success}, Error: {Error}",
+                    testResult.Success, testResult.Error);
+
                 return testResult;
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Exception during model test: {ModelName}", modelName);
                 return CreateTestExceptionResult(startTime, ex);
             }
         }
@@ -334,13 +356,13 @@ namespace ChatBox.API.Services.Implement
         private async Task<(AIConfiguration Config, string Error)> ValidateModelForTesting(string modelName)
         {
             var config = await _unitOfWork.GetRepository<AIConfiguration>()
-                .SingleOrDefaultAsync(predicate: c => c.ModelName == modelName);
+         .SingleOrDefaultAsync(predicate: c => c.ModelName == modelName);
 
             if (config == null)
                 return (null, string.Format(MessageConstant.Admin.ModelNotFound, modelName));
 
-            if (!config.IsActive)
-                return (null, $"Model '{modelName}' chưa được kích hoạt");
+            //if (!config.IsActive)  // ❌ VẤN ĐỀ Ở ĐÂY!
+            //    return (null, $"Model '{modelName}' chưa được kích hoạt");
 
             return (config, null);
         }
@@ -348,7 +370,7 @@ namespace ChatBox.API.Services.Implement
         private async Task<(bool Success, string Response, int TokensUsed, long ResponseTimeMs, string Error)> ExecuteModelTest(string modelName, DateTimeOffset startTime)
         {
             var testHistory = CreateTestChatHistory();
-            var response = await GetChatResponseAsync(modelName, testHistory);
+            var response = await GetChatResponseAsync(modelName, testHistory, requireActive: false);
             var endTime = DateTimeOffset.UtcNow;
             var responseTime = (long)(endTime - startTime).TotalMilliseconds;
             var tokensUsed = EstimateTokens(testHistory.ToString() + response);
@@ -386,10 +408,18 @@ namespace ChatBox.API.Services.Implement
         #endregion
 
         #region Private Methods - Configuration Management
-        private async Task<AIConfiguration> GetAIConfigurationAsync(string modelName)
+        private async Task<AIConfiguration> GetAIConfigurationAsync(string modelName, bool requireActive = true)
         {
-            return await _unitOfWork.GetRepository<AIConfiguration>()
-                .SingleOrDefaultAsync(predicate: c => c.ModelName == modelName && c.IsActive);
+            if (requireActive)
+            {
+                return await _unitOfWork.GetRepository<AIConfiguration>()
+                    .SingleOrDefaultAsync(predicate: c => c.ModelName == modelName && c.IsActive);
+            }
+            else
+            {
+                return await _unitOfWork.GetRepository<AIConfiguration>()
+                    .SingleOrDefaultAsync(predicate: c => c.ModelName == modelName);
+            }
         }
 
         private async Task<AIConfiguration> GetDefaultAIConfigurationAsync()

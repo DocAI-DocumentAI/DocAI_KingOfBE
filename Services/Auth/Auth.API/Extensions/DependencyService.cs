@@ -79,6 +79,7 @@ public static class DependencyService
         services.AddScoped<IGoogleOAuthService, GoogleOAuthService>();
         services.AddHttpClient<GoogleOAuthService>();
         services.AddScoped<IValidationService, ValidationService>();
+        services.AddScoped<IUserSettingService, UserSettingService>();
 
         // services.AddSingleton<IPublishEndpoint, MockPublishEndpoint>();
 
@@ -94,6 +95,12 @@ public static class DependencyService
             x.AddConsumer<GetDepartmentUsersConsumer>();
             x.AddConsumer<GetUsersByRoleConsumer>();
             x.AddConsumer<GetUserByIdConsumer>();
+            x.AddConsumer<GetDocumentStakeholdersConsumer>();
+
+            // NEW: Add notification preference consumers
+            x.AddConsumer<GetUserNotificationPreferencesConsumer>();
+            x.AddConsumer<GetUsersNotificationPreferencesConsumer>();
+            x.AddConsumer<GetDepartmentNamesConsumer>();
 
             x.UsingRabbitMq((context, cfg) =>
             {
@@ -165,6 +172,34 @@ public static class DependencyService
                 cfg.ReceiveEndpoint("get-user-by-id-queue", e =>
                 {
                     e.ConfigureConsumer<GetUserByIdConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+                cfg.ReceiveEndpoint("get-document-stakeholders-queue", e =>
+                {
+                    e.ConfigureConsumer<GetDocumentStakeholdersConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                // NEW: Notification preference endpoints
+                cfg.ReceiveEndpoint("get-user-notification-preferences-queue", e =>
+                {
+                    e.ConfigureConsumer<GetUserNotificationPreferencesConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                cfg.ReceiveEndpoint("get-users-notification-preferences-queue", e =>
+                {
+                    e.ConfigureConsumer<GetUsersNotificationPreferencesConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                cfg.ReceiveEndpoint("get-department-names-queue", e =>
+                {
+                    e.ConfigureConsumer<GetDepartmentNamesConsumer>(context);
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
                     e.UseInMemoryOutbox();
                 });

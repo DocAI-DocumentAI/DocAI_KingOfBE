@@ -50,10 +50,7 @@ namespace Auth.API.Consumers
         {
             try
             {
-                var allUsers = await _userService.GetAllUsersAsync(1, 1000, new UserFilter
-                {
-                    // Add role filter if available in UserFilter
-                }, "FullName", true);
+                var allUsers = await _userService.GetAllUsersAsync(1, 1000, new UserFilter(), "FullName", true);
 
                 var users = allUsers.Items
                     .Where(u => u.Role?.RoleName.Equals(roleName, StringComparison.OrdinalIgnoreCase) == true);
@@ -64,7 +61,8 @@ namespace Auth.API.Consumers
                     Email = u.Email ?? "",
                     Name = u.FullName ?? "",
                     DepartmentName = u.Department?.Name ?? "",
-                    Role = u.Role?.RoleName ?? ""
+                    Role = u.Role?.RoleName ?? "",
+                    DepartmentId = u.Department?.Id
                 }).ToList();
             }
             catch (Exception ex)

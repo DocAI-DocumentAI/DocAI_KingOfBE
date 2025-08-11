@@ -11,602 +11,760 @@ using System.Text;
 
 namespace Document.API.Services.Implements
     {
-        public class DocumentRAGService : BaseService<DocumentRAGService>, IDocumentRAGService
+    public class DocumentRAGService : BaseService<DocumentRAGService>, IDocumentRAGService
+    {
+        #region Fields
+        private readonly IKernelMemory _memory;
+        private readonly INameLookupService _nameLookupService;
+        private readonly IDocumentEnrichmentService _enrichmentService;
+
+        // ✅ PRODUCTION CONFIGURATION
+        private readonly bool _enableDebugLogging;
+        private readonly int _maxSearchResults;
+        private readonly double _baseMinRelevanceScore;
+        #endregion
+
+        #region Constructor
+        public DocumentRAGService(
+            IKernelMemory memory,
+            IUnitOfWork unitOfWork,
+            ILogger<DocumentRAGService> logger,
+            IConfiguration configuration,
+            INameLookupService nameLookupService,
+            IDocumentEnrichmentService enrichmentService,
+            IMapper mapper,
+            IHttpContextAccessor httpContextAccessor)
+            : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
         {
-            #region Fields
-            private readonly IKernelMemory _memory;
-            private readonly INameLookupService _nameLookupService;
-            private readonly IDocumentEnrichmentService _enrichmentService;
+            _memory = memory;
+            _nameLookupService = nameLookupService;
+            _enrichmentService = enrichmentService;
 
-            // ✅ EXTRACTION SETTINGS - Focus on raw content extraction
-            private readonly bool _enableCostOptimization;
-            private readonly int _maxSearchResults;
-            private readonly double _optimizedMinRelevanceScore;
-            private readonly TimeSpan _cacheExpiration;
-            private readonly int _maxRawContentLength;
-            private readonly bool _combineMultipleSources;
-            #endregion
+            _enableDebugLogging = _configuration.GetValue<bool>("RAG:EnableDebugLogging", true);
+            _maxSearchResults = _configuration.GetValue<int>("RAG:MaxSearchResults", 50);
+            _baseMinRelevanceScore = _configuration.GetValue<double>("RAG:BaseMinRelevanceScore", 0.01);
+        }
+        #endregion
 
-            #region Constructor
-            public DocumentRAGService(
-                IKernelMemory memory,
-                IUnitOfWork unitOfWork,
-                ILogger<DocumentRAGService> logger,
-                IConfiguration configuration,
-                INameLookupService nameLookupService,
-                IDocumentEnrichmentService enrichmentService,
-                IMapper mapper,
-                IHttpContextAccessor httpContextAccessor)
-                : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
+        #region Public Methods
+        public async Task<DocumentRAGResponse> SearchDocumentsWithRAGAsync(DocumentRAGRequest request)
+        {
+            var requestId = request.RequestId ?? Guid.NewGuid().ToString();
+            var startTime = DateTime.UtcNow;
+
+            try
             {
-                _memory = memory;
-                _nameLookupService = nameLookupService;
-                _enrichmentService = enrichmentService;
+                _logger.LogInformation("🔍 [RAG-{RequestId}] Starting search - Query: '{Query}', User: {FullName} ({Role}), Dept: {DeptName}",
+                    requestId, request.Query, request.FullName, request.Role, request.DepartmentName);
 
-                // ✅ CONFIGURATION FOR RAW CONTENT EXTRACTION
-                _enableCostOptimization = _configuration.GetValue<bool>("RAG:EnableCostOptimization", true);
-                _maxSearchResults = _configuration.GetValue<int>("RAG:MaxSearchResults", 3);
-                _optimizedMinRelevanceScore = _configuration.GetValue<double>("RAG:OptimizedMinRelevanceScore", 0.28);
-                _cacheExpiration = TimeSpan.FromHours(_configuration.GetValue<int>("RAG:CacheExpirationHours", 1));
-                _maxRawContentLength = _configuration.GetValue<int>("RAG:MaxRawContentLength", 2000);
-                _combineMultipleSources = _configuration.GetValue<bool>("RAG:CombineMultipleSources", true);
+                // ✅ VALIDATE REQUEST
+                if (string.IsNullOrWhiteSpace(request.Query))
+                {
+                    return CreateEmptyResponse(request, startTime, "Empty query provided");
+                }
+
+                // ✅ SMART SEARCH WITH PROPER FILTERS
+                var citations = await PerformSmartSearch(request, requestId);
+
+                if (!citations.Any())
+                {
+                    _logger.LogInformation("❌ [RAG-{RequestId}] No citations found for query: '{Query}'", requestId, request.Query);
+                    return CreateEmptyResponse(request, startTime, "No documents found");
+                }
+
+                _logger.LogInformation("📄 [RAG-{RequestId}] Found {Count} citations from KernelMemory", requestId, citations.Count);
+
+                // ✅ PERMISSION FILTERING
+                var validCitations = await FilterCitationsByPermissions(citations, request, requestId);
+
+                _logger.LogInformation("🔒 [RAG-{RequestId}] Permission filtered: {Valid}/{Total} citations for role: {Role}",
+                    requestId, validCitations.Count, citations.Count, request.Role);
+
+                if (!validCitations.Any())
+                {
+                    return CreateEmptyResponse(request, startTime, "No accessible documents after permission filtering");
+                }
+
+                // ✅ EXTRACT RAW CONTENT AND SOURCES
+                var rawContent = ExtractRawContentFromCitations(validCitations);
+                var sources = await ExtractDocumentSources(validCitations, requestId);
+
+                var response = new DocumentRAGResponse
+                {
+                    RequestId = requestId,
+                    Success = true,
+                    RawContent = rawContent,
+                    Sources = sources,
+                    QueryProcessed = request.Query,
+                    ProcessingTimeMs = (long)(DateTime.UtcNow - startTime).TotalMilliseconds
+                };
+
+                _logger.LogInformation("✅ [RAG-{RequestId}] Success: {ProcessingTime}ms, Content: {ContentLength} chars, Sources: {SourceCount}",
+                    requestId, response.ProcessingTimeMs, rawContent?.Length ?? 0, sources.Count);
+
+                return response;
             }
-            #endregion
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ [RAG-{RequestId}] Error processing request for user: {FullName} ({Role})",
+                    requestId, request.FullName, request.Role);
+                return CreateErrorResponse(request, ex, requestId);
+            }
+        }
 
-            #region Public Methods
-            public async Task<DocumentRAGResponse> SearchDocumentsWithRAGAsync(DocumentRAGRequest request)
+        public async Task<string> GetRawContentAsync(string query, string userId)
+        {
+            var request = new DocumentRAGRequest
+            {
+                Query = query,
+                UserId = userId,
+                Role = "ADMIN", // Default for simple calls
+                MaxResults = 5,
+                MinRelevanceScore = _baseMinRelevanceScore
+            };
+
+            var response = await SearchDocumentsWithRAGAsync(request);
+            return response.Success ? response.RawContent : null;
+        }
+
+        public async Task<(string RawContent, List<DocumentSourceResponse> Sources)> GetRawContentWithSourcesAsync(string query, string userId)
+        {
+            var request = new DocumentRAGRequest
+            {
+                Query = query,
+                UserId = userId,
+                Role = "ADMIN", // Default for simple calls
+                MaxResults = 5,
+                MinRelevanceScore = _baseMinRelevanceScore
+            };
+
+            var response = await SearchDocumentsWithRAGAsync(request);
+
+            return response.Success
+                ? (response.RawContent, response.Sources)
+                : (null, new List<DocumentSourceResponse>());
+        }
+        #endregion
+
+        #region Smart Search Logic
+
+        private async Task<List<Citation>> PerformSmartSearch(DocumentRAGRequest request, string requestId)
+        {
+            try
+            {
+                _logger.LogInformation("🔎 [SEARCH-{RequestId}] Smart search - Query: '{Query}', Role: {Role}", requestId, request.Query, request.Role);
+
+                // ✅ BUILD COMPREHENSIVE FILTER
+                var filter = BuildSmartFilter(request, requestId);
+
+                // ✅ DETERMINE SEARCH PARAMETERS
+                var searchLimit = DetermineSearchLimit(request.Role, request.MaxResults);
+                var minRelevance = Math.Max(request.MinRelevanceScore ?? _baseMinRelevanceScore, 0.01);
+
+                // ✅ PRIMARY SEARCH WITH FILTERS
+                try
+                {
+                    _logger.LogInformation("🔎 [SEARCH-{RequestId}] Primary search with filters - Limit: {Limit}, MinRelevance: {MinRelevance}",
+                        requestId, searchLimit, minRelevance);
+
+                    var primaryResult = await _memory.SearchAsync(
+                        request.Query,
+                        limit: searchLimit,
+                        filter: filter,
+                        minRelevance: minRelevance);
+
+                    var primaryCitations = primaryResult.Results.ToList();
+
+                    if (primaryCitations.Any())
+                    {
+                        _logger.LogInformation("✅ [SEARCH-{RequestId}] Primary search found {Count} results", requestId, primaryCitations.Count);
+                        LogSampleResults(primaryCitations, requestId, "Primary");
+                        return primaryCitations;
+                    }
+
+                    _logger.LogInformation("🔎 [SEARCH-{RequestId}] Primary search found no results, trying fallback", requestId);
+                }
+                catch (Exception primaryEx)
+                {
+                    _logger.LogWarning(primaryEx, "🔎 [SEARCH-{RequestId}] Primary search failed, trying fallback", requestId);
+                }
+
+                // ✅ FALLBACK: RELAXED SEARCH
+                try
+                {
+                    _logger.LogInformation("🔎 [SEARCH-{RequestId}] Fallback search with relaxed filters", requestId);
+
+                    var fallbackFilter = BuildFallbackFilter(request, requestId);
+                    var fallbackResult = await _memory.SearchAsync(
+                        request.Query,
+                        limit: searchLimit,
+                        filter: fallbackFilter,
+                        minRelevance: 0.01);
+
+                    var fallbackCitations = fallbackResult.Results.ToList();
+
+                    if (fallbackCitations.Any())
+                    {
+                        _logger.LogInformation("✅ [SEARCH-{RequestId}] Fallback search found {Count} results", requestId, fallbackCitations.Count);
+                        LogSampleResults(fallbackCitations, requestId, "Fallback");
+                        return fallbackCitations;
+                    }
+                }
+                catch (Exception fallbackEx)
+                {
+                    _logger.LogWarning(fallbackEx, "🔎 [SEARCH-{RequestId}] Fallback search failed", requestId);
+                }
+
+                // ✅ LAST RESORT: NO FILTERS
+                try
+                {
+                    _logger.LogInformation("🔎 [SEARCH-{RequestId}] Last resort search without filters", requestId);
+
+                    var lastResortResult = await _memory.SearchAsync(
+                        request.Query,
+                        limit: Math.Min(searchLimit, 20),
+                        minRelevance: 0.0);
+
+                    var lastResortCitations = lastResortResult.Results.ToList();
+
+                    if (lastResortCitations.Any())
+                    {
+                        _logger.LogInformation("✅ [SEARCH-{RequestId}] Last resort found {Count} results", requestId, lastResortCitations.Count);
+                        return lastResortCitations;
+                    }
+                }
+                catch (Exception lastResortEx)
+                {
+                    _logger.LogError(lastResortEx, "❌ [SEARCH-{RequestId}] Last resort search failed", requestId);
+                }
+
+                return new List<Citation>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ [SEARCH-{RequestId}] Error in smart search", requestId);
+                return new List<Citation>();
+            }
+        }
+
+        /// <summary>
+        /// ✅ BUILD SMART FILTER with proper date handling
+        /// </summary>
+        private MemoryFilter BuildSmartFilter(DocumentRAGRequest request, string requestId)
+        {
+            var filter = new MemoryFilter();
+            var today = DateTime.UtcNow.Date;
+
+            try
+            {
+                // ✅ ALWAYS FILTER BY APPROVED STATUS
+                filter = filter.ByTag("status", "approved");
+
+                // ✅ DEPARTMENT FILTER - if specified
+                if (!string.IsNullOrEmpty(request.DepartmentId))
+                {
+                    filter = filter.ByTag("departmentId", request.DepartmentId);
+                    _logger.LogDebug("🔎 [FILTER-{RequestId}] Added department filter: {DeptId}", requestId, request.DepartmentId);
+                }
+
+                // ✅ EFFECTIVE DATE FILTER - documents effective TODAY or in range
+                // Logic: effectiveFrom <= TODAY <= effectiveUntil (hoặc null)
+
+                // Skip date filtering for now since it's complex with MemoryFilter
+                // We'll handle date filtering in permission check instead
+
+                // ✅ PUBLIC/PERMISSION BASED FILTER
+                var role = request.Role?.ToUpper() ?? "GUEST";
+
+                if (role == "GUEST" || request.OnlyPublic)
+                {
+                    filter = filter.ByTag("isPublic", "True");
+                    _logger.LogDebug("🔎 [FILTER-{RequestId}] Added public filter for role: {Role}", requestId, role);
+                }
+
+                _logger.LogInformation("🔎 [FILTER-{RequestId}] Built smart filter for role: {Role}, dept: {DeptId}",
+                    requestId, role, request.DepartmentId);
+
+                return filter;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "🔎 [FILTER-{RequestId}] Error building smart filter, using basic filter", requestId);
+                return new MemoryFilter().ByTag("status", "approved");
+            }
+        }
+
+        /// <summary>
+        /// ✅ BUILD FALLBACK FILTER - more permissive
+        /// </summary>
+        private MemoryFilter BuildFallbackFilter(DocumentRAGRequest request, string requestId)
+        {
+            try
+            {
+                var filter = new MemoryFilter().ByTag("status", "approved");
+
+                // Only add department filter if specified and not admin
+                if (!string.IsNullOrEmpty(request.DepartmentId) && request.Role?.ToUpper() != "ADMIN")
+                {
+                    filter = filter.ByTag("departmentId", request.DepartmentId);
+                }
+
+                _logger.LogDebug("🔎 [FILTER-{RequestId}] Built fallback filter", requestId);
+                return filter;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "🔎 [FILTER-{RequestId}] Error building fallback filter", requestId);
+                return new MemoryFilter().ByTag("status", "approved");
+            }
+        }
+
+        /// <summary>
+        /// ✅ PERMISSION FILTERING with proper date checks
+        /// </summary>
+        private async Task<List<Citation>> FilterCitationsByPermissions(List<Citation> citations, DocumentRAGRequest userContext, string requestId)
+        {
+            var validCitations = new List<Citation>();
+            var today = DateTime.UtcNow.Date;
+
+            foreach (var citation in citations)
             {
                 try
                 {
-                    var startTime = DateTime.UtcNow;
+                    var documentId = GetDocumentIdFromCitation(citation);
+                    var versionId = GetVersionIdFromCitation(citation);
 
-                    _logger.LogInformation("🔍 [RAG] Processing RAW CONTENT search for: {FullName} ({Role}) from {DeptName}",
-                        request.FullName, request.Role, request.DepartmentName);
-
-                    if (_enableCostOptimization)
+                    // ✅ CHECK DATE EFFECTIVENESS (including today)
+                    if (!IsDocumentCurrentlyEffective(citation, today, requestId))
                     {
-                        request = ApplyOptimizedSettings(request);
+                        _logger.LogDebug("⏰ [ACCESS-{RequestId}] Document {DocId}/{VersionId} not currently effective",
+                            requestId, documentId, versionId);
+                        continue;
                     }
 
-                    var citations = await PerformAdvancedSearch(request);
+                    // ✅ CHECK ACCESS PERMISSIONS
+                    var hasAccess = await IsDocumentAccessibleToUser(citation, userContext, requestId);
 
-                    if (!citations.Any())
+                    if (hasAccess)
                     {
-                        _logger.LogInformation("❌ [RAG] No citations found for query: {Query}", request.Query);
-                        return CreateEmptyResponse(request, startTime);
+                        validCitations.Add(citation);
+                        _logger.LogDebug("✅ [ACCESS-{RequestId}] Document {DocId}/{VersionId} accessible",
+                            requestId, documentId, versionId);
                     }
-
-                    var validCitations = citations
-                        .Where(c => IsDocumentAccessibleToUser(c, request))
-                        .OrderByDescending(c => c.Partitions.Max(p => p.Relevance))
-                        .Take(3)
-                        .ToList();
-
-                    _logger.LogInformation("✅ [RAG] Permission filtered: {Valid}/{Total} citations for role: {Role}",
-                        validCitations.Count, citations.Count, request.Role);
-
-                    if (!validCitations.Any())
+                    else
                     {
-                        _logger.LogInformation("❌ [RAG] No accessible documents after permission filtering for user: {FullName}", request.FullName);
-                        return CreateEmptyResponse(request, startTime);
+                        _logger.LogDebug("❌ [ACCESS-{RequestId}] Document {DocId}/{VersionId} NOT accessible",
+                            requestId, documentId, versionId);
                     }
-
-                    // ✅ NEW: EXTRACT RAW CONTENT ONLY - NO AI PROCESSING
-                    var rawContent = ExtractRawContentFromCitations(validCitations);
-                    var sources = await ExtractDocumentSources(validCitations);
-
-                    var response = new DocumentRAGResponse
-                    {
-                        RequestId = request.RequestId,
-                        Success = true,
-                        RawContent = rawContent, // ✅ Raw content instead of processed answer
-                        Sources = sources,
-                        QueryProcessed = request.Query,
-                        ProcessingTimeMs = (long)(DateTime.UtcNow - startTime).TotalMilliseconds
-                    };
-
-                    _logger.LogInformation("✅ [RAG] RAW CONTENT extracted: {RequestId} - {ProcessingTime}ms - {ContentLength} chars - {SourceCount} sources",
-                        request.RequestId, response.ProcessingTimeMs, rawContent?.Length ?? 0, sources.Count);
-
-                    return response;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "❌ [RAG] Error processing request for user: {FullName} ({Role})", request.FullName, request.Role);
-                    return CreateErrorResponse(request, ex);
+                    _logger.LogWarning(ex, "🔒 [ACCESS-{RequestId}] Error checking permission for citation - skipping", requestId);
                 }
             }
 
-            public async Task<DocumentRAGResponse> SearchOfficialDocumentsAsync(DocumentRAGRequest request)
+            var result = validCitations
+                .OrderByDescending(c => c.Partitions.Any() ? c.Partitions.Max(p => p.Relevance) : 0)
+                .Take(userContext.MaxResults)
+                .ToList();
+
+            return result;
+        }
+
+        /// <summary>
+        /// ✅ CHECK DOCUMENT EFFECTIVENESS - includes TODAY
+        /// </summary>
+        private bool IsDocumentCurrentlyEffective(Citation citation, DateTime today, string requestId)
+        {
+            try
             {
-                var officialRequest = request with
+                var effectiveFromStr = GetTagValueFromCitation(citation, "effectiveFrom");
+                var effectiveUntilStr = GetTagValueFromCitation(citation, "effectiveUntil");
+
+                // ✅ CHECK EFFECTIVE FROM - document should be effective from today or earlier
+                if (!string.IsNullOrEmpty(effectiveFromStr))
                 {
-                    MinRelevanceScore = Math.Max(request.MinRelevanceScore ?? _optimizedMinRelevanceScore, 0.4),
-                    OnlyOfficial = true
-                };
-
-                return await SearchDocumentsWithRAGAsync(officialRequest);
-            }
-
-            public async Task<string> GetRawContentAsync(string query, string userId)
-            {
-                var request = new DocumentRAGRequest
-                {
-                    Query = query,
-                    UserId = userId,
-                    MaxResults = 3,
-                    MinRelevanceScore = _optimizedMinRelevanceScore
-                };
-
-                var response = await SearchDocumentsWithRAGAsync(request);
-                return response.Success ? response.RawContent : null;
-            }
-
-            public async Task<(string RawContent, List<DocumentSourceResponse> Sources)> GetRawContentWithSourcesAsync(string query, string userId)
-            {
-                var request = new DocumentRAGRequest
-                {
-                    Query = query,
-                    UserId = userId,
-                    MaxResults = 3,
-                    MinRelevanceScore = _optimizedMinRelevanceScore
-                };
-
-                var response = await SearchDocumentsWithRAGAsync(request);
-
-                return response.Success
-                    ? (response.RawContent, response.Sources)
-                    : (null, new List<DocumentSourceResponse>());
-            }
-            #endregion
-
-            #region Private Methods - RAW CONTENT EXTRACTION
-
-            /// <summary>
-            /// ✅ NEW: Extract raw content from citations without AI processing
-            /// </summary>
-            private string ExtractRawContentFromCitations(List<Citation> citations)
-            {
-                if (!citations.Any())
-                {
-                    _logger.LogWarning("📄 [RAW] No citations provided for content extraction");
-                    return null;
-                }
-
-                var contentParts = new List<RawContentPart>();
-
-                _logger.LogDebug("📄 [RAW] Processing {Count} citations for raw content extraction", citations.Count);
-
-                foreach (var citation in citations.Take(3))
-                {
-                    var bestPartition = citation.Partitions
-                        .Where(p => !string.IsNullOrWhiteSpace(p.Text))
-                        .OrderByDescending(p => p.Relevance)
-                        .FirstOrDefault();
-
-                    if (bestPartition?.Text != null)
+                    if (DateTime.TryParse(effectiveFromStr, out var effectiveFrom))
                     {
-                        var rawPart = new RawContentPart
+                        if (today < effectiveFrom.Date)
                         {
-                            Content = CleanRawText(bestPartition.Text),
-                            Relevance = bestPartition.Relevance,
-                            DocumentId = GetDocumentIdFromCitation(citation)
-                        };
-
-                        if (!string.IsNullOrEmpty(rawPart.Content))
-                        {
-                            contentParts.Add(rawPart);
-                            _logger.LogDebug("📄 [RAW] Extracted from document {DocId}: {Length} chars, relevance: {Relevance:F3}",
-                                rawPart.DocumentId, rawPart.Content.Length, bestPartition.Relevance);
+                            _logger.LogDebug("⏰ [EFFECTIVE-{RequestId}] Document not yet effective: {EffectiveFrom} > {Today}",
+                                requestId, effectiveFrom.Date, today);
+                            return false; // Not yet effective
                         }
                     }
                 }
 
-                if (!contentParts.Any())
+                // ✅ CHECK EFFECTIVE UNTIL - document should be effective until today or later
+                if (!string.IsNullOrEmpty(effectiveUntilStr))
                 {
-                    _logger.LogWarning("📄 [RAW] No valid raw content extracted from citations");
-                    return null;
-                }
-
-                return CombineRawContent(contentParts);
-            }
-
-            /// <summary>
-            /// Clean raw text but preserve original meaning
-            /// </summary>
-            private string CleanRawText(string rawText)
-            {
-                if (string.IsNullOrWhiteSpace(rawText))
-                    return string.Empty;
-
-                return rawText
-                    .Replace("\r\n", "\n")
-                    .Replace("\r", "\n")
-                    .Replace("\t", " ")
-                    .Replace("  ", " ")
-                    .Trim();
-            }
-
-            /// <summary>
-            /// Combine multiple raw content parts
-            /// </summary>
-            private string CombineRawContent(List<RawContentPart> contentParts)
-            {
-                if (!contentParts.Any())
-                    return null;
-
-                if (!_combineMultipleSources)
-                {
-                    // Return only the most relevant content
-                    var bestContent = contentParts.OrderByDescending(p => p.Relevance).First();
-                    return TruncateIfNeeded(bestContent.Content);
-                }
-
-                var combinedContent = new StringBuilder();
-
-                for (int i = 0; i < contentParts.Count; i++)
-                {
-                    var part = contentParts[i];
-
-                    if (i > 0)
+                    if (DateTime.TryParse(effectiveUntilStr, out var effectiveUntil))
                     {
-                        combinedContent.AppendLine();
-                        combinedContent.AppendLine("---");
-                        combinedContent.AppendLine();
-                    }
-
-                    combinedContent.Append(part.Content);
-
-                    // Check length limit
-                    if (combinedContent.Length > _maxRawContentLength)
-                    {
-                        _logger.LogDebug("📄 [RAW] Content truncated at {Length} chars due to length limit", _maxRawContentLength);
-                        break;
+                        if (today > effectiveUntil.Date)
+                        {
+                            _logger.LogDebug("⏰ [EFFECTIVE-{RequestId}] Document already expired: {EffectiveUntil} < {Today}",
+                                requestId, effectiveUntil.Date, today);
+                            return false; // Already expired
+                        }
                     }
                 }
 
-                return TruncateIfNeeded(combinedContent.ToString());
+                // ✅ Document is currently effective (including today)
+                return true;
             }
-
-            /// <summary>
-            /// Truncate content if it exceeds maximum length
-            /// </summary>
-            private string TruncateIfNeeded(string content)
+            catch (Exception ex)
             {
-                if (string.IsNullOrEmpty(content) || content.Length <= _maxRawContentLength)
-                    return content;
-
-                var truncated = content.Substring(0, _maxRawContentLength);
-
-                // Try to truncate at sentence boundary
-                var lastPeriod = truncated.LastIndexOf('.');
-                if (lastPeriod > _maxRawContentLength * 0.8) // If period is near the end
-                {
-                    return truncated.Substring(0, lastPeriod + 1);
-                }
-
-                // Try to truncate at word boundary
-                var lastSpace = truncated.LastIndexOf(' ');
-                if (lastSpace > _maxRawContentLength * 0.9) // If space is near the end
-                {
-                    return truncated.Substring(0, lastSpace);
-                }
-
-                return truncated + "...";
+                _logger.LogWarning(ex, "⏰ [EFFECTIVE-{RequestId}] Error checking document effectiveness - allowing access", requestId);
+                return true; // Allow access on error
             }
+        }
 
-            /// <summary>
-            /// Supporting class for raw content processing
-            /// </summary>
-            private class RawContentPart
+        /// <summary>
+        /// ✅ CHECK DOCUMENT ACCESS PERMISSIONS
+        /// </summary>
+        private async Task<bool> IsDocumentAccessibleToUser(Citation citation, DocumentRAGRequest userContext, string requestId)
+        {
+            try
             {
-                public string Content { get; set; } = string.Empty;
-                public double Relevance { get; set; }
-                public string DocumentId { get; set; } = string.Empty;
-            }
+                var role = userContext.Role?.ToUpper() ?? "GUEST";
 
-            #endregion
-
-            #region Private Methods - Request Processing (Unchanged)
-            private DocumentRAGRequest ApplyOptimizedSettings(DocumentRAGRequest request)
-            {
-                return new DocumentRAGRequest
-                {
-                    RequestId = request.RequestId,
-                    Query = TruncateQueryForCostOptimization(request.Query),
-                    UserId = request.UserId,
-                    Email = request.Email,
-                    FullName = request.FullName,
-                    Phone = request.Phone,
-                    Role = request.Role,
-                    DepartmentId = request.DepartmentId,
-                    DepartmentName = request.DepartmentName,
-                    Permissions = request.Permissions,
-                    MaxResults = Math.Min(request.MaxResults, _maxSearchResults),
-                    MinRelevanceScore = Math.Max(request.MinRelevanceScore ?? _optimizedMinRelevanceScore, _optimizedMinRelevanceScore),
-                    OnlyPublic = request.OnlyPublic,
-                    OnlyOfficial = true,
-                    Tags = request.Tags,
-                    EffectiveFrom = request.EffectiveFrom,
-                    EffectiveUntil = request.EffectiveUntil,
-                    RequestTime = request.RequestTime
-                };
-            }
-
-            private string TruncateQueryForCostOptimization(string query)
-            {
-                const int maxQueryLength = 120;
-                if (string.IsNullOrEmpty(query) || query.Length <= maxQueryLength)
-                    return query;
-
-                var truncated = query.Substring(0, maxQueryLength);
-                var lastSpace = truncated.LastIndexOf(' ');
-                return lastSpace > 90 ? truncated.Substring(0, lastSpace) : truncated;
-            }
-            #endregion
-
-            #region Private Methods - Advanced Search (Unchanged)
-            private async Task<List<Citation>> PerformAdvancedSearch(DocumentRAGRequest request)
-            {
-                try
-                {
-                    var baseFilter = new MemoryFilter()
-                        .ByTag("status", "approved")
-                        .ByTag("isOfficial", "true");
-
-                    var searchLimit = DetermineSearchLimitByRole(request.Role, request.MaxResults);
-
-                    _logger.LogInformation("🔍 [SEARCH] Searching with limit: {Limit}, minRelevance: {MinRelevance}",
-                        searchLimit, request.MinRelevanceScore);
-
-                    var searchResult = await _memory.SearchAsync(
-                        request.Query,
-                        limit: searchLimit,
-                        filter: baseFilter,
-                        minRelevance: request.MinRelevanceScore ?? _optimizedMinRelevanceScore);
-
-                    _logger.LogInformation("🔍 [SEARCH] KernelMemory returned {Count} results", searchResult.Results.Count());
-
-                    return searchResult.Results.ToList();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error in KernelMemory search for user: {FullName}", request.FullName);
-                    return new List<Citation>();
-                }
-            }
-
-            private int DetermineSearchLimitByRole(string role, int requestedMaxResults)
-            {
-                var multiplier = role.ToUpper() switch
-                {
-                    "ADMIN" => 2,
-                    "MANAGER" => 3,
-                    "EDITOR" => 4,
-                    "MEMBER" => 4,
-                    _ => 5
-                };
-
-                var searchLimit = requestedMaxResults * multiplier;
-                return Math.Min(searchLimit, 15);
-            }
-            #endregion
-
-            #region Private Methods - Access Control (Unchanged)
-            private bool IsDocumentAccessibleToUser(Citation citation, DocumentRAGRequest userContext)
-            {
-                try
-                {
-                    var firstPartition = citation.Partitions.FirstOrDefault();
-                    if (firstPartition?.Tags == null) return false;
-
-                    var tags = firstPartition.Tags;
-
-                    if (!IsDocumentCurrentlyEffective(tags))
-                        return false;
-
-                    var departmentId = firstPartition.Tags
-                        .FirstOrDefault(t => t.Key == "departmentId")
-                        .Value?.FirstOrDefault() ?? "";
-
-                    var isPublicStr = firstPartition.Tags
-                        .FirstOrDefault(t => t.Key == "isPublic")
-                        .Value?.FirstOrDefault() ?? "false";
-
-                    var ownerId = firstPartition.Tags
-                        .FirstOrDefault(t => t.Key == "ownerId")
-                        .Value?.FirstOrDefault() ?? "";
-
-                    bool.TryParse(isPublicStr, out bool isPublic);
-
-                    var accessResult = CheckRoleBasedDocumentAccess(
-                        departmentId,
-                        isPublic,
-                        ownerId,
-                        userContext);
-
-                    return accessResult.HasAccess;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error in permission check for user: {FullName} - denying access", userContext.FullName);
-                    return false;
-                }
-            }
-
-            private (bool HasAccess, string Reason) CheckRoleBasedDocumentAccess(
-                string documentDepartmentId,
-                bool isPublic,
-                string ownerId,
-                DocumentRAGRequest userContext)
-            {
-                var role = userContext.Role.ToUpper();
-
+                // ✅ ADMIN USERS HAVE FULL ACCESS
                 if (role == "ADMIN")
-                    return (true, "Admin access");
+                {
+                    return true;
+                }
 
-                if (ownerId == userContext.UserId)
-                    return (true, "Owner access");
+                // ✅ GET DOCUMENT PROPERTIES
+                var departmentId = GetTagValueFromCitation(citation, "departmentId");
+                var ownerId = GetTagValueFromCitation(citation, "ownerId");
+                var isPublicStr = GetTagValueFromCitation(citation, "isPublic");
+                bool.TryParse(isPublicStr, out bool isPublic);
 
+                // ✅ OWNER ACCESS
+                if (!string.IsNullOrEmpty(ownerId) && ownerId == userContext.UserId)
+                {
+                    return true;
+                }
+
+                // ✅ PUBLIC DOCUMENTS
                 if (isPublic)
-                    return (true, "Public document");
+                {
+                    return true;
+                }
 
-                if (!string.IsNullOrEmpty(userContext.DepartmentId) && documentDepartmentId == userContext.DepartmentId)
+                // ✅ DEPARTMENT ACCESS
+                if (!string.IsNullOrEmpty(userContext.DepartmentId) && departmentId == userContext.DepartmentId)
                 {
                     switch (role)
                     {
                         case "MANAGER":
-                            return (true, $"Manager access - department documents");
-
                         case "EDITOR":
+                        case "EMPLOYEE":
                         case "MEMBER":
-                            if (userContext.Permissions.Contains("VIEW_DEPARTMENT_DOCUMENT") ||
-                                userContext.Permissions.Contains("VIEW_OWN_DEPARTMENT_DOCUMENT"))
-                            {
-                                return (true, $"{role} access with permission");
-                            }
-                            return (false, $"{role} missing VIEW_DEPARTMENT_DOCUMENT permission");
-
-                        case "NONE":
-                            return (false, "Role 'None' - no access");
-
-                        default:
-                            return (false, $"Unknown role '{userContext.Role}'");
+                            return true;
                     }
                 }
 
-                return (false, $"No access - Role: {userContext.Role}, UserDept: {userContext.DepartmentName}, DocDept: {documentDepartmentId}");
+                // ✅ PERMISSION-BASED ACCESS
+                if (userContext.Permissions?.Any(p => new[] { "VIEW_ANY_DOCUMENT", "VIEW_DEPARTMENT_DOCUMENT" }.Contains(p)) == true)
+                {
+                    return true;
+                }
+
+                return false;
             }
-
-            private bool IsDocumentCurrentlyEffective(IDictionary<string, List<string>> tags)
+            catch (Exception ex)
             {
-                var today = DateTime.UtcNow.Date;
-
-                if (tags.TryGetValue("effectiveFrom", out var effectiveFromValues))
-                {
-                    var effectiveFromStr = effectiveFromValues.FirstOrDefault();
-                    if (!string.IsNullOrEmpty(effectiveFromStr) &&
-                        DateTime.TryParse(effectiveFromStr, out var effectiveFrom) &&
-                        today < effectiveFrom.Date)
-                    {
-                        return false;
-                    }
-                }
-
-                if (tags.TryGetValue("effectiveUntil", out var effectiveUntilValues))
-                {
-                    var effectiveUntilStr = effectiveUntilValues.FirstOrDefault();
-                    if (!string.IsNullOrEmpty(effectiveUntilStr) &&
-                        DateTime.TryParse(effectiveUntilStr, out var effectiveUntil) &&
-                        today > effectiveUntil.Date)
-                    {
-                        return false;
-                    }
-                }
-
-                return true;
+                _logger.LogWarning(ex, "🔒 [ACCESS-{RequestId}] Error checking document access - denying access", requestId);
+                return false;
             }
-            #endregion
+        }
 
-            #region Private Methods - Source Extraction (Unchanged)
-            private async Task<List<DocumentSourceResponse>> ExtractDocumentSources(List<Citation> citations)
+        #endregion
+
+        #region Helper Methods
+
+        private int DetermineSearchLimit(string role, int requestedMaxResults)
+        {
+            var multiplier = role?.ToUpper() switch
             {
-                try
-                {
-                    var sources = new List<DocumentSourceResponse>();
+                "ADMIN" => 2,
+                "MANAGER" => 3,
+                _ => 4
+            };
 
-                    for (int i = 0; i < citations.Count && i < 3; i++)
+            var searchLimit = requestedMaxResults * multiplier;
+            return Math.Min(searchLimit, 50);
+        }
+
+        private void LogSampleResults(List<Citation> citations, string requestId, string searchType)
+        {
+            if (!_enableDebugLogging) return;
+
+            for (int i = 0; i < Math.Min(citations.Count, 2); i++)
+            {
+                var citation = citations[i];
+                var documentId = GetDocumentIdFromCitation(citation);
+                var title = GetTagValueFromCitation(citation, "title");
+                var status = GetTagValueFromCitation(citation, "status");
+                var relevance = citation.Partitions.Any() ? citation.Partitions.Max(p => p.Relevance) : 0;
+
+                _logger.LogInformation("📄 [SEARCH-{RequestId}] {SearchType} Result {Index}: Title='{Title}', DocId={DocId}, Status={Status}, Relevance={Relevance:F3}",
+                    requestId, searchType, i + 1, title, documentId, status, relevance);
+            }
+        }
+
+        private string GetDocumentIdFromCitation(Citation citation)
+        {
+            var firstPartition = citation.Partitions.FirstOrDefault();
+            if (firstPartition?.Tags != null)
+            {
+                var possibleTags = new[] { "documentId", "__document_id", "docId", "document_id" };
+                foreach (var tag in possibleTags)
+                {
+                    if (firstPartition.Tags.TryGetValue(tag, out var values))
                     {
-                        var citation = citations[i];
+                        var value = values.FirstOrDefault();
+                        if (!string.IsNullOrEmpty(value))
+                            return value;
+                    }
+                }
+            }
+            return string.Empty;
+        }
+
+        private string GetVersionIdFromCitation(Citation citation)
+        {
+            var firstPartition = citation.Partitions.FirstOrDefault();
+            if (firstPartition?.Tags != null)
+            {
+                var possibleTags = new[] { "versionId", "version_id", "__version_id" };
+                foreach (var tag in possibleTags)
+                {
+                    if (firstPartition.Tags.TryGetValue(tag, out var values))
+                    {
+                        var value = values.FirstOrDefault();
+                        if (!string.IsNullOrEmpty(value))
+                            return value;
+                    }
+                }
+            }
+            return string.Empty;
+        }
+
+        private string GetTagValueFromCitation(Citation citation, string tagKey)
+        {
+            var firstPartition = citation.Partitions.FirstOrDefault();
+            if (firstPartition?.Tags != null && firstPartition.Tags.TryGetValue(tagKey, out var values))
+            {
+                return values.FirstOrDefault() ?? string.Empty;
+            }
+            return string.Empty;
+        }
+
+        #endregion
+
+        #region Source Extraction
+
+        private async Task<List<DocumentSourceResponse>> ExtractDocumentSources(List<Citation> citations, string requestId)
+        {
+            try
+            {
+                var sources = new List<DocumentSourceResponse>();
+
+                foreach (var citation in citations.Take(10))
+                {
+                    try
+                    {
                         var documentId = GetDocumentIdFromCitation(citation);
-
-                        if (string.IsNullOrEmpty(documentId)) continue;
+                        var versionId = GetVersionIdFromCitation(citation);
 
                         var source = new DocumentSourceResponse
                         {
-                            DocumentId = documentId,
-                            RelevanceScore = citation.Partitions.Max(p => p.Relevance)
+                            DocumentId = !string.IsNullOrEmpty(documentId) ? documentId : versionId ?? Guid.NewGuid().ToString(),
+                            RelevanceScore = citation.Partitions.Any() ? citation.Partitions.Max(p => p.Relevance) : 0,
+                            Title = GetTagValueFromCitation(citation, "title"),
+                            VersionName = GetTagValueFromCitation(citation, "versionName") ?? "1",
+                            DepartmentId = GetTagValueFromCitation(citation, "departmentId"),
+                            Summary = GetTagValueFromCitation(citation, "summary")
                         };
 
-                        var firstPartition = citation.Partitions.FirstOrDefault();
-                        if (firstPartition?.Tags != null)
+                        // ✅ If no title from tags, extract from content
+                        if (string.IsNullOrEmpty(source.Title))
                         {
-                            var tags = firstPartition.Tags;
-                            source.VersionName = tags.FirstOrDefault(t => t.Key == "versionName").Value?.FirstOrDefault() ?? "";
-                            source.DepartmentId = tags.FirstOrDefault(t => t.Key == "departmentId").Value?.FirstOrDefault() ?? "";
-                        }
-
-                        try
-                        {
-                            var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
-                                .SingleOrDefaultAsync(
-                                    predicate: dv => dv.DocumentFile.Id == documentId && dv.IsOfficial,
-                                    include: i => i.Include(dv => dv.DocumentFile));
-
-                            if (documentVersion != null)
+                            var firstPartition = citation.Partitions.FirstOrDefault();
+                            if (firstPartition?.Text != null)
                             {
-                                source.Title = documentVersion.Title;
-                                source.DepartmentId = documentVersion.DocumentFile.DepartmentId;
+                                var lines = firstPartition.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                                source.Title = lines.Length > 0 ? lines[0].Trim() : "Document";
+                                if (source.Title.Length > 100)
+                                {
+                                    source.Title = source.Title.Substring(0, 97) + "...";
+                                }
                             }
                             else
                             {
-                                source.Title = $"Tài liệu nội bộ {i + 1}";
+                                source.Title = "Document";
                             }
                         }
-                        catch (Exception ex)
+
+                        // ✅ Enhance with database info
+                        try
                         {
-                            _logger.LogWarning(ex, "Failed to get document details for {DocumentId}", documentId);
-                            source.Title = $"Tài liệu nội bộ {i + 1}";
+                            DocumentVersion documentVersion = null;
+
+                            if (!string.IsNullOrEmpty(versionId))
+                            {
+                                documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
+                                    .SingleOrDefaultAsync(
+                                        predicate: dv => dv.Id == versionId,
+                                        include: i => i.Include(dv => dv.DocumentFile));
+                                                      //.Include(dv => dv.DocumentFile.Department));
+                            }
+                            else if (!string.IsNullOrEmpty(documentId))
+                            {
+                                documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
+                                    .SingleOrDefaultAsync(
+                                        predicate: dv => dv.DocumentFile.Id == documentId,
+                                        include: i => i.Include(dv => dv.DocumentFile));
+                                                      //.Include(dv => dv.DocumentFile.Department));
+                            }
+
+                            if (documentVersion != null)
+                            {
+                                source.Title = documentVersion.Title ?? source.Title;
+                                source.Summary = documentVersion.Summary ?? source.Summary;
+                                source.VersionName = documentVersion.VersionName ?? source.VersionName;
+                                source.EffectiveFrom = documentVersion.EffectiveFrom;
+                                source.EffectiveUntil = documentVersion.EffectiveUntil;
+                                source.DepartmentId = documentVersion.DocumentFile.DepartmentId ?? source.DepartmentId;
+                            }
+                        }
+                        catch (Exception dbEx)
+                        {
+                            _logger.LogDebug("📋 [SOURCE-{RequestId}] Database enhancement failed: {Error}", requestId, dbEx.Message);
                         }
 
                         sources.Add(source);
                     }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "📋 [SOURCE-{RequestId}] Error processing citation", requestId);
+                    }
+                }
 
-                    return sources.OrderByDescending(s => s.RelevanceScore).ToList();
+                var result = sources.OrderByDescending(s => s.RelevanceScore).ToList();
+                _logger.LogInformation("📋 [SOURCE-{RequestId}] Extracted {Count} document sources", requestId, result.Count);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "📋 [SOURCE-{RequestId}] Error extracting document sources", requestId);
+                return new List<DocumentSourceResponse>();
+            }
+        }
+
+        #endregion
+
+        #region Raw Content Extraction
+
+        private string ExtractRawContentFromCitations(List<Citation> citations)
+        {
+            if (!citations.Any())
+            {
+                return null;
+            }
+
+            var contentBuilder = new StringBuilder();
+            var addedContent = new HashSet<string>();
+
+            foreach (var citation in citations.Take(5))
+            {
+                try
+                {
+                    foreach (var partition in citation.Partitions.OrderByDescending(p => p.Relevance))
+                    {
+                        if (!string.IsNullOrWhiteSpace(partition.Text))
+                        {
+                            var cleanText = CleanRawText(partition.Text);
+
+                            var contentHash = cleanText.GetHashCode().ToString();
+                            if (!addedContent.Contains(contentHash) && cleanText.Length > 20)
+                            {
+                                if (contentBuilder.Length > 0)
+                                {
+                                    contentBuilder.AppendLine();
+                                    contentBuilder.AppendLine("---");
+                                    contentBuilder.AppendLine();
+                                }
+
+                                contentBuilder.Append(cleanText);
+                                addedContent.Add(contentHash);
+                                break;
+                            }
+                        }
+                    }
+
+                    if (contentBuilder.Length > 8000)
+                    {
+                        break;
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error extracting document sources");
-                    return new List<DocumentSourceResponse>();
+                    _logger.LogWarning(ex, "Error processing citation for raw content");
                 }
             }
 
-            private string GetDocumentIdFromCitation(Citation citation)
-            {
-                var firstPartition = citation.Partitions.FirstOrDefault();
-                if (firstPartition?.Tags != null && firstPartition.Tags.ContainsKey("documentId"))
-                {
-                    return firstPartition.Tags["documentId"].FirstOrDefault() ?? "";
-                }
-                return "";
-            }
-            #endregion
-
-            #region Private Methods - Response Creation
-            private DocumentRAGResponse CreateEmptyResponse(DocumentRAGRequest request, DateTime startTime)
-            {
-                return new DocumentRAGResponse
-                {
-                    RequestId = request.RequestId,
-                    Success = true,
-                    RawContent = null, // ✅ No raw content found
-                    Sources = new List<DocumentSourceResponse>(),
-                    QueryProcessed = request.Query,
-                    ProcessingTimeMs = (long)(DateTime.UtcNow - startTime).TotalMilliseconds
-                };
-            }
-
-            private DocumentRAGResponse CreateErrorResponse(DocumentRAGRequest request, Exception ex)
-            {
-                return new DocumentRAGResponse
-                {
-                    RequestId = request.RequestId,
-                    Success = false,
-                    ErrorMessage = $"Lỗi xử lý RAG: {ex.Message}",
-                    Sources = new List<DocumentSourceResponse>(),
-                    QueryProcessed = request.Query
-                };
-            }
-            #endregion
+            var result = contentBuilder.ToString().Trim();
+            return string.IsNullOrEmpty(result) ? null : result;
         }
+
+        private string CleanRawText(string rawText)
+        {
+            if (string.IsNullOrWhiteSpace(rawText))
+                return string.Empty;
+
+            return rawText
+                .Replace("\r\n", "\n")
+                .Replace("\r", "\n")
+                .Replace("\t", " ")
+                .Replace("  ", " ")
+                .Trim();
+        }
+
+        #endregion
+
+        #region Response Creation
+
+        private DocumentRAGResponse CreateEmptyResponse(DocumentRAGRequest request, DateTime startTime, string reason = null)
+        {
+            return new DocumentRAGResponse
+            {
+                RequestId = request.RequestId ?? Guid.NewGuid().ToString(),
+                Success = true,
+                RawContent = null,
+                Sources = new List<DocumentSourceResponse>(),
+                QueryProcessed = request.Query,
+                ProcessingTimeMs = (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                ErrorMessage = reason
+            };
+        }
+
+        private DocumentRAGResponse CreateErrorResponse(DocumentRAGRequest request, Exception ex, string requestId)
+        {
+            return new DocumentRAGResponse
+            {
+                RequestId = requestId,
+                Success = false,
+                RawContent = null,
+                Sources = new List<DocumentSourceResponse>(),
+                QueryProcessed = request.Query,
+                ErrorMessage = $"RAG processing error: {ex.Message}",
+                ProcessingTimeMs = 0
+            };
+        }
+
+        #endregion
     }
+}
