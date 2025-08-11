@@ -180,5 +180,31 @@ namespace ChatBox.API.Controllers
                 return Problem(MessageConstant.Preference.DeleteFailed);
             }
         }
+
+        /// <summary>
+        /// THÊM VÀO PreferenceController: Lấy danh sách characteristics có sẵn
+        /// </summary>
+        [HttpGet(ApiEndPointConstant.Preference.GetAvailableCharacteristics)]
+        [ProducesResponseType(typeof(List<CharacteristicOption>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetAvailableCharacteristicsAsync()
+        {
+            try
+            {
+                var availableCharacteristics = ChatbotCharacteristics.Available.Select(c => new CharacteristicOption
+                {
+                    Value = c.Value,
+                    DisplayName = c.DisplayName,
+                    IsSelected = false // Default không chọn
+                }).ToList();
+
+                return Ok(availableCharacteristics);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get available characteristics");
+                return Problem("Lấy danh sách đặc điểm thất bại");
+            }
+        }
+
     }
 }

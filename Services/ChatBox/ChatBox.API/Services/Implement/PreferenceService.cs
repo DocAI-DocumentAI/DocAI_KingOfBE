@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using AutoMapper;
+using ChatBox.API.Constants;
 using ChatBox.API.Payload.Request;
 using ChatBox.API.Payload.Response;
 using ChatBox.API.Services.Interfaces;
@@ -22,29 +23,69 @@ namespace ChatBox.API.Services.Implement
         public async Task<UserPreferenceResponse> GetUserChatPreferencesAsync(string userId)
         {
             var userPreference = await _unitOfWork.GetRepository<UserPreference>()
-                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null && p.ApplyToNewChats == true);
+        .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null && p.ApplyToNewChats == true);
 
             if (userPreference == null)
             {
-                return new UserPreferenceResponse { UserId = userId };
+                return new UserPreferenceResponse
+                {
+                    UserId = userId,
+                    AvailableCharacteristics = BuildAvailableCharacteristics(new List<string>())
+                };
             }
+
+            var selectedCharacteristics = ParseChatbotCharacteristics(userPreference.ChatbotCharacteristics);
 
             return new UserPreferenceResponse
             {
                 UserId = userId,
                 UserName = userPreference.UserName ?? "",
-                ChatbotCharacteristics = ParseChatbotCharacteristics(userPreference.ChatbotCharacteristics),
+                ChatbotCharacteristics = selectedCharacteristics,
                 AdditionalInfo = userPreference.AdditionalInfo ?? "",
                 ApplyToNewChats = userPreference.ApplyToNewChats,
                 HasAnyPreferences = !string.IsNullOrEmpty(userPreference.UserName) ||
                                   !string.IsNullOrEmpty(userPreference.ChatbotCharacteristics) ||
-                                  !string.IsNullOrEmpty(userPreference.AdditionalInfo)
+                                  !string.IsNullOrEmpty(userPreference.AdditionalInfo),
+                AvailableCharacteristics = BuildAvailableCharacteristics(selectedCharacteristics)
             };
+        }
+        private List<CharacteristicOption> BuildAvailableCharacteristics(List<string> selectedCharacteristics)
+        {
+            return ChatbotCharacteristics.Available.Select(c => new CharacteristicOption
+            {
+                Value = c.Value,
+                DisplayName = c.DisplayName,
+                IsSelected = selectedCharacteristics.Contains(c.Value)
+            }).ToList();
         }
         public async Task<UserPreferenceResponse> UpdateUserChatPreferencesAsync(string userId, UpdatePreferenceRequest request)
         {
+            if (request.ChatbotCharacteristics?.Any() == true)
+            {
+                var invalidCharacteristics = request.ChatbotCharacteristics
+                    .Where(c => !ChatbotCharacteristics.IsValidCharacteristic(c))
+                    .ToList();
+
+                if (invalidCharacteristics.Any())
+                {
+                    throw new ArgumentException($"Đặc điểm không hợp lệ: {string.Join(", ", invalidCharacteristics)}");
+                }
+
+                // ✅ LIMIT số lượng characteristics
+                request.ChatbotCharacteristics = request.ChatbotCharacteristics
+                    .Where(ChatbotCharacteristics.IsValidCharacteristic)
+                    .Take(ChatConstants.MaxCharacteristics)
+                    .ToList();
+            }
+
+            // ✅ VALIDATE AdditionalInfo length
+            if (!string.IsNullOrEmpty(request.AdditionalInfo) && request.AdditionalInfo.Length > ChatConstants.MaxAdditionalInfoLength)
+            {
+                request.AdditionalInfo = request.AdditionalInfo.Substring(0, ChatConstants.MaxAdditionalInfoLength);
+            }
+
             var existingPreference = await _unitOfWork.GetRepository<UserPreference>()
-                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null && p.ApplyToNewChats == true);
+                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null);
 
             if (existingPreference != null)
             {
@@ -93,29 +134,60 @@ namespace ChatBox.API.Services.Implement
         public async Task<UserPreferenceResponse> GetSessionPreferencesAsync(string sessionId, string userId)
         {
             var sessionPreference = await _unitOfWork.GetRepository<UserPreference>()
-                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == sessionId);
+        .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == sessionId);
 
             if (sessionPreference == null)
             {
-                return new UserPreferenceResponse { UserId = userId, SessionId = sessionId };
+                return new UserPreferenceResponse
+                {
+                    UserId = userId,
+                    SessionId = sessionId,
+                    AvailableCharacteristics = BuildAvailableCharacteristics(new List<string>())
+                };
             }
+
+            var selectedCharacteristics = ParseChatbotCharacteristics(sessionPreference.ChatbotCharacteristics);
 
             return new UserPreferenceResponse
             {
                 UserId = userId,
                 SessionId = sessionId,
                 UserName = sessionPreference.UserName ?? "",
-                ChatbotCharacteristics = ParseChatbotCharacteristics(sessionPreference.ChatbotCharacteristics),
+                ChatbotCharacteristics = selectedCharacteristics,
                 AdditionalInfo = sessionPreference.AdditionalInfo ?? "",
                 ApplyToNewChats = sessionPreference.ApplyToNewChats,
                 HasAnyPreferences = !string.IsNullOrEmpty(sessionPreference.UserName) ||
                                   !string.IsNullOrEmpty(sessionPreference.ChatbotCharacteristics) ||
-                                  !string.IsNullOrEmpty(sessionPreference.AdditionalInfo)
+                                  !string.IsNullOrEmpty(sessionPreference.AdditionalInfo),
+                AvailableCharacteristics = BuildAvailableCharacteristics(selectedCharacteristics)
             };
         }
-
         public async Task<UserPreferenceResponse> UpdateSessionPreferencesAsync(string sessionId, string userId, UpdatePreferenceRequest request)
         {
+            // ✅ VALIDATE characteristics
+            if (request.ChatbotCharacteristics?.Any() == true)
+            {
+                var invalidCharacteristics = request.ChatbotCharacteristics
+                    .Where(c => !ChatbotCharacteristics.IsValidCharacteristic(c))
+                    .ToList();
+
+                if (invalidCharacteristics.Any())
+                {
+                    throw new ArgumentException($"Đặc điểm không hợp lệ: {string.Join(", ", invalidCharacteristics)}");
+                }
+
+                request.ChatbotCharacteristics = request.ChatbotCharacteristics
+                    .Where(ChatbotCharacteristics.IsValidCharacteristic)
+                    .Take(ChatConstants.MaxCharacteristics)
+                    .ToList();
+            }
+
+            // ✅ VALIDATE AdditionalInfo length
+            if (!string.IsNullOrEmpty(request.AdditionalInfo) && request.AdditionalInfo.Length > ChatConstants.MaxAdditionalInfoLength)
+            {
+                request.AdditionalInfo = request.AdditionalInfo.Substring(0, ChatConstants.MaxAdditionalInfoLength);
+            }
+
             var existingPreference = await _unitOfWork.GetRepository<UserPreference>()
                 .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == sessionId);
 
@@ -162,8 +234,7 @@ namespace ChatBox.API.Services.Implement
             return await GetSessionPreferencesAsync(sessionId, userId);
         }
         public async Task<UserPreferenceResponse> GetEffectivePreferencesAsync(string sessionId, string userId)
-        {
-            // Priority 1: Session-specific preferences
+        {  // Priority 1: Session-specific preferences
             var sessionPreference = await _unitOfWork.GetRepository<UserPreference>()
                 .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == sessionId);
 
@@ -172,18 +243,21 @@ namespace ChatBox.API.Services.Implement
                 .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null && p.ApplyToNewChats == true);
 
             // ✅ Merge preferences với session override user
+            var effectiveCharacteristics = LimitCharacteristics(
+                sessionPreference?.ChatbotCharacteristics != null
+                    ? ParseChatbotCharacteristics(sessionPreference.ChatbotCharacteristics)
+                    : ParseChatbotCharacteristics(userPreference?.ChatbotCharacteristics));
+
             var effectivePreference = new UserPreferenceResponse
             {
                 UserId = userId,
                 SessionId = sessionId,
                 UserName = sessionPreference?.UserName ?? userPreference?.UserName ?? "",
-                // ✅ LIMIT characteristics để tránh system prompt quá dài
-                ChatbotCharacteristics = LimitCharacteristics(
-             sessionPreference?.ChatbotCharacteristics != null
-                 ? ParseChatbotCharacteristics(sessionPreference.ChatbotCharacteristics)
-                 : ParseChatbotCharacteristics(userPreference?.ChatbotCharacteristics)),
+                ChatbotCharacteristics = effectiveCharacteristics,
                 AdditionalInfo = LimitAdditionalInfo(sessionPreference?.AdditionalInfo ?? userPreference?.AdditionalInfo ?? ""),
-                ApplyToNewChats = sessionPreference?.ApplyToNewChats ?? userPreference?.ApplyToNewChats ?? false
+                ApplyToNewChats = sessionPreference?.ApplyToNewChats ?? userPreference?.ApplyToNewChats ?? false,
+                // ✅ THÊM: AvailableCharacteristics
+                AvailableCharacteristics = BuildAvailableCharacteristics(effectiveCharacteristics)
             };
 
             effectivePreference.HasAnyPreferences =
@@ -196,7 +270,7 @@ namespace ChatBox.API.Services.Implement
         public async Task<bool> DeleteUserPreferencesAsync(string userId)
         {
             var preference = await _unitOfWork.GetRepository<UserPreference>()
-                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null && p.ApplyToNewChats == true);
+                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null);
 
             if (preference == null)
                 return false;
@@ -223,7 +297,7 @@ namespace ChatBox.API.Services.Implement
         public async Task<bool> HasUserPreferencesAsync(string userId)
         {
             var preference = await _unitOfWork.GetRepository<UserPreference>()
-                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null && p.ApplyToNewChats == true);
+                .SingleOrDefaultAsync(predicate: p => p.UserId == userId && p.SessionId == null);
 
             return preference != null && (
                 !string.IsNullOrEmpty(preference.UserName) ||
