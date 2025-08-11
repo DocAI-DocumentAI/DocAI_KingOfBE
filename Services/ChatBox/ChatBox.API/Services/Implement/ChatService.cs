@@ -459,19 +459,32 @@ namespace ChatBox.API.Services.Implement
             var aiConfig = await _unitOfWork.GetRepository<AIConfiguration>()
                 .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName && c.IsActive);
 
-            return aiConfig?.SystemPrompt ?? defaultPrompt;
-        }
+            if (aiConfig?.SystemPrompt != null)
+            {
+                return $"{defaultPrompt}\n\n--- Model Configuration ---\n{aiConfig.SystemPrompt}";
+            }
+
+            return defaultPrompt;
+        }        
 
         private async Task<string> EnhanceWithUserPreferences(string basePrompt, string sessionId, string userId)
         {
-            var preferences = await _preferenceService.GetEffectivePreferencesAsync(sessionId, userId);
-            var enhancedPrompt = basePrompt;
+            try
+            {
+                var preferences = await _preferenceService.GetEffectivePreferencesAsync(sessionId, userId);
+                var enhancedPrompt = basePrompt;
 
-            enhancedPrompt = AddUserNameToPrompt(enhancedPrompt, preferences.UserName);
-            enhancedPrompt = AddCharacteristicsToPrompt(enhancedPrompt, preferences.ChatbotCharacteristics);
-            enhancedPrompt = AddAdditionalInfoToPrompt(enhancedPrompt, preferences.AdditionalInfo);
+                enhancedPrompt = AddUserNameToPrompt(enhancedPrompt, preferences.UserName);
+                enhancedPrompt = AddCharacteristicsToPrompt(enhancedPrompt, preferences.ChatbotCharacteristics);
+                enhancedPrompt = AddAdditionalInfoToPrompt(enhancedPrompt, preferences.AdditionalInfo);
 
-            return enhancedPrompt;
+                return enhancedPrompt;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to enhance prompt with user preferences for user {UserId}, session {SessionId}. Using base prompt.", userId, sessionId);
+                return basePrompt;
+            }
         }
 
         private string AddUserNameToPrompt(string prompt, string userName)
@@ -547,8 +560,15 @@ namespace ChatBox.API.Services.Implement
             return (userMessage, aiMessage);
         }
 
-        private async Task SaveMessagesAndUpdateSession(ChatMessage userMessage, ChatMessage aiMessage, ChatSession session, string userId, bool isFirstMessage, string firstUserMessage)
+        private async Task SaveMessagesAndUpdateSession(
+    ChatMessage userMessage,
+    ChatMessage aiMessage,
+    ChatSession session,
+    string userId,
+    bool isFirstMessage,
+    string firstUserMessage)
         {
+            // ✅ Save user message first
             await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(userMessage);
             await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(aiMessage);
 
@@ -854,7 +874,6 @@ namespace ChatBox.API.Services.Implement
                 await UpdateStreamingSession(sessionId, userId, isFirstMessage, userMessageContent);
 
                 await _unitOfWork.CommitAsync();
-                _logger.LogInformation("Streaming chat completed and saved for session {SessionId}", sessionId);
             }
             catch (Exception ex)
             {
@@ -1023,7 +1042,8 @@ namespace ChatBox.API.Services.Implement
             return await _unitOfWork.GetRepository<ChatSession>()
                 .SingleOrDefaultAsync(
                     predicate: s => s.Id == sessionId && s.UserId == userId,
-                    include: q => q.Include(a => a.Messages).Include(a => a.Preferences));
+                    include: q => q.Include(a => a.Messages)
+                                   .Include(a => a.Preferences));
         }
 
         private async Task<List<ChatSession>> GetUserActiveSessions(string userId)

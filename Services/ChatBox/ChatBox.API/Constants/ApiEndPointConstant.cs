@@ -47,6 +47,8 @@
             public const string UpdateSessionPreferences = "session/{sessionId}/preferences";
             public const string DeleteSessionPreferences = "session/{sessionId}/preferences";
             public const string GetUserPreferences = "user/preferences";
+            public const string GetAvailableCharacteristics = "preferences/characteristics";
+
         }
     }
 }

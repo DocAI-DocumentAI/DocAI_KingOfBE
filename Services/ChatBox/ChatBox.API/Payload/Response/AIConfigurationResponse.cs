@@ -5,7 +5,6 @@
         public string Id { get; set; }
         public string ModelName { get; set; }
         public string DisplayName { get; set; }
-        public string Description { get; set; }
         public bool IsActive { get; set; }
         public bool IsFree { get; set; }
         public bool IsDefault { get; set; } // ✅ ADD: New field
