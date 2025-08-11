@@ -11,7 +11,6 @@ namespace ChatBox.Domain.Models
     {
         public string ModelName { get; set; }
         public string DisplayName { get; set; }
-        public string Description { get; set; } 
         public double Temperature { get; set; } = 0.7;
         public double TopP { get; set; } = 1.0;
         public int MaxTokens { get; set; } = 4000;
