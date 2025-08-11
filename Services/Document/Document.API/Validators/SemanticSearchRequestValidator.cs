@@ -39,13 +39,6 @@ public class SemanticSearchRequestValidator : AbstractValidator<SemanticSearchRe
             .WithMessage(ValidationMessageConstant.Document.DocumentTypeInvalid)
             .When(x => !string.IsNullOrEmpty(x.DocumentTypeId));
 
-        RuleFor(x => x.SignedBy)
-            .MaximumLength(ValidationConstants.DocumentSignedByMaxLength)
-            .WithMessage(string.Format(ValidationMessageConstant.Document.SignedByMaxLength, ValidationConstants.DocumentSignedByMaxLength))
-            .Matches(ValidationConstants.VietnameseTextRegex)
-            .WithMessage(ValidationMessageConstant.Document.SignedByInvalidCharacters)
-            .When(x => !string.IsNullOrEmpty(x.SignedBy));
-
         RuleFor(x => x.FromDate)
             .LessThanOrEqualTo(x => x.ToDate)
             .WithMessage("Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc")

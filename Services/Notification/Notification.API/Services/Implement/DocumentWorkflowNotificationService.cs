@@ -203,6 +203,93 @@ namespace Notification.API.Services.Implement
                 }
             }
 
+            public async Task SendDocumentPublicationNotificationAsync(
+                string documentId,
+                string documentTitle,
+                string documentVersion,
+                UserInfo approverInfo,
+                string departmentId,
+                bool isPublic,
+                string documentTypeId,
+                string? documentTypeName = null,
+                DateTime? effectiveFrom = null,
+                DateTime? effectiveUntil = null,
+                List<string>? tags = null,
+                string? documentLink = null)
+            {
+                try
+                {
+                    _logger.LogInformation("Sending document publication notification for document {DocumentId} to department {DepartmentId}",
+                        documentId, departmentId);
+
+                    // Get email template
+                    var template = await _emailTemplateService.GetEmailTemplateByNameAsync("DocumentPublished");
+                    if (template == null)
+                    {
+                        _logger.LogError("Email template 'DocumentPublished' not found");
+                        return;
+                    }
+
+                    var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
+
+                    // Get department users (all users in the department)
+                    var departmentUsers = await _userService.GetUsersByDepartmentAsync(Guid.Parse(departmentId));
+                    if (!departmentUsers.Any())
+                    {
+                        _logger.LogWarning("No users found for department {DepartmentId}", departmentId);
+                        return;
+                    }
+
+                    // If document is public, also notify users from other departments who have access
+                    var allRecipients = new List<UserInfo>(departmentUsers);
+                    if (isPublic)
+                    {
+                        // For public documents, we could add logic to notify other departments
+                        // For now, we'll just notify the document's department
+                        _logger.LogInformation("Document {DocumentId} is public, but currently only notifying department {DepartmentId}", documentId, departmentId);
+                    }
+
+                    // Send notifications to all recipients
+                    var notificationTasks = allRecipients.Select(async user =>
+                    {
+                        try
+                        {
+                            var subject = $"[{approverInfo.Department}] Tài liệu mới '{documentTitle}' đã được phát hành";
+
+                            await SendNotificationAsync(
+                                user.Email,
+                                subject,
+                                template.TemplateName,
+                                documentTitle,
+                                documentVersion,
+                                DateTime.UtcNow,
+                                finalDocumentLink,
+                                user.Name,
+                                NotificationType.DocumentUpdate,
+                                documentId,
+                                documentVersion,
+                                user);
+
+                            _logger.LogDebug("Document publication notification sent to {UserEmail} for document {DocumentId}", user.Email, documentId);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error sending document publication notification to {UserEmail} for document {DocumentId}", user.Email, documentId);
+                        }
+                    });
+
+                    await Task.WhenAll(notificationTasks);
+
+                    _logger.LogInformation("Document publication notification sent to {UserCount} users in department {DepartmentId} for document {DocumentId}",
+                        allRecipients.Count, departmentId, documentId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error sending document publication notification for document {DocumentId}", documentId);
+                    throw;
+                }
+            }
+
             /// <summary>
             /// Helper method to send both email and system notifications
             /// </summary>

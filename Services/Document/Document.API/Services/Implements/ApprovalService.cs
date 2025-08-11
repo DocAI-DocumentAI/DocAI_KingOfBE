@@ -6,6 +6,7 @@ using Document.API.Services.Interfaces;
 using Document.API.Utils;
 using Document.Domain.Enums;
 using Document.Domain.Models;
+using Document.Domain.Model;
 using Document.Infrastructure.Paginate;
 using Document.Infrastructure.Repository.Interfaces;
 using DocumentFormat.OpenXml.ExtendedProperties;
@@ -187,6 +188,9 @@ namespace Document.API.Services.Implements
             ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
             var documentFile = versionToReview.DocumentFile;
 
+            // Declare variables at method level for broader scope
+            DocumentFile? replacedDocument = null;
+
             // --- Permission and State Validation ---
             if (documentFile.DepartmentId != managerDepartmentId)
                 throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToAccessApprovalQueue);
@@ -198,14 +202,96 @@ namespace Document.API.Services.Implements
 
             if (request.IsApproved)
             {
+                // ========================================
+                // DOCUMENT APPROVAL PROCESS
+                // ========================================
+                // This section handles three scenarios:
+                // 1. NEW DOCUMENT: First version of a document
+                // 2. NEW VERSION: New version of existing document (archives previous version)
+                // 3. REPLACEMENT: New document that replaces another document (archives replaced document)
+
+                // Get previous approved version of the SAME document (for versioning)
                 var previousApprovedVersion = await _unitOfWork.GetRepository<DocumentVersion>()
                     .SingleOrDefaultAsync(
                         predicate: v => v.DocumentFileId == documentFile.Id && v.Status == StatusEnum.Approved,
                         include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
                     );
 
+                // Check if this document REPLACES another document (different from versioning)
+                if (!string.IsNullOrEmpty(documentFile.ReplacementId))
+                {
+                    replacedDocument = await _unitOfWork.GetRepository<DocumentFile>()
+                        .SingleOrDefaultAsync(
+                            predicate: df => df.Id == documentFile.ReplacementId && !df.IsReplaced,
+                            include: i => i.Include(df => df.DocumentVersions.Where(v => v.Status == StatusEnum.Approved))
+                                          .ThenInclude(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                        );
+                }
+
                 try
                 {
+                    // ========================================
+                    // SCENARIO 3: DOCUMENT REPLACEMENT HANDLING
+                    // ========================================
+                    // If this document replaces another document, archive the replaced document
+                    if (replacedDocument != null)
+                    {
+                        var replacedApprovedVersion = replacedDocument.DocumentVersions.FirstOrDefault(v => v.Status == StatusEnum.Approved);
+                        if (replacedApprovedVersion != null)
+                        {
+                            // Move replaced document to archived folder
+                            var replacedFileId = replacedApprovedVersion.GoogleDriveFileId ?? replacedApprovedVersion.FilePath;
+                            await _storageService.MoveFileAsync(replacedFileId, StorageFolderConstant.Approved, StorageFolderConstant.Archived,
+                                replacedDocument.DepartmentId, replacedApprovedVersion.IsPublic);
+
+                            // Archive replaced document in Kernel Memory
+                            var replacedVersionKmId = replacedApprovedVersion.Id.ToString();
+                            var replacedTags = new TagCollection
+                            {
+                                { SemanticSearchConstant.MemoryTags.Status, "archived" },
+                                { SemanticSearchConstant.MemoryTags.DepartmentId, replacedDocument.DepartmentId },
+                                { SemanticSearchConstant.MemoryTags.DocumentId, replacedDocument.Id.ToString() },
+                                { SemanticSearchConstant.MemoryTags.Version, replacedApprovedVersion.VersionName },
+                                { SemanticSearchConstant.MemoryTags.ApprovalDate, replacedApprovedVersion.CreatedTime.ToString("yyyy-MM-dd") },
+                                { SemanticSearchConstant.MemoryTags.OwnerId, replacedDocument.OwnerId },
+                                { SemanticSearchConstant.MemoryTags.IsPublic, replacedApprovedVersion.IsPublic.ToString() },
+                                { SemanticSearchConstant.MemoryTags.EffectiveFrom, replacedApprovedVersion.EffectiveFrom?.ToString("yyyy-MM-dd") },
+                                { SemanticSearchConstant.MemoryTags.EffectiveUntil, replacedApprovedVersion.EffectiveUntil?.ToString("yyyy-MM-dd") },
+                                { SemanticSearchConstant.MemoryTags.SignedBy, replacedApprovedVersion.SignedBy },
+                                { SemanticSearchConstant.MemoryTags.DocumentType, replacedDocument.DocumentTypeId },
+                                { SemanticSearchConstant.MemoryTags.IsOfficial, "false" },
+                                { "replacedBy", documentFile.Id.ToString() },
+                                { "replacementReason", "Document replaced by newer version" }
+                            };
+
+                            if (replacedApprovedVersion.DocumentTags != null)
+                            {
+                                foreach (var docTag in replacedApprovedVersion.DocumentTags)
+                                {
+                                    replacedTags.Add(SemanticSearchConstant.MemoryTags.Tags, docTag.Tag.Name);
+                                }
+                            }
+
+                            using (var fileStream = await _storageService.DownloadFileAsync(replacedApprovedVersion.FilePath))
+                            {
+                                await _memory.ImportDocumentAsync(fileStream, replacedApprovedVersion.FileName, documentId: replacedVersionKmId, tags: replacedTags);
+                            }
+
+                            // Update database - mark replaced document as archived
+                            replacedApprovedVersion.Status = StatusEnum.Archived;
+                            replacedApprovedVersion.IsOfficial = false;
+                            replacedDocument.IsReplaced = true;
+                            await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(replacedApprovedVersion);
+                            await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(replacedDocument);
+
+                            _logger.LogInformation("Archived replaced document {ReplacedDocumentId} and updated its AI tags.", replacedDocument.Id);
+                        }
+                    }
+
+                    // ========================================
+                    // SCENARIO 2: VERSION ARCHIVING HANDLING
+                    // ========================================
+                    // If there's a previous approved version of the SAME document, archive it
                     if (previousApprovedVersion != null)
                     {
                         // Use Google Drive file ID for move operation
@@ -215,7 +301,10 @@ namespace Document.API.Services.Implements
                         // FilePath remains the Google Drive file ID - no change needed
                     }
 
-                    // Use Google Drive file ID for move operation
+                    // ========================================
+                    // CURRENT DOCUMENT APPROVAL
+                    // ========================================
+                    // Move the current document from Pending to Approved folder
                     var currentFileId = versionToReview.GoogleDriveFileId ?? versionToReview.FilePath;
                     await _storageService.MoveFileAsync(currentFileId, StorageFolderConstant.Pending, StorageFolderConstant.Approved,
                         versionToReview.DocumentFile.DepartmentId, versionToReview.IsPublic);
@@ -278,10 +367,18 @@ namespace Document.API.Services.Implements
                         // Note: Permission update will happen after the main commit
                     }
 
+                    // ========================================
+                    // UPDATE DATABASE STATUS
+                    // ========================================
+                    // Mark the current document as approved and official
                     versionToReview.Status = StatusEnum.Approved;
                     versionToReview.IsOfficial = true;
                     logAction = ApprovalAction.Approve;
 
+                    // ========================================
+                    // KERNEL MEMORY INDEXING
+                    // ========================================
+                    // Index the approved document in Kernel Memory with complete metadata
                     var tags = new TagCollection
                     {
                         { SemanticSearchConstant.MemoryTags.Status, "approved" },
@@ -318,12 +415,27 @@ namespace Document.API.Services.Implements
                 {
                     _logger.LogError(ex, "An error occurred during the approval process for version {VersionId}. Reverting storage changes.", versionId);
 
+                    // Rollback replaced document if it was moved
+                    if (replacedDocument != null)
+                    {
+                        var replacedApprovedVersion = replacedDocument.DocumentVersions.FirstOrDefault(v => v.Status == StatusEnum.Approved);
+                        if (replacedApprovedVersion != null)
+                        {
+                            var replacedFileId = replacedApprovedVersion.GoogleDriveFileId ?? replacedApprovedVersion.FilePath;
+                            await _storageService.MoveFileAsync(replacedFileId, StorageFolderConstant.Archived, StorageFolderConstant.Approved,
+                                replacedDocument.DepartmentId, replacedApprovedVersion.IsPublic);
+                        }
+                    }
+
+                    // Rollback previous version if it was moved
                     if (previousApprovedVersion != null)
                     {
                         var previousFileId = previousApprovedVersion.GoogleDriveFileId ?? previousApprovedVersion.FilePath;
                         await _storageService.MoveFileAsync(previousFileId, StorageFolderConstant.Archived, StorageFolderConstant.Approved,
                             previousApprovedVersion.DocumentFile.DepartmentId, previousApprovedVersion.IsPublic);
                     }
+
+                    // Rollback current document
                     var currentFileId = versionToReview.GoogleDriveFileId ?? versionToReview.FilePath;
                     await _storageService.MoveFileAsync(currentFileId, StorageFolderConstant.Approved, StorageFolderConstant.Pending,
                         versionToReview.DocumentFile.DepartmentId, versionToReview.IsPublic);
@@ -333,14 +445,20 @@ namespace Document.API.Services.Implements
             }
             else
             {
-                // --- REJECTION LOGIC---
+                // ========================================
+                // DOCUMENT REJECTION HANDLING
+                // ========================================
+                // Validate rejection comments and update status
                 if (string.IsNullOrWhiteSpace(request.Comments) || request.Comments.Length < 10)
                     throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,  MessageConstant.CommentsRequiredForRejection);
                 versionToReview.Status = StatusEnum.Rejected;
                 logAction = ApprovalAction.Reject;
             }
 
-            // --- Finalize and Log ---
+            // ========================================
+            // FINALIZE DATABASE CHANGES
+            // ========================================
+            // Update document metadata and save all changes
             documentFile.LastUpdatedBy = userId;
             documentFile.LastUpdatedTime = DateTime.UtcNow;
             await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(versionToReview);
@@ -361,12 +479,15 @@ namespace Document.API.Services.Implements
                 activeClaim.IsActive = false;
                 activeClaim.LastUpdatedBy = userId;
                 activeClaim.LastUpdatedTime = DateTime.UtcNow;
-                _unitOfWork.GetRepository<ApprovalClaim>().UpdateAsync(activeClaim);
+                await _unitOfWork.GetRepository<ApprovalClaim>().UpdateAsync(activeClaim);
             }
 
             await _unitOfWork.CommitAsync();
 
-            // Update Google Drive permissions based on the new status
+            // ========================================
+            // GOOGLE DRIVE PERMISSIONS UPDATE
+            // ========================================
+            // Update file permissions based on the new document status
             try
             {
                 var fileId = versionToReview.GoogleDriveFileId ?? versionToReview.FilePath;
@@ -382,9 +503,10 @@ namespace Document.API.Services.Implements
 
                 _logger.LogInformation("Updated permissions for document {VersionId} from Pending to {NewStatus}", versionId, newStatus);
 
-                // If this was an approval and there was a previous approved version that got archived, update its permissions too
+                // If this was an approval, update permissions for archived documents
                 if (request.IsApproved)
                 {
+                    // Update permissions for previous version that got archived
                     var archivedVersion = await _unitOfWork.GetRepository<DocumentVersion>()
                         .SingleOrDefaultAsync(predicate: v => v.DocumentFileId == versionToReview.DocumentFileId && v.Status == StatusEnum.Archived && v.Id != versionToReview.Id,
                                             include: i => i.Include(v => v.DocumentFile));
@@ -402,6 +524,25 @@ namespace Document.API.Services.Implements
 
                         _logger.LogInformation("Updated permissions for archived document {ArchivedVersionId} from Approved to Archived", archivedVersion.Id);
                     }
+
+                    // Update permissions for replaced document that got archived
+                    if (replacedDocument != null)
+                    {
+                        var replacedApprovedVersion = replacedDocument.DocumentVersions.FirstOrDefault(v => v.Status == StatusEnum.Archived);
+                        if (replacedApprovedVersion != null)
+                        {
+                            var replacedFileId = replacedApprovedVersion.GoogleDriveFileId ?? replacedApprovedVersion.FilePath;
+                            await _permissionManager.UpdateDocumentPermissionsAsync(
+                                replacedFileId,
+                                StatusEnum.Approved,
+                                StatusEnum.Archived,
+                                replacedDocument.DepartmentId,
+                                replacedApprovedVersion.IsPublic,
+                                replacedDocument.OwnerId);
+
+                            _logger.LogInformation("Updated permissions for replaced document {ReplacedDocumentId} from Approved to Archived", replacedDocument.Id);
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -412,19 +553,22 @@ namespace Document.API.Services.Implements
 
             _logger.LogInformation("Manager {UserId} has {Action} document version {VersionId}", userId, logAction, versionId);
 
-            // Send notification to document owner
+            // ========================================
+            // NOTIFICATION SYSTEM
+            // ========================================
+            // Send notifications to document owner and department users
             try
             {
                 var currentUser = _httpContextAccessor.HttpContext?.User;
                 if (currentUser != null)
                 {
-                    // Get owner information - we need to call Auth service to get owner details
-                    var ownerEmail = await GetUserEmailByIdAsync(versionToReview.DocumentFile.OwnerId);
-                    var ownerName = await GetUserNameByIdAsync(versionToReview.DocumentFile.OwnerId);
-
-                    if (!string.IsNullOrEmpty(ownerEmail))
+                    if (request.IsApproved)
                     {
-                        if (request.IsApproved)
+                        // 1. Send notification to document owner
+                        var ownerEmail = await GetUserEmailByIdAsync(versionToReview.DocumentFile.OwnerId);
+                        var ownerName = await GetUserNameByIdAsync(versionToReview.DocumentFile.OwnerId);
+
+                        if (!string.IsNullOrEmpty(ownerEmail))
                         {
                             await _notificationService.SendDocumentApprovalNotificationAsync(
                                 versionId,
@@ -434,9 +578,35 @@ namespace Document.API.Services.Implements
                                 ownerName ?? "Document Owner",
                                 currentUser,
                                 request.Comments);
-                            _logger.LogInformation("Document approval notification sent for document {VersionId}", versionId);
+                            _logger.LogInformation("Document approval notification sent to owner for document {VersionId}", versionId);
                         }
                         else
+                        {
+                            _logger.LogWarning("Could not find owner email for document {VersionId}, owner ID: {OwnerId}", versionId, versionToReview.DocumentFile.OwnerId);
+                        }
+
+                        // 2. Send department-wide publication notification
+                        var documentTags = versionToReview.DocumentTags?.Select(dt => dt.Tag.Name).ToList() ?? new List<string>();
+                        await _notificationService.SendDocumentPublicationNotificationAsync(
+                            versionId,
+                            versionToReview.Title,
+                            versionToReview.VersionName,
+                            currentUser,
+                            versionToReview.DocumentFile.DepartmentId,
+                            versionToReview.IsPublic,
+                            versionToReview.DocumentFile.DocumentTypeId,
+                            versionToReview.EffectiveFrom,
+                            versionToReview.EffectiveUntil,
+                            documentTags);
+                        _logger.LogInformation("Document publication notification sent to department for document {VersionId}", versionId);
+                    }
+                    else
+                    {
+                        // Send rejection notification to document owner
+                        var ownerEmail = await GetUserEmailByIdAsync(versionToReview.DocumentFile.OwnerId);
+                        var ownerName = await GetUserNameByIdAsync(versionToReview.DocumentFile.OwnerId);
+
+                        if (!string.IsNullOrEmpty(ownerEmail))
                         {
                             await _notificationService.SendDocumentRejectionNotificationAsync(
                                 versionId,
@@ -448,16 +618,16 @@ namespace Document.API.Services.Implements
                                 request.Comments ?? "No comments provided");
                             _logger.LogInformation("Document rejection notification sent for document {VersionId}", versionId);
                         }
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Could not find owner email for document {VersionId}, owner ID: {OwnerId}", versionId, versionToReview.DocumentFile.OwnerId);
+                        else
+                        {
+                            _logger.LogWarning("Could not find owner email for document {VersionId}, owner ID: {OwnerId}", versionId, versionToReview.DocumentFile.OwnerId);
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to send approval/rejection notification for document {VersionId}", versionId);
+                _logger.LogError(ex, "Failed to send notifications for document {VersionId}", versionId);
                 // Don't fail the entire operation for notification errors
             }
         }
@@ -497,7 +667,7 @@ namespace Document.API.Services.Implements
             //5. Change the file path to point to the new location
 
             //6. Save changes to the database
-            _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(version);
+            await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(version);
             await _unitOfWork.CommitAsync();
 
             //7. Update Google Drive permissions (Draft -> Pending: owner + department managers)

@@ -65,5 +65,32 @@ namespace Document.API.Services.Interfaces
             ClaimsPrincipal reviewerUser,
             string rejectionComments,
             string? documentLink = null);
+
+        /// <summary>
+        /// Sends notification to all department users when a document is published
+        /// </summary>
+        /// <param name="documentId">Document version ID</param>
+        /// <param name="documentTitle">Document title</param>
+        /// <param name="documentVersion">Document version name</param>
+        /// <param name="approverUser">Claims principal of the user who approved the document</param>
+        /// <param name="departmentId">Department ID</param>
+        /// <param name="isPublic">Whether the document is public</param>
+        /// <param name="documentTypeId">Document type ID</param>
+        /// <param name="effectiveFrom">Document effective from date</param>
+        /// <param name="effectiveUntil">Document effective until date</param>
+        /// <param name="tags">Document tags</param>
+        /// <param name="documentLink">Optional link to the document</param>
+        Task SendDocumentPublicationNotificationAsync(
+            string documentId,
+            string documentTitle,
+            string documentVersion,
+            ClaimsPrincipal approverUser,
+            string departmentId,
+            bool isPublic,
+            string documentTypeId,
+            DateTime? effectiveFrom = null,
+            DateTime? effectiveUntil = null,
+            List<string>? tags = null,
+            string? documentLink = null);
     }
 }

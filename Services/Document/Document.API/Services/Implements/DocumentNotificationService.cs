@@ -133,6 +133,51 @@ namespace Document.API.Services.Implements
             }
         }
 
+        public async Task SendDocumentPublicationNotificationAsync(
+            string documentId,
+            string documentTitle,
+            string documentVersion,
+            ClaimsPrincipal approverUser,
+            string departmentId,
+            bool isPublic,
+            string documentTypeId,
+            DateTime? effectiveFrom = null,
+            DateTime? effectiveUntil = null,
+            List<string>? tags = null,
+            string? documentLink = null)
+        {
+            try
+            {
+                _logger.LogInformation("Sending document publication notification for document {DocumentId} to department {DepartmentId}", documentId, departmentId);
+
+                var command = new DocumentPublicationNotificationCommand
+                {
+                    DocumentId = documentId,
+                    DocumentTitle = documentTitle,
+                    DocumentVersion = documentVersion,
+                    DocumentLink = documentLink,
+                    DepartmentId = departmentId,
+                    DepartmentName = GetDepartmentName(approverUser),
+                    ApproverId = GetUserIdAsGuid(approverUser),
+                    ApproverEmail = GetUserEmail(approverUser),
+                    ApproverName = GetUserFullName(approverUser),
+                    IsPublic = isPublic,
+                    DocumentTypeId = documentTypeId,
+                    EffectiveFrom = effectiveFrom,
+                    EffectiveUntil = effectiveUntil,
+                    Tags = tags ?? new List<string>()
+                };
+
+                await _publishEndpoint.Publish(command);
+                _logger.LogInformation("Document publication notification sent for document {DocumentId}", documentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending document publication notification for document {DocumentId}", documentId);
+                // Don't throw - notification failures shouldn't break the main workflow
+            }
+        }
+
         #region Helper Methods
 
         private static Guid GetUserIdAsGuid(ClaimsPrincipal user)

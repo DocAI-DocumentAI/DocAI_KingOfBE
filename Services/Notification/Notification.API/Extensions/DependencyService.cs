@@ -165,6 +165,7 @@ public static class DependencyService
             busConfig.AddConsumer<DocumentSubmissionNotificationConsumer>();
             busConfig.AddConsumer<DocumentApprovalNotificationConsumer>();
             busConfig.AddConsumer<DocumentRejectionNotificationConsumer>();
+            busConfig.AddConsumer<DocumentPublicationNotificationConsumer>();
 
             // Add request clients for Document service
             busConfig.AddRequestClient<GetExpiringDocumentsCommand>();

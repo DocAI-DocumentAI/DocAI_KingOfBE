@@ -1840,13 +1840,6 @@ public class DocumentService : IDocumentService
                     IsDepartmentMatch = docVersion.DocumentFile.DepartmentId == userDepartmentId
                 };
 
-                // Extract matching tags
-                if (filter.Tags != null && filter.Tags.Any())
-                {
-                    var docTags = docVersion.DocumentTags.Select(dt => dt.Tag.Name).ToList();
-                    candidate.MatchingTags = filter.Tags.Intersect(docTags, StringComparer.OrdinalIgnoreCase).ToList();
-                }
-
                 candidates.Add(candidate);
             }
         }
@@ -1952,16 +1945,6 @@ public class DocumentService : IDocumentService
     {
         var docVersion = candidate.DocumentVersion;
         double score = 0.0;
-
-        // Tag similarity
-        if (filter.Tags != null && filter.Tags.Any())
-        {
-            var docTags = docVersion.DocumentTags.Select(dt => dt.Tag.Name).ToList();
-            var intersection = filter.Tags.Intersect(docTags, StringComparer.OrdinalIgnoreCase).Count();
-            var union = filter.Tags.Union(docTags, StringComparer.OrdinalIgnoreCase).Count();
-            var tagSimilarity = union > 0 ? (double)intersection / union : 0.0;
-            score += tagSimilarity * SemanticSearchConstant.ScoringWeights.TagSimilarityWeight;
-        }
 
         // Document type match
         if (!string.IsNullOrEmpty(filter.DocumentTypeId) && docVersion.DocumentFile.DocumentTypeId == filter.DocumentTypeId)

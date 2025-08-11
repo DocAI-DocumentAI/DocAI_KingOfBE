@@ -75,6 +75,16 @@ namespace Notification.Domain.Configuration
                     AssociatedEvent = NotificationType.DocumentRejected.ToString(),
                     CreateAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                     UpdateAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new EmailTemplate
+                {
+                    Id = Guid.Parse("f6a7b8c9-d0e1-2345-6789-0abcdef12345"),
+                    TemplateName = "DocumentPublished",
+                    Subject = "[DocAI Update] New Document '{{DocumentTitle}}' Published",
+                    BodyHtml = "<p>Dear {{UserName}},</p><p>A new document has been published and is now available for your department:</p><ul><li><b>Document Title:</b> {{DocumentTitle}}</li><li><b>Version:</b> {{DocumentVersion}}</li><li><b>Published By:</b> {{ApprovedBy}}</li><li><b>Publication Date:</b> {{ApprovalDate}}</li><li><b>Department:</b> {{DepartmentName}}</li><li><b>Document Type:</b> {{DocumentType}}</li></ul><p>You can access the document here: <a href='{{DocumentLink}}'>View Document</a></p><p>This document is now part of your department's official documentation and may contain important information relevant to your work.</p><hr><p><small>This is an automated notification from the DocAI document management system.</small></p>",
+                    AssociatedEvent = NotificationType.DocumentUpdate.ToString(),
+                    CreateAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdateAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
                 }
             );
         }

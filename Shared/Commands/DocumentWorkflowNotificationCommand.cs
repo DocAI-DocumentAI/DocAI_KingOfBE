@@ -49,4 +49,22 @@ namespace Shared.Commands
         public string ReviewerName { get; set; } = string.Empty;
         public string RejectionComments { get; set; } = string.Empty;
     }
+
+    /// <summary>
+    /// Command to send document publication notification to all department users
+    /// </summary>
+    public class DocumentPublicationNotificationCommand : DocumentWorkflowNotificationCommand
+    {
+        public string DepartmentId { get; set; } = string.Empty;
+        public string DepartmentName { get; set; } = string.Empty;
+        public Guid ApproverId { get; set; } = Guid.Empty;
+        public string ApproverEmail { get; set; } = string.Empty;
+        public string ApproverName { get; set; } = string.Empty;
+        public bool IsPublic { get; set; }
+        public string DocumentTypeId { get; set; } = string.Empty;
+        public string DocumentTypeName { get; set; } = string.Empty;
+        public DateTime? EffectiveFrom { get; set; }
+        public DateTime? EffectiveUntil { get; set; }
+        public List<string> Tags { get; set; } = new List<string>();
+    }
 }
