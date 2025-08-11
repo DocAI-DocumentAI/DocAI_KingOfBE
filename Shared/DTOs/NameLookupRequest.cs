@@ -54,6 +54,17 @@ public class CompanyEmployeeRequest
 }
 
 /// <summary>
+/// Request for all departments
+/// </summary>
+public class GetAllDepartmentsRequest
+{
+    /// <summary>
+    /// Request ID for tracking
+    /// </summary>
+    public string RequestId { get; set; } = Guid.NewGuid().ToString();
+}
+
+/// <summary>
 /// Request for user email by user ID
 /// </summary>
 public class UserEmailRequest

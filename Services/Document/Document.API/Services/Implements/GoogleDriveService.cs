@@ -295,6 +295,12 @@ namespace Document.API.Services.Implements
             }
         }
 
+        public async Task<string> GetOrCreateFolderAsync(string folderName, string? departmentId, bool isPublic)
+        {
+            using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+            return await GetOrCreateFolderAsync(folderName, departmentId, isPublic, driveService);
+        }
+
         public async Task GrantUserAccessAsync(string fileId, string userEmail, string departmentId, bool isPublic, string role = "reader")
         {
             try

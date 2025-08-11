@@ -69,6 +69,15 @@ namespace Document.API.Services.Interfaces
         Task InitializeCompanyFoldersAsync();
 
         /// <summary>
+        /// Get or create a folder and return its ID
+        /// </summary>
+        /// <param name="folderName">Folder name</param>
+        /// <param name="departmentId">Department ID for department-specific folders</param>
+        /// <param name="isPublic">Whether the folder is public</param>
+        /// <returns>Folder ID</returns>
+        Task<string> GetOrCreateFolderAsync(string folderName, string? departmentId, bool isPublic);
+
+        /// <summary>
         /// Grant user access to specific file based on department and public status
         /// </summary>
         /// <param name="fileId">Google Drive file ID</param>

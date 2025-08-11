@@ -47,12 +47,18 @@ public static class DependencyService
             x.AddConsumer<UpdateDocumentStatusConsumer>();
             x.AddConsumer<DeactivateDocumentWarningsConsumer>();
 
+            // Google Drive permission setup consumers
+            x.AddConsumer<SetupDepartmentGoogleDrivePermissionsConsumer>();
+            x.AddConsumer<SetupUserGoogleDrivePermissionsConsumer>();
+            x.AddConsumer<InitializeBulkGoogleDrivePermissionsConsumer>();
+
             // Add request client for name lookup
             x.AddRequestClient<NameLookupRequest>(new Uri("queue:name-lookup-queue"));
 
             // Add request clients for permission-related Auth service communication
             x.AddRequestClient<DepartmentEmployeeRequest>(new Uri("queue:department-employee-queue"));
             x.AddRequestClient<CompanyEmployeeRequest>(new Uri("queue:company-employee-queue"));
+            x.AddRequestClient<GetAllDepartmentsRequest>(new Uri("queue:get-all-departments-queue"));
             x.AddRequestClient<UserEmailRequest>(new Uri("queue:user-email-queue"));
             x.UsingRabbitMq((context, cfg) =>
             {
@@ -98,6 +104,28 @@ public static class DependencyService
                     e.UseInMemoryOutbox();
                 });
 
+                // Google Drive permission setup endpoints
+                cfg.ReceiveEndpoint("googledrive-department-setup-queue", e =>
+                {
+                    e.ConfigureConsumer<SetupDepartmentGoogleDrivePermissionsConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(10)));
+                    e.UseInMemoryOutbox();
+                });
+
+                cfg.ReceiveEndpoint("googledrive-user-setup-queue", e =>
+                {
+                    e.ConfigureConsumer<SetupUserGoogleDrivePermissionsConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                cfg.ReceiveEndpoint("googledrive-bulk-setup-queue", e =>
+                {
+                    e.ConfigureConsumer<InitializeBulkGoogleDrivePermissionsConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(2, TimeSpan.FromSeconds(30)));
+                    e.UseInMemoryOutbox();
+                });
+
                 cfg.ConfigureEndpoints(context);
 
             });
@@ -125,6 +153,7 @@ public static class DependencyService
         services.AddScoped<IDocumentPermissionManager, DocumentPermissionManager>();
         services.AddScoped<ITokenUsageLogger, TokenUsageLogger>();
         services.AddScoped<IBookmarkService, BookmarkService>();
+        services.AddScoped<IGoogleDrivePermissionSetupService, GoogleDrivePermissionSetupService>();
         // Background services
         services.AddHostedService<TokenRefreshBackgroundService>();
         services.AddScoped<IApprovalService, ApprovalService>();

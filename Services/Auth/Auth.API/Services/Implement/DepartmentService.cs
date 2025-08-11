@@ -9,7 +9,9 @@ using Auth.Infrastructure.Filter;
 using Auth.Infrastructure.Paginate;
 using Auth.Infrastructure.Repository.Interfaces;
 using AutoMapper;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using Shared.Commands;
 
 namespace Auth.API.Services.Implement;
 
@@ -17,13 +19,15 @@ public class DepartmentService : BaseService<DepartmentService>, IDepartmentServ
 {
     private readonly IConfiguration _configuration;
     private readonly IRedisService _redisService;
+    private readonly IPublishEndpoint _publishEndpoint;
 
     public DepartmentService(IUnitOfWork<DocAIAuthContext> unitOfWork, ILogger<DepartmentService> logger,
         IMapper mapper, IHttpContextAccessor httpContextAccessor, IConfiguration configuration,
-        IRedisService redisService) : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
+        IRedisService redisService, IPublishEndpoint publishEndpoint) : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
     {
         _redisService = redisService;
         _configuration = configuration;
+        _publishEndpoint = publishEndpoint;
     }
 
     public async Task<IPaginate<DepartmentResponse>> GetAllDepartmentsAsync(int page, int size,
@@ -82,7 +86,29 @@ public class DepartmentService : BaseService<DepartmentService>, IDepartmentServ
         await _unitOfWork.GetRepository<Department>().InsertAsync(newDepartment);
         var isSuccess = await _unitOfWork.CommitAsync() > 0;
         DepartmentResponse response = null;
-        if (isSuccess) response = _mapper.Map<DepartmentResponse>(newDepartment);
+        if (isSuccess)
+        {
+            response = _mapper.Map<DepartmentResponse>(newDepartment);
+
+            // Setup Google Drive permissions for the new department
+            try
+            {
+                var command = new SetupDepartmentGoogleDrivePermissionsCommand
+                {
+                    DepartmentId = newDepartment.Id.ToString(),
+                    DepartmentName = newDepartment.Name,
+                    UserEmails = new List<string>() // Will be populated by the consumer from the department employee service
+                };
+
+                await _publishEndpoint.Publish(command);
+                _logger.LogInformation("Published Google Drive permission setup command for department {DepartmentId} ({DepartmentName})", newDepartment.Id, newDepartment.Name);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to publish Google Drive permission setup command for department {DepartmentId}. Department created successfully but permissions setup may be delayed.", newDepartment.Id);
+                // Don't fail the department creation if Google Drive setup publishing fails
+            }
+        }
         return response;
     }
 

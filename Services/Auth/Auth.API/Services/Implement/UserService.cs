@@ -22,6 +22,7 @@ using RegisterRequest = Auth.API.Payload.Request.RegisterRequest;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using Shared.DTOs;
+using Shared.Commands;
 using Auth.API.Payload.Response.Role;
 using Auth.API.Payload.Response.Department;
 using Auth.API.Payload.Response.UserSetting;
@@ -224,7 +225,29 @@ public class UserService : BaseService<UserService>, IUserService
             if (!isSuccessful)
                 throw new InvalidOperationException("Failed to save user and user settings.");
 
-            return await CreateRegisterResponse(user, userSetting);
+            var response = await CreateRegisterResponse(user, userSetting);
+
+            // Setup Google Drive permissions for the new user
+            try
+            {
+                var command = new SetupUserGoogleDrivePermissionsCommand
+                {
+                    UserId = user.Id.ToString(),
+                    UserEmail = user.Email,
+                    DepartmentId = user.DepartmentId.ToString(),
+                    DepartmentName = $"Department {user.DepartmentId}" // We'll get the actual name from the department service
+                };
+
+                await _publishEndpoint.Publish(command);
+                _logger.LogInformation("Published Google Drive permission setup command for user {UserEmail}", user.Email);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to publish Google Drive permission setup command for user {UserId}. User created successfully but permissions setup may be delayed.", user.Id);
+                // Don't fail the user creation if Google Drive setup publishing fails
+            }
+
+            return response;
         }
         catch
         {

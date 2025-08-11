@@ -100,4 +100,13 @@ public class ApiEndPointConstant
         public const string Status = ApiEndpoint + "/status";
         public const string TestConnection = ApiEndpoint +"/test-connection";
     }
+
+    public class GoogleDrivePermission
+    {
+        public const string Base = ApiEndpoint + "/googledrive-permissions";
+        public const string SetupDepartment = "setup-department";
+        public const string SetupUser = "setup-user";
+        public const string BulkInitialize = "bulk-initialize";
+        public const string ValidateDepartment = "validate-department/{departmentId}";
+    }
 }

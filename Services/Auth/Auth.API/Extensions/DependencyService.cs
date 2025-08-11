@@ -94,6 +94,7 @@ public static class DependencyService
             x.AddConsumer<GetDepartmentUsersConsumer>();
             x.AddConsumer<GetUsersByRoleConsumer>();
             x.AddConsumer<GetUserByIdConsumer>();
+            x.AddConsumer<GetAllDepartmentsConsumer>();
 
             x.UsingRabbitMq((context, cfg) =>
             {
