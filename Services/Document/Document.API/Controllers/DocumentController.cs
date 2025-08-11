@@ -142,14 +142,31 @@ public class DocumentController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetAllOfficialDocuments([FromQuery] OfficialDocumentsFilterRequest filter, int pageNumber = 1, int pageSize = 10)
+    public async Task<IActionResult> GetAllOfficialDocuments([FromQuery] OfficialDocumentsFilterRequest filterRequest, int pageNumber = 1, int pageSize = 10)
     {
-        // If no filter is provided, use the original method for backward compatibility
-        if (IsEmptyFilter(filter))
+        // Map request to filter
+        var filter = new OfficialDocumentsFilter
         {
-            var result = await _documentService.GetAllOfficialDocumentsAsync(pageNumber, pageSize);
-            return Ok(ApiResponse<object>.Success(result));
-        }
+            Title = filterRequest.Title,
+            Keyword = filterRequest.Keyword,
+            VersionName = filterRequest.VersionName,
+            FromDate = filterRequest.FromDate,
+            ToDate = filterRequest.ToDate,
+            EffectiveFrom = filterRequest.EffectiveFrom,
+            EffectiveUntil = filterRequest.EffectiveUntil,
+            LastSubmittedFrom = filterRequest.LastSubmittedFrom,
+            LastSubmittedTo = filterRequest.LastSubmittedTo,
+            DocumentTypeId = filterRequest.DocumentTypeId,
+            Tags = filterRequest.Tags,
+            SignedBy = filterRequest.SignedBy,
+            FileType = filterRequest.FileType,
+            SubmittedBy = filterRequest.SubmittedBy,
+            IsPublic = filterRequest.IsPublic,
+            MinFileSize = filterRequest.MinFileSize,
+            MaxFileSize = filterRequest.MaxFileSize,
+            MinDownloads = filterRequest.MinDownloads,
+            MaxDownloads = filterRequest.MaxDownloads
+        };
 
         // Use the new filtered method
         var filteredResult = await _documentService.GetAllOfficialDocumentsAsync(filter, pageNumber, pageSize);
@@ -294,11 +311,11 @@ public class DocumentController : ControllerBase
             var filter = new SemanticSearchFilter
             {
                 DocumentTypeId = request.DocumentTypeId,
-                SignedBy = request.SignedBy,
                 FromDate = request.FromDate,
                 ToDate = request.ToDate,
                 EffectiveFrom = request.EffectiveFrom,
-                EffectiveUntil = request.EffectiveUntil
+                EffectiveUntil = request.EffectiveUntil,
+                DepartmentId = request.DepartmentId
             };
 
             var result = await _documentService.SemanticSearch(request, filter, pageNumber, pageSize);

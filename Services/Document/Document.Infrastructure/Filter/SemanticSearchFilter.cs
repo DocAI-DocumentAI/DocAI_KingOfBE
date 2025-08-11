@@ -13,8 +13,6 @@ public class SemanticSearchFilter : IFilter<DocumentVersion>
     public DateTime? EffectiveUntil { get; set; }
 
     // Content filters - business relevant
-    public List<string>? Tags { get; set; }
-    public string? SignedBy { get; set; }
     public string? DocumentTypeId { get; set; }
 
     // Access control filters - handled internally, not exposed to users
@@ -25,18 +23,16 @@ public class SemanticSearchFilter : IFilter<DocumentVersion>
     {
         return documentVersion =>
             // Date filters
-            (!FromDate.HasValue || documentVersion.CreatedTime >= FromDate.Value) &&
-            (!ToDate.HasValue || documentVersion.CreatedTime <= ToDate.Value) &&
-            (!EffectiveFrom.HasValue || documentVersion.EffectiveFrom >= EffectiveFrom.Value) &&
-            (!EffectiveUntil.HasValue || documentVersion.EffectiveUntil <= EffectiveUntil.Value) &&
+            (!FromDate.HasValue || documentVersion.CreatedTime >= FromDate) &&
+            (!ToDate.HasValue || documentVersion.CreatedTime <= ToDate) &&
+            (!EffectiveFrom.HasValue || documentVersion.EffectiveFrom >= EffectiveFrom) &&
+            (!EffectiveUntil.HasValue || documentVersion.EffectiveUntil <= EffectiveUntil) &&
 
             // Content filters
-            (Tags == null || !Tags.Any() || documentVersion.DocumentTags.Any(tag => Tags.Contains(tag.Tag.Name))) &&
-            (string.IsNullOrEmpty(SignedBy) || documentVersion.SignedBy.Contains(SignedBy)) &&
             (string.IsNullOrEmpty(DocumentTypeId) || documentVersion.DocumentFile.DocumentTypeId == DocumentTypeId) &&
 
             // Access control filters (handled internally)
             (string.IsNullOrEmpty(DepartmentId) || documentVersion.DocumentFile.DepartmentId == DepartmentId) &&
-            (!IsPublic.HasValue || documentVersion.IsPublic == IsPublic.Value);
+            (!IsPublic.HasValue || documentVersion.IsPublic == IsPublic);
     }
 }

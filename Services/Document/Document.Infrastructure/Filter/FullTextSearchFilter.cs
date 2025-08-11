@@ -19,15 +19,15 @@ public class FullTextSearchFilter : IFilter<DocumentVersion>
     {
         return documentVersion =>
             (string.IsNullOrEmpty(Keyword) ||
-             documentVersion.Title.Contains(Keyword) ||
-             documentVersion.Summary.Contains(Keyword) ||
-             documentVersion.VersionName.Contains(Keyword)) &&
-            (!FromDate.HasValue || documentVersion.CreatedTime >= FromDate.Value) &&
-            (!ToDate.HasValue || documentVersion.CreatedTime <= ToDate.Value) &&
-            (Tags == null || !Tags.Any() || documentVersion.DocumentTags.Any(tag => Tags.Contains(tag.Tag.Name))) &&
+             documentVersion.Title.ToLower().Contains(Keyword.ToLower()) ||
+             documentVersion.Summary.ToLower().Contains(Keyword.ToLower()) ||
+             documentVersion.VersionName.ToLower().Contains(Keyword.ToLower())) &&
+            (!FromDate.HasValue || documentVersion.CreatedTime >= FromDate) &&
+            (!ToDate.HasValue || documentVersion.CreatedTime <= ToDate) &&
+            (Tags == null || !Tags.Any() || documentVersion.DocumentTags.Any(docTag => Tags.Any(filterTag => docTag.Tag.Name.ToLower() == filterTag.ToLower()))) &&
             (string.IsNullOrEmpty(DepartmentId) || documentVersion.DocumentFile.DepartmentId == DepartmentId) &&
-            (!IsPublic.HasValue || documentVersion.IsPublic == IsPublic.Value) &&
-            (string.IsNullOrEmpty(SignedBy) || documentVersion.SignedBy.Contains(SignedBy)) &&
+            (!IsPublic.HasValue || documentVersion.IsPublic == IsPublic) &&
+            (string.IsNullOrEmpty(SignedBy) || documentVersion.SignedBy.ToLower().Contains(SignedBy.ToLower())) &&
             (string.IsNullOrEmpty(DocumentTypeId) || documentVersion.DocumentFile.DocumentTypeId == DocumentTypeId);
     }
 }

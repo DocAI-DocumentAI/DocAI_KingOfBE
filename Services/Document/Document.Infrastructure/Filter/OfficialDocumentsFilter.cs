@@ -49,38 +49,39 @@ public class OfficialDocumentsFilter : IFilter<DocumentVersion>
             documentVersion.IsOfficial &&
             
             // Content search filters
-            (string.IsNullOrEmpty(Title) || documentVersion.Title.Contains(Title)) &&
-            (string.IsNullOrEmpty(Keyword) || 
-             documentVersion.Title.Contains(Keyword) ||
-             documentVersion.Summary.Contains(Keyword) ||
-             documentVersion.VersionName.Contains(Keyword)) &&
-            (string.IsNullOrEmpty(VersionName) || documentVersion.VersionName.Contains(VersionName)) &&
+            (string.IsNullOrEmpty(Title) || documentVersion.Title.ToLower().Contains(Title.ToLower())) &&
+            (string.IsNullOrEmpty(Keyword) ||
+            documentVersion.Title.ToLower().Contains(Keyword.ToLower()) ||
+            documentVersion.Summary.ToLower().Contains(Keyword.ToLower()) ||
+            documentVersion.VersionName.ToLower().Contains(Keyword.ToLower())) &&
+            (string.IsNullOrEmpty(VersionName) || documentVersion.VersionName.ToLower().Contains(VersionName.ToLower())) &&
+
 
             // Date filters
-            (!FromDate.HasValue || documentVersion.CreatedTime >= FromDate.Value) &&
-            (!ToDate.HasValue || documentVersion.CreatedTime <= ToDate.Value) &&
-            (!EffectiveFrom.HasValue || documentVersion.EffectiveFrom >= EffectiveFrom.Value) &&
-            (!EffectiveUntil.HasValue || documentVersion.EffectiveUntil <= EffectiveUntil.Value) &&
-            (!LastSubmittedFrom.HasValue || documentVersion.LastSubmitted >= LastSubmittedFrom.Value) &&
-            (!LastSubmittedTo.HasValue || documentVersion.LastSubmitted <= LastSubmittedTo.Value) &&
+            (!FromDate.HasValue || documentVersion.CreatedTime >= FromDate) &&
+            (!ToDate.HasValue || documentVersion.CreatedTime <= ToDate) &&
+            (!EffectiveFrom.HasValue || documentVersion.EffectiveFrom >= EffectiveFrom) &&
+            (!EffectiveUntil.HasValue || documentVersion.EffectiveUntil <= EffectiveUntil) &&
+            (!LastSubmittedFrom.HasValue || documentVersion.LastSubmitted >= LastSubmittedFrom) &&
+            (!LastSubmittedTo.HasValue || documentVersion.LastSubmitted <= LastSubmittedTo) &&
 
             // Document metadata filters
             (string.IsNullOrEmpty(DocumentTypeId) || documentVersion.DocumentFile.DocumentTypeId == DocumentTypeId) &&
-            (Tags == null || !Tags.Any() || documentVersion.DocumentTags.Any(tag => Tags.Contains(tag.Tag.Name))) &&
-            (string.IsNullOrEmpty(SignedBy) || documentVersion.SignedBy.Contains(SignedBy)) &&
+            (Tags == null || !Tags.Any() || documentVersion.DocumentTags.Any(docTag => Tags.Any(filterTag => docTag.Tag.Name.ToLower() == filterTag.ToLower()))) &&
+            (string.IsNullOrEmpty(SignedBy) || documentVersion.SignedBy.ToLower().Contains(SignedBy.ToLower())) &&
             (string.IsNullOrEmpty(FileType) || documentVersion.FileType == FileType) &&
-            (string.IsNullOrEmpty(SubmittedBy) || documentVersion.SubmittedBy == SubmittedBy) &&
+            (string.IsNullOrEmpty(SubmittedBy) || documentVersion.SubmittedBy.ToLower() == SubmittedBy.ToLower()) &&
 
             // Access control filters
-            (!IsPublic.HasValue || documentVersion.IsPublic == IsPublic.Value) &&
+            (!IsPublic.HasValue || documentVersion.IsPublic == IsPublic) &&
             (string.IsNullOrEmpty(DepartmentId) || documentVersion.DocumentFile.DepartmentId == DepartmentId) &&
 
             // File size filters
-            (!MinFileSize.HasValue || documentVersion.FileSize >= MinFileSize.Value) &&
-            (!MaxFileSize.HasValue || documentVersion.FileSize <= MaxFileSize.Value) &&
+            (!MinFileSize.HasValue || documentVersion.FileSize >= MinFileSize) &&
+            (!MaxFileSize.HasValue || documentVersion.FileSize <= MaxFileSize) &&
 
             // Download count filters
-            (!MinDownloads.HasValue || documentVersion.TotalDownloads >= MinDownloads.Value) &&
-            (!MaxDownloads.HasValue || documentVersion.TotalDownloads <= MaxDownloads.Value);
+            (!MinDownloads.HasValue || documentVersion.TotalDownloads >= MinDownloads) &&
+            (!MaxDownloads.HasValue || documentVersion.TotalDownloads <= MaxDownloads);
     }
 }

@@ -22,34 +22,25 @@ public class ReplaceableDocumentsFilter : IFilter<DocumentVersion>
     public List<string>? Tags { get; set; }
     public string? SignedBy { get; set; }
 
-    // Access control (internal)
-    public string? DepartmentId { get; set; }
+
 
     public Expression<Func<DocumentVersion, bool>> ToExpression()
     {
         return v =>
-            // Business rules for replaceable documents:
-            // - Latest approved version exists
-            // - Document is official or approved
-            // - Document is not already being replaced
-            v.Status == StatusEnum.Approved &&
-            v.IsOfficial &&
-            !v.DocumentFile.IsReplaced &&
-            
-            // Access control: public or same department
-            (v.IsPublic || (DepartmentId == null || v.DocumentFile.DepartmentId == DepartmentId)) &&
-            
-            // Content filters
-            (string.IsNullOrEmpty(Title) || v.Title.Contains(Title)) &&
-            (string.IsNullOrEmpty(Keyword) || v.Title.Contains(Keyword) || v.Summary.Contains(Keyword)) &&
+    // Content filters
+    (string.IsNullOrEmpty(Title) || v.Title.ToLower().Contains(Title.ToLower())) &&
+    (string.IsNullOrEmpty(Keyword) || 
+        v.Title.ToLower().Contains(Keyword.ToLower()) || 
+        v.Summary.ToLower().Contains(Keyword.ToLower())) &&
 
-            // Date filters
-            (!FromDate.HasValue || v.CreatedTime >= FromDate.Value) &&
-            (!ToDate.HasValue || v.CreatedTime <= ToDate.Value) &&
-            
-            // Metadata filters
-            (string.IsNullOrEmpty(DocumentTypeId) || v.DocumentFile.DocumentTypeId == DocumentTypeId) &&
-            (Tags == null || !Tags.Any() || v.DocumentTags.Any(t => Tags.Contains(t.Tag.Name))) &&
-            (string.IsNullOrEmpty(SignedBy) || v.SignedBy!.Contains(SignedBy));
+    // Date filters
+    (!FromDate.HasValue || v.CreatedTime >= FromDate.Value) &&
+    (!ToDate.HasValue || v.CreatedTime <= ToDate.Value) &&
+
+    // Metadata filters
+    (string.IsNullOrEmpty(DocumentTypeId) || v.DocumentFile.DocumentTypeId.ToLower() == DocumentTypeId.ToLower()) &&
+    (Tags == null || !Tags.Any() || v.DocumentTags.Any(t => Tags.Any(tag => tag.ToLower() == t.Tag.Name.ToLower()))) &&
+    // Safe null-check and case-insensitive search
+    (string.IsNullOrEmpty(SignedBy) || (v.SignedBy != null && v.SignedBy.ToLower().Contains(SignedBy.ToLower())));
     }
 }

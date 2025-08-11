@@ -97,6 +97,8 @@ public static class SemanticSearchConstant
     {
         public const string DocumentId = "documentId";
         public const string DepartmentId = "departmentId";
+        public const string OwnerId = "ownerId";
+        public const string ApprovalDate = "approvalDate";
         public const string IsPublic = "isPublic";
         public const string DocumentType = "documentType";
         public const string Status = "status";
@@ -107,6 +109,7 @@ public static class SemanticSearchConstant
         public const string FileType = "fileType";
         public const string CreatedBy = "createdBy";
         public const string Version = "version";
+        public const string IsOfficial = "isOfficial";
     }
 
     /// <summary>

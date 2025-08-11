@@ -65,14 +65,17 @@ namespace Document.API.Services.Implements
         {
             // Extract department from JWT for access control
             var departmentId = GetCurrentUserDepartmentId();
-            filter.DepartmentId = departmentId;
 
             var repo = _unitOfWork.GetRepository<DocumentVersion>();
 
+            // Use standard pattern: filter for user input, predicate for business logic and security
             var result = await repo.GetPagingListAsync(
                 selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
                 filter: filter,
-                predicate: null,
+                predicate: v => v.Status == StatusEnum.Approved &&
+                               v.IsOfficial &&
+                               !v.DocumentFile.IsReplaced &&
+                               (v.IsPublic || v.DocumentFile.DepartmentId == departmentId),
                 include: i => i.Include(v => v.DocumentFile)
                                .ThenInclude(df => df.DocumentType)
                                .Include(v => v.DocumentTags)

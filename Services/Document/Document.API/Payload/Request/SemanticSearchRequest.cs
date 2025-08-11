@@ -53,12 +53,6 @@ public class SemanticSearchRequest
     public string? DocumentTypeId { get; set; }
 
     /// <summary>
-    /// Filter by signed by (optional)
-    /// </summary>
-    [FromQuery]
-    public string? SignedBy { get; set; }
-
-    /// <summary>
     /// Filter documents created from this date (optional)
     /// </summary>
     [FromQuery]
@@ -81,6 +75,14 @@ public class SemanticSearchRequest
     /// </summary>
     [FromQuery]
     public DateTime? EffectiveUntil { get; set; }
+
+    /// <summary>
+    /// Filter by specific department ID (optional)
+    /// If provided and matches user's department: shows all documents (public + private)
+    /// If provided and different from user's department: shows only public documents
+    /// </summary>
+    [FromQuery]
+    public string? DepartmentId { get; set; }
 }
 
 public enum SearchScope

@@ -199,7 +199,10 @@ namespace Document.API.Services.Implements
             if (request.IsApproved)
             {
                 var previousApprovedVersion = await _unitOfWork.GetRepository<DocumentVersion>()
-                    .SingleOrDefaultAsync(predicate: v => v.DocumentFileId == documentFile.Id && v.Status == StatusEnum.Approved);
+                    .SingleOrDefaultAsync(
+                        predicate: v => v.DocumentFileId == documentFile.Id && v.Status == StatusEnum.Approved,
+                        include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                    );
 
                 try
                 {
@@ -240,23 +243,25 @@ namespace Document.API.Services.Implements
                         var previousVersionKmId = previousApprovedVersion.Id.ToString();
                         var oldTags = new TagCollection
                         {
-                            { "status", "archived" },
-                            { "departmentId", documentFile.DepartmentId },
-                            { "documentId", documentFile.Id.ToString() },
-                            { "versionName", previousApprovedVersion.VersionName },
-                            { "approvalDate", previousApprovedVersion.CreatedTime.ToString("yyyy-MM-dd") },
-                            { "ownerId", documentFile.OwnerId },
-                            { "isPublic", previousApprovedVersion.IsPublic.ToString() },
-                            { "effectiveFrom", previousApprovedVersion.EffectiveFrom?.ToString("yyyy-MM-dd") },
-                            { "effectiveUntil", previousApprovedVersion.EffectiveUntil?.ToString("yyyy-MM-dd") },
-                            { "signedBy", previousApprovedVersion.SignedBy }
+                            { SemanticSearchConstant.MemoryTags.Status, "archived" },
+                            { SemanticSearchConstant.MemoryTags.DepartmentId, documentFile.DepartmentId },
+                            { SemanticSearchConstant.MemoryTags.DocumentId, documentFile.Id.ToString() },
+                            { SemanticSearchConstant.MemoryTags.Version, previousApprovedVersion.VersionName },
+                            { SemanticSearchConstant.MemoryTags.ApprovalDate, previousApprovedVersion.CreatedTime.ToString("yyyy-MM-dd") },
+                            { SemanticSearchConstant.MemoryTags.OwnerId, documentFile.OwnerId },
+                            { SemanticSearchConstant.MemoryTags.IsPublic, previousApprovedVersion.IsPublic.ToString() },
+                            { SemanticSearchConstant.MemoryTags.EffectiveFrom, previousApprovedVersion.EffectiveFrom?.ToString("yyyy-MM-dd") },
+                            { SemanticSearchConstant.MemoryTags.EffectiveUntil, previousApprovedVersion.EffectiveUntil?.ToString("yyyy-MM-dd") },
+                            { SemanticSearchConstant.MemoryTags.SignedBy, previousApprovedVersion.SignedBy },
+                            { SemanticSearchConstant.MemoryTags.DocumentType, previousApprovedVersion.DocumentFile.DocumentTypeId },
+                            { SemanticSearchConstant.MemoryTags.IsOfficial, previousApprovedVersion.IsOfficial.ToString().ToLower() }
                         };
 
                         if (previousApprovedVersion.DocumentTags != null)
                         {
                             foreach (var docTag in previousApprovedVersion.DocumentTags)
                             {
-                                oldTags.Add("tags", docTag.Tag.Name);
+                                oldTags.Add(SemanticSearchConstant.MemoryTags.Tags, docTag.Tag.Name);
                             }
                         }
                         using (var fileStream = await _storageService.DownloadFileAsync(previousApprovedVersion.FilePath))
@@ -279,23 +284,25 @@ namespace Document.API.Services.Implements
 
                     var tags = new TagCollection
                     {
-                        { "status", "approved" },
-                        { "departmentId", documentFile.DepartmentId },
-                        { "documentId", documentFile.Id.ToString() },
-                        { "versionName", versionToReview.VersionName },
-                        { "approvalDate", DateTime.UtcNow.ToString("yyyy-MM-dd") },
-                        { "ownerId", documentFile.OwnerId },
-                        { "isPublic", versionToReview.IsPublic.ToString() },
-                        { "effectiveFrom", versionToReview.EffectiveFrom?.ToString("yyyy-MM-dd") },
-                        { "effectiveUntil", versionToReview.EffectiveUntil?.ToString("yyyy-MM-dd") },
-                        { "signedBy", versionToReview.SignedBy }
+                        { SemanticSearchConstant.MemoryTags.Status, "approved" },
+                        { SemanticSearchConstant.MemoryTags.DepartmentId, documentFile.DepartmentId },
+                        { SemanticSearchConstant.MemoryTags.DocumentId, documentFile.Id.ToString() },
+                        { SemanticSearchConstant.MemoryTags.Version, versionToReview.VersionName },
+                        { SemanticSearchConstant.MemoryTags.ApprovalDate, DateTime.UtcNow.ToString("yyyy-MM-dd") },
+                        { SemanticSearchConstant.MemoryTags.OwnerId, documentFile.OwnerId },
+                        { SemanticSearchConstant.MemoryTags.IsPublic, versionToReview.IsPublic.ToString() },
+                        { SemanticSearchConstant.MemoryTags.EffectiveFrom, versionToReview.EffectiveFrom?.ToString("yyyy-MM-dd") },
+                        { SemanticSearchConstant.MemoryTags.EffectiveUntil, versionToReview.EffectiveUntil?.ToString("yyyy-MM-dd") },
+                        { SemanticSearchConstant.MemoryTags.SignedBy, versionToReview.SignedBy },
+                        { SemanticSearchConstant.MemoryTags.DocumentType, versionToReview.DocumentFile.DocumentTypeId },
+                        { SemanticSearchConstant.MemoryTags.IsOfficial, versionToReview.IsOfficial.ToString().ToLower() }
                     };
 
                     if (versionToReview.DocumentTags != null)
                     {
                         foreach (var docTag in versionToReview.DocumentTags)
                         {
-                            tags.Add("tags", docTag.Tag.Name);
+                            tags.Add(SemanticSearchConstant.MemoryTags.Tags, docTag.Tag.Name);
                         }
                     }
 

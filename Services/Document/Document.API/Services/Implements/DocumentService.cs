@@ -1188,46 +1188,39 @@ public class DocumentService : IDocumentService
         return enrichedPaginated;
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(OfficialDocumentsFilterRequest filterRequest, int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(OfficialDocumentsFilter filter, int pageNumber, int pageSize)
     {
         // Get user's department ID for permission filtering
         var userDepartmentId = GetCurrentUserDepartmentId();
 
-        // Create filter from request
-        var filter = new OfficialDocumentsFilter
-        {
-            Title = filterRequest.Title,
-            Keyword = filterRequest.Keyword,
-            VersionName = filterRequest.VersionName,
-            FromDate = filterRequest.FromDate,
-            ToDate = filterRequest.ToDate,
-            EffectiveFrom = filterRequest.EffectiveFrom,
-            EffectiveUntil = filterRequest.EffectiveUntil,
-            LastSubmittedFrom = filterRequest.LastSubmittedFrom,
-            LastSubmittedTo = filterRequest.LastSubmittedTo,
-            DocumentTypeId = filterRequest.DocumentTypeId,
-            Tags = filterRequest.Tags,
-            SignedBy = filterRequest.SignedBy,
-            FileType = filterRequest.FileType,
-            SubmittedBy = filterRequest.SubmittedBy,
-            IsPublic = filterRequest.IsPublic,
-            MinFileSize = filterRequest.MinFileSize,
-            MaxFileSize = filterRequest.MaxFileSize,
-            MinDownloads = filterRequest.MinDownloads,
-            MaxDownloads = filterRequest.MaxDownloads,
-            // Internal access control - always apply department-based security
-            DepartmentId = userDepartmentId
-        };
 
-        // Build predicate that combines filter logic with department-based access control
-        var basePredicate = filter.ToExpression();
-        var securityPredicate = BuildSecurityPredicate(userDepartmentId);
-        var combinedPredicate = CombinePredicates(basePredicate, securityPredicate);
+        // Use standard pattern: filter for user input, predicate for business logic and security
+        // Handle department-based filtering with proper access control
+        Expression<Func<DocumentVersion, bool>> accessControlPredicate;
+        if (!string.IsNullOrEmpty(filter.DepartmentId))
+        {
+            // When filtering by specific department:
+            // - If it's user's department: show all documents (public + private)
+            // - If it's different department: show only public documents
+            if (filter.DepartmentId == userDepartmentId)
+            {
+                accessControlPredicate = v => v.IsOfficial && v.DocumentFile.DepartmentId == filter.DepartmentId;
+            }
+            else
+            {
+                accessControlPredicate = v => v.IsOfficial && v.DocumentFile.DepartmentId == filter.DepartmentId && v.IsPublic;
+            }
+        }
+        else
+        {
+            // Default access control: user can see public documents + private documents from their department
+            accessControlPredicate = v => v.IsOfficial && (v.IsPublic || v.DocumentFile.DepartmentId == userDepartmentId);
+        }
 
         var officialDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
-            filter: null, // We use predicate instead of filter for complex logic
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
-            predicate: combinedPredicate,
+            filter: filter,
+            predicate: accessControlPredicate,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
@@ -1247,8 +1240,6 @@ public class DocumentService : IDocumentService
             TotalPages = officialDocuments.TotalPages
         };
 
-        _logger.LogInformation("Retrieved {Count} filtered official documents with {FilterCount} filters applied",
-            enrichedDocuments.Count, CountAppliedFilters(filterRequest));
         return enrichedPaginated;
     }
 
@@ -1274,33 +1265,6 @@ public class DocumentService : IDocumentService
         return Expression.Lambda<Func<DocumentVersion, bool>>(combinedBody, parameter);
     }
 
-    /// <summary>
-    /// Counts the number of applied filters for logging purposes
-    /// </summary>
-    private static int CountAppliedFilters(OfficialDocumentsFilterRequest filterRequest)
-    {
-        var count = 0;
-        if (!string.IsNullOrEmpty(filterRequest.Title)) count++;
-        if (!string.IsNullOrEmpty(filterRequest.Keyword)) count++;
-        if (!string.IsNullOrEmpty(filterRequest.VersionName)) count++;
-        if (filterRequest.FromDate.HasValue) count++;
-        if (filterRequest.ToDate.HasValue) count++;
-        if (filterRequest.EffectiveFrom.HasValue) count++;
-        if (filterRequest.EffectiveUntil.HasValue) count++;
-        if (filterRequest.LastSubmittedFrom.HasValue) count++;
-        if (filterRequest.LastSubmittedTo.HasValue) count++;
-        if (!string.IsNullOrEmpty(filterRequest.DocumentTypeId)) count++;
-        if (filterRequest.Tags?.Any() == true) count++;
-        if (!string.IsNullOrEmpty(filterRequest.SignedBy)) count++;
-        if (!string.IsNullOrEmpty(filterRequest.FileType)) count++;
-        if (!string.IsNullOrEmpty(filterRequest.SubmittedBy)) count++;
-        if (filterRequest.IsPublic.HasValue) count++;
-        if (filterRequest.MinFileSize.HasValue) count++;
-        if (filterRequest.MaxFileSize.HasValue) count++;
-        if (filterRequest.MinDownloads.HasValue) count++;
-        if (filterRequest.MaxDownloads.HasValue) count++;
-        return count;
-    }
 
     public async Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(MyDocumentsFilter filter, int pageNumber, int pageSize)
     {
@@ -1758,35 +1722,18 @@ public class DocumentService : IDocumentService
             memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.IsPublic, filter.IsPublic.Value.ToString().ToLower());
         }
 
-        // Date range filtering
-        if (filter.EffectiveFrom.HasValue)
-        {
-            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.EffectiveFrom, filter.EffectiveFrom.Value.ToString("yyyy-MM-dd"));
-        }
-        if (filter.EffectiveUntil.HasValue)
-        {
-            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.EffectiveUntil, filter.EffectiveUntil.Value.ToString("yyyy-MM-dd"));
-        }
+        // Note: Date range filtering (FromDate, ToDate, EffectiveFrom, EffectiveUntil)
+        // is handled in the database predicate since memory filters work with exact tag matches
+        // and don't support range queries efficiently
 
-        // Content filtering
-        if (!string.IsNullOrEmpty(filter.SignedBy))
-        {
-            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.SignedBy, filter.SignedBy);
-        }
-
+        // Content filtering - only DocumentType for memory filter
         if (!string.IsNullOrEmpty(filter.DocumentTypeId))
         {
             memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.DocumentType, filter.DocumentTypeId);
         }
 
-        // Tag filtering
-        if (filter.Tags != null && filter.Tags.Any())
-        {
-            foreach (var tag in filter.Tags)
-            {
-                memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.Tags, tag);
-            }
-        }
+        // Note: Tag and SignedBy filtering removed from memory filter to avoid conflicts
+        // All content filtering is now handled in the database predicate for consistency
 
         return memoryFilter;
     }
@@ -1876,6 +1823,8 @@ public class DocumentService : IDocumentService
                           .ThenInclude(dt => dt.Tag)
         );
 
+
+
         // Create candidates with initial scoring
         var candidates = new List<SemanticSearchCandidate>();
         foreach (var docVersion in documentVersions)
@@ -1911,15 +1860,54 @@ public class DocumentService : IDocumentService
         SemanticSearchFilter filter,
         string? userDepartmentId)
     {
-        return dv => documentIds.Contains(dv.DocumentFile.Id) &&
-                    // Security: Department-based access control
-                    (dv.IsPublic || dv.DocumentFile.DepartmentId == userDepartmentId) &&
-                    // Additional filter conditions from SemanticSearchFilter.ToExpression()
-                    (!filter.FromDate.HasValue || dv.CreatedTime >= filter.FromDate.Value) &&
-                    (!filter.ToDate.HasValue || dv.CreatedTime <= filter.ToDate.Value) &&
-                    (!filter.EffectiveFrom.HasValue || dv.EffectiveFrom >= filter.EffectiveFrom.Value) &&
-                    (!filter.EffectiveUntil.HasValue || dv.EffectiveUntil <= filter.EffectiveUntil.Value) &&
-                    (string.IsNullOrEmpty(filter.DocumentTypeId) || dv.DocumentFile.DocumentTypeId == filter.DocumentTypeId);
+        // Handle department-based filtering with proper access control
+        if (!string.IsNullOrEmpty(filter.DepartmentId))
+        {
+            // When filtering by specific department:
+            // - If it's user's department: show all documents (public + private)
+            // - If it's different department: show only public documents
+            if (filter.DepartmentId == userDepartmentId)
+            {
+                return dv => documentIds.Contains(dv.DocumentFile.Id) &&
+                            dv.Status == StatusEnum.Approved &&
+                            dv.IsOfficial &&
+                            dv.DocumentFile.DepartmentId == filter.DepartmentId &&
+                            // Additional filter conditions
+                            (!filter.FromDate.HasValue || dv.CreatedTime >= filter.FromDate.Value) &&
+                            (!filter.ToDate.HasValue || dv.CreatedTime <= filter.ToDate.Value) &&
+                            (!filter.EffectiveFrom.HasValue || dv.EffectiveFrom >= filter.EffectiveFrom.Value) &&
+                            (!filter.EffectiveUntil.HasValue || dv.EffectiveUntil <= filter.EffectiveUntil.Value) &&
+                            (string.IsNullOrEmpty(filter.DocumentTypeId) || dv.DocumentFile.DocumentTypeId == filter.DocumentTypeId);
+            }
+            else
+            {
+                return dv => documentIds.Contains(dv.DocumentFile.Id) &&
+                            dv.Status == StatusEnum.Approved &&
+                            dv.IsOfficial &&
+                            dv.DocumentFile.DepartmentId == filter.DepartmentId &&
+                            dv.IsPublic &&
+                            // Additional filter conditions
+                            (!filter.FromDate.HasValue || dv.CreatedTime >= filter.FromDate.Value) &&
+                            (!filter.ToDate.HasValue || dv.CreatedTime <= filter.ToDate.Value) &&
+                            (!filter.EffectiveFrom.HasValue || dv.EffectiveFrom >= filter.EffectiveFrom.Value) &&
+                            (!filter.EffectiveUntil.HasValue || dv.EffectiveUntil <= filter.EffectiveUntil.Value) &&
+                            (string.IsNullOrEmpty(filter.DocumentTypeId) || dv.DocumentFile.DocumentTypeId == filter.DocumentTypeId);
+            }
+        }
+        else
+        {
+            // Default access control: user can see public documents + private documents from their department
+            return dv => documentIds.Contains(dv.DocumentFile.Id) &&
+                        dv.Status == StatusEnum.Approved &&
+                        dv.IsOfficial &&
+                        (dv.IsPublic || dv.DocumentFile.DepartmentId == userDepartmentId) &&
+                        // Additional filter conditions
+                        (!filter.FromDate.HasValue || dv.CreatedTime >= filter.FromDate.Value) &&
+                        (!filter.ToDate.HasValue || dv.CreatedTime <= filter.ToDate.Value) &&
+                        (!filter.EffectiveFrom.HasValue || dv.EffectiveFrom >= filter.EffectiveFrom.Value) &&
+                        (!filter.EffectiveUntil.HasValue || dv.EffectiveUntil <= filter.EffectiveUntil.Value) &&
+                        (string.IsNullOrEmpty(filter.DocumentTypeId) || dv.DocumentFile.DocumentTypeId == filter.DocumentTypeId);
+        }
     }
 
     private Task<List<SemanticSearchCandidate>> ApplyHybridScoring(
@@ -2074,10 +2062,32 @@ public class DocumentService : IDocumentService
         // Get user's department ID for permission filtering
         var userDepartmentId = GetCurrentUserDepartmentId();
 
+        // Handle department-based filtering with proper access control
+        Expression<Func<DocumentVersion, bool>> accessControlPredicate;
+        if (!string.IsNullOrEmpty(filter.DepartmentId))
+        {
+            // When filtering by specific department:
+            // - If it's user's department: show all documents (public + private)
+            // - If it's different department: show only public documents
+            if (filter.DepartmentId == userDepartmentId)
+            {
+                accessControlPredicate = dv => dv.Status == StatusEnum.Approved && dv.DocumentFile.DepartmentId == filter.DepartmentId;
+            }
+            else
+            {
+                accessControlPredicate = dv => dv.Status == StatusEnum.Approved && dv.DocumentFile.DepartmentId == filter.DepartmentId && dv.IsPublic;
+            }
+        }
+        else
+        {
+            // Default access control: user can see public documents + private documents from their department
+            accessControlPredicate = dv => dv.Status == StatusEnum.Approved && (dv.IsPublic || dv.DocumentFile.DepartmentId == userDepartmentId);
+        }
+
         var documents = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
             filter: filter,
-            predicate: dv => dv.Status == StatusEnum.Approved && (dv.IsPublic || dv.DocumentFile.DepartmentId == userDepartmentId),
+            predicate: accessControlPredicate,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
