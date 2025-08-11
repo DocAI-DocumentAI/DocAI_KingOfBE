@@ -11,13 +11,10 @@ namespace Shared.DTOs
         public string DocumentId { get; set; } = string.Empty;
         public string Title { get; set; } = string.Empty;
         public string VersionName { get; set; } = string.Empty;
-        public string? Description { get; set; }
         public string? Summary { get; set; }
         public string FileType { get; set; } = string.Empty;
-        public long FileSize { get; set; }
         public string Status { get; set; } = string.Empty;
         public string DepartmentId { get; set; } = string.Empty;
-        public string? DepartmentName { get; set; }
         public DateTime? EffectiveFrom { get; set; }
         public DateTime? EffectiveUntil { get; set; }
         public DateTime? ApprovalDate { get; set; }
