@@ -148,7 +148,6 @@ namespace ChatBox.API.Controllers
                         await Response.Body.FlushAsync(cancellationToken); // ✅ Force flush immediately
 
                         // ✅ Optional: Small delay to see streaming effect in Postman
-                        await Task.Delay(200, cancellationToken);
                     }
                 }
                 await Response.CompleteAsync();
