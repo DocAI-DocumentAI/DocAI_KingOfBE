@@ -529,7 +529,7 @@ namespace ChatBox.API.Services.Implement
 
         #region Message Creation and Saving (Unchanged)
 
-        private (ChatMessage UserMessage, ChatMessage AiMessage) CreateChatMessages(string userContent, string aiContent, ChatSession session, string userId)
+        private (ChatMessage UserMessage, ChatMessage AiMessage) CreateChatMessages(string userContent, string aiContent, ChatSession session, string userId, List<DocumentInfo> documentSources = null)
         {
             var userMessage = new ChatMessage
             {
@@ -538,12 +538,18 @@ namespace ChatBox.API.Services.Implement
                 TokenCount = _tokenCountService.CountTokens(userContent, session.ModelName),
                 SessionId = session.Id,
                 Timestamp = DateTime.UtcNow,
+                DocumentSources = null,
                 CreatedBy = userId,
                 UpdatedBy = userId,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
-
+            string sourcesString = null;
+            if (documentSources?.Any() == true)
+            {
+                sourcesString = string.Join(";", documentSources.Select(doc =>
+                    $"{doc.DocumentId ?? ""}|{doc.Title ?? ""}"));
+            }
             var aiMessage = new ChatMessage
             {
                 Content = aiContent,
@@ -551,6 +557,7 @@ namespace ChatBox.API.Services.Implement
                 TokenCount = _tokenCountService.CountTokens(aiContent, session.ModelName),
                 SessionId = session.Id,
                 Timestamp = DateTime.UtcNow.AddMilliseconds(1), // Ensure order
+                DocumentSources = sourcesString, // ✅ Lưu string đơn giản
                 CreatedBy = "system",
                 UpdatedBy = "system",
                 CreatedAt = DateTime.UtcNow,
@@ -881,7 +888,7 @@ namespace ChatBox.API.Services.Implement
             }
         }
 
-        private (ChatMessage UserMessage, ChatMessage AiMessage) CreateStreamingChatMessages(string userContent, string aiContent, string sessionId, string userId, string modelName)
+        private (ChatMessage UserMessage, ChatMessage AiMessage) CreateStreamingChatMessages(string userContent, string aiContent, string sessionId, string userId, string modelName, List<DocumentInfo> documentSources = null)
         {
             var userMessage = new ChatMessage
             {
@@ -890,12 +897,18 @@ namespace ChatBox.API.Services.Implement
                 TokenCount = _tokenCountService.CountTokens(userContent, modelName),
                 SessionId = sessionId,
                 Timestamp = DateTime.UtcNow.AddMilliseconds(-1),
+                DocumentSources = null,
                 CreatedBy = userId,
                 UpdatedBy = userId,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
-
+            string sourcesString = null;
+            if (documentSources?.Any() == true)
+            {
+                sourcesString = string.Join(";", documentSources.Select(doc =>
+                    $"{doc.DocumentId ?? ""}|{doc.Title ?? ""}"));
+            }
             var aiMessage = new ChatMessage
             {
                 Content = aiContent,
@@ -903,6 +916,7 @@ namespace ChatBox.API.Services.Implement
                 TokenCount = _tokenCountService.CountTokens(aiContent, modelName),
                 SessionId = sessionId,
                 Timestamp = DateTime.UtcNow,
+                DocumentSources = sourcesString,
                 CreatedBy = "system",
                 UpdatedBy = "system",
                 CreatedAt = DateTime.UtcNow,
