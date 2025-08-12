@@ -80,6 +80,18 @@ namespace Document.API.Controllers
             return Ok(ApiResponse<object>.Success(null, "Document claim released successfully", 200));
         }
 
+        [HttpPatch(ApiEndPointConstant.Approval.KeepClaimAlive)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager })]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> KeepClaimAlive([FromRoute(Name = "id")] string documentId)
+        {
+            await _approvalService.KeepClaimAliveAsync(documentId);
+            return Ok(ApiResponse<object>.Success(null, "Document claim kept alive successfully", 200));
+        }
+
         [HttpGet(ApiEndPointConstant.Approval.GetApprovalQueueDetail)]
         [CustomAuthorize(Roles = new[] { Roles.Manager })]
         [ProducesResponseType(typeof(ApiResponse<PendingDocumentResponse>), StatusCodes.Status200OK)]

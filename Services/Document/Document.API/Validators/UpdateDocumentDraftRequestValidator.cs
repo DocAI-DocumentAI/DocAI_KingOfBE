@@ -65,5 +65,9 @@ public class UpdateDocumentDraftRequestValidator : AbstractValidator<UpdateDocum
             .Must(file => file == null || file.Length <= PolicyConstant.MaxFileSizeMB * 1024 * 1024)
             .WithMessage(string.Format(ValidationMessageConstant.Document.FileSizeExceeded, PolicyConstant.MaxFileSizeMB))
             .When(x => x.File != null);
+
+        RuleFor(x => x.DocumentTypeId)
+            .NotEmpty().WithMessage(ValidationMessageConstant.Document.DocumentTypeRequired)
+            .When(x => !string.IsNullOrEmpty(x.DocumentTypeId));
     }
 }

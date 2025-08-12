@@ -4,6 +4,7 @@ using Document.API.Constants;
 using Document.API.Extensions;
 using Document.API.Middlewares;
 using Document.API.Filters;
+using Document.API.BackgroundServices;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -96,6 +97,9 @@ try
     {
         options.SuppressModelStateInvalidFilter = true;
     });
+
+    // Register background services
+    builder.Services.AddHostedService<DocumentExpirationService>();
 
     var app = builder.Build();
 

@@ -254,41 +254,63 @@ public class DocumentService : IDocumentService
         }
 
         // 4. Upload the file to storage and get the MD5 hash.
-        var uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, departmentId, request.IsPublic);
-        var fileHash = uploadResponse.Md5Hash;
+        StorageUploadResponse? uploadResponse = null;
+        string? fileHash = null;
 
-        // 5. Check for file duplication using the MD5 hash.
-        var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
-            .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash, include: i => i.Include(v => v.DocumentFile));
-
-        if (existingFile != null)
+        try
         {
-            await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, departmentId, request.IsPublic);
+            fileHash = uploadResponse.Md5Hash;
+            _logger.LogInformation("File uploaded successfully with ID {FileId} for draft creation", uploadResponse.FileIdentifier);
 
-            switch (existingFile.Status)
+            // 5. Check for file duplication using the MD5 hash.
+            var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash, include: i => i.Include(v => v.DocumentFile));
+
+            if (existingFile != null)
             {
-                case StatusEnum.Pending:
-                case StatusEnum.Approved:
-                case StatusEnum.Archived:
-                    throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
+                _logger.LogWarning("Duplicate file detected with hash {FileHash}, deleting uploaded file {FileId}", fileHash, uploadResponse.FileIdentifier);
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
 
-                case StatusEnum.Rejected:
-                    if (existingFile.DocumentFile.OwnerId == userId)
-                    {
-                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.RejectedFileExists);
-                    }
-                    else
-                    {
-                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.AnotherUserRejectedFileExists);
-                    }
+                switch (existingFile.Status)
+                {
+                    case StatusEnum.Pending:
+                    case StatusEnum.Approved:
+                    case StatusEnum.Archived:
+                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
 
-                case StatusEnum.Draft:
-                    if (existingFile.DocumentFile.OwnerId == userId)
-                    {
-                        throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DraftFileExists);
-                    }
-                    break;
+                    case StatusEnum.Rejected:
+                        if (existingFile.DocumentFile.OwnerId == userId)
+                        {
+                            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.RejectedFileExists);
+                        }
+                        else
+                        {
+                            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.AnotherUserRejectedFileExists);
+                        }
+
+                    case StatusEnum.Draft:
+                        if (existingFile.DocumentFile.OwnerId == userId)
+                        {
+                            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DraftFileExists);
+                        }
+                        break;
+                }
             }
+        }
+        catch (Exception ex) when (uploadResponse != null)
+        {
+            // Ensure cleanup if any validation fails after upload
+            _logger.LogError(ex, "Error during file validation, cleaning up uploaded file {FileId}", uploadResponse.FileIdentifier);
+            try
+            {
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+            }
+            catch (Exception cleanupEx)
+            {
+                _logger.LogError(cleanupEx, "Failed to cleanup uploaded file {FileId} after validation error", uploadResponse.FileIdentifier);
+            }
+            throw;
         }
 
         //6. save the generel infomation of the file into the DocumentFile table
@@ -333,18 +355,42 @@ public class DocumentService : IDocumentService
 
         // 6. Link entities using the correct navigation property name
         documentFile.DocumentVersions.Add(version);
-        // 7. Save to database
-        await _unitOfWork.GetRepository<DocumentFile>().InsertAsync(documentFile);
-        await _unitOfWork.CommitAsync();
 
-        if (documentToReplace != null)
+        // 7. Save to database with comprehensive error handling
+        try
         {
-            documentToReplace.IsReplaced = true;
-            documentToReplace.LastUpdatedBy = userId;
-            documentToReplace.LastUpdatedTime = DateTime.UtcNow;
-            _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentToReplace);
+            await _unitOfWork.GetRepository<DocumentFile>().InsertAsync(documentFile);
             await _unitOfWork.CommitAsync();
-            _logger.LogInformation("Marked document {OriginalDocumentId} as replaced by new document {NewDocumentId}", documentToReplace.Id, documentFile.Id);
+            _logger.LogInformation("Successfully saved document {DocumentId} to database", documentFile.Id);
+
+            if (documentToReplace != null)
+            {
+                documentToReplace.IsReplaced = true;
+                documentToReplace.LastUpdatedBy = userId;
+                documentToReplace.LastUpdatedTime = DateTime.UtcNow;
+                await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentToReplace);
+                await _unitOfWork.CommitAsync();
+                _logger.LogInformation("Marked document {OriginalDocumentId} as replaced by new document {NewDocumentId}", documentToReplace.Id, documentFile.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Database operation failed for document creation, rolling back uploaded file {FileId}", uploadResponse?.FileIdentifier);
+
+            // Rollback: Delete the uploaded file if database operations fail
+            if (uploadResponse != null)
+            {
+                try
+                {
+                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                    _logger.LogInformation("Successfully rolled back uploaded file {FileId}", uploadResponse.FileIdentifier);
+                }
+                catch (Exception rollbackEx)
+                {
+                    _logger.LogError(rollbackEx, "Failed to rollback uploaded file {FileId} after database error", uploadResponse.FileIdentifier);
+                }
+            }
+            throw;
         }
 
         _logger.LogInformation("Successfully created draft document {DocumentId}", documentFile.Id);
@@ -407,8 +453,8 @@ public class DocumentService : IDocumentService
 
         // Effective date and DocumentType validations are now handled by FluentValidation
 
-        StorageUploadResponse uploadResponse = null;
-        string fileHash = null;
+        StorageUploadResponse? uploadResponse = null;
+        string? fileHash = null;
 
         // First, get the version to update to access department info
         var versionToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
@@ -416,14 +462,46 @@ public class DocumentService : IDocumentService
                 predicate: v => v.Id == versionId,
                 include: p => p.Include(v => v.DocumentFile)) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
 
+        // Validate DocumentType exists if provided (performance optimization: only validate if changing)
+        if (!string.IsNullOrEmpty(request.DocumentTypeId) && request.DocumentTypeId != versionToUpdate.DocumentFile.DocumentTypeId)
+        {
+            var documentType = await _unitOfWork.GetRepository<DocumentType>()
+                .SingleOrDefaultAsync(predicate: dt => dt.Id == request.DocumentTypeId && dt.DeletedTime == null);
+
+            if (documentType == null)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.InvalidDocumentType);
+            }
+            _logger.LogInformation("DocumentType validation passed for type {DocumentTypeId}", request.DocumentTypeId);
+        }
+
         if (request.File != null)
         {
             // File type and size validations are now handled by FluentValidation
 
-            // Upload the new file to storage BEFORE starting the database transaction.
-            _logger.LogInformation("Uploading new file to storage before database transaction begins.");
-            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, versionToUpdate.DocumentFile.DepartmentId, request.IsPublic);
-            fileHash = uploadResponse.Md5Hash;
+            // Performance optimization: Check if we can reuse existing file by comparing hash first
+            string newFileHash;
+            using (var stream = request.File.OpenReadStream())
+            {
+                using var md5 = System.Security.Cryptography.MD5.Create();
+                var hashBytes = await md5.ComputeHashAsync(stream);
+                newFileHash = Convert.ToBase64String(hashBytes);
+            }
+
+            // If the file hash is the same as current file, skip upload entirely
+            if (versionToUpdate.FileHash == newFileHash)
+            {
+                _logger.LogInformation("File hash unchanged for version {VersionId}, skipping file upload", versionId);
+                // No file upload needed, just update metadata
+            }
+            else
+            {
+                // Upload the new file to storage BEFORE starting the database transaction.
+                _logger.LogInformation("Uploading new file to storage before database transaction begins.");
+                uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, versionToUpdate.DocumentFile.DepartmentId, request.IsPublic);
+                fileHash = uploadResponse.Md5Hash;
+                _logger.LogInformation("New file uploaded with ID {FileId} and hash {FileHash}", uploadResponse.FileIdentifier, fileHash);
+            }
         }
 
         // ====================================================================================
@@ -471,13 +549,14 @@ public class DocumentService : IDocumentService
             }
 
             // Check for file hash duplication if a new file was uploaded
-            if (fileHash != null)
+            if (fileHash != null && uploadResponse != null)
             {
                 var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
                     .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash && v.Id != versionId && v.Status != StatusEnum.Rejected);
                 if (existingFile != null)
                 {
                     // If a duplicate is found, delete the file that was just uploaded.
+                    _logger.LogWarning("Duplicate file detected with hash {FileHash}, deleting uploaded file {FileId}", fileHash, uploadResponse.FileIdentifier);
                     await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                     throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
                         string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
@@ -486,11 +565,11 @@ public class DocumentService : IDocumentService
 
             // --- All validations passed. Apply changes. ---
 
-            string oldFileNameToDelete = null;
-            if (uploadResponse != null)
+            string? oldFileIdToDelete = null;
+            if (uploadResponse != null && fileHash != null)
             {
-                // Keep track of the old file name to delete it AFTER the transaction succeeds.
-                oldFileNameToDelete = versionToUpdate.FileName;
+                // Keep track of the old Google Drive file ID to delete it AFTER the transaction succeeds.
+                oldFileIdToDelete = versionToUpdate.GoogleDriveFileId;
 
                 // Update version properties for the new file.
                 versionToUpdate.FilePath = $"{StorageFolderConstant.Drafts}/{uploadResponse.FileName}";
@@ -498,6 +577,9 @@ public class DocumentService : IDocumentService
                 versionToUpdate.FileType = Path.GetExtension(request.File.FileName);
                 versionToUpdate.FileSize = request.File.Length;
                 versionToUpdate.FileHash = fileHash;
+                versionToUpdate.GoogleDriveFileId = uploadResponse.FileIdentifier; // Set the new Google Drive file ID
+
+                _logger.LogInformation("Updated version {VersionId} with new file {FileId}", versionId, uploadResponse.FileIdentifier);
             }
 
             // Store the original file name before mapping.
@@ -523,19 +605,30 @@ public class DocumentService : IDocumentService
             // Entity Framework will automatically detect changes and update them
 
             // Save changes to the database. This is the critical point.
+            _logger.LogInformation("Committing database changes for version {VersionId}", versionId);
             await _unitOfWork.CommitAsync();
+            _logger.LogInformation("Database commit successful for version {VersionId}", versionId);
 
             // ====================================================================================
             // STEP 3: Post-transaction cleanup.
             // ====================================================================================
 
             // If the commit was successful, we can now safely delete the old file from storage.
-            if (!string.IsNullOrEmpty(oldFileNameToDelete))
+            if (!string.IsNullOrEmpty(oldFileIdToDelete))
             {
-                _logger.LogInformation("Database commit successful. Deleting old file {OldFileName} from storage.", oldFileNameToDelete);
-                // This operation can fail, but it won't roll back our database change.
-                // You might want to add more robust error handling/logging here for orphaned files.
-                await _storageService.DeleteFileAsync(oldFileNameToDelete, StorageFolderConstant.Drafts);
+                _logger.LogInformation("Database commit successful. Deleting old file {OldFileId} from storage.", oldFileIdToDelete);
+                try
+                {
+                    await _storageService.DeleteFileAsync(oldFileIdToDelete, StorageFolderConstant.Drafts);
+                    _logger.LogInformation("Successfully deleted old file {OldFileId} from storage", oldFileIdToDelete);
+                }
+                catch (Exception ex)
+                {
+                    // This operation can fail, but it won't roll back our database change.
+                    // Log the error for monitoring and potential cleanup later
+                    _logger.LogError(ex, "Failed to delete old file {OldFileId} from storage. File may be orphaned.", oldFileIdToDelete);
+                    // Consider adding to a cleanup queue or dead letter queue for retry
+                }
             }
 
             _logger.LogInformation("Successfully updated document version {VersionId}", versionId);
@@ -1417,11 +1510,13 @@ public class DocumentService : IDocumentService
         // Business Rule: For new versions, DepartmentId and ReplacementId are inherited from the existing DocumentFile
         // The new request model (CreateNewVersionDraftRequest) doesn't include these fields as they are automatically inherited
 
-        StorageUploadResponse uploadResponse = null;
+        StorageUploadResponse? uploadResponse = null;
         try
         {
+            _logger.LogInformation("Creating new version for document {DocumentId} by user {UserId}", documentId, userId);
             uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, documentToUpdate.DepartmentId, request.IsPublic);
             var fileHash = uploadResponse.Md5Hash;
+            _logger.LogInformation("File uploaded successfully with ID {FileId} for new version creation", uploadResponse.FileIdentifier);
 
             // Check for file duplication using the MD5 hash
             var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
@@ -1429,6 +1524,7 @@ public class DocumentService : IDocumentService
 
             if (existingFile != null)
             {
+                _logger.LogWarning("Duplicate file detected with hash {FileHash}, deleting uploaded file {FileId}", fileHash, uploadResponse.FileIdentifier);
                 await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
                 throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
             }
@@ -1461,10 +1557,31 @@ public class DocumentService : IDocumentService
 
             // Insert the new version directly instead of updating the DocumentFile
             // This avoids concurrency issues with the DocumentFile entity
-            await _unitOfWork.GetRepository<DocumentVersion>().InsertAsync(newVersion);
-            await _unitOfWork.CommitAsync();
+            try
+            {
+                await _unitOfWork.GetRepository<DocumentVersion>().InsertAsync(newVersion);
+                await _unitOfWork.CommitAsync();
+                _logger.LogInformation("Successfully created new version for document {DocumentId}", documentToUpdate.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Database operation failed for new version creation, rolling back uploaded file {FileId}", uploadResponse?.FileIdentifier);
 
-            _logger.LogInformation("Successfully created new version for document {DocumentId}", documentToUpdate.Id);
+                // Rollback: Delete the uploaded file if database operations fail
+                if (uploadResponse != null)
+                {
+                    try
+                    {
+                        await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                        _logger.LogInformation("Successfully rolled back uploaded file {FileId}", uploadResponse.FileIdentifier);
+                    }
+                    catch (Exception rollbackEx)
+                    {
+                        _logger.LogError(rollbackEx, "Failed to rollback uploaded file {FileId} after database error", uploadResponse.FileIdentifier);
+                    }
+                }
+                throw;
+            }
 
             // Load the complete version with DocumentFile and Tags for proper mapping
             var completeVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(

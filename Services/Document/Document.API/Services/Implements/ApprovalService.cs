@@ -45,19 +45,45 @@ namespace Document.API.Services.Implements
         public async Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueAsync(Document.Infrastructure.Filter.ApprovalQueueFilter filter, int pageNumber, int pageSize)
         {
             var departmentId = GetCurrentUserDepartmentId() ?? throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToAccessApprovalQueue);
-            var pendingDocuments = await _unitOfWork.GetRepository<DocumentVersion>()
+
+            // BR-219: Include approval claims to show if documents are being reviewed
+            var pendingVersions = await _unitOfWork.GetRepository<DocumentVersion>()
                 .GetPagingListAsync(
-                selector: v => _mapper.Map<PendingDocumentResponse>(v),
+                selector: v => v, // Get full entities first
                 filter: filter,
-                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType),
+                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                              .Include(v => v.ApprovalClaim), // Include claim information
                 predicate: v => (v.Status == StatusEnum.Pending || v.Status == StatusEnum.Rejected) && v.DocumentFile.DepartmentId == departmentId,
-                orderBy: v => v.OrderByDescending(v => v.LastSubmitted),
+                orderBy: v => v.OrderBy(v => v.LastSubmitted), // BR-218: Oldest submission first
                 page: pageNumber,
                 size: pageSize
                 );
 
+            // Map to response objects
+            var pendingDocuments = new Paginate<PendingDocumentResponse>
+            {
+                Items = pendingVersions.Items.Select(v => _mapper.Map<PendingDocumentResponse>(v)).ToList(),
+                Page = pendingVersions.Page,
+                Size = pendingVersions.Size,
+                Total = pendingVersions.Total,
+                TotalPages = pendingVersions.TotalPages
+            };
+
             // Enrich all pending documents with names in bulk for better performance
             var enrichedPendingDocuments = await _enrichmentService.EnrichPendingDocumentResponsesAsync(pendingDocuments.Items.ToList());
+
+            // BR-219: Add claim information to show if document is being reviewed
+            foreach (var document in enrichedPendingDocuments)
+            {
+                var originalVersion = pendingVersions.Items.FirstOrDefault(v => v.Id == document.VersionId);
+                if (originalVersion?.ApprovalClaim != null && originalVersion.ApprovalClaim.IsActive)
+                {
+                    // Document is currently being reviewed by another manager
+                    document.IsBeingReviewed = true;
+                    document.ReviewedBy = originalVersion.ApprovalClaim.ClaimedBy;
+                    document.ClaimedAt = originalVersion.ApprovalClaim.ClaimedAt;
+                }
+            }
 
             // Create new paginated result with enriched pending documents
             var enrichedPaginated = new Paginate<PendingDocumentResponse>
@@ -69,7 +95,7 @@ namespace Document.API.Services.Implements
                 TotalPages = pendingDocuments.TotalPages
             };
 
-            _logger.LogInformation("Enriched {Count} pending documents with names for department {DepartmentId}", enrichedPendingDocuments.Count, departmentId);
+            _logger.LogInformation("Enriched {Count} pending documents with names and claim status for department {DepartmentId}", enrichedPendingDocuments.Count, departmentId);
             return enrichedPaginated;
         }
 
@@ -140,10 +166,37 @@ namespace Document.API.Services.Implements
             existingClaim.LastUpdatedBy = userId;
             existingClaim.LastUpdatedTime = DateTime.UtcNow;
 
-            _unitOfWork.GetRepository<ApprovalClaim>().UpdateAsync(existingClaim);
+            await _unitOfWork.GetRepository<ApprovalClaim>().UpdateAsync(existingClaim);
             await _unitOfWork.CommitAsync();
 
             _logger.LogInformation("Document version {VersionId} claim released by user {UserId}", versionId, userId);
+        }
+
+        public async Task KeepClaimAliveAsync(string versionId)
+        {
+            // Get current user ID from JWT token
+            var userId = GetCurrentUserId();
+            var existingClaim = await _unitOfWork.GetRepository<ApprovalClaim>()
+                .SingleOrDefaultAsync(predicate: ac => ac.DocumentVersionId == versionId && ac.IsActive);
+
+            if (existingClaim == null)
+            {
+                throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.ClaimNotFound);
+            }
+
+            if (existingClaim.ClaimedBy != userId)
+            {
+                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToKeepClaimAlive);
+            }
+
+            // Update the LastUpdatedTime to keep the claim alive
+            existingClaim.LastUpdatedBy = userId;
+            existingClaim.LastUpdatedTime = DateTime.UtcNow;
+
+            await _unitOfWork.GetRepository<ApprovalClaim>().UpdateAsync(existingClaim);
+            await _unitOfWork.CommitAsync();
+
+            _logger.LogInformation("Document version {VersionId} claim kept alive by user {UserId}", versionId, userId);
         }
 
         public async Task<ApprovalQueueDetailResponse> GetApprovalQueueDetailAsync(string versionId)
@@ -197,6 +250,23 @@ namespace Document.API.Services.Implements
 
             if (versionToReview.Status != StatusEnum.Pending)
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.NotPendingApproval, versionToReview.Status));
+
+            // BR-221: Check if document is claimed by another manager
+            var existingClaim = await _unitOfWork.GetRepository<ApprovalClaim>()
+                .SingleOrDefaultAsync(predicate: ac => ac.DocumentVersionId == versionId && ac.IsActive);
+
+            if (existingClaim != null && existingClaim.ClaimedBy != userId)
+            {
+                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
+                    string.Format(MessageConstant.DocumentAlreadyClaimed, existingClaim.ClaimedBy));
+            }
+
+            // If not claimed by current user, they must claim it first
+            if (existingClaim == null)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,
+                    "Document must be claimed for review before approval/rejection actions can be taken (BR-221)");
+            }
 
             ApprovalAction logAction;
 
@@ -448,11 +518,18 @@ namespace Document.API.Services.Implements
                 // ========================================
                 // DOCUMENT REJECTION HANDLING
                 // ========================================
-                // Validate rejection comments and update status
-                if (string.IsNullOrWhiteSpace(request.Comments) || request.Comments.Length < 10)
-                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,  MessageConstant.CommentsRequiredForRejection);
+                // BR-226: Comments are mandatory when a document is rejected
+                // BR-232: Rejection comments must be at least 10 characters long
+                if (string.IsNullOrWhiteSpace(request.Comments))
+                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.CommentsRequiredForRejection);
+
+                if (request.Comments.Trim().Length < 10)
+                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Rejection comments must be at least 10 characters long (BR-232)");
+
                 versionToReview.Status = StatusEnum.Rejected;
                 logAction = ApprovalAction.Reject;
+
+                _logger.LogInformation("Document {VersionId} rejected with comments: {Comments}", versionId, request.Comments);
             }
 
             // ========================================
@@ -483,6 +560,10 @@ namespace Document.API.Services.Implements
             }
 
             await _unitOfWork.CommitAsync();
+
+            // BR-217: Document is now removed from approval queue for all managers due to status change
+            _logger.LogInformation("Document {VersionId} status changed to {NewStatus}, automatically removed from all approval queues (BR-217)",
+                versionId, versionToReview.Status);
 
             // ========================================
             // GOOGLE DRIVE PERMISSIONS UPDATE
@@ -655,20 +736,41 @@ namespace Document.API.Services.Implements
             }
 
             version.Status = StatusEnum.Pending; // Update status to Pending
-            version.LastUpdatedBy = "system"; // temp
+            version.LastUpdatedBy = userId; // Set to actual user who submitted
             version.LastUpdatedTime = DateTime.UtcNow; // Update timestamp
+            version.LastSubmitted = DateTime.UtcNow; // Track submission time for BR-214 (7-day timeout)
 
             //4. Move the document file to the "Pending" folder in Google Drive
             var fileId = version.GoogleDriveFileId ?? version.FilePath;
-            await _storageService.MoveFileAsync(fileId, StorageFolderConstant.Drafts, StorageFolderConstant.Pending,
-                version.DocumentFile.DepartmentId, version.IsPublic);
-            // FilePath remains the Google Drive file ID - no change needed
+            try
+            {
+                await _storageService.MoveFileAsync(fileId, StorageFolderConstant.Drafts, StorageFolderConstant.Pending,
+                    version.DocumentFile.DepartmentId, version.IsPublic);
+                _logger.LogInformation("Successfully moved file {FileId} from Drafts to Pending folder", fileId);
+                // FilePath remains the Google Drive file ID - no change needed
 
-            //5. Change the file path to point to the new location
+                //5. Save changes to the database
+                await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(version);
+                await _unitOfWork.CommitAsync();
+                _logger.LogInformation("Successfully submitted document {VersionId} for approval", versionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to submit document {VersionId} for approval", versionId);
 
-            //6. Save changes to the database
-            await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(version);
-            await _unitOfWork.CommitAsync();
+                // Rollback: Move file back to drafts if database commit failed
+                try
+                {
+                    await _storageService.MoveFileAsync(fileId, StorageFolderConstant.Pending, StorageFolderConstant.Drafts,
+                        version.DocumentFile.DepartmentId, version.IsPublic);
+                    _logger.LogInformation("Successfully rolled back file {FileId} to Drafts folder", fileId);
+                }
+                catch (Exception rollbackEx)
+                {
+                    _logger.LogError(rollbackEx, "Failed to rollback file {FileId} to Drafts folder after submission failure", fileId);
+                }
+                throw;
+            }
 
             //7. Update Google Drive permissions (Draft -> Pending: owner + department managers)
             try
@@ -725,7 +827,7 @@ namespace Document.API.Services.Implements
         /// <summary>
         /// Get user email by ID from Auth service via MassTransit
         /// </summary>
-        private async Task<string?> GetUserEmailByIdAsync(string userId)
+        private Task<string?> GetUserEmailByIdAsync(string userId)
         {
             try
             {
@@ -736,19 +838,19 @@ namespace Document.API.Services.Implements
 
                 // TODO: Implement proper user lookup via MassTransit
                 // For now, return a placeholder that indicates we need the email
-                return $"user-{userId}@company.com"; // Placeholder - should be replaced with actual lookup
+                return Task.FromResult<string?>($"user-{userId}@company.com"); // Placeholder - should be replaced with actual lookup
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting user email for user ID: {UserId}", userId);
-                return null;
+                return Task.FromResult<string?>(null);
             }
         }
 
         /// <summary>
         /// Get user name by ID from Auth service via MassTransit
         /// </summary>
-        private async Task<string?> GetUserNameByIdAsync(string userId)
+        private Task<string?> GetUserNameByIdAsync(string userId)
         {
             try
             {
@@ -756,15 +858,182 @@ namespace Document.API.Services.Implements
 
                 // TODO: Implement proper user lookup via MassTransit
                 // For now, return a placeholder
-                return $"User {userId}"; // Placeholder - should be replaced with actual lookup
+                return Task.FromResult<string?>($"User {userId}"); // Placeholder - should be replaced with actual lookup
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting user name for user ID: {UserId}", userId);
-                return null;
+                return Task.FromResult<string?>(null);
             }
         }
 
         #endregion
+
+        /// <summary>
+        /// BR-214: Auto-reject documents that have been pending for more than 7 days
+        /// This method should be called by a background service
+        /// </summary>
+        public async Task ProcessExpiredSubmissionsAsync()
+        {
+            try
+            {
+                var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
+                var expiredDocuments = await _unitOfWork.GetRepository<DocumentVersion>()
+                    .GetListAsync(
+                        predicate: v => v.Status == StatusEnum.Pending && v.LastSubmitted.HasValue && v.LastSubmitted.Value <= sevenDaysAgo,
+                        include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                    );
+
+                foreach (var expiredDocument in expiredDocuments)
+                {
+                    _logger.LogInformation("Auto-rejecting expired document {VersionId} submitted on {SubmissionDate}",
+                        expiredDocument.Id, expiredDocument.LastSubmitted);
+
+                    // Update status to rejected
+                    expiredDocument.Status = StatusEnum.Rejected;
+                    expiredDocument.LastUpdatedBy = "system"; // System auto-rejection
+                    expiredDocument.LastUpdatedTime = DateTime.UtcNow;
+
+                    // Create approval log for auto-rejection
+                    var approvalLog = new ApprovalLog
+                    {
+                        Action = ApprovalAction.Reject,
+                        Comments = "Automatically rejected due to 7-day timeout (BR-214)",
+                        CreatedBy = "system",
+                        DocumentVersionId = expiredDocument.Id,
+                    };
+
+                    await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(expiredDocument);
+                    await _unitOfWork.GetRepository<ApprovalLog>().InsertAsync(approvalLog);
+
+                    // Release any active claims
+                    var activeClaim = await _unitOfWork.GetRepository<ApprovalClaim>()
+                        .SingleOrDefaultAsync(predicate: ac => ac.DocumentVersionId == expiredDocument.Id && ac.IsActive);
+                    if (activeClaim != null)
+                    {
+                        activeClaim.IsActive = false;
+                        activeClaim.LastUpdatedBy = "system";
+                        activeClaim.LastUpdatedTime = DateTime.UtcNow;
+                        await _unitOfWork.GetRepository<ApprovalClaim>().UpdateAsync(activeClaim);
+                    }
+
+                    // Send timeout notification to document owner
+                    try
+                    {
+                        var ownerEmail = await GetUserEmailByIdAsync(expiredDocument.DocumentFile.OwnerId);
+                        var ownerName = await GetUserNameByIdAsync(expiredDocument.DocumentFile.OwnerId);
+
+                        if (!string.IsNullOrEmpty(ownerEmail))
+                        {
+                            // Create a system user claims principal for system notifications
+                            var systemClaims = new System.Security.Claims.ClaimsPrincipal(
+                                new System.Security.Claims.ClaimsIdentity(new[]
+                                {
+                                    new System.Security.Claims.Claim("sub", "system"),
+                                    new System.Security.Claims.Claim("name", "System"),
+                                    new System.Security.Claims.Claim("email", "system@company.com")
+                                }, "system"));
+
+                            await _notificationService.SendDocumentRejectionNotificationAsync(
+                                expiredDocument.Id,
+                                expiredDocument.Title,
+                                expiredDocument.VersionName,
+                                ownerEmail,
+                                ownerName ?? "Document Owner",
+                                systemClaims,
+                                "Your document submission has been automatically rejected due to 7-day timeout. Please review and resubmit if needed.");
+                        }
+                    }
+                    catch (Exception notificationEx)
+                    {
+                        _logger.LogError(notificationEx, "Failed to send timeout notification for document {VersionId}", expiredDocument.Id);
+                    }
+                }
+
+                if (expiredDocuments.Any())
+                {
+                    await _unitOfWork.CommitAsync();
+                    _logger.LogInformation("Auto-rejected {Count} expired documents", expiredDocuments.Count());
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing expired document submissions");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Auto-release inactive claims that haven't been updated for more than 30 minutes
+        /// This method should be called by a background service
+        /// </summary>
+        public async Task ProcessInactiveClaimsAsync()
+        {
+            try
+            {
+                var thirtyMinutesAgo = DateTime.UtcNow.AddMinutes(-30);
+                var inactiveClaims = await _unitOfWork.GetRepository<ApprovalClaim>()
+                    .GetListAsync(
+                        predicate: ac => ac.IsActive && ac.LastUpdatedTime.HasValue && ac.LastUpdatedTime.Value <= thirtyMinutesAgo,
+                        include: i => i.Include(ac => ac.DocumentVersion).ThenInclude(dv => dv.DocumentFile)
+                    );
+
+                foreach (var inactiveClaim in inactiveClaims)
+                {
+                    _logger.LogInformation("Auto-releasing inactive claim for document {VersionId} claimed by {UserId} at {ClaimedAt}",
+                        inactiveClaim.DocumentVersionId, inactiveClaim.ClaimedBy, inactiveClaim.ClaimedAt);
+
+                    // Release the inactive claim
+                    inactiveClaim.IsActive = false;
+                    inactiveClaim.LastUpdatedBy = "system";
+                    inactiveClaim.LastUpdatedTime = DateTime.UtcNow;
+
+                    await _unitOfWork.GetRepository<ApprovalClaim>().UpdateAsync(inactiveClaim);
+
+                    // Send notification to the manager who lost the claim
+                    try
+                    {
+                        var managerEmail = await GetUserEmailByIdAsync(inactiveClaim.ClaimedBy);
+                        var managerName = await GetUserNameByIdAsync(inactiveClaim.ClaimedBy);
+
+                        if (!string.IsNullOrEmpty(managerEmail))
+                        {
+                            // Create a system user claims principal for system notifications
+                            var systemClaims = new System.Security.Claims.ClaimsPrincipal(
+                                new System.Security.Claims.ClaimsIdentity(new[]
+                                {
+                                    new System.Security.Claims.Claim("sub", "system"),
+                                    new System.Security.Claims.Claim("name", "System"),
+                                    new System.Security.Claims.Claim("email", "system@company.com")
+                                }, "system"));
+
+                            await _notificationService.SendDocumentRejectionNotificationAsync(
+                                inactiveClaim.DocumentVersionId,
+                                inactiveClaim.DocumentVersion.Title,
+                                inactiveClaim.DocumentVersion.VersionName,
+                                managerEmail,
+                                managerName ?? "Manager",
+                                systemClaims,
+                                "Your claim on this document has been automatically released due to inactivity. The document is now available for other managers to review.");
+                        }
+                    }
+                    catch (Exception notificationEx)
+                    {
+                        _logger.LogError(notificationEx, "Failed to send claim release notification for document {VersionId}", inactiveClaim.DocumentVersionId);
+                    }
+                }
+
+                if (inactiveClaims.Any())
+                {
+                    await _unitOfWork.CommitAsync();
+                    _logger.LogInformation("Auto-released {Count} inactive claims", inactiveClaims.Count());
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing inactive claims");
+                throw;
+            }
+        }
     }
 }

@@ -61,6 +61,7 @@ public class MessageConstant
     public const string DocumentTypeRequired = "Document type is required.";
     public const string InvalidDocumentType = "Invalid document type.";
     public const string UnauthorizedToReleaseClaim = "You are not authorized to release this claim.";
+    public const string UnauthorizedToKeepClaimAlive = "You are not authorized to keep this claim alive.";
     public const string InvalidStatusForApprovalQueue = "Invalid status for approval queue list. Only 'Pending' 'Rejected' documents can be accepted.";
     public const string GoogleDriveNotConfigured = "Google Drive is not configured";
 }

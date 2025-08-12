@@ -57,6 +57,7 @@ public class ApiEndPointConstant
         public const string GetApprovalQueue = ApiEndpoint + "/approval-queue";
         public const string Claim = ApiEndpoint + "/claim/{id}";
         public const string ReleaseClaim = ApiEndpoint + "/release-claim/{id}";
+        public const string KeepClaimAlive = ApiEndpoint + "/keep-claim-alive/{id}";
         public const string GetApprovalQueueDetail = ApiEndpoint + "/approval-queue/detail/{id}";
     }
 

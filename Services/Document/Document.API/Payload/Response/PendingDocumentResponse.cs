@@ -36,5 +36,20 @@ namespace Document.API.Payload.Response
         /// Effective date until which the document is valid
         /// </summary>
         public DateTime? EffectiveUntil { get; set; }
+
+        /// <summary>
+        /// BR-219: Indicates if the document is currently being reviewed by another manager
+        /// </summary>
+        public bool IsBeingReviewed { get; set; }
+
+        /// <summary>
+        /// BR-219: ID of the manager who claimed the document for review
+        /// </summary>
+        public string? ReviewedBy { get; set; }
+
+        /// <summary>
+        /// BR-219: Timestamp when the document was claimed for review
+        /// </summary>
+        public DateTime? ClaimedAt { get; set; }
     }
 }

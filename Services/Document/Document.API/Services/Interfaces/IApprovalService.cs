@@ -11,6 +11,9 @@ namespace Document.API.Services.Interfaces
         Task ReviewDocument(string versionId, ReviewDocumentRequest reviewDocumentRequest);
         Task ClaimDocumentForReviewAsync(string versionId);
         Task ReleaseClaimAsync(string versionId);
+        Task KeepClaimAliveAsync(string versionId);
         Task<ApprovalQueueDetailResponse> GetApprovalQueueDetailAsync(string versionId);
+        Task ProcessExpiredSubmissionsAsync(); // BR-214: Auto-reject expired submissions
+        Task ProcessInactiveClaimsAsync(); // Auto-release inactive claims
     }
 }
