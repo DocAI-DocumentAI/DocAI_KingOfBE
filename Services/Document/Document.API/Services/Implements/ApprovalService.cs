@@ -14,6 +14,7 @@ using DocumentFormat.OpenXml.Office2010.Word;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.KernelMemory;
 using Shared.Exceptions;
+using System.Linq.Expressions;
 using System.Security.Claims;
 
 namespace Document.API.Services.Implements
@@ -42,61 +43,140 @@ namespace Document.API.Services.Implements
             _notificationService = notificationService;
             _httpContextAccessor = httpContextAccessor;
         }
-        public async Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueAsync(Document.Infrastructure.Filter.ApprovalQueueFilter filter, int pageNumber, int pageSize)
+        /// <summary>
+        /// Enhanced approval queue with comprehensive filtering and summary statistics
+        /// </summary>
+        public async Task<ApprovalQueueSummaryResponse> GetApprovalQueueAsync(Document.Infrastructure.Filter.ApprovalQueueFilter filter, int pageNumber, int pageSize)
         {
             var departmentId = GetCurrentUserDepartmentId() ?? throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToAccessApprovalQueue);
 
-            // BR-219: Include approval claims to show if documents are being reviewed
-            var pendingVersions = await _unitOfWork.GetRepository<DocumentVersion>()
+            // Enhanced predicate to support all status types for filtering
+            Expression<Func<DocumentVersion, bool>> basePredicate = v => v.DocumentFile.DepartmentId == departmentId;
+
+            // If no status filter is specified, default to pending and rejected (original behavior)
+            if (!filter.Status.HasValue)
+            {
+                basePredicate = v => v.DocumentFile.DepartmentId == departmentId &&
+                                   (v.Status == StatusEnum.Pending || v.Status == StatusEnum.Rejected);
+            }
+
+            // Store ReviewedBy filter value and temporarily remove it from filter to handle separately
+            var reviewedByFilter = filter.ReviewedBy;
+            filter.ReviewedBy = null; // Temporarily remove to avoid filter expression issues
+
+            // Get paginated documents with enhanced includes
+            var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>()
                 .GetPagingListAsync(
-                selector: v => v, // Get full entities first
+                selector: v => v,
                 filter: filter,
-                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
-                              .Include(v => v.ApprovalClaim), // Include claim information
-                predicate: v => (v.Status == StatusEnum.Pending || v.Status == StatusEnum.Rejected) && v.DocumentFile.DepartmentId == departmentId,
-                orderBy: v => v.OrderBy(v => v.LastSubmitted), // BR-218: Oldest submission first
+                include: i => i.Include(v => v.DocumentFile)
+                              .ThenInclude(df => df.DocumentType)
+                              .Include(v => v.ApprovalClaim)
+                              .Include(v => v.DocumentTags)
+                              .ThenInclude(dt => dt.Tag),
+                predicate: basePredicate,
+                orderBy: v => v.OrderBy(v => v.LastSubmitted),
                 page: pageNumber,
                 size: pageSize
                 );
 
-            // Map to response objects
+            // Restore the ReviewedBy filter value
+            filter.ReviewedBy = reviewedByFilter;
+
+            // Apply ReviewedBy filter if specified (filter by ApprovalLog.CreatedBy)
+            if (!string.IsNullOrEmpty(reviewedByFilter))
+            {
+                // Get document version IDs that have approval logs created by the specified reviewer
+                var reviewedDocumentIds = await _unitOfWork.GetRepository<ApprovalLog>()
+                    .GetListAsync(
+                        predicate: log => log.CreatedBy == reviewedByFilter,
+                        selector: log => log.DocumentVersionId
+                    );
+
+                // Filter the documents to only include those reviewed by the specified user
+                var filteredItems = documentVersions.Items.Where(doc => reviewedDocumentIds.Contains(doc.Id)).ToList();
+
+                // Update the paginated result
+                documentVersions = new Paginate<DocumentVersion>
+                {
+                    Items = filteredItems,
+                    Page = documentVersions.Page,
+                    Size = documentVersions.Size,
+                    Total = filteredItems.Count, // Update total to reflect filtered count
+                    TotalPages = (int)Math.Ceiling((double)filteredItems.Count / documentVersions.Size)
+                };
+            }
+
+            // Map to enhanced response objects with additional fields
             var pendingDocuments = new Paginate<PendingDocumentResponse>
             {
-                Items = pendingVersions.Items.Select(v => _mapper.Map<PendingDocumentResponse>(v)).ToList(),
-                Page = pendingVersions.Page,
-                Size = pendingVersions.Size,
-                Total = pendingVersions.Total,
-                TotalPages = pendingVersions.TotalPages
+                Items = documentVersions.Items.Select(v => MapToEnhancedPendingDocumentResponse(v)).ToList(),
+                Page = documentVersions.Page,
+                Size = documentVersions.Size,
+                Total = documentVersions.Total,
+                TotalPages = documentVersions.TotalPages
             };
 
-            // Enrich all pending documents with names in bulk for better performance
-            var enrichedPendingDocuments = await _enrichmentService.EnrichPendingDocumentResponsesAsync(pendingDocuments.Items.ToList());
+            // Enrich with names
+            var enrichedDocuments = await _enrichmentService.EnrichPendingDocumentResponsesAsync(pendingDocuments.Items.ToList());
 
-            // BR-219: Add claim information to show if document is being reviewed
-            foreach (var document in enrichedPendingDocuments)
+            // Add claim and additional information
+            foreach (var document in enrichedDocuments)
             {
-                var originalVersion = pendingVersions.Items.FirstOrDefault(v => v.Id == document.VersionId);
-                if (originalVersion?.ApprovalClaim != null && originalVersion.ApprovalClaim.IsActive)
+                var originalVersion = documentVersions.Items.FirstOrDefault(v => v.Id == document.VersionId);
+                if (originalVersion != null)
                 {
-                    // Document is currently being reviewed by another manager
-                    document.IsBeingReviewed = true;
-                    document.ReviewedBy = originalVersion.ApprovalClaim.ClaimedBy;
-                    document.ClaimedAt = originalVersion.ApprovalClaim.ClaimedAt;
+                    // Claim information
+                    if (originalVersion.ApprovalClaim != null && originalVersion.ApprovalClaim.IsActive)
+                    {
+                        document.IsBeingReviewed = true;
+                        document.ReviewedBy = originalVersion.ApprovalClaim.ClaimedBy;
+                        document.ClaimedAt = originalVersion.ApprovalClaim.ClaimedAt;
+                    }
+
+                    // Calculate additional fields
+                    document.DaysSinceSubmission = originalVersion.LastSubmitted.HasValue
+                        ? (DateTime.UtcNow - originalVersion.LastSubmitted.Value).Days
+                        : 0;
+
+                    document.IsApproachingExpiration = document.DaysSinceSubmission >= 5; // 5+ days approaching 7-day limit
+
+                    document.Priority = CalculatePriority(originalVersion);
                 }
             }
 
-            // Create new paginated result with enriched pending documents
-            var enrichedPaginated = new Paginate<PendingDocumentResponse>
+            // Calculate summary statistics
+            var statistics = await CalculateApprovalQueueStatisticsAsync(departmentId);
+
+            // Create final paginated result
+            var finalPaginated = new Paginate<PendingDocumentResponse>
             {
-                Items = enrichedPendingDocuments,
+                Items = enrichedDocuments,
                 Page = pendingDocuments.Page,
                 Size = pendingDocuments.Size,
                 Total = pendingDocuments.Total,
                 TotalPages = pendingDocuments.TotalPages
             };
 
-            _logger.LogInformation("Enriched {Count} pending documents with names and claim status for department {DepartmentId}", enrichedPendingDocuments.Count, departmentId);
-            return enrichedPaginated;
+            var response = new ApprovalQueueSummaryResponse
+            {
+                Documents = finalPaginated,
+                Statistics = statistics
+            };
+
+            _logger.LogInformation("Retrieved approval queue with {Count} documents and statistics for department {DepartmentId}",
+                enrichedDocuments.Count, departmentId);
+
+            return response;
+        }
+
+        /// <summary>
+        /// Backward compatibility method - returns only the paginated documents without statistics
+        /// </summary>
+        public async Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueLegacyAsync(Document.Infrastructure.Filter.ApprovalQueueFilter filter, int pageNumber, int pageSize)
+        {
+            var enhancedResponse = await GetApprovalQueueAsync(filter, pageNumber, pageSize);
+            return enhancedResponse.Documents;
         }
 
         public async Task ClaimDocumentForReviewAsync(string versionId)
@@ -222,6 +302,20 @@ namespace Document.API.Services.Implements
             }
 
             var response = _mapper.Map<ApprovalQueueDetailResponse>(documentVersion);
+
+            // Set calculated fields
+            response.DaysSinceSubmission = documentVersion.LastSubmitted.HasValue
+                ? (DateTime.UtcNow - documentVersion.LastSubmitted.Value).Days
+                : 0;
+
+            response.IsApproachingExpiration = response.DaysSinceSubmission >= 5;
+            response.Priority = CalculatePriority(documentVersion);
+
+            // Set additional fields that might not be in the mapper
+            response.ResubmissionCount = 0; // TODO: Implement resubmission tracking
+            response.DownloadCount = 0; // TODO: Implement download tracking
+            response.ViewCount = 0; // TODO: Implement view tracking
+
             var enrichedResponse = await _enrichmentService.EnrichApprovalQueueDetailResponseAsync(response);
 
             _logger.LogInformation("Enriched approval queue detail response with names for version {VersionId}", versionId);
@@ -545,6 +639,7 @@ namespace Document.API.Services.Implements
                 Action = logAction,
                 Comments = request.Comments,
                 CreatedBy = userId,
+                LastUpdatedBy = userId,
                 DocumentVersionId = versionToReview.Id,
             };
             await _unitOfWork.GetRepository<ApprovalLog>().InsertAsync(approvalLog);
@@ -900,6 +995,7 @@ namespace Document.API.Services.Implements
                         Action = ApprovalAction.Reject,
                         Comments = "Automatically rejected due to 7-day timeout (BR-214)",
                         CreatedBy = "system",
+                        LastUpdatedBy = "system",
                         DocumentVersionId = expiredDocument.Id,
                     };
 
@@ -1034,6 +1130,102 @@ namespace Document.API.Services.Implements
                 _logger.LogError(ex, "Error processing inactive claims");
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Maps DocumentVersion to enhanced PendingDocumentResponse with additional fields
+        /// </summary>
+        private PendingDocumentResponse MapToEnhancedPendingDocumentResponse(DocumentVersion version)
+        {
+            var response = _mapper.Map<PendingDocumentResponse>(version);
+
+            // Add additional fields
+            response.Description = version.DocumentFile.Description;
+            response.Summary = version.Summary;
+            response.FileSize = version.FileSize;
+            response.FileType = version.FileType;
+            response.Tags = version.DocumentTags?.Select(dt => dt.Tag.Name).ToList() ?? new List<string>();
+            response.CreatedTime = version.DocumentFile.CreatedTime;
+            response.LastUpdatedTime = version.LastUpdatedTime;
+            response.OwnerId = version.DocumentFile.OwnerId;
+
+            // Calculate derived fields
+            response.DaysSinceSubmission = version.LastSubmitted.HasValue
+                ? (DateTime.UtcNow - version.LastSubmitted.Value).Days
+                : 0;
+
+            response.IsApproachingExpiration = response.DaysSinceSubmission >= 5;
+            response.Priority = CalculatePriority(version);
+
+            return response;
+        }
+
+        /// <summary>
+        /// Calculates priority level based on document characteristics
+        /// </summary>
+        private string CalculatePriority(DocumentVersion version)
+        {
+            var daysSinceSubmission = version.LastSubmitted.HasValue
+                ? (DateTime.UtcNow - version.LastSubmitted.Value).Days
+                : 0;
+
+            // High priority: approaching expiration or urgent document types
+            if (daysSinceSubmission >= 5)
+                return "High";
+
+            // Medium priority: 3+ days old
+            if (daysSinceSubmission >= 3)
+                return "Medium";
+
+            return "Normal";
+        }
+
+        /// <summary>
+        /// Calculates comprehensive approval queue statistics for the department
+        /// </summary>
+        private async Task<ApprovalQueueStatistics> CalculateApprovalQueueStatisticsAsync(string departmentId)
+        {
+            var repo = _unitOfWork.GetRepository<DocumentVersion>();
+            var now = DateTime.UtcNow;
+            var sevenDaysAgo = now.AddDays(-7);
+            var thirtyDaysAgo = now.AddDays(-30);
+
+            // Get all document versions for the department
+            var allVersions = await repo.GetListAsync(
+                predicate: v => v.DocumentFile.DepartmentId == departmentId,
+                include: i => i.Include(v => v.DocumentFile).Include(v => v.ApprovalClaim)
+            );
+
+            var statistics = new ApprovalQueueStatistics
+            {
+                TotalPending = allVersions.Count(v => v.Status == StatusEnum.Pending),
+                TotalApproved = allVersions.Count(v => v.Status == StatusEnum.Approved),
+                TotalRejected = allVersions.Count(v => v.Status == StatusEnum.Rejected),
+                TotalArchived = allVersions.Count(v => v.Status == StatusEnum.Archived),
+                TotalBeingReviewed = allVersions.Count(v => v.ApprovalClaim != null && v.ApprovalClaim.IsActive),
+                RecentSubmissions = allVersions.Count(v => v.LastSubmitted >= sevenDaysAgo),
+                ApproachingExpiration = allVersions.Count(v => v.Status == StatusEnum.Pending &&
+                                                              v.LastSubmitted.HasValue &&
+                                                              (now - v.LastSubmitted.Value).Days >= 5)
+            };
+
+            // Calculate average processing time for approved/rejected documents in last 30 days
+            var processedDocuments = allVersions
+                .Where(v => (v.Status == StatusEnum.Approved || v.Status == StatusEnum.Rejected) &&
+                           v.LastSubmitted.HasValue &&
+                           v.LastUpdatedTime.HasValue &&
+                           v.LastUpdatedTime >= thirtyDaysAgo)
+                .ToList();
+
+            if (processedDocuments.Any())
+            {
+                var totalProcessingHours = processedDocuments
+                    .Sum(v => (v.LastUpdatedTime!.Value - v.LastSubmitted!.Value).TotalHours);
+
+                statistics.AverageProcessingTimeHours = totalProcessingHours / processedDocuments.Count;
+            }
+
+            return statistics;
         }
     }
 }

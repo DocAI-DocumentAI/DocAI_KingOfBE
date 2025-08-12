@@ -26,6 +26,20 @@ public class ValidationMessageConstant
         public const string SignedByMaxLength = "Người ký không được vượt quá {0} ký tự";
         public const string SignedByInvalidCharacters = "Tên người ký chỉ được chứa chữ cái, khoảng trắng và các ký tự tiếng Việt";
 
+        // Approval Queue Filter validation
+        public const string SubmittedByMaxLength = "ID người gửi không được vượt quá {0} ký tự";
+        public const string SubmittedByInvalidCharacters = "ID người gửi chứa ký tự không hợp lệ";
+        public const string ReviewedByMaxLength = "ID người phê duyệt không được vượt quá {0} ký tự";
+        public const string ReviewedByInvalidCharacters = "ID người phê duyệt chứa ký tự không hợp lệ";
+        public const string DocumentTypeIdMaxLength = "ID loại tài liệu không được vượt quá {0} ký tự";
+        public const string DocumentTypeIdInvalidCharacters = "ID loại tài liệu chứa ký tự không hợp lệ";
+        public const string FilterTitleMaxLength = "Tiêu đề lọc không được vượt quá {0} ký tự";
+        public const string FilterTitleInvalidCharacters = "Tiêu đề lọc chứa ký tự không hợp lệ";
+        public const string InvalidDateRange = "Ngày bắt đầu không được lớn hơn ngày kết thúc";
+        public const string InvalidStatus = "Trạng thái không hợp lệ";
+        public const string InvalidPageNumber = "Số trang phải lớn hơn 0";
+        public const string InvalidPageSize = "Kích thước trang phải từ 1 đến 100";
+
         // File validation
         public const string FileRequired = "Tệp tin không được để trống";
         public const string FileTypeNotSupported = "Loại tệp tin không được hỗ trợ. Chỉ chấp nhận: {0}";
@@ -232,6 +246,14 @@ public static class ValidationConstants
     public const int OfficialDocumentsFilterTagsMaxCount = 20;
     public const long OfficialDocumentsFilterMaxFileSize = 1073741824; // 1GB
     public const int OfficialDocumentsFilterMaxDownloads = 999999;
+
+    // Approval Queue Filter validation constants
+    public const int ApprovalQueueFilterSubmittedByMaxLength = 50;
+    public const int ApprovalQueueFilterReviewedByMaxLength = 50;
+    public const int ApprovalQueueFilterDocumentTypeIdMaxLength = 50;
+    public const int ApprovalQueueFilterTitleMaxLength = 200;
+    public const int ApprovalQueuePageSizeMin = 1;
+    public const int ApprovalQueuePageSizeMax = 100;
 
     // DocumentReplacementSuggestion validation constants
     public const int DocumentReplacementSuggestionTitleMaxLength = 200;

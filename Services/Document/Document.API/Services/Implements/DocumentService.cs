@@ -599,7 +599,28 @@ public class DocumentService : IDocumentService
 
             documentToUpdate.LastUpdatedBy = userId;
             documentToUpdate.LastUpdatedTime = DateTime.UtcNow;
+
+            // Check if document is being updated from Rejected status
+            bool wasRejected = versionToUpdate.Status == StatusEnum.Rejected;
             versionToUpdate.Status = versionToUpdate.Status == StatusEnum.Rejected ? StatusEnum.Draft : versionToUpdate.Status;
+
+            // If document was rejected and is now being updated, remove the rejection approval logs
+            if (wasRejected)
+            {
+                _logger.LogInformation("Document {VersionId} was rejected and is being updated, removing rejection approval logs", versionId);
+
+                var rejectionLogs = await _unitOfWork.GetRepository<ApprovalLog>()
+                    .GetListAsync(predicate: log => log.DocumentVersionId == versionId && log.Action == ApprovalAction.Reject);
+
+                if (rejectionLogs.Any())
+                {
+                    foreach (var log in rejectionLogs)
+                    {
+                        _unitOfWork.GetRepository<ApprovalLog>().DeleteAsync(log);
+                    }
+                    _logger.LogInformation("Removed {Count} rejection approval logs for document {VersionId}", rejectionLogs.Count, versionId);
+                }
+            }
 
             // No need to call UpdateAsync since entities are now tracked by EF
             // Entity Framework will automatically detect changes and update them

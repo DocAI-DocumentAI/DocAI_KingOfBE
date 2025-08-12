@@ -77,12 +77,4 @@ public class ApiEndPointConstant
         public const string DeleteActiveKey = ApiEndpoint + "/delete/active-key";
     }
 
-    public class GoogleDrivePermission
-    {
-        public const string Base = ApiEndpoint + "/googledrive-permissions";
-        public const string SetupDepartment = "setup-department/{departmentId}";
-        public const string SetupUser = "setup-user/{userId}";
-        public const string BulkInitialize = "bulk-initialize";
-        public const string Status = "status";
-    }
 }

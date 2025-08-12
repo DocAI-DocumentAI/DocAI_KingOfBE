@@ -493,6 +493,12 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                 userIds.Add(approvalDetail.SubmittedBy);
             if (!string.IsNullOrEmpty(approvalDetail.ClaimedBy))
                 userIds.Add(approvalDetail.ClaimedBy);
+            if (!string.IsNullOrEmpty(approvalDetail.CreatedBy))
+                userIds.Add(approvalDetail.CreatedBy);
+            if (!string.IsNullOrEmpty(approvalDetail.LastUpdatedBy))
+                userIds.Add(approvalDetail.LastUpdatedBy);
+            if (!string.IsNullOrEmpty(approvalDetail.ReviewedBy))
+                userIds.Add(approvalDetail.ReviewedBy);
             if (!string.IsNullOrEmpty(approvalDetail.DepartmentId))
                 departmentIds.Add(approvalDetail.DepartmentId);
 
@@ -521,6 +527,24 @@ public class DocumentEnrichmentService : IDocumentEnrichmentService
                     nameResponse.UserNames.TryGetValue(approvalDetail.ClaimedBy, out string? claimedByName))
                 {
                     approvalDetail.ClaimedByName = claimedByName;
+                }
+
+                if (!string.IsNullOrEmpty(approvalDetail.CreatedBy) &&
+                    nameResponse.UserNames.TryGetValue(approvalDetail.CreatedBy, out string? createdByName))
+                {
+                    approvalDetail.CreatedByName = createdByName;
+                }
+
+                if (!string.IsNullOrEmpty(approvalDetail.LastUpdatedBy) &&
+                    nameResponse.UserNames.TryGetValue(approvalDetail.LastUpdatedBy, out string? lastUpdatedByName))
+                {
+                    approvalDetail.LastUpdatedByName = lastUpdatedByName;
+                }
+
+                if (!string.IsNullOrEmpty(approvalDetail.ReviewedBy) &&
+                    nameResponse.UserNames.TryGetValue(approvalDetail.ReviewedBy, out string? reviewedByName))
+                {
+                    approvalDetail.ReviewedByName = reviewedByName;
                 }
 
                 if (!string.IsNullOrEmpty(approvalDetail.DepartmentId) &&

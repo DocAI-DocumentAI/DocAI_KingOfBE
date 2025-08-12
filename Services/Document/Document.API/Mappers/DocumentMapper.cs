@@ -35,13 +35,42 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().EffectiveUntil));
 
         CreateMap<DocumentVersion, PendingDocumentResponse>()
+            .ForMember(dest => dest.DocumentFileId, opt => opt.MapFrom(src => src.DocumentFile.Id))
             .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => src.Id.ToString()))
+            .ForMember(dest => dest.VersionName, opt => opt.MapFrom(src => src.VersionName))
+            .ForMember(dest => dest.Title, opt => opt.MapFrom(src => src.DocumentFile.Title))
+            .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.SubmittedBy))
+            .ForMember(dest => dest.LastSubmitted, opt => opt.MapFrom(src => src.LastSubmitted))
+            .ForMember(dest => dest.Status, opt => opt.MapFrom(src => src.Status.ToString()))
+            .ForMember(dest => dest.DepartmentId, opt => opt.MapFrom(src => src.DocumentFile.DepartmentId))
             .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentFile.DocumentTypeId))
             .ForMember(dest => dest.DocumentTypeName, opt => opt.MapFrom(src => src.DocumentFile.DocumentType != null ? src.DocumentFile.DocumentType.Name : null))
             .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic))
             .ForMember(dest => dest.SignedBy, opt => opt.MapFrom(src => src.SignedBy))
             .ForMember(dest => dest.EffectiveFrom, opt => opt.MapFrom(src => src.EffectiveFrom))
-            .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil));
+            .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil))
+            .ForMember(dest => dest.Description, opt => opt.MapFrom(src => src.DocumentFile.Description))
+            .ForMember(dest => dest.Summary, opt => opt.MapFrom(src => src.Summary))
+            .ForMember(dest => dest.FileSize, opt => opt.MapFrom(src => src.FileSize))
+            .ForMember(dest => dest.FileType, opt => opt.MapFrom(src => src.FileType))
+            .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentTags.Select(dt => dt.Tag.Name).ToList()))
+            .ForMember(dest => dest.CreatedTime, opt => opt.MapFrom(src => src.DocumentFile.CreatedTime))
+            .ForMember(dest => dest.LastUpdatedTime, opt => opt.MapFrom(src => src.LastUpdatedTime))
+            .ForMember(dest => dest.OwnerId, opt => opt.MapFrom(src => src.DocumentFile.OwnerId))
+            // Calculated and enriched fields - will be set in service layer
+            .ForMember(dest => dest.IsBeingReviewed, opt => opt.Ignore())
+            .ForMember(dest => dest.ReviewedBy, opt => opt.Ignore())
+            .ForMember(dest => dest.ClaimedAt, opt => opt.Ignore())
+            .ForMember(dest => dest.Priority, opt => opt.Ignore())
+            .ForMember(dest => dest.DaysSinceSubmission, opt => opt.Ignore())
+            .ForMember(dest => dest.IsApproachingExpiration, opt => opt.Ignore())
+            .ForMember(dest => dest.ResubmissionCount, opt => opt.Ignore())
+            .ForMember(dest => dest.PreviousRejectionReason, opt => opt.Ignore())
+            // Names will be enriched by enrichment service
+            .ForMember(dest => dest.SubmittedByName, opt => opt.Ignore())
+            .ForMember(dest => dest.DepartmentName, opt => opt.Ignore())
+            .ForMember(dest => dest.OwnerName, opt => opt.Ignore())
+            .ForMember(dest => dest.ReviewedByName, opt => opt.Ignore());
 
         CreateMap<DocumentVersion, DocumentResponse>()
             .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src.DocumentFile.Id.ToString()))

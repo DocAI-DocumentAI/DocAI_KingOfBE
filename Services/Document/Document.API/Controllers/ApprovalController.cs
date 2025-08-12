@@ -45,15 +45,87 @@ namespace Document.API.Controllers
             return Ok(ApiResponse<object>.Success(null, "Document approved successfully", 200));
         }
 
+        /// <summary>
+        /// Get enhanced approval queue with comprehensive filtering and summary statistics
+        /// </summary>
+        /// <param name="filter">Enhanced filter with multiple criteria</param>
+        /// <param name="pageNumber">Page number (default: 1)</param>
+        /// <param name="pageSize">Page size (default: 10, max: 100)</param>
+        /// <returns>Approval queue with documents and statistics</returns>
         [HttpGet(ApiEndPointConstant.Approval.GetApprovalQueue)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager })]
+        [ProducesResponseType(typeof(ApiResponse<ApprovalQueueSummaryResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetApprovalQueue(
+            [FromQuery] ApprovalQueueFilter filter,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 10)
+        {
+            // Validate pagination parameters
+            if (pageNumber < 1)
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_PAGE_NUMBER", "Page number must be greater than 0", 400));
+            }
+
+            if (pageSize < 1 || pageSize > 100)
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_PAGE_SIZE", "Page size must be between 1 and 100", 400));
+            }
+
+            // Validate date range if provided
+            if (filter.FromDate.HasValue && filter.ToDate.HasValue && filter.FromDate > filter.ToDate)
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_DATE_RANGE", "From date cannot be greater than to date", 400));
+            }
+
+            try
+            {
+                var result = await _approvalService.GetApprovalQueueAsync(filter, pageNumber, pageSize);
+                return Ok(ApiResponse<ApprovalQueueSummaryResponse>.Success(result, "Approval queue retrieved successfully", 200));
+            }
+            catch (ErrorException ex)
+            {
+                return StatusCode(ex.StatusCode, ApiResponse<object>.Error(ex.ErrorDetail.ErrorCode, ex.ErrorDetail.Message?.ToString() ?? "An error occurred", ex.StatusCode));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while retrieving the approval queue", 500));
+            }
+        }
+
+        /// <summary>
+        /// Get approval queue (legacy endpoint for backward compatibility)
+        /// </summary>
+        /// <param name="filter">Filter criteria</param>
+        /// <param name="pageNumber">Page number (default: 1)</param>
+        /// <param name="pageSize">Page size (default: 10)</param>
+        /// <returns>Paginated list of pending documents</returns>
+        [HttpGet(ApiEndPointConstant.Approval.GetApprovalQueue + "/legacy")]
         [CustomAuthorize(Roles = new[] { Roles.Manager })]
         [ProducesResponseType(typeof(ApiResponse<IPaginate<PendingDocumentResponse>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetApprovalQueue([FromQuery] ApprovalQueueFilter filter, int pageNumber = 1, int pageSize = 10)
+        public async Task<IActionResult> GetApprovalQueueLegacy(
+            [FromQuery] ApprovalQueueFilter filter,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 10)
         {
-            var result = await _approvalService.GetApprovalQueueAsync(filter, pageNumber, pageSize);
-            return Ok(ApiResponse<object>.Success(result, "Approval queue retrieved successfully", 200));
+            try
+            {
+                var result = await _approvalService.GetApprovalQueueLegacyAsync(filter, pageNumber, pageSize);
+                return Ok(ApiResponse<IPaginate<PendingDocumentResponse>>.Success(result, "Approval queue retrieved successfully", 200));
+            }
+            catch (ErrorException ex)
+            {
+                return StatusCode(ex.StatusCode, ApiResponse<object>.Error(ex.ErrorDetail.ErrorCode, ex.ErrorDetail.Message?.ToString() ?? "An error occurred", ex.StatusCode));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while retrieving the approval queue", 500));
+            }
         }
 
         [HttpPost(ApiEndPointConstant.Approval.Claim)]
@@ -92,15 +164,39 @@ namespace Document.API.Controllers
             return Ok(ApiResponse<object>.Success(null, "Document claim kept alive successfully", 200));
         }
 
+        /// <summary>
+        /// Get detailed information for a specific document in the approval queue
+        /// </summary>
+        /// <param name="versionId">Document version ID</param>
+        /// <returns>Complete document information for manager review</returns>
         [HttpGet(ApiEndPointConstant.Approval.GetApprovalQueueDetail)]
         [CustomAuthorize(Roles = new[] { Roles.Manager })]
-        [ProducesResponseType(typeof(ApiResponse<PendingDocumentResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<ApprovalQueueDetailResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetApprovalQueueDetail([FromRoute(Name = "id")] string versionId)
         {
-            var result = await _approvalService.GetApprovalQueueDetailAsync(versionId);
-            return Ok(ApiResponse<object>.Success(result, "Approval queue detail retrieved successfully", 200));
+            // Validate input
+            if (string.IsNullOrWhiteSpace(versionId))
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_VERSION_ID", "Version ID is required", 400));
+            }
+
+            try
+            {
+                var result = await _approvalService.GetApprovalQueueDetailAsync(versionId);
+                return Ok(ApiResponse<ApprovalQueueDetailResponse>.Success(result, "Approval queue detail retrieved successfully", 200));
+            }
+            catch (ErrorException ex)
+            {
+                return StatusCode(ex.StatusCode, ApiResponse<object>.Error(ex.ErrorDetail.ErrorCode, ex.ErrorDetail.Message?.ToString() ?? "An error occurred", ex.StatusCode));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while retrieving the approval queue detail", 500));
+            }
         }
     }
 }
