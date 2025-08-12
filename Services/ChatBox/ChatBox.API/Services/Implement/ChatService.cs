@@ -63,7 +63,7 @@ namespace ChatBox.API.Services.Implement
 
             await ValidateAIResponse(aiResponse, session.Id);
 
-            var (userMessage, aiMessage) = CreateChatMessages(request.Message, aiResponse, session, userId);
+            var (userMessage, aiMessage) = CreateChatMessages(request.Message, aiResponse, session, userId, documentSources);
             await SaveMessagesAndUpdateSession(userMessage, aiMessage, session, userId, isFirstMessage, request.Message);
 
             _logger.LogInformation("Chat message processed successfully for session {SessionId}", session.Id);
@@ -85,10 +85,10 @@ namespace ChatBox.API.Services.Implement
                 session.Id, isFirstMessage);
 
             // ✅ UPDATED: Get raw document content
-            var (documentContent, _, _) = await SearchDocumentContext(request.Message, userId);
+            var (documentContent, documentSources, _) = await SearchDocumentContext(request.Message, userId);
             var responseStream = await GenerateAIResponseStream(session, request.Message, documentContent);
 
-            return WrapStreamWithSaveOperation(responseStream, session.Id, userId, request.Message, isFirstMessage, session.ModelName);
+            return WrapStreamWithSaveOperation(responseStream, session.Id, userId, request.Message, isFirstMessage, session.ModelName, documentSources);
         }
 
         /// <summary>
@@ -856,7 +856,7 @@ namespace ChatBox.API.Services.Implement
             string userId,
             string userMessageContent,
             bool isFirstMessage,
-            string modelName)
+            string modelName, List<DocumentInfo> documentSources = null)
         {
             var fullResponse = new StringBuilder();
 
@@ -866,14 +866,14 @@ namespace ChatBox.API.Services.Implement
                 yield return token;
             }
 
-            await SaveStreamingChatData(fullResponse.ToString(), sessionId, userId, userMessageContent, isFirstMessage, modelName);
+            await SaveStreamingChatData(fullResponse.ToString(), sessionId, userId, userMessageContent, isFirstMessage, modelName, documentSources);
         }
 
-        private async Task SaveStreamingChatData(string fullResponse, string sessionId, string userId, string userMessageContent, bool isFirstMessage, string modelName)
+        private async Task SaveStreamingChatData(string fullResponse, string sessionId, string userId, string userMessageContent, bool isFirstMessage, string modelName, List<DocumentInfo> documentSources = null)
         {
             try
             {
-                var (userMessage, aiMessage) = CreateStreamingChatMessages(userMessageContent, fullResponse, sessionId, userId, modelName);
+                var (userMessage, aiMessage) = CreateStreamingChatMessages(userMessageContent, fullResponse, sessionId, userId, modelName, documentSources);
 
                 await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(userMessage);
                 await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(aiMessage);
