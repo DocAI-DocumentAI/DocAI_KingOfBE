@@ -1,6 +1,7 @@
 ﻿using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using AutoMapper;
 using ChatBox.API.Constants;
 using ChatBox.API.Payload.Request;
@@ -71,7 +72,7 @@ namespace ChatBox.API.Services.Implement
             return CreateChatResponse(session, aiResponse, aiMessage, documentSources, hasDocumentContext);
         }
 
-        public async Task<IAsyncEnumerable<string>> SendMessageStreamAsync(ChatRequest request, string userId)
+        public async Task<IAsyncEnumerable<ChatStreamResponse>> SendMessageStreamAsync(ChatRequest request, string userId, CancellationToken cancellationToken = default)
         {
             await ValidateMessageStrictAsync(request.Message);
 
@@ -85,10 +86,10 @@ namespace ChatBox.API.Services.Implement
                 session.Id, isFirstMessage);
 
             // ✅ UPDATED: Get raw document content
-            var (documentContent, documentSources, _) = await SearchDocumentContext(request.Message, userId);
+            var (documentContent, documentSources, hasDocumentContext) = await SearchDocumentContext(request.Message, userId);
             var responseStream = await GenerateAIResponseStream(session, request.Message, documentContent);
 
-            return WrapStreamWithSaveOperation(responseStream, session.Id, userId, request.Message, isFirstMessage, session.ModelName, documentSources);
+            return WrapStreamWithChatResponse(responseStream, session, userId, request.Message, isFirstMessage, documentSources, hasDocumentContext, cancellationToken);
         }
 
         /// <summary>
@@ -160,7 +161,6 @@ namespace ChatBox.API.Services.Implement
         {
             var cleanChatHistory = await BuildCleanChatHistoryAsync(session.Id);
             cleanChatHistory.AddUserMessage(userMessage);
-
             var aiChatHistory = CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage);
 
             return await _semanticKernelService.GetChatResponseStreamAsync(session.ModelName, aiChatHistory);
@@ -538,7 +538,7 @@ namespace ChatBox.API.Services.Implement
                 TokenCount = _tokenCountService.CountTokens(userContent, session.ModelName),
                 SessionId = session.Id,
                 Timestamp = DateTime.UtcNow,
-                DocumentSources = null,
+                DocumentSources = "",
                 CreatedBy = userId,
                 UpdatedBy = userId,
                 CreatedAt = DateTime.UtcNow,
@@ -850,23 +850,96 @@ namespace ChatBox.API.Services.Implement
 
         #region Streaming Operations (Unchanged)
 
-        private async IAsyncEnumerable<string> WrapStreamWithSaveOperation(
+        private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
             IAsyncEnumerable<string> stream,
-            string sessionId,
+            ChatSession session,
             string userId,
             string userMessageContent,
             bool isFirstMessage,
-            string modelName, List<DocumentInfo> documentSources = null)
+            List<DocumentInfo> documentSources,
+            bool hasDocumentContext,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             var fullResponse = new StringBuilder();
+            var timestamp = DateTime.UtcNow;
 
-            await foreach (var token in stream)
+            // ✅ NO try-catch around yield
+            await foreach (var token in stream.WithCancellation(cancellationToken))
             {
+                if (cancellationToken.IsCancellationRequested)
+                    yield break;
+
+                if (string.IsNullOrEmpty(token))
+                    continue;
+
                 fullResponse.Append(token);
-                yield return token;
+                var currentFullMessage = fullResponse.ToString();
+
+                // ✅ STREAMING CHUNKS: Trả về FULL MESSAGE tích lũy
+                yield return new ChatStreamResponse
+                {
+                    SessionId = session.Id,
+                    Message = currentFullMessage, // ✅ Full message tích lũy
+                    MessageChunk = token, // ✅ Current token
+                    Role = MessageRole.Assistant,
+                    Timestamp = timestamp,
+                    ModelUsed = session.ModelName,
+                    DocumentSources = null, // ✅ KHÔNG có sources trong streaming chunks
+                    HasDocumentContext = hasDocumentContext,
+                    IsComplete = false
+                };
             }
 
-            await SaveStreamingChatData(fullResponse.ToString(), sessionId, userId, userMessageContent, isFirstMessage, modelName, documentSources);
+            // ✅ Final response
+            var finalContent = fullResponse.ToString();
+            var tokenCount = _tokenCountService.CountTokens(finalContent, session.ModelName);
+
+            var cleanDocumentSources = documentSources?.Select(doc => new DocumentInfo
+            {
+                DocumentId = doc.DocumentId,
+                Title = doc.Title,
+                RelevanceScore = doc.RelevanceScore,
+                Summary = "", // ✅ Clean summary
+                VersionId = doc.VersionId,
+                VersionName = doc.VersionName,
+                DepartmentId = "",
+                Description = null,
+                Tags = null,
+                EffectiveFrom = doc.EffectiveFrom,
+                EffectiveUntil = doc.EffectiveUntil,
+                ApprovalDate = null
+            }).ToList();
+
+            // ✅ FINAL EVENT: DocumentSources + metadata
+            yield return new ChatStreamResponse
+            {
+                SessionId = session.Id,
+                Message = finalContent, // ✅ Full final message (for completeness)
+                MessageChunk = "",
+                Role = MessageRole.Assistant,
+                Timestamp = timestamp,
+                ModelUsed = session.ModelName,
+                DocumentSources = cleanDocumentSources, // ✅ Clean DocumentSources CHỈ Ở CUỐI
+                HasDocumentContext = hasDocumentContext,
+                IsComplete = true,
+                TotalTokenCount = tokenCount
+            };
+
+
+
+            // ✅ Save async - fire and forget
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await SaveStreamingChatData(finalContent, session.Id, userId, userMessageContent,
+                        isFirstMessage, session.ModelName, documentSources);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to save streaming chat data for session {SessionId}", session.Id);
+                }
+            }, cancellationToken);
         }
 
         private async Task SaveStreamingChatData(string fullResponse, string sessionId, string userId, string userMessageContent, bool isFirstMessage, string modelName, List<DocumentInfo> documentSources = null)
@@ -897,7 +970,7 @@ namespace ChatBox.API.Services.Implement
                 TokenCount = _tokenCountService.CountTokens(userContent, modelName),
                 SessionId = sessionId,
                 Timestamp = DateTime.UtcNow.AddMilliseconds(-1),
-                DocumentSources = null,
+                DocumentSources = "",
                 CreatedBy = userId,
                 UpdatedBy = userId,
                 CreatedAt = DateTime.UtcNow,

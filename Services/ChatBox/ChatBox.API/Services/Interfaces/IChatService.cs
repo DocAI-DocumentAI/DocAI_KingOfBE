@@ -6,7 +6,7 @@ namespace ChatBox.API.Services.Interfaces
     public interface IChatService
     {
         Task<ChatResponse> SendMessageAsync(ChatRequest request, string userId);
-        Task<IAsyncEnumerable<string>> SendMessageStreamAsync(ChatRequest request, string userId);
+        Task<IAsyncEnumerable<ChatStreamResponse>> SendMessageStreamAsync(ChatRequest request, string userId, CancellationToken cancellationToken = default);
         Task<SessionResponse> CreateSessionAsync(CreateSessionRequest request, string userId);
         Task<SessionDetailResponse> GetSessionAsync(string sessionId, string userId);
         Task<List<SessionResponse>> GetUserSessionsAsync(string userId);
