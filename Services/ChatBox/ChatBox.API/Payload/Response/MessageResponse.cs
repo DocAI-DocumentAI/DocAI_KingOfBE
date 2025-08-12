@@ -9,6 +9,9 @@ namespace ChatBox.API.Payload.Response
         public MessageRole Role { get; set; }
         public int TokenCount { get; set; }
         public DateTime Timestamp { get; set; }
+        public string? SessionId { get; set; }
+        public string? DocumentSources { get; set; }
+
 
     }
 }

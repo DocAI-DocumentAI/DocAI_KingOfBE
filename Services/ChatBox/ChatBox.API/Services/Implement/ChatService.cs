@@ -63,7 +63,7 @@ namespace ChatBox.API.Services.Implement
 
             await ValidateAIResponse(aiResponse, session.Id);
 
-            var (userMessage, aiMessage) = CreateChatMessages(request.Message, aiResponse, session, userId);
+            var (userMessage, aiMessage) = CreateChatMessages(request.Message, aiResponse, session, userId, documentSources);
             await SaveMessagesAndUpdateSession(userMessage, aiMessage, session, userId, isFirstMessage, request.Message);
 
             _logger.LogInformation("Chat message processed successfully for session {SessionId}", session.Id);
@@ -85,10 +85,10 @@ namespace ChatBox.API.Services.Implement
                 session.Id, isFirstMessage);
 
             // ✅ UPDATED: Get raw document content
-            var (documentContent, _, _) = await SearchDocumentContext(request.Message, userId);
+            var (documentContent, documentSources, _) = await SearchDocumentContext(request.Message, userId);
             var responseStream = await GenerateAIResponseStream(session, request.Message, documentContent);
 
-            return WrapStreamWithSaveOperation(responseStream, session.Id, userId, request.Message, isFirstMessage, session.ModelName);
+            return WrapStreamWithSaveOperation(responseStream, session.Id, userId, request.Message, isFirstMessage, session.ModelName, documentSources);
         }
 
         /// <summary>
@@ -529,7 +529,7 @@ namespace ChatBox.API.Services.Implement
 
         #region Message Creation and Saving (Unchanged)
 
-        private (ChatMessage UserMessage, ChatMessage AiMessage) CreateChatMessages(string userContent, string aiContent, ChatSession session, string userId)
+        private (ChatMessage UserMessage, ChatMessage AiMessage) CreateChatMessages(string userContent, string aiContent, ChatSession session, string userId, List<DocumentInfo> documentSources = null)
         {
             var userMessage = new ChatMessage
             {
@@ -538,12 +538,18 @@ namespace ChatBox.API.Services.Implement
                 TokenCount = _tokenCountService.CountTokens(userContent, session.ModelName),
                 SessionId = session.Id,
                 Timestamp = DateTime.UtcNow,
+                DocumentSources = null,
                 CreatedBy = userId,
                 UpdatedBy = userId,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
-
+            string sourcesString = null;
+            if (documentSources?.Any() == true)
+            {
+                sourcesString = string.Join(";", documentSources.Select(doc =>
+                    $"{doc.DocumentId ?? ""}|{doc.Title ?? ""}"));
+            }
             var aiMessage = new ChatMessage
             {
                 Content = aiContent,
@@ -551,6 +557,7 @@ namespace ChatBox.API.Services.Implement
                 TokenCount = _tokenCountService.CountTokens(aiContent, session.ModelName),
                 SessionId = session.Id,
                 Timestamp = DateTime.UtcNow.AddMilliseconds(1), // Ensure order
+                DocumentSources = sourcesString, // ✅ Lưu string đơn giản
                 CreatedBy = "system",
                 UpdatedBy = "system",
                 CreatedAt = DateTime.UtcNow,
@@ -849,7 +856,7 @@ namespace ChatBox.API.Services.Implement
             string userId,
             string userMessageContent,
             bool isFirstMessage,
-            string modelName)
+            string modelName, List<DocumentInfo> documentSources = null)
         {
             var fullResponse = new StringBuilder();
 
@@ -859,14 +866,14 @@ namespace ChatBox.API.Services.Implement
                 yield return token;
             }
 
-            await SaveStreamingChatData(fullResponse.ToString(), sessionId, userId, userMessageContent, isFirstMessage, modelName);
+            await SaveStreamingChatData(fullResponse.ToString(), sessionId, userId, userMessageContent, isFirstMessage, modelName, documentSources);
         }
 
-        private async Task SaveStreamingChatData(string fullResponse, string sessionId, string userId, string userMessageContent, bool isFirstMessage, string modelName)
+        private async Task SaveStreamingChatData(string fullResponse, string sessionId, string userId, string userMessageContent, bool isFirstMessage, string modelName, List<DocumentInfo> documentSources = null)
         {
             try
             {
-                var (userMessage, aiMessage) = CreateStreamingChatMessages(userMessageContent, fullResponse, sessionId, userId, modelName);
+                var (userMessage, aiMessage) = CreateStreamingChatMessages(userMessageContent, fullResponse, sessionId, userId, modelName, documentSources);
 
                 await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(userMessage);
                 await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(aiMessage);
@@ -881,7 +888,7 @@ namespace ChatBox.API.Services.Implement
             }
         }
 
-        private (ChatMessage UserMessage, ChatMessage AiMessage) CreateStreamingChatMessages(string userContent, string aiContent, string sessionId, string userId, string modelName)
+        private (ChatMessage UserMessage, ChatMessage AiMessage) CreateStreamingChatMessages(string userContent, string aiContent, string sessionId, string userId, string modelName, List<DocumentInfo> documentSources = null)
         {
             var userMessage = new ChatMessage
             {
@@ -890,12 +897,18 @@ namespace ChatBox.API.Services.Implement
                 TokenCount = _tokenCountService.CountTokens(userContent, modelName),
                 SessionId = sessionId,
                 Timestamp = DateTime.UtcNow.AddMilliseconds(-1),
+                DocumentSources = null,
                 CreatedBy = userId,
                 UpdatedBy = userId,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
-
+            string sourcesString = null;
+            if (documentSources?.Any() == true)
+            {
+                sourcesString = string.Join(";", documentSources.Select(doc =>
+                    $"{doc.DocumentId ?? ""}|{doc.Title ?? ""}"));
+            }
             var aiMessage = new ChatMessage
             {
                 Content = aiContent,
@@ -903,6 +916,7 @@ namespace ChatBox.API.Services.Implement
                 TokenCount = _tokenCountService.CountTokens(aiContent, modelName),
                 SessionId = sessionId,
                 Timestamp = DateTime.UtcNow,
+                DocumentSources = sourcesString,
                 CreatedBy = "system",
                 UpdatedBy = "system",
                 CreatedAt = DateTime.UtcNow,
