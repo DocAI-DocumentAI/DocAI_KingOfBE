@@ -395,7 +395,10 @@ public class DocumentService : IDocumentService
 
         _logger.LogInformation("Successfully created draft document {DocumentId}", documentFile.Id);
 
-        // Apply Google Drive permissions based on document status (Draft = owner only)
+        // COMMENTED OUT: Apply Google Drive permissions (Draft = owner only)
+        // Permission updates slow down upload process by making individual API calls
+        // Users already have folder-level access when they are created
+        /*
         try
         {
             var fileId = uploadResponse.FileIdentifier; // Google Drive file ID
@@ -412,6 +415,7 @@ public class DocumentService : IDocumentService
             _logger.LogError(ex, "Failed to apply permissions for draft document {DocumentId}", documentFile.Id);
             // Don't fail the entire operation for permission errors
         }
+        */
 
         // Clear replacement suggestion cache since a new document was created
         try
@@ -433,10 +437,16 @@ public class DocumentService : IDocumentService
         // 9. Use AutoMapper to map the result to the response DTO
         var response = _mapper.Map<DocumentDraftResponse>(createdVersion);
 
-        // 10. Enrich response with user and department names
+        // COMMENTED OUT: Enrich response with user and department names
+        // Name enrichment makes RabbitMQ calls to Auth service which slows down upload process
+        // Names can be enriched on-demand when viewing documents instead of during upload
+        /*
         var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
-
         _logger.LogInformation("Draft document response enriched with names for document {DocumentId}", documentFile.Id);
+        */
+
+        _logger.LogInformation("Draft document created successfully for document {DocumentId} (names not enriched for performance)", documentFile.Id);
+        var enrichedResponse = response; // Return response without name enrichment
 
         return enrichedResponse;
     }
@@ -661,13 +671,22 @@ public class DocumentService : IDocumentService
                     include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
                 );
 
-            // Enrich response with user and department names
+            // COMMENTED OUT: Enrich response with user and department names
+            // Name enrichment makes RabbitMQ calls to Auth service which slows down update process
+            // Names can be enriched on-demand when viewing documents instead of during update
             var response = _mapper.Map<DocumentDraftResponse>(updatedVersion);
+            /*
             var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
-
             _logger.LogInformation("Updated document response enriched with names for version {VersionId}", versionId);
+            */
 
-            // Apply Google Drive permissions for updated draft (still owner only)
+            _logger.LogInformation("Document updated successfully for version {VersionId} (names not enriched for performance)", versionId);
+            var enrichedResponse = response; // Return response without name enrichment
+
+            // COMMENTED OUT: Apply Google Drive permissions for updated draft (still owner only)
+            // Permission updates slow down update process by making individual API calls
+            // Users already have folder-level access when they are created
+            /*
             try
             {
                 var fileId = updatedVersion.GoogleDriveFileId ?? updatedVersion.FilePath;
@@ -684,6 +703,7 @@ public class DocumentService : IDocumentService
                 _logger.LogError(ex, "Failed to apply permissions for updated draft document {VersionId}", versionId);
                 // Don't fail the entire operation for permission errors
             }
+            */
 
             // Clear replacement suggestion cache since a document was updated
             try
@@ -1611,8 +1631,16 @@ public class DocumentService : IDocumentService
             );
 
             var response = _mapper.Map<DocumentDraftResponse>(completeVersion);
+            // COMMENTED OUT: Enrich response with user and department names
+            // Name enrichment makes RabbitMQ calls to Auth service which slows down new version creation
+            // Names can be enriched on-demand when viewing documents instead of during creation
+            /*
             var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
             _logger.LogInformation("New version response enriched with names for document {DocumentId}", documentToUpdate.Id);
+            */
+
+            _logger.LogInformation("New version created successfully for document {DocumentId} (names not enriched for performance)", documentToUpdate.Id);
+            var enrichedResponse = response; // Return response without name enrichment
             return enrichedResponse;
         }
         catch (DbUpdateConcurrencyException ex)

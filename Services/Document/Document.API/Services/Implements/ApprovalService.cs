@@ -666,6 +666,10 @@ namespace Document.API.Services.Implements
             // ========================================
             // GOOGLE DRIVE PERMISSIONS UPDATE
             // ========================================
+            // COMMENTED OUT: Permission updates slow down approval process
+            // Users are already invited to view folders when they are created
+            // Permission updates invite whole department/company members which is slow
+            /*
             // Update file permissions based on the new document status
             try
             {
@@ -729,6 +733,7 @@ namespace Document.API.Services.Implements
                 _logger.LogError(ex, "Failed to update permissions for document {VersionId} during review", versionId);
                 // Don't fail the entire operation for permission errors
             }
+            */
 
             _logger.LogInformation("Manager {UserId} has {Action} document version {VersionId}", userId, logAction, versionId);
 
@@ -870,7 +875,10 @@ namespace Document.API.Services.Implements
                 throw;
             }
 
-            //7. Update Google Drive permissions (Draft -> Pending: owner + department managers)
+            //7. COMMENTED OUT: Update Google Drive permissions (Draft -> Pending: owner + department managers)
+            // Permission updates slow down submission process by inviting department managers
+            // Users already have folder-level access when they are created
+            /*
             try
             {
                 await _permissionManager.UpdateDocumentPermissionsAsync(
@@ -887,6 +895,7 @@ namespace Document.API.Services.Implements
                 _logger.LogError(ex, "Failed to update permissions for document {VersionId} when submitting for approval", versionId);
                 // Don't fail the entire operation for permission errors
             }
+            */
 
             //8. Send notification to department managers
             try
