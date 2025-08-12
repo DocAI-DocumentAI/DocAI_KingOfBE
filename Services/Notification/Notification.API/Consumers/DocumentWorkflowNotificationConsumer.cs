@@ -13,13 +13,16 @@ namespace Notification.API.Consumers
     {
         private readonly IDocumentWorkflowNotificationService _notificationService;
         private readonly ILogger<DocumentSubmissionNotificationConsumer> _logger;
+        private readonly IUserService _userService;
 
         public DocumentSubmissionNotificationConsumer(
             IDocumentWorkflowNotificationService notificationService,
-            ILogger<DocumentSubmissionNotificationConsumer> logger)
+            ILogger<DocumentSubmissionNotificationConsumer> logger,
+            IUserService userService)
         {
             _notificationService = notificationService;
             _logger = logger;
+            _userService = userService;
         }
 
         public async Task Consume(ConsumeContext<DocumentSubmissionNotificationCommand> context)
@@ -38,7 +41,29 @@ namespace Notification.API.Consumers
                     DepartmentId = command.DepartmentId,
                     DepartmentName = command.DepartmentName
                 };
+                if (string.IsNullOrEmpty(submitterInfo.DepartmentName))
+                {
+                    _logger.LogWarning("DepartmentName missing, fetching from user service for {UserId}", command.SubmitterId);
 
+                    try
+                    {
+                        var userInfo = await _userService.GetUserByIdAsync(command.SubmitterId);
+                        if (userInfo != null && !string.IsNullOrEmpty(userInfo.DepartmentName))
+                        {
+                            submitterInfo.DepartmentName = userInfo.DepartmentName;
+                            _logger.LogInformation("Retrieved department name: {DepartmentName}", userInfo.DepartmentName);
+                        }
+                        else
+                        {
+                            submitterInfo.DepartmentName = "Unknown Department";
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to get user info, using fallback");
+                        submitterInfo.DepartmentName = "Unknown Department";
+                    }
+                }
                 await _notificationService.SendDocumentSubmissionNotificationAsync(
                     command.DocumentId,
                     command.DocumentTitle,
@@ -64,13 +89,16 @@ namespace Notification.API.Consumers
     {
         private readonly IDocumentWorkflowNotificationService _notificationService;
         private readonly ILogger<DocumentApprovalNotificationConsumer> _logger;
+        private readonly IUserService _userService;
 
         public DocumentApprovalNotificationConsumer(
             IDocumentWorkflowNotificationService notificationService,
-            ILogger<DocumentApprovalNotificationConsumer> logger)
+            ILogger<DocumentApprovalNotificationConsumer> logger,
+            IUserService userService)
         {
             _notificationService = notificationService;
             _logger = logger;
+            _userService = userService;
         }
 
         public async Task Consume(ConsumeContext<DocumentApprovalNotificationCommand> context)
@@ -87,7 +115,24 @@ namespace Notification.API.Consumers
                     Email = command.ApproverEmail,
                     Name = command.ApproverName
                 };
-
+                try
+                {
+                    var userInfo = await _userService.GetUserByIdAsync(command.ApproverId);
+                    if (userInfo != null)
+                    {
+                        approverInfo.DepartmentName = userInfo.DepartmentName ?? "Unknown Department";
+                        approverInfo.DepartmentId = userInfo.DepartmentId;
+                    }
+                    else
+                    {
+                        approverInfo.DepartmentName = "Unknown Department";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to get approver info, using fallback");
+                    approverInfo.DepartmentName = "Unknown Department";
+                }
                 await _notificationService.SendDocumentApprovalNotificationAsync(
                     command.DocumentId,
                     command.DocumentTitle,
@@ -115,13 +160,16 @@ namespace Notification.API.Consumers
     {
         private readonly IDocumentWorkflowNotificationService _notificationService;
         private readonly ILogger<DocumentRejectionNotificationConsumer> _logger;
+        private readonly IUserService _userService;
 
         public DocumentRejectionNotificationConsumer(
             IDocumentWorkflowNotificationService notificationService,
-            ILogger<DocumentRejectionNotificationConsumer> logger)
+            ILogger<DocumentRejectionNotificationConsumer> logger,
+            IUserService userService)
         {
             _notificationService = notificationService;
             _logger = logger;
+            _userService = userService;
         }
 
         public async Task Consume(ConsumeContext<DocumentRejectionNotificationCommand> context)
@@ -138,7 +186,24 @@ namespace Notification.API.Consumers
                     Email = command.ReviewerEmail,
                     Name = command.ReviewerName
                 };
-
+                try
+                {
+                    var userInfo = await _userService.GetUserByIdAsync(command.ReviewerId);
+                    if (userInfo != null)
+                    {
+                        reviewerInfo.DepartmentName = userInfo.DepartmentName ?? "Unknown Department";
+                        reviewerInfo.DepartmentId = userInfo.DepartmentId;
+                    }
+                    else
+                    {
+                        reviewerInfo.DepartmentName = "Unknown Department";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to get reviewer info, using fallback");
+                    reviewerInfo.DepartmentName = "Unknown Department";
+                }
                 await _notificationService.SendDocumentRejectionNotificationAsync(
                     command.DocumentId,
                     command.DocumentTitle,

@@ -203,9 +203,28 @@ public class NotificationService : INotificationService
         var dismissLink = $"https://docai.asia/api/notifications/dismiss-by-token?token={dismissToken}";
         var documentLink = $"https://docai.asia/documents/{document.DocumentId}";
 
-        var emailBody = await _emailTemplateService.RenderTemplateAsync(
-            templateName, user.Email, user.Name, document.Title, document.Version,
-            document.EffectiveUntil, documentLink, dismissLink);
+        var template = await _emailTemplateService.GetEmailTemplateByNameAsync(templateName);
+        if (template == null)
+        {
+            _logger.LogWarning("Template '{TemplateName}' not found", templateName);
+            return;
+        }
+
+        var emailBody = template.BodyHtml
+            .Replace("{{RecipientEmail}}", user.Email ?? "")
+            .Replace("{{RecipientName}}", user.Name ?? "")
+            .Replace("{{UserEmail}}", user.Email ?? "")
+            .Replace("{{UserName}}", user.Name ?? "")
+            .Replace("{{DocumentTitle}}", document.Title ?? "")
+            .Replace("{{DocumentVersion}}", document.Version ?? "")
+            .Replace("{{EffectiveUntil}}", document.EffectiveUntil?.ToString("dd/MM/yyyy") ?? "N/A")
+            .Replace("{{DocumentLink}}", documentLink)
+            .Replace("{{DismissLink}}", dismissLink)
+            .Replace("{{DepartmentName}}", document.DepartmentName ?? "Unknown Department")
+
+            // ✅ FIX: Expiration specific information
+            .Replace("{{ExpirationStatus}}", type == NotificationType.Expired ? "đã hết hạn" : "sắp hết hạn")
+            .Replace("{{DaysUntilExpiration}}", GetDaysUntilExpiration(document.EffectiveUntil));
 
         var subject = type == NotificationType.Expired
             ? $"[{document.DepartmentName}] Tài liệu '{document.Title}' đã hết hạn"
@@ -233,7 +252,20 @@ public class NotificationService : INotificationService
         // Send SignalR notification
         await SendSignalRNotificationAsync(user, type, subject, document);
     }
+    private string GetDaysUntilExpiration(DateTime? effectiveUntil)
+    {
+        if (!effectiveUntil.HasValue)
+            return "N/A";
 
+        var days = (effectiveUntil.Value.Date - DateTime.UtcNow.Date).Days;
+
+        if (days < 0)
+            return $"Đã hết hạn {Math.Abs(days)} ngày";
+        else if (days == 0)
+            return "Hết hạn hôm nay";
+        else
+            return $"Còn {days} ngày";
+    }
     private async Task SendSignalRNotificationAsync(UserDto user, NotificationType type,
         string subject, DocumentExpirationDto document)
     {

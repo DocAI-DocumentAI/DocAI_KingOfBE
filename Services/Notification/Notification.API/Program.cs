@@ -1,4 +1,4 @@
-﻿using Auth.API.Extensions;
+﻿using Notification.API.Extensions;
 using MassTransit;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Authorization;
