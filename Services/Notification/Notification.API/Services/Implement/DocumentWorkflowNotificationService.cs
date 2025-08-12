@@ -1,21 +1,21 @@
 ﻿using System.Collections.Generic;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging;
 using Notification.API.Hubs;
 using Notification.API.Payload.Response;
 using Notification.API.Services.Interfaces;
+using Notification.API.Utils;
 using Notification.Domain.Enums;
 using Notification.Domain.Models;
-using Notification.Infrastructure.Repository.Interfaces;
 using Shared.DTOs;
 
 namespace Notification.API.Services.Implement
+{
+    /// <summary>
+    /// Service for handling document workflow notifications
+    /// </summary>
+    public class DocumentWorkflowNotificationService : IDocumentWorkflowNotificationService
     {
-        /// <summary>
-        /// Service for handling document workflow notifications
-        /// </summary>
-        public class DocumentWorkflowNotificationService : IDocumentWorkflowNotificationService
-        {
-        private readonly IUnitOfWork<NotificationDbContext> _unitOfWork;
         private readonly IEmailService _emailService;
         private readonly IEmailTemplateService _emailTemplateService;
         private readonly INotificationLogService _logService;
@@ -24,7 +24,6 @@ namespace Notification.API.Services.Implement
         private readonly ILogger<DocumentWorkflowNotificationService> _logger;
 
         public DocumentWorkflowNotificationService(
-            IUnitOfWork<NotificationDbContext> unitOfWork,
             IEmailService emailService,
             IEmailTemplateService emailTemplateService,
             INotificationLogService logService,
@@ -32,7 +31,6 @@ namespace Notification.API.Services.Implement
             IUserService userService,
             ILogger<DocumentWorkflowNotificationService> logger)
         {
-            _unitOfWork = unitOfWork;
             _emailService = emailService;
             _emailTemplateService = emailTemplateService;
             _logService = logService;
@@ -55,7 +53,7 @@ namespace Notification.API.Services.Implement
                     documentId, departmentId);
 
                 var managers = await _userService.GetDepartmentManagersAsync(departmentId);
-                if (!managers.Any())
+                if (managers.Count == 0)
                 {
                     _logger.LogWarning("No managers found for department {DepartmentId}", departmentId);
                     return;
@@ -72,6 +70,16 @@ namespace Notification.API.Services.Implement
 
                 foreach (var manager in managers)
                 {
+                    var managerInfo = new UserInfo
+                    {
+                        UserId = manager.UserId.ToString(),
+                        Email = manager.Email,
+                        Name = manager.Name,
+                        Department = manager.DepartmentName,
+                        DepartmentId = manager.DepartmentId?.ToString(),
+                        Role = manager.Role
+                    };
+
                     await SendNotificationAsync(
                         manager.Email,
                         $"[{submitterInfo.DepartmentName}] Tài liệu '{documentTitle}' cần duyệt",
@@ -84,7 +92,7 @@ namespace Notification.API.Services.Implement
                         NotificationType.DocumentUpdate,
                         documentId,
                         documentVersion,
-                        manager);
+                        managerInfo);
                 }
 
                 _logger.LogInformation("Document submission notifications sent to {Count} managers for document {DocumentId}",
@@ -95,46 +103,7 @@ namespace Notification.API.Services.Implement
                 _logger.LogError(ex, "Error sending document submission notification for document {DocumentId}", documentId);
                 throw;
             }
-                try
-                {
-                    _logger.LogInformation("Sending document rejection notification for document {DocumentId} to owner {OwnerEmail}",
-                        documentId, ownerEmail);
-
-                    // Get email template
-                    var template = await _emailTemplateService.GetEmailTemplateByNameAsync("DocumentRejected");
-                    if (template == null)
-                    {
-                        _logger.LogError("Email template 'DocumentRejected' not found");
-                        return;
-                    }
-
-                    var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
-
-                    // Get owner user info for SignalR
-                    var owner = await GetUserByEmailAsync(ownerEmail);
-
-                    await SendNotificationAsync(
-                        ownerEmail,
-                        $"[{reviewerInfo.Department}] Tài liệu '{documentTitle}' cần chỉnh sửa",
-                        template.TemplateName,
-                        documentTitle,
-                        documentVersion,
-                        DateTime.UtcNow,
-                        finalDocumentLink,
-                        ownerName,
-                        NotificationType.DocumentUpdate,
-                        documentId,
-                        documentVersion,
-                        owner);
-
-                    _logger.LogInformation("Document rejection notification sent for document {DocumentId}", documentId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error sending document rejection notification for document {DocumentId}", documentId);
-                    throw;
-                }
-            }
+        }
 
             public async Task SendDocumentPublicationNotificationAsync(
                 string documentId,
@@ -167,14 +136,23 @@ namespace Notification.API.Services.Implement
 
                     // Get department users (all users in the department)
                     var departmentUsers = await _userService.GetUsersByDepartmentAsync(Guid.Parse(departmentId));
-                    if (!departmentUsers.Any())
+                    if (departmentUsers.Count == 0)
                     {
                         _logger.LogWarning("No users found for department {DepartmentId}", departmentId);
                         return;
                     }
 
-                    // If document is public, also notify users from other departments who have access
-                    var allRecipients = new List<UserInfo>(departmentUsers);
+                    // Convert UserDto to UserInfo for consistency
+                    var allRecipients = departmentUsers.Select(u => new UserInfo
+                    {
+                        UserId = u.UserId.ToString(),
+                        Email = u.Email,
+                        Name = u.Name,
+                        Department = u.DepartmentName,
+                        DepartmentId = u.DepartmentId?.ToString(),
+                        Role = u.Role
+                    }).ToList();
+
                     if (isPublic)
                     {
                         // For public documents, we could add logic to notify other departments
@@ -190,14 +168,14 @@ namespace Notification.API.Services.Implement
                             var subject = $"[{approverInfo.Department}] Tài liệu mới '{documentTitle}' đã được phát hành";
 
                             await SendNotificationAsync(
-                                user.Email,
+                                user.Email ?? string.Empty,
                                 subject,
                                 template.TemplateName,
                                 documentTitle,
                                 documentVersion,
                                 DateTime.UtcNow,
                                 finalDocumentLink,
-                                user.Name,
+                                user.Name ?? "Unknown",
                                 NotificationType.DocumentUpdate,
                                 documentId,
                                 documentVersion,
@@ -293,14 +271,17 @@ namespace Notification.API.Services.Implement
             {
                 try
                 {
-                    await _hubContext.Clients.User(user.UserId.ToString()).SendAsync("ReceiveNotification", new
+                    if (!string.IsNullOrEmpty(user.UserId))
                     {
-                        Type = "DocumentWorkflow",
-                        Subject = subject,
-                        Message = message,
-                        Timestamp = DateTime.UtcNow,
-                        DocumentId = documentId
-                    });
+                        await _hubContext.Clients.User(user.UserId).SendAsync("ReceiveNotification", new
+                        {
+                            Type = "DocumentWorkflow",
+                            Subject = subject,
+                            Message = message,
+                            Timestamp = DateTime.UtcNow,
+                            DocumentId = documentId
+                        });
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -313,7 +294,7 @@ namespace Notification.API.Services.Implement
                 try
                 {
                     // Simple approach: get users from common roles and find by email
-                    var allUsers = new List<UserInfo>();
+                    var allUsers = new List<UserDto>();
                     var roles = new[] { "Admin", "Manager", "Editor", "Employee" };
 
                     foreach (var role in roles)
@@ -322,17 +303,18 @@ namespace Notification.API.Services.Implement
                         allUsers.AddRange(roleUsers);
                     }
 
-                    // Convert UserInfo from UserService to Utils.UserInfo
+                    // Convert UserDto from UserService to Utils.UserInfo
                     var user = allUsers.FirstOrDefault(u => u.Email.Equals(email, StringComparison.OrdinalIgnoreCase));
                     if (user != null)
                     {
                         return new UserInfo
                         {
-                            UserId = user.UserId,
+                            UserId = user.UserId.ToString(),
                             Email = user.Email,
                             Name = user.Name,
-                            Department = user.Department,
-                            DepartmentId = "", // We don't have this info from UserService
+                            Department = user.DepartmentName,
+                            DepartmentId = user.DepartmentId?.ToString(),
+                            Role = user.Role
                         };
                     }
 
@@ -452,116 +434,6 @@ namespace Notification.API.Services.Implement
                 _logger.LogError(ex, "Error sending document rejection notification for document {DocumentId}", documentId);
                 throw;
             }
-        }
-
-        private async Task SendNotificationAsync(
-            string recipientEmail,
-            string subject,
-            string templateName,
-            string documentTitle,
-            string documentVersion,
-            DateTime effectiveDate,
-            string documentLink,
-            string recipientName,
-            NotificationType notificationType,
-            string documentId,
-            string version,
-            UserDto? userInfo)
-        {
-            var dismissToken = Guid.NewGuid();
-            var dismissLink = $"https://docai.asia/api/notification/dismiss-by-token?token={dismissToken}";
-
-            var emailBody = await _emailTemplateService.RenderTemplateAsync(
-                templateName,
-                recipientEmail,
-                recipientName,
-                documentTitle,
-                documentVersion,
-                effectiveDate,
-                documentLink,
-                dismissLink);
-
-            var emailSent = await _emailService.SendEmailAsync(recipientEmail, subject, emailBody);
-
-            var log = new NotificationLog
-            {
-                DocumentId = documentId,
-                DocumentVersion = version,
-                NotificationType = notificationType,
-                RecipientType = RecipientType.Email,
-                RecipientAddress = recipientEmail,
-                Subject = subject,
-                Message = emailBody,
-                IsSent = emailSent,
-                SentAt = emailSent ? DateTime.UtcNow : null,
-                DismissToken = dismissToken,
-                ErrorMessage = emailSent ? null : "Failed to send email notification"
-            };
-
-            await _logService.CreateLogAsync(log);
-
-            if (userInfo != null)
-            {
-                await SendSignalRNotificationAsync(
-                    userInfo,
-                    subject,
-                    GetSystemNotificationMessage(notificationType, documentTitle),
-                    Guid.Parse(documentId));
-            }
-        }
-
-        private async Task SendSignalRNotificationAsync(
-            UserDto user,
-            string subject,
-            string message,
-            Guid documentId)
-        {
-            try
-            {
-                await _hubContext.Clients.User(user.UserId.ToString()).SendAsync("ReceiveNotification", new
-                {
-                    Type = "DocumentWorkflow",
-                    Subject = subject,
-                    Message = message,
-                    Timestamp = DateTime.UtcNow,
-                    DocumentId = documentId
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error sending SignalR notification to user {UserId}", user.UserId);
-            }
-        }
-
-        private async Task<UserDto?> GetUserByEmailAsync(string email)
-        {
-            try
-            {
-                var allUsers = new List<UserDto>();
-                var roles = new[] { "Admin", "Manager", "Editor", "Employee" };
-
-                foreach (var role in roles)
-                {
-                    var roleUsers = await _userService.GetUsersByRoleAsync(role);
-                    allUsers.AddRange(roleUsers);
-                }
-
-                return allUsers.FirstOrDefault(u => u.Email.Equals(email, StringComparison.OrdinalIgnoreCase));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting user by email {Email}", email);
-                return null;
-            }
-        }
-
-        private static string GetSystemNotificationMessage(NotificationType type, string documentTitle)
-        {
-            return type switch
-            {
-                NotificationType.DocumentUpdate => $"Document workflow update for '{documentTitle}'",
-                _ => "Document workflow notification"
-            };
         }
     }
 }

@@ -1,6 +1,7 @@
 using MassTransit;
 using Notification.API.Services.Interfaces;
 using Notification.API.Payload.Response;
+using Notification.API.Utils;
 using Shared.Commands;
 
 namespace Notification.API.Consumers
@@ -32,7 +33,7 @@ namespace Notification.API.Consumers
 
                 var approverInfo = new UserInfo
                 {
-                    UserId = command.ApproverId,
+                    UserId = command.ApproverId.ToString(),
                     Email = command.ApproverEmail,
                     Name = command.ApproverName,
                     Department = command.DepartmentName
