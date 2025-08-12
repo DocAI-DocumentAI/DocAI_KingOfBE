@@ -346,6 +346,8 @@ namespace Document.API.Services.Implements
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.NotPendingApproval, versionToReview.Status));
 
             // BR-221: Check if document is claimed by another manager
+            // COMMENTED OUT: Claim check for review - allowing direct approval/rejection without claiming
+            /*
             var existingClaim = await _unitOfWork.GetRepository<ApprovalClaim>()
                 .SingleOrDefaultAsync(predicate: ac => ac.DocumentVersionId == versionId && ac.IsActive);
 
@@ -361,6 +363,7 @@ namespace Document.API.Services.Implements
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,
                     "Document must be claimed for review before approval/rejection actions can be taken (BR-221)");
             }
+            */
 
             ApprovalAction logAction;
 
@@ -1067,7 +1070,7 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                var thirtyMinutesAgo = DateTime.UtcNow.AddMinutes(-30);
+                var thirtyMinutesAgo = DateTime.UtcNow.AddMinutes(-10);
                 var inactiveClaims = await _unitOfWork.GetRepository<ApprovalClaim>()
                     .GetListAsync(
                         predicate: ac => ac.IsActive && ac.LastUpdatedTime.HasValue && ac.LastUpdatedTime.Value <= thirtyMinutesAgo,
