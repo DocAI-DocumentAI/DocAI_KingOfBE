@@ -40,17 +40,30 @@ namespace Notification.API.Services.Implement
         }
 
         public async Task SendDocumentSubmissionNotificationAsync(
-            string documentId,
-            string documentTitle,
-            string documentVersion,
-            UserDto submitterInfo,
-            Guid departmentId,
-            string? documentLink = null)
+               string documentId,
+               string documentTitle,
+               string documentVersion,
+               UserDto submitterInfo,
+               Guid departmentId,
+               string? documentLink = null)
         {
             try
             {
-                _logger.LogInformation("Sending document submission notification for document {DocumentId} to department {DepartmentId}",
-                    documentId, departmentId);
+                _logger.LogInformation("Sending document submission notification for document {DocumentId} by {SubmitterName} from {DepartmentName}",
+                    documentId, submitterInfo.Name, submitterInfo.DepartmentName);
+
+                // ✅ FIX: Validate required information
+                if (string.IsNullOrEmpty(documentTitle))
+                {
+                    _logger.LogError("Document title is empty for document {DocumentId}", documentId);
+                    return;
+                }
+
+                if (string.IsNullOrEmpty(submitterInfo.Name))
+                {
+                    _logger.LogError("Submitter name is empty for document {DocumentId}", documentId);
+                    return;
+                }
 
                 var managers = await _userService.GetDepartmentManagersAsync(departmentId);
                 if (managers.Count == 0)
@@ -67,33 +80,38 @@ namespace Notification.API.Services.Implement
                 }
 
                 var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
+                var submissionDate = DateTime.UtcNow;
 
-                foreach (var manager in managers)
+                // ✅ FIX: Prevent duplicate notifications with tracking
+                var notificationTasks = managers.Select(async manager =>
                 {
-                    var managerInfo = new UserInfo
+                    try
                     {
-                        UserId = manager.UserId.ToString(),
-                        Email = manager.Email,
-                        Name = manager.Name,
-                        Department = manager.DepartmentName,
-                        DepartmentId = manager.DepartmentId?.ToString(),
-                        Role = manager.Role
-                    };
+                        await SendDocumentWorkflowNotificationAsync(
+                            manager.Email,
+                            manager.Name,
+                            $"[{submitterInfo.DepartmentName}] Tài liệu '{documentTitle}' cần duyệt",
+                            template.TemplateName,
+                            documentTitle,
+                            documentVersion,
+                            submitterInfo.Name,
+                            submitterInfo.DepartmentName ?? "Unknown Department",
+                            submissionDate,
+                            finalDocumentLink,
+                            NotificationType.DocumentUpdate,
+                            documentId,
+                            documentVersion,
+                            manager.UserId);
 
-                    await SendNotificationAsync(
-                        manager.Email,
-                        $"[{submitterInfo.DepartmentName}] Tài liệu '{documentTitle}' cần duyệt",
-                        template.TemplateName,
-                        documentTitle,
-                        documentVersion,
-                        DateTime.UtcNow,
-                        finalDocumentLink,
-                        manager.Name,
-                        NotificationType.DocumentUpdate,
-                        documentId,
-                        documentVersion,
-                        managerInfo);
-                }
+                        _logger.LogDebug("Document submission notification sent to manager {ManagerEmail}", manager.Email);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to send document submission notification to manager {ManagerEmail}", manager.Email);
+                    }
+                });
+
+                await Task.WhenAll(notificationTasks);
 
                 _logger.LogInformation("Document submission notifications sent to {Count} managers for document {DocumentId}",
                     managers.Count, documentId);
@@ -105,132 +123,275 @@ namespace Notification.API.Services.Implement
             }
         }
 
-            public async Task SendDocumentPublicationNotificationAsync(
-                string documentId,
-                string documentTitle,
-                string documentVersion,
-                UserInfo approverInfo,
-                string departmentId,
-                bool isPublic,
-                string documentTypeId,
-                string? documentTypeName = null,
-                DateTime? effectiveFrom = null,
-                DateTime? effectiveUntil = null,
-                List<string>? tags = null,
-                string? documentLink = null)
+        public async Task SendDocumentApprovalNotificationAsync(
+         string documentId,
+         string documentTitle,
+         string documentVersion,
+         string ownerEmail,
+         string ownerName,
+         UserDto approverInfo,
+         string? comments = null,
+         string? documentLink = null)
+        {
+            try
             {
-                try
+                _logger.LogInformation("Sending document approval notification for document {DocumentId} to owner {OwnerEmail}",
+                    documentId, ownerEmail);
+
+                // ✅ FIX: Validate required information
+                if (string.IsNullOrEmpty(ownerEmail) || string.IsNullOrEmpty(ownerName))
                 {
-                    _logger.LogInformation("Sending document publication notification for document {DocumentId} to department {DepartmentId}",
-                        documentId, departmentId);
-
-                    // Get email template
-                    var template = await _emailTemplateService.GetEmailTemplateByNameAsync("DocumentPublished");
-                    if (template == null)
-                    {
-                        _logger.LogError("Email template 'DocumentPublished' not found");
-                        return;
-                    }
-
-                    var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
-
-                    // Get department users (all users in the department)
-                    var departmentUsers = await _userService.GetUsersByDepartmentAsync(Guid.Parse(departmentId));
-                    if (departmentUsers.Count == 0)
-                    {
-                        _logger.LogWarning("No users found for department {DepartmentId}", departmentId);
-                        return;
-                    }
-
-                    // Convert UserDto to UserInfo for consistency
-                    var allRecipients = departmentUsers.Select(u => new UserInfo
-                    {
-                        UserId = u.UserId.ToString(),
-                        Email = u.Email,
-                        Name = u.Name,
-                        Department = u.DepartmentName,
-                        DepartmentId = u.DepartmentId?.ToString(),
-                        Role = u.Role
-                    }).ToList();
-
-                    if (isPublic)
-                    {
-                        // For public documents, we could add logic to notify other departments
-                        // For now, we'll just notify the document's department
-                        _logger.LogInformation("Document {DocumentId} is public, but currently only notifying department {DepartmentId}", documentId, departmentId);
-                    }
-
-                    // Send notifications to all recipients
-                    var notificationTasks = allRecipients.Select(async user =>
-                    {
-                        try
-                        {
-                            var subject = $"[{approverInfo.Department}] Tài liệu mới '{documentTitle}' đã được phát hành";
-
-                            await SendNotificationAsync(
-                                user.Email ?? string.Empty,
-                                subject,
-                                template.TemplateName,
-                                documentTitle,
-                                documentVersion,
-                                DateTime.UtcNow,
-                                finalDocumentLink,
-                                user.Name ?? "Unknown",
-                                NotificationType.DocumentUpdate,
-                                documentId,
-                                documentVersion,
-                                user);
-
-                            _logger.LogDebug("Document publication notification sent to {UserEmail} for document {DocumentId}", user.Email, documentId);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Error sending document publication notification to {UserEmail} for document {DocumentId}", user.Email, documentId);
-                        }
-                    });
-
-                    await Task.WhenAll(notificationTasks);
-
-                    _logger.LogInformation("Document publication notification sent to {UserCount} users in department {DepartmentId} for document {DocumentId}",
-                        allRecipients.Count, departmentId, documentId);
+                    _logger.LogError("Owner information is incomplete for document {DocumentId}", documentId);
+                    return;
                 }
-                catch (Exception ex)
+
+                var template = await _emailTemplateService.GetEmailTemplateByNameAsync("DocumentApproved");
+                if (template == null)
                 {
-                    _logger.LogError(ex, "Error sending document publication notification for document {DocumentId}", documentId);
-                    throw;
+                    _logger.LogError("Email template 'DocumentApproved' not found");
+                    return;
                 }
-            }
 
-            /// <summary>
-            /// Helper method to send both email and system notifications
-            /// </summary>
-            private async Task SendNotificationAsync(
-                string recipientEmail,
-                string subject,
-                string templateName,
-                string documentTitle,
-                string documentVersion,
-                DateTime effectiveDate,
-                string documentLink,
-                string recipientName,
-                NotificationType notificationType,
-                string documentId,
-                string version,
-                UserInfo? userInfo)
-            {
-                var dismissToken = Guid.NewGuid();
-                var dismissLink = $"https://docai.asia/api/notification/dismiss-by-token?token={dismissToken}";
+                var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
+                var approvalDate = DateTime.UtcNow;
 
-                // Render email content
-                var emailBody = await _emailTemplateService.RenderTemplateAsync(
-                    templateName,
-                    recipientEmail,
-                    recipientName,
+                await SendDocumentWorkflowNotificationAsync(
+                    ownerEmail,
+                    ownerName,
+                    $"[{approverInfo.DepartmentName}] Tài liệu '{documentTitle}' đã được duyệt",
+                    template.TemplateName,
                     documentTitle,
                     documentVersion,
-                    effectiveDate,
-                    documentLink,
-                    dismissLink);
+                    approverInfo.Name,
+                    approverInfo.DepartmentName ?? "Unknown Department",
+                    approvalDate,
+                    finalDocumentLink,
+                    NotificationType.DocumentUpdate,
+                    documentId,
+                    documentVersion,
+                    null,
+                    comments);
+
+                _logger.LogInformation("Document approval notification sent for document {DocumentId}", documentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending document approval notification for document {DocumentId}", documentId);
+                throw;
+            }
+        }
+        public async Task SendDocumentRejectionNotificationAsync(
+           string documentId,
+           string documentTitle,
+           string documentVersion,
+           string ownerEmail,
+           string ownerName,
+           UserDto reviewerInfo,
+           string rejectionComments,
+           string? documentLink = null)
+        {
+            try
+            {
+                _logger.LogInformation("Sending document rejection notification for document {DocumentId} to owner {OwnerEmail}",
+                    documentId, ownerEmail);
+
+                // ✅ FIX: Validate required information
+                if (string.IsNullOrEmpty(ownerEmail) || string.IsNullOrEmpty(ownerName))
+                {
+                    _logger.LogError("Owner information is incomplete for document {DocumentId}", documentId);
+                    return;
+                }
+
+                var template = await _emailTemplateService.GetEmailTemplateByNameAsync("DocumentRejected");
+                if (template == null)
+                {
+                    _logger.LogError("Email template 'DocumentRejected' not found");
+                    return;
+                }
+
+                var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
+                var rejectionDate = DateTime.UtcNow;
+
+                await SendDocumentWorkflowNotificationAsync(
+                    ownerEmail,
+                    ownerName,
+                    $"[{reviewerInfo.DepartmentName}] Tài liệu '{documentTitle}' cần chỉnh sửa",
+                    template.TemplateName,
+                    documentTitle,
+                    documentVersion,
+                    reviewerInfo.Name,
+                    reviewerInfo.DepartmentName ?? "Unknown Department",
+                    rejectionDate,
+                    finalDocumentLink,
+                    NotificationType.DocumentUpdate,
+                    documentId,
+                    documentVersion,
+                    null,
+                    rejectionComments);
+
+                _logger.LogInformation("Document rejection notification sent for document {DocumentId}", documentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending document rejection notification for document {DocumentId}", documentId);
+                throw;
+            }
+        }
+        public async Task SendDocumentPublicationNotificationAsync(
+          string documentId,
+          string documentTitle,
+          string documentVersion,
+          UserInfo approverInfo,
+          string departmentId,
+          bool isPublic,
+          string documentTypeId,
+          string? documentTypeName = null,
+          DateTime? effectiveFrom = null,
+          DateTime? effectiveUntil = null,
+          List<string>? tags = null,
+          string? documentLink = null)
+        {
+            try
+            {
+                _logger.LogInformation("Sending document publication notification for document {DocumentId} to department {DepartmentId}",
+                    documentId, departmentId);
+
+                var template = await _emailTemplateService.GetEmailTemplateByNameAsync("DocumentPublished");
+                if (template == null)
+                {
+                    _logger.LogError("Email template 'DocumentPublished' not found");
+                    return;
+                }
+
+                var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
+                var publicationDate = DateTime.UtcNow;
+
+                var recipients = new List<UserDto>();
+
+                // ✅ FIX: Get department users
+                if (Guid.TryParse(departmentId, out var deptGuid))
+                {
+                    var departmentUsers = await _userService.GetUsersByDepartmentAsync(deptGuid);
+                    recipients.AddRange(departmentUsers);
+                }
+
+                // ✅ FIX: For public documents, notify all company
+                if (isPublic)
+                {
+                    var allEmployees = await _userService.GetUsersByRoleAsync("Employee");
+                    var allManagers = await _userService.GetUsersByRoleAsync("Manager");
+                    var allEditors = await _userService.GetUsersByRoleAsync("Editor");
+
+                    recipients.AddRange(allEmployees);
+                    recipients.AddRange(allManagers);
+                    recipients.AddRange(allEditors);
+                }
+
+                // Remove duplicates
+                var uniqueRecipients = recipients
+                    .Where(u => !string.IsNullOrEmpty(u.Email))
+                    .GroupBy(u => u.Email.ToLower())
+                    .Select(g => g.First())
+                    .ToList();
+
+                if (uniqueRecipients.Count == 0)
+                {
+                    _logger.LogWarning("No recipients found for document publication {DocumentId}", documentId);
+                    return;
+                }
+
+                // ✅ FIX: Send notifications concurrently but prevent duplicates
+                var notificationTasks = uniqueRecipients.Select(async user =>
+                {
+                    try
+                    {
+                        var subject = $"[{approverInfo.Department}] Tài liệu mới '{documentTitle}' đã được phát hành";
+
+                        await SendDocumentWorkflowNotificationAsync(
+                            user.Email,
+                            user.Name,
+                            subject,
+                            template.TemplateName,
+                            documentTitle,
+                            documentVersion,
+                            approverInfo.Name ?? "Unknown Approver",
+                            approverInfo.Department ?? "Unknown Department",
+                            publicationDate,
+                            finalDocumentLink,
+                            NotificationType.DocumentUpdate,
+                            documentId,
+                            documentVersion,
+                            user.UserId);
+
+                        _logger.LogDebug("Document publication notification sent to {UserEmail}", user.Email);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to send document publication notification to {UserEmail}", user.Email);
+                    }
+                });
+
+                await Task.WhenAll(notificationTasks);
+
+                _logger.LogInformation("Document publication notification sent to {UserCount} users for document {DocumentId}",
+                    uniqueRecipients.Count, documentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending document publication notification for document {DocumentId}", documentId);
+                throw;
+            }
+        }
+        /// <summary>
+        /// ✅ FIXED: Enhanced method to send document workflow notifications with all required information
+        /// </summary>
+        private async Task SendDocumentWorkflowNotificationAsync(
+            string recipientEmail,
+            string recipientName,
+            string subject,
+            string templateName,
+            string documentTitle,
+            string documentVersion,
+            string submitterName,
+            string departmentName,
+            DateTime submissionDate,
+            string documentLink,
+            NotificationType notificationType,
+            string documentId,
+            string version,
+            Guid? userId = null,
+            string? comments = null)
+        {
+            var dismissToken = Guid.NewGuid();
+            var dismissLink = $"https://docai.asia/api/notification/dismiss-by-token?token={dismissToken}";
+
+            try
+            {
+                // ✅ FIX: Use existing RenderTemplateAsync but with enhanced content replacement
+                var template = await _emailTemplateService.GetEmailTemplateByNameAsync(templateName);
+                if (template == null)
+                {
+                    _logger.LogError("Template '{TemplateName}' not found", templateName);
+                    return;
+                }
+
+                // ✅ FIX: Replace ALL placeholders manually to ensure no missing info
+                var emailBody = template.BodyHtml
+                    .Replace("{{RecipientEmail}}", SanitizeValue(recipientEmail))
+                    .Replace("{{RecipientName}}", SanitizeValue(recipientName))
+                    .Replace("{{UserEmail}}", SanitizeValue(recipientEmail))
+                    .Replace("{{UserName}}", SanitizeValue(recipientName))
+                    .Replace("{{DocumentTitle}}", SanitizeValue(documentTitle))
+                    .Replace("{{DocumentVersion}}", SanitizeValue(documentVersion))
+                    .Replace("{{SubmitterName}}", SanitizeValue(submitterName))
+                    .Replace("{{SubmittedBy}}", SanitizeValue(submitterName))
+                    .Replace("{{DepartmentName}}", SanitizeValue(departmentName))
+                    .Replace("{{SubmissionDate}}", submissionDate.ToString("dd/MM/yyyy HH:mm"))
+                    .Replace("{{SubmittedDate}}", submissionDate.ToString("dd/MM/yyyy"))
+                    .Replace("{{DocumentLink}}", SanitizeValue(documentLink))
+                    .Replace("{{DismissLink}}", SanitizeValue(dismissLink))
+                    .Replace("{{Comments}}", SanitizeValue(comments) ?? "Không có ghi chú")
+                    .Replace("{{EffectiveUntil}}", "N/A"); // Default for workflow notifications
 
                 var emailSent = await _emailService.SendEmailAsync(recipientEmail, subject, emailBody);
 
@@ -252,188 +413,75 @@ namespace Notification.API.Services.Implement
 
                 await _logService.CreateLogAsync(log);
 
-                // Send SignalR notification if we have user info
-                if (userInfo != null)
+                // ✅ FIX: Send SignalR notification with correct userId format
+                if (userId.HasValue)
                 {
                     await SendSignalRNotificationAsync(
-                        userInfo,
+                        userId.Value,
                         subject,
                         GetSystemNotificationMessage(notificationType, documentTitle),
                         Guid.Parse(documentId));
                 }
-            }
 
-            private async Task SendSignalRNotificationAsync(
-                UserInfo user,
-                string subject,
-                string message,
-                Guid documentId)
-            {
-                try
-                {
-                    if (!string.IsNullOrEmpty(user.UserId))
-                    {
-                        await _hubContext.Clients.User(user.UserId).SendAsync("ReceiveNotification", new
-                        {
-                            Type = "DocumentWorkflow",
-                            Subject = subject,
-                            Message = message,
-                            Timestamp = DateTime.UtcNow,
-                            DocumentId = documentId
-                        });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error sending SignalR notification to user {UserId}", user.UserId);
-                }
-            }
-
-            private async Task<UserInfo?> GetUserByEmailAsync(string email)
-            {
-                try
-                {
-                    // Simple approach: get users from common roles and find by email
-                    var allUsers = new List<UserDto>();
-                    var roles = new[] { "Admin", "Manager", "Editor", "Employee" };
-
-                    foreach (var role in roles)
-                    {
-                        var roleUsers = await _userService.GetUsersByRoleAsync(role);
-                        allUsers.AddRange(roleUsers);
-                    }
-
-                    // Convert UserDto from UserService to Utils.UserInfo
-                    var user = allUsers.FirstOrDefault(u => u.Email.Equals(email, StringComparison.OrdinalIgnoreCase));
-                    if (user != null)
-                    {
-                        return new UserInfo
-                        {
-                            UserId = user.UserId.ToString(),
-                            Email = user.Email,
-                            Name = user.Name,
-                            Department = user.DepartmentName,
-                            DepartmentId = user.DepartmentId?.ToString(),
-                            Role = user.Role
-                        };
-                    }
-
-                    return null;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error getting user by email {Email}", email);
-                    return null;
-                }
-            }
-
-            /// <summary>
-            /// Generate system notification message based on notification type
-            /// </summary>
-            private static string GetSystemNotificationMessage(NotificationType type, string documentTitle)
-            {
-                return type switch
-                {
-                    NotificationType.DocumentUpdate => $"Document workflow update for '{documentTitle}'",
-                    _ => "Document workflow notification"
-                };
-            }
-        
-
-        public async Task SendDocumentApprovalNotificationAsync(
-            string documentId,
-            string documentTitle,
-            string documentVersion,
-            string ownerEmail,
-            string ownerName,
-            UserDto approverInfo,
-            string? comments = null,
-            string? documentLink = null)
-        {
-            try
-            {
-                _logger.LogInformation("Sending document approval notification for document {DocumentId} to owner {OwnerEmail}",
-                    documentId, ownerEmail);
-
-                var template = await _emailTemplateService.GetEmailTemplateByNameAsync("DocumentApproved");
-                if (template == null)
-                {
-                    _logger.LogError("Email template 'DocumentApproved' not found");
-                    return;
-                }
-
-                var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
-                var owner = await GetUserByEmailAsync(ownerEmail);
-
-                await SendNotificationAsync(
-                    ownerEmail,
-                    $"[{approverInfo.DepartmentName}] Tài liệu '{documentTitle}' đã được duyệt",
-                    template.TemplateName,
-                    documentTitle,
-                    documentVersion,
-                    DateTime.UtcNow,
-                    finalDocumentLink,
-                    ownerName,
-                    NotificationType.DocumentUpdate,
-                    documentId,
-                    documentVersion,
-                    owner);
-
-                _logger.LogInformation("Document approval notification sent for document {DocumentId}", documentId);
+                _logger.LogDebug("Document workflow notification sent to {RecipientEmail} for document {DocumentId}",
+                    recipientEmail, documentId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending document approval notification for document {DocumentId}", documentId);
+                _logger.LogError(ex, "Error sending document workflow notification to {RecipientEmail}", recipientEmail);
                 throw;
             }
         }
+        /// <summary>
+        /// ✅ NEW: Safe string sanitization method
+        /// </summary>
+        private static string SanitizeValue(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "[Không có thông tin]";
 
-        public async Task SendDocumentRejectionNotificationAsync(
-            string documentId,
-            string documentTitle,
-            string documentVersion,
-            string ownerEmail,
-            string ownerName,
-            UserDto reviewerInfo,
-            string rejectionComments,
-            string? documentLink = null)
+            return value.Replace("<", "&lt;").Replace(">", "&gt;").Trim();
+        }
+
+        /// <summary>
+        /// ✅ FIX: SignalR notification with proper userId handling
+        /// </summary>
+        private async Task SendSignalRNotificationAsync(
+            Guid userId,
+            string subject,
+            string message,
+            Guid documentId)
         {
             try
             {
-                _logger.LogInformation("Sending document rejection notification for document {DocumentId} to owner {OwnerEmail}",
-                    documentId, ownerEmail);
-
-                var template = await _emailTemplateService.GetEmailTemplateByNameAsync("DocumentRejected");
-                if (template == null)
+                // ✅ FIX: Convert Guid to string for SignalR
+                await _hubContext.Clients.User(userId.ToString()).SendAsync("ReceiveNotification", new
                 {
-                    _logger.LogError("Email template 'DocumentRejected' not found");
-                    return;
-                }
+                    Type = "DocumentWorkflow",
+                    Subject = subject,
+                    Message = message,
+                    Timestamp = DateTime.UtcNow,
+                    DocumentId = documentId
+                });
 
-                var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
-                var owner = await GetUserByEmailAsync(ownerEmail);
-
-                await SendNotificationAsync(
-                    ownerEmail,
-                    $"[{reviewerInfo.DepartmentName}] Tài liệu '{documentTitle}' cần chỉnh sửa",
-                    template.TemplateName,
-                    documentTitle,
-                    documentVersion,
-                    DateTime.UtcNow,
-                    finalDocumentLink,
-                    ownerName,
-                    NotificationType.DocumentUpdate,
-                    documentId,
-                    documentVersion,
-                    owner);
-
-                _logger.LogInformation("Document rejection notification sent for document {DocumentId}", documentId);
+                _logger.LogDebug("SignalR notification sent to user {UserId}", userId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending document rejection notification for document {DocumentId}", documentId);
-                throw;
+                _logger.LogError(ex, "Error sending SignalR notification to user {UserId}", userId);
             }
+        }
+
+        /// <summary>
+        /// Generate system notification message based on notification type
+        /// </summary>
+        private static string GetSystemNotificationMessage(NotificationType type, string documentTitle)
+        {
+            return type switch
+            {
+                NotificationType.DocumentUpdate => $"Document workflow update for '{documentTitle}'",
+                _ => "Document workflow notification"
+            };
         }
     }
 }

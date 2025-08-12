@@ -20,7 +20,7 @@ using Quartz;
 using Serilog;
 using Shared.Command;
 
-namespace Auth.API.Extensions;
+namespace Notification.API.Extensions;
 
 public static class DependencyService
 {
@@ -208,7 +208,12 @@ public static class DependencyService
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
                     e.UseInMemoryOutbox();
                 });
-
+                mqConfig.ReceiveEndpoint("document-publication-notifications-queue", e =>
+                {
+                    e.ConfigureConsumer<DocumentPublicationNotificationConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
                 // Configure endpoint for document expiration processing
                 mqConfig.ReceiveEndpoint("document-expiration-queue", e =>
                 {

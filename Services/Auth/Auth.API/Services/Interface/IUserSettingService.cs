@@ -7,7 +7,6 @@ namespace Auth.API.Services.Interface
         Task<UserSetting?> GetUserSettingByUserIdAsync(Guid userId);
         Task<UserSetting> CreateOrUpdateUserSettingAsync(Guid userId, UserSetting setting);
         Task<bool> UpdateNotificationPreferencesAsync(Guid userId, bool notificationsEnabled);
-        Task<Dictionary<Guid, string>> GetDepartmentNamesByIdsAsync(List<Guid> departmentIds);
 
     }
 }

@@ -18,17 +18,20 @@ namespace Document.API.Services.Implements
         private readonly IMapper _mapper;
         private readonly ILogger<DocumentExpirationService> _logger;
         private readonly IRequestClient<GetDepartmentNamesCommand> _departmentClient;
+        private readonly IRequestClient<GetUserByIdCommand> _userClient;
 
         public DocumentExpirationService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
             ILogger<DocumentExpirationService> logger,
-            IRequestClient<GetDepartmentNamesCommand> departmentClient)
+            IRequestClient<GetDepartmentNamesCommand> departmentClient,
+            IRequestClient<GetUserByIdCommand> userClient)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _logger = logger;
             _departmentClient = departmentClient;
+            _userClient = userClient;
         }
 
         public async Task<List<DocumentExpirationDto>> GetExpiringDocumentsAsync(DateTime warningDate)
@@ -56,7 +59,6 @@ namespace Document.API.Services.Implements
                 .Where(id => id != Guid.Empty)
                 .Distinct()
                 .ToList();
-
             // Get department names from Auth service
             var departmentNames = await GetDepartmentNamesAsync(departmentIds);
 

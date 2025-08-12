@@ -110,23 +110,82 @@ namespace Notification.API.Services.Implement
             return true;
         }
 
-        public async Task<string> RenderTemplateAsync(string templateName, string userEmail, string userName,
-            string documentTitle, string documentVersion, DateTime? effectiveUntil, string documentLink, string dismissLink)
+        public async Task<string> RenderTemplateAsync(
+           string templateName,
+           string userEmail,
+           string userName,
+           string documentTitle,
+           string documentVersion,
+           DateTime? effectiveUntil,
+           string documentLink,
+           string dismissLink)
         {
             var template = await GetEmailTemplateByNameAsync(templateName);
             if (template == null)
                 throw new BadHttpRequestException($"Template '{templateName}' not found");
 
+            // ✅ FIX: Safe string replacement with null handling
             var content = template.BodyHtml
-                .Replace("{{UserEmail}}", userEmail)
-                .Replace("{{UserName}}", userName)
-                .Replace("{{DocumentTitle}}", documentTitle)
-                .Replace("{{DocumentVersion}}", documentVersion)
+                .Replace("{{UserEmail}}", SanitizeValue(userEmail))
+                .Replace("{{UserName}}", SanitizeValue(userName))
+                .Replace("{{DocumentTitle}}", SanitizeValue(documentTitle))
+                .Replace("{{DocumentVersion}}", SanitizeValue(documentVersion))
                 .Replace("{{EffectiveUntil}}", effectiveUntil?.ToString("dd/MM/yyyy") ?? "N/A")
-                .Replace("{{DocumentLink}}", documentLink)
-                .Replace("{{DismissLink}}", dismissLink);
+                .Replace("{{DocumentLink}}", SanitizeValue(documentLink))
+                .Replace("{{DismissLink}}", SanitizeValue(dismissLink));
 
             return content;
+        }
+
+        // ✅ NEW: Enhanced template rendering for document workflow with more parameters
+        public async Task<string> RenderDocumentWorkflowTemplateAsync(
+            string templateName,
+            string recipientEmail,
+            string recipientName,
+            string documentTitle,
+            string documentVersion,
+            string submitterName,
+            string departmentName,
+            DateTime submissionDate,
+            string documentLink,
+            string dismissLink,
+            string? comments = null)
+        {
+            var template = await GetEmailTemplateByNameAsync(templateName);
+            if (template == null)
+                throw new BadHttpRequestException($"Template '{templateName}' not found");
+
+            // ✅ FIX: Comprehensive template rendering with all workflow information
+            var content = template.BodyHtml
+                .Replace("{{RecipientEmail}}", SanitizeValue(recipientEmail))
+                .Replace("{{RecipientName}}", SanitizeValue(recipientName))
+                .Replace("{{UserEmail}}", SanitizeValue(recipientEmail))  // Backward compatibility
+                .Replace("{{UserName}}", SanitizeValue(recipientName))    // Backward compatibility
+                .Replace("{{DocumentTitle}}", SanitizeValue(documentTitle))
+                .Replace("{{DocumentVersion}}", SanitizeValue(documentVersion))
+                .Replace("{{SubmitterName}}", SanitizeValue(submitterName))
+                .Replace("{{SubmittedBy}}", SanitizeValue(submitterName))  // Alternative placeholder
+                .Replace("{{DepartmentName}}", SanitizeValue(departmentName))
+                .Replace("{{SubmissionDate}}", submissionDate.ToString("dd/MM/yyyy HH:mm"))
+                .Replace("{{SubmittedDate}}", submissionDate.ToString("dd/MM/yyyy"))  // Alternative format
+                .Replace("{{DocumentLink}}", SanitizeValue(documentLink))
+                .Replace("{{DismissLink}}", SanitizeValue(dismissLink))
+                .Replace("{{Comments}}", SanitizeValue(comments) ?? "Không có ghi chú");
+
+            _logger.LogDebug("Rendered template {TemplateName} for {RecipientEmail} with document {DocumentTitle}",
+                templateName, recipientEmail, documentTitle);
+
+            return content;
+        }
+
+        // ✅ NEW: Safe string sanitization
+        private static string SanitizeValue(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "[Không có thông tin]";
+
+            // Basic HTML encoding for safety
+            return value.Replace("<", "&lt;").Replace(">", "&gt;").Trim();
         }
     }
 }
