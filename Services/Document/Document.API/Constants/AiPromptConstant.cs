@@ -14,34 +14,45 @@ public static class AiPromptConstant
         /// Comprehensive prompt for extracting document metadata in JSON format
         /// </summary>
         public const string MetadataExtractionPrompt = @"Phân tích tài liệu và trả về một đối tượng JSON duy nhất với các khóa sau:
-- ""title"": string — tiêu đề chính thức của tài liệu.
-- ""versionName"": string — mã số/số hiệu tài liệu (bao gồm loại văn bản + mã/ký hiệu).
-  Vị trí: thường ở 10–25 dòng đầu tiên, trong phần tiêu đề/đầu trang.
-  Mẫu thường gặp (không giới hạn):
-  * ""Luật số: 80/2025/QH15""
-  * ""Nghị định số: 123/2024/NĐ-CP""
-  * ""Thông tư số 45/2023/TT-BTC""
-  * ""Quyết định số: 789/2024/QĐ-TTg""
-  * ""Chỉ thị số: 15/2024/CT-TTg""
-  * ""Công văn số: 123/UBND-TH""
-  * ""QCVN 01:2023/BYT"", ""TCVN 7450:2004""
-  * ""Decision No. 12/2023/QD-TTg"", ""Decree No. 10/2024/ND-CP"", ""Circular No. 45/2023/TT-BTC""
-  Quy tắc trích xuất:
-  * Bao gồm đầy đủ tiền tố loại văn bản và từ ""số"" (nếu có) cùng toàn bộ mã/ký hiệu.
-  * KHÔNG kèm phần mô tả/đơn vị phát hành theo sau (vd: ""của Bộ Tài chính"", ""ban hành kèm theo..."" ).
-  * Không nhầm với ngày tháng (dd/mm/yyyy, yyyy-mm-dd) hoặc số trang.
-  * Nếu có nhiều mã, ưu tiên mã xuất hiện sớm nhất ở phần đầu tài liệu.
+- ""title"": string — tiêu đề của tài liệu (required).
+- ""versionName"": string — mã số/số hiệu tài liệu (bao gồm loại văn bản + mã/ký hiệu) (required).
 - ""description"": string — Tạo mô tả rõ ràng, ngắn gọn (2-3 câu) giải thích tài liệu này về gì, mục đích chính và đối tượng ảnh hưởng. Tập trung vào mục tiêu và phạm vi của tài liệu.
 - ""signedBy"": string — người ký văn bản ở phần CUỐI tài liệu (khối chữ ký). Bao gồm tên và (nếu có) chức danh.
-  Dấu hiệu: ""Ký tên:"", ""Người ký:"", ""Bộ trưởng:"", ""Thủ tướng:"", ""Chủ tịch:"", ""Giám đốc:"", ""Tổng Giám đốc:"", các tiền tố ""KT."", ""TM."", ""TL.""; tiếng Anh: ""Signed by:"", ""Director:"", ""Minister:"", ""Prime Minister:"", ""Chairman:"".
   Quy tắc trích xuất:
-  * Nếu thấy mẫu ""<Chức danh>: <Tên>"", trả về ""<Tên> (<Chức danh>)"".
-  * Với ""KT.""/""TM.""/""TL."": bỏ tiền tố này; nếu tên nằm cùng dòng hoặc ngay dưới chức danh, trả về ""<Tên> (<Chức danh>)"".
   * Nếu chỉ có chức danh mà không rõ tên, trả về chính chức danh.
-  * Bỏ các cụm không phải tên: ""Đã ký"", ""Đã ký điện tử"", ""Ký thay"", ""Nơi nhận"", ngày tháng, dấu mộc.
   * Ưu tiên tên viết HOA gần các chỉ dấu chữ ký; nếu nhiều tên, chọn tên sát chỉ dấu nhất.
-  Ví dụ: ""Nguyễn Văn A (Bộ trưởng)"", ""Trần Thị B (Giám đốc)"", ""John Doe (Chairman)"", ""Chủ tịch UBND tỉnh: Lê Văn C"".
-- ""summary"": string — tóm tắt có cấu trúc toàn diện với các điểm chính và phần bao gồm Điểm Chính, Chi Tiết Quan Trọng, Hành Động Cần Thực Hiện, và Kết Luận (tương tự định dạng Google NotebookLM).
+- ""summary"": string — Phân tích tài liệu này và tạo một bản tóm tắt có cấu trúc chi tiết bằng tiếng Việt để hỗ trợ người dùng trong quá trình tạo tài liệu. Định dạng phản hồi dưới dạng HTML với các phần sau:
+<h3>Điểm Chính</h3>
+<ul>
+<li>Liệt kê 3-5 chủ đề chính và thông tin quan trọng nhất từ tài liệu</li>
+<li>Tập trung vào các khái niệm cốt lõi và phát hiện quan trọng</li>
+<li>Làm nổi bật mục đích và phạm vi của tài liệu</li>
+</ul>
+
+<h3>Chi Tiết Quan Trọng</h3>
+<ul>
+<li>Cung cấp thông tin cụ thể: số liệu, ngày tháng, thông số kỹ thuật</li>
+<li>Đề cập đến các bên liên quan, phòng ban chịu trách nhiệm</li>
+<li>Bao gồm thông tin về quy trình hoặc thủ tục quan trọng</li>
+<li>Nêu rõ bối cảnh và thông tin nền tảng liên quan</li>
+</ul>
+
+<h3>Hành Động Cần Thực Hiện</h3>
+<ul>
+<li>Liệt kê các hành động bắt buộc, thời hạn hoặc bước tiếp theo</li>
+<li>Bao gồm yêu cầu tuân thủ hoặc thủ tục bắt buộc</li>
+<li>Đề cập đến các bước triển khai hoặc thực hiện</li>
+<li>Nếu không có hành động cụ thể, ghi: ""Không có hành động cụ thể được yêu cầu""</li>
+</ul>
+
+<h3>Kết Luận & Khuyến Nghị</h3>
+<ul>
+<li>Tóm tắt mục đích chính và kết quả của tài liệu</li>
+<li>Đưa ra các khuyến nghị hoặc hàm ý chiến lược</li>
+<li>Làm nổi bật tầm quan trọng của tài liệu đối với tổ chức</li>
+<li>Đề xuất cách sử dụng hiệu quả thông tin trong tài liệu</li>
+</ul>
+ (tương tự định dạng Google NotebookLM).
 - ""effectiveFrom"": 'yyyy-MM-dd' (hoặc null).
 - ""effectiveUntil"": 'yyyy-MM-dd' (hoặc null).
 - ""tags"": mảng tối đa 5 từ khóa liên quan.
@@ -51,21 +62,6 @@ Yêu cầu:
 - Đối với tóm tắt, sử dụng định dạng có cấu trúc với thẻ HTML như <b>, <ul>, <li> để định dạng tốt hơn.
 - Escape tất cả dấu ngoặc kép bên trong nội dung HTML/markdown (ví dụ: `\""`).
 - Chú ý đặc biệt đến phần đầu tài liệu cho versionName và phần chữ ký cho signedBy.";
-
-        /// <summary>
-        /// Fallback prompt for extracting document title when JSON parsing fails
-        /// </summary>
-        public const string TitleExtractionPrompt = "Tiêu đề của tài liệu này là gì? Chỉ trả lời bằng tiêu đề.";
-
-        /// <summary>
-        /// Fallback prompt for extracting basic document summary
-        /// </summary>
-        public const string BasicSummaryPrompt = "Cung cấp tóm tắt ngắn gọn 2-3 câu về mục đích chính của tài liệu này.";
-
-        /// <summary>
-        /// Fallback prompt for extracting document tags/keywords
-        /// </summary>
-        public const string TagsExtractionPrompt = "Liệt kê 3 từ khóa mô tả tài liệu này. Chỉ trả lời bằng các từ khóa cách nhau bởi dấu phẩy.";
     }
 
     /// <summary>
@@ -78,14 +74,14 @@ Yêu cầu:
         /// </summary>
         public const string StructuredSummaryPrompt = @"Phân tích tài liệu này và tạo một bản tóm tắt có cấu trúc chi tiết bằng tiếng Việt để hỗ trợ người dùng trong quá trình tạo tài liệu. Định dạng phản hồi dưới dạng HTML với các phần sau:
 
-<h3>📋 Điểm Chính / Key Points</h3>
+<h3>Điểm Chính</h3>
 <ul>
 <li>Liệt kê 3-5 chủ đề chính và thông tin quan trọng nhất từ tài liệu</li>
 <li>Tập trung vào các khái niệm cốt lõi và phát hiện quan trọng</li>
 <li>Làm nổi bật mục đích và phạm vi của tài liệu</li>
 </ul>
 
-<h3>📝 Chi Tiết Quan Trọng / Important Details</h3>
+<h3>Chi Tiết Quan Trọng</h3>
 <ul>
 <li>Cung cấp thông tin cụ thể: số liệu, ngày tháng, thông số kỹ thuật</li>
 <li>Đề cập đến các bên liên quan, phòng ban chịu trách nhiệm</li>
@@ -93,7 +89,7 @@ Yêu cầu:
 <li>Nêu rõ bối cảnh và thông tin nền tảng liên quan</li>
 </ul>
 
-<h3>✅ Hành Động Cần Thực Hiện / Action Items</h3>
+<h3>Hành Động Cần Thực Hiện</h3>
 <ul>
 <li>Liệt kê các hành động bắt buộc, thời hạn hoặc bước tiếp theo</li>
 <li>Bao gồm yêu cầu tuân thủ hoặc thủ tục bắt buộc</li>
@@ -101,7 +97,7 @@ Yêu cầu:
 <li>Nếu không có hành động cụ thể, ghi: ""Không có hành động cụ thể được yêu cầu""</li>
 </ul>
 
-<h3>🎯 Kết Luận & Khuyến Nghị / Conclusions & Recommendations</h3>
+<h3>Kết Luận & Khuyến Nghị</h3>
 <ul>
 <li>Tóm tắt mục đích chính và kết quả của tài liệu</li>
 <li>Đưa ra các khuyến nghị hoặc hàm ý chiến lược</li>
@@ -122,14 +118,14 @@ Yêu cầu:
         /// </summary>
         public const string RegenerateSummaryPrompt = @"Dựa trên nội dung tài liệu đã tải lên, tạo một bản tóm tắt cải tiến có cấu trúc để hỗ trợ người dùng hoàn thiện tài liệu. Sử dụng định dạng sau bằng tiếng Việt:
 
-<h3>📋 Điểm Chính / Key Points</h3>
+<h3>Điểm Chính</h3>
 <ul>
 <li>Xác định và liệt kê 3-5 điểm quan trọng nhất từ tài liệu</li>
 <li>Tập trung vào khái niệm cốt lõi, mục tiêu chính và phát hiện chủ yếu</li>
 <li>Làm rõ phạm vi và đối tượng áp dụng của tài liệu</li>
 </ul>
 
-<h3>📝 Chi Tiết Quan Trọng / Important Details</h3>
+<h3>Chi Tiết Quan Trọng</h3>
 <ul>
 <li>Bao gồm dữ liệu cụ thể, ngày tháng, số liệu hoặc thông số kỹ thuật</li>
 <li>Đề cập đến các bên liên quan chính, phòng ban hoặc người chịu trách nhiệm</li>
@@ -137,7 +133,7 @@ Yêu cầu:
 <li>Nêu rõ các điều kiện hoặc yêu cầu đặc biệt</li>
 </ul>
 
-<h3>✅ Hành Động Cần Thực Hiện / Action Items</h3>
+<h3>Hành Động Cần Thực Hiện</h3>
 <ul>
 <li>Trích xuất các thời hạn, yêu cầu hoặc hành động bắt buộc</li>
 <li>Bao gồm nghĩa vụ tuân thủ hoặc các bước triển khai</li>
@@ -145,7 +141,7 @@ Yêu cầu:
 <li>Nếu không có hành động cụ thể, ghi: ""Không có hành động cụ thể được yêu cầu""</li>
 </ul>
 
-<h3>🎯 Kết Luận & Khuyến Nghị / Conclusions & Recommendations</h3>
+<h3>Kết Luận & Khuyến Nghị</h3>
 <ul>
 <li>Tóm tắt mục đích chính và kết quả mong đợi của tài liệu</li>
 <li>Đưa ra các hàm ý chiến lược hoặc khuyến nghị thực hiện</li>
@@ -168,14 +164,14 @@ Yêu cầu:
     public static class Configuration
     {
         /// <summary>
-        /// Maximum number of retry attempts for AI analysis
+        /// Maximum number of retry attempts for AI analysis (OPTIMIZED: Reduced for faster response)
         /// </summary>
-        public const int MaxRetryAttempts = 3;
+        public const int MaxRetryAttempts = 1;
 
         /// <summary>
-        /// Delay between retry attempts in milliseconds
+        /// Delay between retry attempts in milliseconds (OPTIMIZED: Reduced for faster response)
         /// </summary>
-        public const int RetryDelayMs = 1500;
+        public const int RetryDelayMs = 500;
 
         /// <summary>
         /// Phrases that indicate AI analysis failure

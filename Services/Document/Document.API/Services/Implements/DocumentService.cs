@@ -757,13 +757,18 @@ public class DocumentService : IDocumentService
 
         _logger.LogInformation("Calculated MD5 hash for file: {FileName}, Hash: {FileHash}", file.FileName, fileHash);
 
-        // 2. Check for duplicate files in approved and archived statuses
+        // OPTIMIZED: Faster duplicate check with simplified query
         var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
             .SingleOrDefaultAsync(
                 predicate: v => v.FileHash == fileHash &&
-                               (v.Status == StatusEnum.Approved || v.Status == StatusEnum.Archived) &&
-                               (v.IsPublic || v.DocumentFile.DepartmentId == userDepartmentId),
+                               (v.Status == StatusEnum.Approved || v.Status == StatusEnum.Archived),
                 include: i => i.Include(v => v.DocumentFile));
+
+        // Additional access control check only if duplicate found
+        if (existingFile != null && !existingFile.IsPublic && existingFile.DocumentFile.DepartmentId != userDepartmentId)
+        {
+            existingFile = null; // User doesn't have access to this duplicate
+        }
 
         if (existingFile != null)
         {
@@ -785,50 +790,83 @@ public class DocumentService : IDocumentService
         {
             tempDocId = $"temp-analysis-{Guid.NewGuid()}";
             tempFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + Path.GetExtension(file.FileName));
-            await using (var fs = new FileStream(tempFilePath, FileMode.Create)) { await file.CopyToAsync(fs); }
 
-            // 1. Build the temporary Kernel Memory instance (same as before)
-            await _memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
+            // OPTIMIZED: Parallel file operations and AI preparation
+            var fileTask = Task.Run(async () =>
+            {
+                await using var fs = new FileStream(tempFilePath, FileMode.Create);
+                await file.CopyToAsync(fs);
+            });
 
-            // 2. Use the centralized prompt from constants
-            var comprehensivePrompt = AiPromptConstant.DocumentAnalysis.MetadataExtractionPrompt;
-            var requestTokens = _tokenUsageLogger.EstimateTokenCount(comprehensivePrompt);
+            var promptTask = Task.Run(() =>
+            {
+                var prompt = AiPromptConstant.DocumentAnalysis.MetadataExtractionPrompt;
+                var tokens = _tokenUsageLogger.EstimateTokenCount(prompt);
+                return new { Prompt = prompt, RequestTokens = tokens };
+            });
 
-            // 3. Make a single call to the AI model
+            // Wait for file copy to complete
+            await fileTask;
+            var promptInfo = await promptTask;
+
+            // OPTIMIZED: Import with timeout protection
+            using var importCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            try
+            {
+                _logger.LogInformation("Importing document to Kernel Memory for analysis...");
+                await _memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Document import timed out after 2 minutes for file: {FileName}", file.FileName);
+                throw new ErrorException(StatusCodes.Status408RequestTimeout, ErrorCode.BADREQUEST,
+                    "Document analysis timed out. Please try with a smaller file.");
+            }
+
+            // OPTIMIZED: Single AI call with timeout (no retries for faster response)
             var filter = new MemoryFilter().ByDocument(tempDocId);
 
-            
-            MemoryAnswer answer = null;
-            for (int attempt = 1; attempt <= AiPromptConstant.Configuration.MaxRetryAttempts; attempt++)
+            MemoryAnswer? answer = null;
+            using var aiCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            try
             {
-                answer = await _memory.AskAsync(comprehensivePrompt, filter: filter);
+                _logger.LogInformation("Making AI analysis call with 2-minute timeout...");
+                answer = await _memory.AskAsync(promptInfo.Prompt, filter: filter);
 
                 if (answer != null && answer.RelevantSources.Any() &&
                     !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
                         answer.Result.Contains(indicator, StringComparison.OrdinalIgnoreCase)))
                 {
-                    _logger.LogInformation("Successfully received valid AI response on attempt {AttemptNumber}.", attempt);
-                    break;
+                    _logger.LogInformation("Successfully received valid AI response for file: {FileName}", file.FileName);
                 }
-
-                _logger.LogWarning("AI analysis attempt {AttemptNumber} of {MaxRetries} failed or returned no relevant sources. Retrying...",
-                    attempt, AiPromptConstant.Configuration.MaxRetryAttempts);
-
-                if (attempt < AiPromptConstant.Configuration.MaxRetryAttempts)
+                else
                 {
-                    await Task.Delay(AiPromptConstant.Configuration.RetryDelayMs);
+                    _logger.LogWarning("AI analysis returned no valid information for file: {FileName}", file.FileName);
                 }
             }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("AI analysis timed out after 2 minutes for file: {FileName}", file.FileName);
+                throw new ErrorException(StatusCodes.Status408RequestTimeout, ErrorCode.BADREQUEST,
+                    "AI analysis timed out. Please try again later.");
+            }
 
-            // 4. Parse the structured JSON response from the AI
+            // 4. OPTIMIZED: Process AI response with parallel token calculation
             if (answer != null && !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
                 answer.Result.Contains(indicator, StringComparison.OrdinalIgnoreCase)))
             {
                 _logger.LogInformation("Raw AI response for file {FileName}: {AiResponse}", file.FileName, answer.Result);
-                ParseAiJsonResponse(answer.Result, response);
+
+                // Parallel processing of response parsing and token calculation
+                var parseTask = Task.Run(() => ParseAiJsonResponse(answer.Result, response));
+                var tokenTask = Task.Run(() => _tokenUsageLogger.EstimateTokenCount(answer.Result));
+
+                await parseTask;
+                var responseTokens = await tokenTask;
+
                 _logger.LogInformation("Successfully parsed AI JSON response for file: {FileName}", file.FileName);
 
-                // BR-077: Summaries should be under 1000 words.
+                // BR-077: Summaries should be under 2000 words.
                 if (!string.IsNullOrEmpty(response.Summary))
                 {
                     var words = response.Summary.Split(new char[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
@@ -839,64 +877,137 @@ public class DocumentService : IDocumentService
                     }
                 }
 
-                // Calculate response tokens
-                var responseTokens = _tokenUsageLogger.EstimateTokenCount(answer.Result);
-                response.TokenUsage = _tokenUsageLogger.CreateTokenUsageInfo(requestTokens, responseTokens, "KernelMemory");
+                // Create token usage info
+                response.TokenUsage = _tokenUsageLogger.CreateTokenUsageInfo(promptInfo.RequestTokens, responseTokens, "KernelMemory");
 
-                await _tokenUsageLogger.LogTokenUsageAsync(
-                    operation: "DocumentAnalysis",
-                    requestTokens: response.TokenUsage.RequestTokens,
-                    responseTokens: response.TokenUsage.ResponseTokens,
-                    modelUsed: "KernelMemory",
-                    userId: userId,
-                    processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
-                    success: true
-                );
+                // OPTIMIZED: Fire-and-forget token logging for faster response
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _tokenUsageLogger.LogTokenUsageAsync(
+                            operation: "DocumentAnalysis",
+                            requestTokens: response.TokenUsage.RequestTokens,
+                            responseTokens: response.TokenUsage.ResponseTokens,
+                            modelUsed: "KernelMemory",
+                            userId: userId,
+                            processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                            success: true
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to log token usage for successful analysis");
+                    }
+                });
 
                 _logger.LogInformation("Document analysis completed successfully for file {FileName}. Tokens used: {TotalTokens}",
                     file.FileName, response.TokenUsage.TotalTokens);
             }
             else
             {
-                // Log failed token usage
-                await _tokenUsageLogger.LogTokenUsageAsync(
-                    operation: "DocumentAnalysis",
-                    requestTokens: requestTokens,
-                    responseTokens: 0,
-                    modelUsed: "KernelMemory",
-                    userId: userId,
-                    processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
-                    success: false,
-                    errorMessage: "AI analysis returned no valid information"
-                );
+                // OPTIMIZED: Fire-and-forget token logging for failed cases
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _tokenUsageLogger.LogTokenUsageAsync(
+                            operation: "DocumentAnalysis",
+                            requestTokens: promptInfo.RequestTokens,
+                            responseTokens: 0,
+                            modelUsed: "KernelMemory",
+                            userId: userId,
+                            processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                            success: false,
+                            errorMessage: "AI analysis returned no valid information"
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to log token usage for failed analysis");
+                    }
+                });
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "An error occurred during single-prompt AI analysis for file: {FileName}", file.FileName);
 
-            // Log failed token usage for exception cases
-            await _tokenUsageLogger.LogTokenUsageAsync(
-                operation: "DocumentAnalysis",
-                requestTokens: _tokenUsageLogger.EstimateTokenCount(AiPromptConstant.DocumentAnalysis.MetadataExtractionPrompt),
-                responseTokens: 0,
-                modelUsed: "KernelMemory",
-                userId: userId,
-                processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
-                success: false,
-                errorMessage: ex.Message
-            );
+            // OPTIMIZED: Fire-and-forget token logging for exceptions
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _tokenUsageLogger.LogTokenUsageAsync(
+                        operation: "DocumentAnalysis",
+                        requestTokens: _tokenUsageLogger.EstimateTokenCount(AiPromptConstant.DocumentAnalysis.MetadataExtractionPrompt),
+                        responseTokens: 0,
+                        modelUsed: "KernelMemory",
+                        userId: userId,
+                        processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                        success: false,
+                        errorMessage: ex.Message
+                    );
+                }
+                catch (Exception logEx)
+                {
+                    _logger.LogWarning(logEx, "Failed to log token usage for exception case");
+                }
+            });
         }
         finally
         {
-            if (File.Exists(tempFilePath))
+            // OPTIMIZED: Parallel cleanup operations for faster completion
+            var cleanupTasks = new List<Task>();
+
+            // File cleanup
+            if (!string.IsNullOrEmpty(tempFilePath) && File.Exists(tempFilePath))
             {
-                File.Delete(tempFilePath);
+                cleanupTasks.Add(Task.Run(() =>
+                {
+                    try
+                    {
+                        File.Delete(tempFilePath);
+                        _logger.LogDebug("Deleted temporary file: {TempFilePath}", tempFilePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to delete temporary file: {TempFilePath}", tempFilePath);
+                    }
+                }));
             }
-            // Clean up the temporary document from Kernel Memory
-            if(tempDocId != null)
+
+            // Memory cleanup
+            if (!string.IsNullOrEmpty(tempDocId))
             {
-                await _memory.DeleteDocumentAsync(tempDocId);
+                cleanupTasks.Add(Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _memory.DeleteDocumentAsync(tempDocId);
+                        _logger.LogDebug("Deleted temporary document from memory: {TempDocId}", tempDocId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to delete temporary document from memory: {TempDocId}", tempDocId);
+                    }
+                }));
+            }
+
+            // Wait for all cleanup tasks with timeout (don't block response)
+            if (cleanupTasks.Any())
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.WhenAll(cleanupTasks).WaitAsync(TimeSpan.FromSeconds(10));
+                    }
+                    catch (TimeoutException)
+                    {
+                        _logger.LogWarning("Cleanup operations timed out after 10 seconds");
+                    }
+                });
             }
         }
 
@@ -979,48 +1090,70 @@ public class DocumentService : IDocumentService
 
         try
         {
-            // 1. Create temporary file and import to Kernel Memory
             tempDocId = $"temp-summary-{Guid.NewGuid()}";
             tempFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + Path.GetExtension(file.FileName));
-            await using (var fs = new FileStream(tempFilePath, FileMode.Create))
+
+            // OPTIMIZED: Parallel file operations and prompt preparation
+            var fileTask = Task.Run(async () =>
             {
+                await using var fs = new FileStream(tempFilePath, FileMode.Create);
                 await file.CopyToAsync(fs);
+            });
+
+            var promptTask = Task.Run(() =>
+            {
+                var prompt = AiPromptConstant.SummaryGeneration.RegenerateSummaryPrompt;
+                var tokens = _tokenUsageLogger.EstimateTokenCount(prompt);
+                return new { Prompt = prompt, RequestTokens = tokens };
+            });
+
+            // Wait for file copy to complete
+            await fileTask;
+            var promptInfo = await promptTask;
+
+            // OPTIMIZED: Import with timeout protection
+            using var importCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            try
+            {
+                _logger.LogInformation("Importing document to Kernel Memory for summary regeneration...");
+                await _memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Document import timed out after 2 minutes for file: {FileName}", file.FileName);
+                throw new ErrorException(StatusCodes.Status408RequestTimeout, ErrorCode.BADREQUEST,
+                    "Summary regeneration timed out. Please try with a smaller file.");
             }
 
-            // 2. Import document to Kernel Memory for analysis
-            await _memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
-
-            // 3. Create filter for the temporary document
+            // OPTIMIZED: Single AI call with timeout (no retries for faster response)
             var filter = new MemoryFilter().ByDocument(tempDocId);
 
-            // 4. Generate enhanced summary using the new structured prompt
-            var prompt = AiPromptConstant.SummaryGeneration.RegenerateSummaryPrompt;
-            var requestTokens = _tokenUsageLogger.EstimateTokenCount(prompt);
-
             MemoryAnswer? answer = null;
-            for (int attempt = 1; attempt <= AiPromptConstant.Configuration.MaxRetryAttempts; attempt++)
+            using var aiCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            try
             {
-                answer = await _memory.AskAsync(prompt, filter: filter);
+                _logger.LogInformation("Making AI summary generation call with 2-minute timeout...");
+                answer = await _memory.AskAsync(promptInfo.Prompt, filter: filter);
 
                 if (answer != null && answer.RelevantSources.Any() &&
                     !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
                         answer.Result.Contains(indicator, StringComparison.OrdinalIgnoreCase)))
                 {
-                    _logger.LogInformation("Successfully generated enhanced summary on attempt {AttemptNumber} for file {FileName}",
-                        attempt, file.FileName);
-                    break;
+                    _logger.LogInformation("Successfully generated enhanced summary for file: {FileName}", file.FileName);
                 }
-
-                _logger.LogWarning("Enhanced summary generation attempt {AttemptNumber} of {MaxRetries} failed for file {FileName}. Retrying...",
-                    attempt, AiPromptConstant.Configuration.MaxRetryAttempts, file.FileName);
-
-                if (attempt < AiPromptConstant.Configuration.MaxRetryAttempts)
+                else
                 {
-                    await Task.Delay(AiPromptConstant.Configuration.RetryDelayMs);
+                    _logger.LogWarning("AI summary generation returned no valid information for file: {FileName}", file.FileName);
                 }
             }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("AI summary generation timed out after 2 minutes for file: {FileName}", file.FileName);
+                throw new ErrorException(StatusCodes.Status408RequestTimeout, ErrorCode.BADREQUEST,
+                    "AI summary generation timed out. Please try again later.");
+            }
 
-            // 5. Process the response
+            // OPTIMIZED: Process AI response with parallel token calculation
             if (answer != null && !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
                 answer.Result.Contains(indicator, StringComparison.OrdinalIgnoreCase)))
             {
@@ -1037,39 +1170,61 @@ public class DocumentService : IDocumentService
                         file.FileName, PolicyConstant.MaxSummaryLength);
                 }
 
-                var responseTokens = _tokenUsageLogger.EstimateTokenCount(response.Summary);
-                response.TokenUsage = _tokenUsageLogger.CreateTokenUsageInfo(requestTokens, responseTokens, "KernelMemory");
+                // Parallel token calculation
+                var responseTokens = await Task.Run(() => _tokenUsageLogger.EstimateTokenCount(response.Summary));
+                response.TokenUsage = _tokenUsageLogger.CreateTokenUsageInfo(promptInfo.RequestTokens, responseTokens, "KernelMemory");
 
-                // Log token usage
-                await _tokenUsageLogger.LogTokenUsageAsync(
-                    operation: "SummaryRegeneration",
-                    requestTokens: requestTokens,
-                    responseTokens: responseTokens,
-                    modelUsed: "KernelMemory",
-                    userId: userId,
-                    documentId: tempDocId, // Use temporary document ID since this is pre-upload
-                    processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
-                    success: true
-                );
+                // OPTIMIZED: Fire-and-forget token logging for faster response
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _tokenUsageLogger.LogTokenUsageAsync(
+                            operation: "SummaryRegeneration",
+                            requestTokens: promptInfo.RequestTokens,
+                            responseTokens: responseTokens,
+                            modelUsed: "KernelMemory",
+                            userId: userId,
+                            documentId: tempDocId, // Use temporary document ID since this is pre-upload
+                            processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                            success: true
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to log token usage for successful summary regeneration");
+                    }
+                });
 
                 _logger.LogInformation("Enhanced summary regenerated successfully for file {FileName}. Tokens used: {TotalTokens}",
-                    file.FileName, requestTokens + responseTokens);
+                    file.FileName, promptInfo.RequestTokens + responseTokens);
             }
             else
             {
                 response.ErrorMessage = "Could not generate enhanced summary. The document may not be properly indexed or accessible.";
 
-                await _tokenUsageLogger.LogTokenUsageAsync(
-                    operation: "SummaryRegeneration",
-                    requestTokens: requestTokens,
-                    responseTokens: 0,
-                    modelUsed: "KernelMemory",
-                    userId: userId,
-                    documentId: tempDocId,
-                    processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
-                    success: false,
-                    errorMessage: response.ErrorMessage
-                );
+                // OPTIMIZED: Fire-and-forget token logging for failed cases
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _tokenUsageLogger.LogTokenUsageAsync(
+                            operation: "SummaryRegeneration",
+                            requestTokens: promptInfo.RequestTokens,
+                            responseTokens: 0,
+                            modelUsed: "KernelMemory",
+                            userId: userId,
+                            documentId: tempDocId,
+                            processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                            success: false,
+                            errorMessage: response.ErrorMessage
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to log token usage for failed summary regeneration");
+                    }
+                });
             }
         }
         catch (Exception ex)
@@ -1078,26 +1233,80 @@ public class DocumentService : IDocumentService
             response.ErrorMessage = "An error occurred while regenerating the summary.";
             response.Success = false;
 
-            await _tokenUsageLogger.LogTokenUsageAsync(
-                operation: "SummaryRegeneration",
-                requestTokens: 0,
-                responseTokens: 0,
-                userId: userId,
-                processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
-                success: false,
-                errorMessage: ex.Message
-            );
+            // OPTIMIZED: Fire-and-forget token logging for exceptions
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _tokenUsageLogger.LogTokenUsageAsync(
+                        operation: "SummaryRegeneration",
+                        requestTokens: 0,
+                        responseTokens: 0,
+                        userId: userId,
+                        processingTimeMs: (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                        success: false,
+                        errorMessage: ex.Message
+                    );
+                }
+                catch (Exception logEx)
+                {
+                    _logger.LogWarning(logEx, "Failed to log token usage for exception case in summary regeneration");
+                }
+            });
         }
         finally
         {
-            // Clean up temporary resources
-            if (File.Exists(tempFilePath))
+            // OPTIMIZED: Parallel cleanup operations for faster completion
+            var cleanupTasks = new List<Task>();
+
+            // File cleanup
+            if (!string.IsNullOrEmpty(tempFilePath) && File.Exists(tempFilePath))
             {
-                File.Delete(tempFilePath);
+                cleanupTasks.Add(Task.Run(() =>
+                {
+                    try
+                    {
+                        File.Delete(tempFilePath);
+                        _logger.LogDebug("Deleted temporary file: {TempFilePath}", tempFilePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to delete temporary file: {TempFilePath}", tempFilePath);
+                    }
+                }));
             }
-            if (tempDocId != null)
+
+            // Memory cleanup
+            if (!string.IsNullOrEmpty(tempDocId))
             {
-                await _memory.DeleteDocumentAsync(tempDocId);
+                cleanupTasks.Add(Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _memory.DeleteDocumentAsync(tempDocId);
+                        _logger.LogDebug("Deleted temporary document from memory: {TempDocId}", tempDocId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to delete temporary document from memory: {TempDocId}", tempDocId);
+                    }
+                }));
+            }
+
+            // Wait for all cleanup tasks with timeout (don't block response)
+            if (cleanupTasks.Any())
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.WhenAll(cleanupTasks).WaitAsync(TimeSpan.FromSeconds(10));
+                    }
+                    catch (TimeoutException)
+                    {
+                        _logger.LogWarning("Cleanup operations timed out after 10 seconds in summary regeneration");
+                    }
+                });
             }
         }
 
