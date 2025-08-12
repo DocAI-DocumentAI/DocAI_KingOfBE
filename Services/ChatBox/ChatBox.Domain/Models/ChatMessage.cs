@@ -11,7 +11,7 @@ namespace ChatBox.Domain.Models
         public int TokenCount { get; set; }
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
         public string SessionId { get; set; }
-        public string DocumentSources { get; set; }
+        public string? DocumentSources { get; set; }
         public virtual ChatSession Session { get; set; }
     }
 }

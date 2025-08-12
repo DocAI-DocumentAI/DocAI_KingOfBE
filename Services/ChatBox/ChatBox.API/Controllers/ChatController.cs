@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Mvc;
 using System.IO;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 
 namespace ChatBox.API.Controllers
 {
@@ -85,10 +87,10 @@ namespace ChatBox.API.Controllers
         /// </summary>
         [HttpPost(ApiEndPointConstant.Chat.SendMessageStream)]
         [CustomAuthorize]
-        [ProducesResponseType(typeof(IAsyncEnumerable<string>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(IAsyncEnumerable<ChatStreamResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        public async Task SendMessageStreamAsync([FromBody] ChatRequest request)
+        public async Task SendMessageStreamAsync([FromBody] ChatRequest request, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -98,35 +100,76 @@ namespace ChatBox.API.Controllers
                 if (!validation.Success)
                 {
                     Response.StatusCode = 400;
-                    await Response.WriteAsync($"Error: {validation.Message}");
+                    Response.ContentType = "text/event-stream";
+                    await Response.WriteAsync($"event: error\ndata: {{\"error\": \"{validation.Message}\"}}\n\n", cancellationToken);
                     return;
                 }
 
-                var responseStream = await _chatService.SendMessageStreamAsync(request, userId);
+                var responseStream = await _chatService.SendMessageStreamAsync(request, userId, cancellationToken);
 
                 Response.StatusCode = 200;
-                Response.ContentType = "text/event-stream";
+                Response.ContentType = "text/event-stream; charset=utf-8";
                 Response.Headers["Cache-Control"] = "no-cache";
                 Response.Headers["Connection"] = "keep-alive";
+                Response.Headers["X-Accel-Buffering"] = "no";
+                Response.Headers["Access-Control-Allow-Origin"] = "*";
 
-                await using var writer = new StreamWriter(Response.Body);
-                await foreach (var chunk in responseStream)
+                var jsonOptions = new JsonSerializerOptions
                 {
-                    if (HttpContext.RequestAborted.IsCancellationRequested) break;
-                    await writer.WriteAsync(chunk);
-                    await writer.FlushAsync();
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, // ✅ Key fix!
+                    WriteIndented = false
+                };
+
+                var bufferingFeature = HttpContext.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>();
+                bufferingFeature?.DisableBuffering();
+
+                await using var writer = new StreamWriter(Response.Body, Encoding.UTF8);
+
+                // ✅ REALTIME STREAMING: Flush immediately for each chunk
+                await foreach (var chunk in responseStream.WithCancellation(cancellationToken))
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        break;
+
+                    if (chunk.IsComplete)
+                    {
+                        var completeData = JsonSerializer.Serialize(chunk, jsonOptions);
+                        await writer.WriteAsync($"event: complete\ndata: {completeData}\n\n");
+                        await writer.FlushAsync(cancellationToken);
+                        await Response.Body.FlushAsync(cancellationToken); // ✅ Force flush to client
+                        break;
+                    }
+                    else
+                    {
+                        var chunkData = JsonSerializer.Serialize(chunk, jsonOptions);
+                        await writer.WriteAsync($"event: message\ndata: {chunkData}\n\n");
+                        await writer.FlushAsync(cancellationToken);
+                        await Response.Body.FlushAsync(cancellationToken); // ✅ Force flush immediately
+
+                        // ✅ Optional: Small delay to see streaming effect in Postman
+                    }
                 }
+                await Response.CompleteAsync();
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("thay đổi model"))
             {
                 Response.StatusCode = 400;
-                await Response.WriteAsync($"Error: {ex.Message}");
+                await Response.WriteAsync($"event: error\ndata: {{\"error\": \"{ex.Message}\"}}\n\n");
+                await Response.CompleteAsync();
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Client cancelled streaming request");
+                // Client đã disconnect, không cần gửi gì thêm
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Streaming failed");
                 Response.StatusCode = 500;
-                await Response.WriteAsync($"Error: {MessageConstant.Chat.SendFailed}");
+                await Response.WriteAsync($"event: error\ndata: {{\"error\": \"{MessageConstant.Chat.SendFailed}\"}}\n\n");
+                await Response.CompleteAsync();
+
             }
         }
         /// <summary>

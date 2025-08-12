@@ -92,6 +92,18 @@ try
     app.UseCors(CorConstant.PolicyName);
 
     app.UseSerilogRequestLogging();
+    app.UseWhen(context => context.Request.Path.StartsWithSegments("/api/chatbox/chat/stream"),
+    appBuilder =>
+    {
+        appBuilder.Use(async (context, next) =>
+        {
+            // Disable response buffering for streaming endpoints
+            var bufferingFeature = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>();
+            bufferingFeature?.DisableBuffering();
+
+            await next();
+        });
+    });
     //app.UseCustomMiddlewares();
     app.UseAuthentication();
 
