@@ -30,6 +30,8 @@ public class ApiEndPointConstant
         public const string UpdateSettings = "settings";
         public const string GetUserById = "user/{userId}";
         public const string ResetPassword = "reset-password";
+        public const string ValidateOtp = "check-Otp";
+        public const string ForgotPassword = "forgot-password";
     }
 
     public static class UserPermission

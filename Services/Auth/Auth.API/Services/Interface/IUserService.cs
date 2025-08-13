@@ -12,6 +12,7 @@ using Auth.Infrastructure.Paginate;
 using MassTransit;
 using Microsoft.AspNetCore.Identity.Data;
 using Shared.DTOs;
+using ForgotPasswordRequest = Auth.API.Payload.Request.User.ForgotPasswordRequest;
 using LoginRequest = Auth.API.Payload.Request.LoginRequest;
 using RegisterRequest = Auth.API.Payload.Request.RegisterRequest;
 
@@ -21,7 +22,7 @@ public interface IUserService
 {
     public Task<LoginResponse> LoginAsync(LoginRequest request);
     public Task<RegisterResponse> CreateUserAsync(RegisterRequest request);
-    public Task<string> GenerateOtpAsync(GenerateEmailOtpRequest request);
+    public Task<bool> GenerateOtpAsync(GenerateEmailOtpRequest request);
     public Task<UserRoleChangeResponse> ChangeUserRoleAsync(Guid roleId);
     public Task<ChangeDepartmentResponse> ChangeDepartmentForUserAsync(ChangeDepartmentRequest request);
     // public Task<List<GetUserByDeparAndRoleResponse>> GetUserByDeparAndRoleAsync(GetUserByDeparAndRole request);
@@ -45,4 +46,6 @@ public interface IUserService
     public Task<UserSettingResponse> UpdateUserSettingAsync(UpdateUserSettingRequest request);
     public Task<UserResponse> GetUserByIdAminAsync(Guid userId);
     Task<bool> ResetPasswordByEmailAsync(ResetPasswordByEmailRequest request);
+    public Task<bool> ForgotPasswordAsync(ForgotPasswordRequest request);
+    Task<bool> ValidateOtpAsync(CheckOtpRequest request);
 }

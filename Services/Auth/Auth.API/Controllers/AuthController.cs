@@ -24,6 +24,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using ForgotPasswordRequest = Auth.API.Payload.Request.User.ForgotPasswordRequest;
 using LoginRequest = Auth.API.Payload.Request.LoginRequest;
 using RegisterRequest = Auth.API.Payload.Request.RegisterRequest;
 
@@ -500,4 +501,82 @@ public class AuthController : ControllerBase
             return Problem(ex.Message);
         }
     }
+
+
+    /// <summary>
+    /// Xác thực mã OTP
+    /// </summary>
+    [HttpPost(ApiEndPointConstant.User.ValidateOtp)]
+    [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ValidateOtp([FromBody] CheckOtpRequest request)
+    {
+        try
+        {
+            var result = await _userService.ValidateOtpAsync(request);
+            if (!result)
+            {
+                _logger.LogError($"OTP validation failed for email {request.Email}");
+                return BadRequest("Mã OTP không chính xác hoặc đã hết hạn");
+            }
+        
+            _logger.LogInformation($"OTP validation succeeded for email {request.Email}");
+            return Ok(new { 
+                success = result,
+                message = "Mã OTP hợp lệ",
+                email = request.Email
+            });
+        }
+        catch (BadHttpRequestException ex)
+        {
+            _logger.LogError($"Failed to validate OTP for email {request.Email}: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error validating OTP for email {request.Email}: {ex.Message}");
+            return Problem(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Quên mật khẩu - Reset mật khẩu bằng OTP
+    /// </summary>
+    [HttpPost(ApiEndPointConstant.User.ForgotPassword)]
+    [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+    {
+        try
+        {
+            var result = await _userService.ForgotPasswordAsync(request);
+            if (!result)
+            {
+                _logger.LogError($"Forgot password failed for email {request.Email}");
+                return BadRequest("Không thể đặt lại mật khẩu");
+            }
+            
+            _logger.LogInformation($"Password reset successfully for email {request.Email}");
+            return Ok(result);
+        }
+        catch (BadHttpRequestException ex)
+        {
+            _logger.LogError($"Failed to reset password for email {request.Email}: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            _logger.LogError($"User not found with email {request.Email}: {ex.Message}");
+            return NotFound(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error resetting password for email {request.Email}: {ex.Message}");
+            return Problem(ex.Message);
+        }
+    }
+
 }

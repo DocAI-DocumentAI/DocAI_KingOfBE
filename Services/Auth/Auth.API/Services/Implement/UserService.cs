@@ -203,6 +203,7 @@ public class UserService : BaseService<UserService>, IUserService
     }
 
 
+    // Cập nhật method CreateUserAsync để gửi email chào mừng
     public async Task<RegisterResponse> CreateUserAsync(RegisterRequest request)
     {
         if (request == null)
@@ -210,6 +211,8 @@ public class UserService : BaseService<UserService>, IUserService
 
         await ValidateUniqueFieldsAsync(request);
 
+        // Lưu mật khẩu gốc trước khi hash để gửi email
+        var temporaryPassword = request.Password;
         var user = CreateUserEntity(request);
         var userSetting = CreateUserSettingEntity(user);
 
@@ -225,6 +228,16 @@ public class UserService : BaseService<UserService>, IUserService
             if (!isSuccessful)
                 throw new InvalidOperationException("Failed to save user and user settings.");
 
+            // Load related data for email
+            user = await _unitOfWork.GetRepository<User>()
+                .SingleOrDefaultAsync(
+                    predicate: u => u.Id == user.Id,
+                    include: i => i.Include(u => u.Role).Include(u => u.Department)
+                );
+
+            // Gửi email chào mừng
+            await SendWelcomeEmailAsync(user, temporaryPassword);
+
             var response = await CreateRegisterResponse(user, userSetting);
 
             // Setup Google Drive permissions for the new user
@@ -235,7 +248,7 @@ public class UserService : BaseService<UserService>, IUserService
                     UserId = user.Id.ToString(),
                     UserEmail = user.Email,
                     DepartmentId = user.DepartmentId.ToString(),
-                    DepartmentName = $"Department {user.DepartmentId}" // We'll get the actual name from the department service
+                    DepartmentName = $"Department {user.DepartmentId}"
                 };
 
                 await _publishEndpoint.Publish(command);
@@ -244,7 +257,6 @@ public class UserService : BaseService<UserService>, IUserService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to publish Google Drive permission setup command for user {UserId}. User created successfully but permissions setup may be delayed.", user.Id);
-                // Don't fail the user creation if Google Drive setup publishing fails
             }
 
             return response;
@@ -254,6 +266,312 @@ public class UserService : BaseService<UserService>, IUserService
             // Rollback logic if needed
             throw;
         }
+    }
+
+    // Thêm method này vào UserService
+    private async Task SendWelcomeEmailAsync(User user, string temporaryPassword)
+    {
+        try
+        {
+            var subject = "Chào mừng bạn đến với hệ thống DocAI - Thông tin tài khoản";
+            var body = GenerateWelcomeEmailTemplate(user, temporaryPassword);
+            
+            var response = EmailUtil.SendEmail(user.Email, subject, body, _configuration);
+            
+            if (response)
+            {
+                _logger.LogInformation($"📧 Đã gửi email chào mừng đến: {user.Email}");
+            }
+            else
+            {
+                _logger.LogError($"❌ Không thể gửi email chào mừng đến: {user.Email}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Lỗi khi gửi email chào mừng: {ex.Message}");
+            // Không throw exception để không ảnh hưởng đến việc tạo tài khoản
+        }
+    }
+
+    private string GenerateWelcomeEmailTemplate(User user, string temporaryPassword)
+    {
+        return $@"
+            <!DOCTYPE html>
+            <html lang='vi'>
+            <head>
+                <meta charset='UTF-8'>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+                <title>Chào mừng đến với DocAI</title>
+                <style>
+                    body {{
+                        margin: 0;
+                        padding: 0;
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        background-color: #f5f5f5;
+                        line-height: 1.6;
+                    }}
+                    .container {{
+                        max-width: 600px;
+                        margin: 0 auto;
+                        background-color: #ffffff;
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                    }}
+                    .header {{
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        padding: 30px;
+                        text-align: center;
+                    }}
+                    .header h1 {{
+                        margin: 0;
+                        font-size: 28px;
+                        font-weight: 600;
+                    }}
+                    .content {{
+                        padding: 40px 30px;
+                    }}
+                    .welcome-message {{
+                        text-align: center;
+                        margin-bottom: 30px;
+                    }}
+                    .welcome-message h2 {{
+                        color: #333;
+                        font-size: 24px;
+                        margin-bottom: 10px;
+                    }}
+                    .welcome-message p {{
+                        color: #666;
+                        font-size: 16px;
+                    }}
+                    .account-info {{
+                        background-color: #f8f9fa;
+                        border-radius: 12px;
+                        padding: 25px;
+                        margin: 25px 0;
+                        border-left: 4px solid #667eea;
+                    }}
+                    .account-info h3 {{
+                        color: #333;
+                        margin-top: 0;
+                        margin-bottom: 20px;
+                        font-size: 18px;
+                        display: flex;
+                        align-items: center;
+                    }}
+                    .info-row {{
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        padding: 10px 0;
+                        border-bottom: 1px solid #e9ecef;
+                    }}
+                    .info-row:last-child {{
+                        border-bottom: none;
+                    }}
+                    .info-label {{
+                        font-weight: 600;
+                        color: #495057;
+                        display: flex;
+                        align-items: center;
+                        width: 120px;
+                    }}
+                    .info-value {{
+                        color: #333;
+                        flex: 1;
+                        text-align: right;
+                        font-weight: 500;
+                    }}
+                    .password-box {{
+                        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+                        color: white;
+                        padding: 15px 20px;
+                        border-radius: 8px;
+                        text-align: center;
+                        margin: 20px 0;
+                        box-shadow: 0 2px 10px rgba(40, 167, 69, 0.3);
+                    }}
+                    .password-code {{
+                        font-size: 18px;
+                        font-weight: bold;
+                        letter-spacing: 2px;
+                        margin: 5px 0;
+                        font-family: 'Courier New', monospace;
+                    }}
+                    .security-notice {{
+                        background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+                        color: white;
+                        padding: 20px;
+                        border-radius: 12px;
+                        margin: 25px 0;
+                        text-align: center;
+                    }}
+                    .security-notice h4 {{
+                        margin: 0 0 10px 0;
+                        font-size: 16px;
+                    }}
+                    .security-notice p {{
+                        margin: 0;
+                        font-size: 14px;
+                    }}
+                    .steps {{
+                        background-color: #e3f2fd;
+                        border-radius: 12px;
+                        padding: 25px;
+                        margin: 25px 0;
+                    }}
+                    .steps h4 {{
+                        color: #1565c0;
+                        margin-top: 0;
+                        margin-bottom: 15px;
+                        font-size: 16px;
+                    }}
+                    .step {{
+                        display: flex;
+                        align-items: flex-start;
+                        margin-bottom: 15px;
+                    }}
+                    .step-number {{
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        width: 24px;
+                        height: 24px;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-weight: bold;
+                        font-size: 12px;
+                        margin-right: 12px;
+                        flex-shrink: 0;
+                    }}
+                    .step-text {{
+                        color: #333;
+                        font-size: 14px;
+                    }}
+                    .footer {{
+                        background-color: #f8f9fa;
+                        padding: 25px;
+                        text-align: center;
+                        border-top: 1px solid #e9ecef;
+                    }}
+                    .footer p {{
+                        margin: 5px 0;
+                        font-size: 14px;
+                        color: #6c757d;
+                    }}
+                    .icon {{
+                        font-size: 48px;
+                        margin-bottom: 15px;
+                    }}
+                    .contact-info {{
+                        background-color: #f1f3f4;
+                        padding: 15px;
+                        border-radius: 8px;
+                        margin-top: 15px;
+                    }}
+                    @media (max-width: 600px) {{
+                        .container {{
+                            margin: 0 10px;
+                        }}
+                        .header, .content {{
+                            padding: 20px;
+                        }}
+                        .info-row {{
+                            flex-direction: column;
+                            align-items: flex-start;
+                        }}
+                        .info-label {{
+                            width: auto;
+                            margin-bottom: 5px;
+                        }}
+                        .info-value {{
+                            text-align: left;
+                        }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class='container'>
+                    <div class='header'>
+                        <div class='icon'>🎉</div>
+                        <h1>Chào mừng đến với DocAI</h1>
+                    </div>
+                    
+                    <div class='content'>
+                        <div class='welcome-message'>
+                            <h2>Xin chào {user.FullName}!</h2>
+                            <p>Tài khoản của bạn đã được tạo thành công trong hệ thống DocAI.</p>
+                        </div>
+
+                        <div class='account-info'>
+                            <h3>📋 Thông tin tài khoản</h3>
+                            <div class='info-row'>
+                                <span class='info-label'>👤 Họ tên:</span>
+                                <span class='info-value'>{user.FullName}</span>
+                            </div>
+                            <div class='info-row'>
+                                <span class='info-label'>📧 Email:</span>
+                                <span class='info-value'>{user.Email}</span>
+                            </div>
+                            <div class='info-row'>
+                                <span class='info-label'>📱 Điện thoại:</span>
+                                <span class='info-value'>{user.Phone}</span>
+                            </div>
+                            <div class='info-row'>
+                                <span class='info-label'>👔 Vai trò:</span>
+                                <span class='info-value'>{user.Role?.RoleName ?? "Chưa xác định"}</span>
+                            </div>
+                            <div class='info-row'>
+                                <span class='info-label'>🏢 Phòng ban:</span>
+                                <span class='info-value'>{user.Department?.Name ?? "Chưa xác định"}</span>
+                            </div>
+                        </div>
+
+                        <div class='password-box'>
+                            <p style='margin: 0; font-size: 16px;'>🔑 Mật khẩu tạm thời của bạn:</p>
+                            <p class='password-code'>{temporaryPassword}</p>
+                        </div>
+
+                        <div class='security-notice'>
+                            <h4>🔒 Thông báo bảo mật quan trọng</h4>
+                            <p>Vì lý do bảo mật, bạn sẽ được yêu cầu đổi mật khẩu ngay lần đăng nhập đầu tiên.</p>
+                        </div>
+
+                        <div class='steps'>
+                            <h4>🚀 Các bước tiếp theo:</h4>
+                            <div class='step'>
+                                <div class='step-number'>1</div>
+                                <div class='step-text'>Truy cập hệ thống DocAI bằng email và mật khẩu tạm thời</div>
+                            </div>
+                            <div class='step'>
+                                <div class='step-number'>2</div>
+                                <div class='step-text'>Thay đổi mật khẩu thành mật khẩu mạnh mà chỉ bạn biết</div>
+                            </div>
+                            <div class='step'>
+                                <div class='step-number'>3</div>
+                                <div class='step-text'>Cập nhật thông tin cá nhân nếu cần thiết</div>
+                            </div>
+                            <div class='step'>
+                                <div class='step-number'>4</div>
+                                <div class='step-text'>Bắt đầu sử dụng các tính năng của hệ thống</div>
+                            </div>
+                        </div>
+
+                        <div class='contact-info'>
+                            <p style='margin: 0; font-weight: 600; color: #333;'>📞 Cần hỗ trợ?</p>
+                            <p style='margin: 5px 0; color: #666;'>Liên hệ với đội ngũ IT để được hỗ trợ kỹ thuật</p>
+                        </div>
+                    </div>
+                    
+                    <div class='footer'>
+                        <p><strong>© 2025 Công ty DocAI. Mọi quyền được bảo lưu.</strong></p>
+                        <p>Email này được gửi tự động, vui lòng không reply.</p>
+                        <p style='font-size: 12px; margin-top: 10px;'>Nếu bạn có thắc mắc, vui lòng liên hệ bộ phận IT.</p>
+                    </div>
+                </div>
+            </body>
+            </html>";
     }
 
 
@@ -266,18 +584,7 @@ public class UserService : BaseService<UserService>, IUserService
         if (await repo.SingleOrDefaultAsync(predicate: u => u.Email == request.Email) != null)
             throw new BadHttpRequestException(MessageConstant.User.EmailExisted);
     }
-
-    private async Task ValidateOtpAsync(string email, string otp)
-    {
-        var existingOtp = await _redisService.GetStringAsync(email);
-        if (string.IsNullOrEmpty(existingOtp))
-            throw new BadHttpRequestException(MessageConstant.OTP.OtpNotFound);
-
-        if (existingOtp != otp)
-            throw new BadHttpRequestException(MessageConstant.OTP.OtpIncorrect);
-
-        await _redisService.RemoveKeyAsync(email);
-    }
+    
 
     private User CreateUserEntity(RegisterRequest request)
     {
@@ -387,7 +694,7 @@ public class UserService : BaseService<UserService>, IUserService
         return response;
     }
 
-    public async Task<string> GenerateOtpAsync(GenerateEmailOtpRequest request)
+    public async Task<bool> GenerateOtpAsync(GenerateEmailOtpRequest request)
     {
         if (request == null || string.IsNullOrEmpty(request.Email))
             throw new BadHttpRequestException(MessageConstant.OTP.EmailRequired);
@@ -409,7 +716,6 @@ public class UserService : BaseService<UserService>, IUserService
 
         var response = EmailUtil.SendEmail(request.Email, subject, body, _configuration);
         _logger.LogInformation($"📧 Đã gửi email OTP: {response}");
-
         if (!response)
         {
             _logger.LogError($" {MessageConstant.Email.SendEmailFailed}");
@@ -420,7 +726,7 @@ public class UserService : BaseService<UserService>, IUserService
         {
             await _redisService.SetStringAsync(key, otp, TimeSpan.FromMinutes(2));
             _logger.LogInformation($" OTP [{otp}] đã được lưu vào Redis cho email {request.Email}");
-            return otp;
+            return true;
         }
         catch (Exception ex)
         {
@@ -1598,6 +1904,59 @@ public class UserService : BaseService<UserService>, IUserService
         var result = await _unitOfWork.CommitAsync();
 
         return result > 0;
+    }
+    
+    
+    public async Task<bool> ForgotPasswordAsync(ForgotPasswordRequest request)
+    {
+        // Kiểm tra Password và ConfirmPassword có khớp nhau không
+        if (request.Password != request.ConfirmPassword)
+        {
+            throw new BadHttpRequestException("Mật khẩu và xác nhận mật khẩu không khớp");
+        }
+    
+        var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+            predicate: u => u.Email == request.Email
+        );
+        if (user == null)
+        {
+            throw new KeyNotFoundException("User not found");
+        }
+
+        user.Password = PasswordUtil.HashPassword(request.Password);
+        user.UpdateAt = DateTime.UtcNow;
+
+        _unitOfWork.GetRepository<User>().UpdateAsync(user);
+        var result = await _unitOfWork.CommitAsync();
+
+        return result > 0;
+    }
+    
+    public async Task<bool> ValidateOtpAsync(CheckOtpRequest request)
+    {
+        var key = request.Email;
+        try
+        {
+            var existingOtp = await _redisService.GetStringAsync(key);
+            if (string.IsNullOrEmpty(existingOtp))
+                throw new BadHttpRequestException("Mã OTP không tồn tại hoặc đã hết hạn");
+
+            if (existingOtp != request.Otp)
+                throw new BadHttpRequestException("Mã OTP không chính xác");
+
+            // Nếu validate thành công và removeAfterValidation = true, xóa OTP
+            if (request.RemoveAfterValidation)
+            {
+                await _redisService.RemoveKeyAsync(key);
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (!(ex is BadHttpRequestException))
+        {
+            _logger.LogError($"Lỗi khi kiểm tra OTP: {ex.Message}");
+            throw new BadHttpRequestException("Không thể xác thực OTP. Vui lòng thử lại sau");
+        }
     }
 
 }
