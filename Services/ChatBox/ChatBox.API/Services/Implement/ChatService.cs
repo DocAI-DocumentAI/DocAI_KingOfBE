@@ -59,7 +59,7 @@ namespace ChatBox.API.Services.Implement
                 session.Id, isFirstMessage);
 
             // ✅ UPDATED: Get raw document content instead of processed answer
-            var (documentContent, documentSources, hasDocumentContext) = await SearchDocumentContext(request.Message, userId);
+            var (documentContent, documentSources, hasDocumentContext) = await SearchDocumentContext(request.Message, userId, request.DocumentId);
             var aiResponse = await GenerateAIResponse(session, request.Message, documentContent, hasDocumentContext);
 
             await ValidateAIResponse(aiResponse, session.Id);
@@ -86,7 +86,7 @@ namespace ChatBox.API.Services.Implement
                 session.Id, isFirstMessage);
 
             // ✅ UPDATED: Get raw document content
-            var (documentContent, documentSources, hasDocumentContext) = await SearchDocumentContext(request.Message, userId);
+            var (documentContent, documentSources, hasDocumentContext) = await SearchDocumentContext(request.Message, userId, request.DocumentId);
             var responseStream = await GenerateAIResponseStream(session, request.Message, documentContent);
 
             return WrapStreamWithChatResponse(responseStream, session, userId, request.Message, isFirstMessage, documentSources, hasDocumentContext, cancellationToken);
@@ -95,7 +95,7 @@ namespace ChatBox.API.Services.Implement
         /// <summary>
         /// ✅ UPDATED: SearchDocumentContext - now returns RAW CONTENT
         /// </summary>
-        private async Task<(string DocumentContent, List<DocumentInfo> Sources, bool HasContext)> SearchDocumentContext(string message, string userId)
+        private async Task<(string DocumentContent, List<DocumentInfo> Sources, bool HasContext)> SearchDocumentContext(string message, string userId, string? documentId = null) // ✅ THÊM documentId
         {
             string documentContent = null;
             List<DocumentInfo> documentSources = new();
@@ -105,26 +105,56 @@ namespace ChatBox.API.Services.Implement
             {
                 _logger.LogInformation("🔍 [ALWAYS] Performing minimal cost RAW CONTENT search");
 
-                // ✅ UPDATED: Get raw content instead of processed answer
-                documentContent = await _manualDocumentSearchService.SearchAndAnswerAsync(message, userId);
-
-                if (!string.IsNullOrEmpty(documentContent))
+                // ✅ FIX: Use SearchWithSourcesAsync ONCE to get both content and sources
+                try
                 {
-                    hasDocumentContext = true;
-                    _logger.LogInformation("✅ [ALWAYS] RAW CONTENT found: {Length} chars", documentContent.Length);
+                    var (content, sources) = await _manualDocumentSearchService.SearchWithSourcesAsync(message, userId, documentId);
 
-                    try
+                    if (!string.IsNullOrEmpty(content))
                     {
-                        var (_, sources) = await _manualDocumentSearchService.SearchWithSourcesAsync(message, userId);
+                        documentContent = content;
+                        hasDocumentContext = true;
+                        _logger.LogInformation("✅ [ALWAYS] RAW CONTENT found: {Length} chars", content.Length);
+                    }
+
+                    if (sources != null && sources.Any())
+                    {
                         documentSources = sources;
                         _logger.LogInformation("📄 [SOURCES] Found {Count} document sources", sources.Count);
+
+                        // Log source details for debugging
+                        foreach (var source in sources.Take(3))
+                        {
+                            _logger.LogDebug("📄 [SOURCE] Doc: {DocId}, Title: {Title}, Relevance: {Score}",
+                                source.DocumentId, source.Title, source.RelevanceScore);
+                        }
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        _logger.LogWarning(ex, "Failed to get document sources, continuing with content only");
+                        _logger.LogWarning("⚠️ [SOURCES] No sources returned despite having content");
                     }
                 }
-                else
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ [SEARCH] SearchWithSourcesAsync failed, trying basic search");
+
+                    // Fallback to basic search if SearchWithSourcesAsync fails
+                    try
+                    {
+                        documentContent = await _manualDocumentSearchService.SearchAndAnswerAsync(message, userId);
+                        if (!string.IsNullOrEmpty(documentContent))
+                        {
+                            hasDocumentContext = true;
+                            _logger.LogInformation("✅ [FALLBACK] Got content from basic search: {Length} chars", documentContent.Length);
+                        }
+                    }
+                    catch (Exception fallbackEx)
+                    {
+                        _logger.LogError(fallbackEx, "❌ [FALLBACK] Basic search also failed");
+                    }
+                }
+
+                if (!hasDocumentContext)
                 {
                     _logger.LogInformation("❌ [ALWAYS] No relevant documents found");
                 }
@@ -849,57 +879,66 @@ namespace ChatBox.API.Services.Implement
         #endregion
 
         #region Streaming Operations (Unchanged)
-
-        private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
-            IAsyncEnumerable<string> stream,
-            ChatSession session,
-            string userId,
-            string userMessageContent,
-            bool isFirstMessage,
-            List<DocumentInfo> documentSources,
-            bool hasDocumentContext,
-            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
+    IAsyncEnumerable<string> stream,
+    ChatSession session,
+    string userId,
+    string userMessageContent,
+    bool isFirstMessage,
+    List<DocumentInfo> documentSources,
+    bool hasDocumentContext,
+    [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
+            _logger.LogInformation("🔵 [STREAM-START] Session: {SessionId}, User: {UserId}, IsFirstMessage: {IsFirst}",
+                session.Id, userId, isFirstMessage);
+
             var fullResponse = new StringBuilder();
             var timestamp = DateTime.UtcNow;
+            var tokenCount = 0;
 
-            // ✅ NO try-catch around yield
+            // Stream tokens
             await foreach (var token in stream.WithCancellation(cancellationToken))
             {
                 if (cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning("🟡 [STREAM-CANCELLED] Session: {SessionId}", session.Id);
                     yield break;
+                }
 
                 if (string.IsNullOrEmpty(token))
                     continue;
 
+                tokenCount++;
                 fullResponse.Append(token);
                 var currentFullMessage = fullResponse.ToString();
 
-                // ✅ STREAMING CHUNKS: Trả về FULL MESSAGE tích lũy
                 yield return new ChatStreamResponse
                 {
                     SessionId = session.Id,
-                    Message = currentFullMessage, // ✅ Full message tích lũy
-                    MessageChunk = token, // ✅ Current token
+                    Message = currentFullMessage,
+                    MessageChunk = token,
                     Role = MessageRole.Assistant,
                     Timestamp = timestamp,
                     ModelUsed = session.ModelName,
-                    DocumentSources = null, // ✅ KHÔNG có sources trong streaming chunks
+                    DocumentSources = null,
                     HasDocumentContext = hasDocumentContext,
                     IsComplete = false
                 };
             }
 
-            // ✅ Final response
+            _logger.LogInformation("🔵 [STREAM-COMPLETE] Session: {SessionId}, Tokens: {TokenCount}, ResponseLength: {Length}",
+                session.Id, tokenCount, fullResponse.Length);
+
+            // Prepare final response data TRƯỚC
             var finalContent = fullResponse.ToString();
-            var tokenCount = _tokenCountService.CountTokens(finalContent, session.ModelName);
+            var finalTokenCount = _tokenCountService.CountTokens(finalContent, session.ModelName);
 
             var cleanDocumentSources = documentSources?.Select(doc => new DocumentInfo
             {
                 DocumentId = doc.DocumentId,
                 Title = doc.Title,
                 RelevanceScore = doc.RelevanceScore,
-                Summary = "", // ✅ Clean summary
+                Summary = "",
                 VersionId = doc.VersionId,
                 VersionName = doc.VersionName,
                 DepartmentId = "",
@@ -910,40 +949,65 @@ namespace ChatBox.API.Services.Implement
                 ApprovalDate = null
             }).ToList();
 
-            // ✅ FINAL EVENT: DocumentSources + metadata
+            // ✅ FIX 1: Save TRƯỚC KHI yield return cuối cùng
+            _logger.LogInformation("🟢 [SAVE-BEFORE-FINAL] Starting save for session: {SessionId}", session.Id);
+
+            // Option A: Save đồng bộ (đơn giản, an toàn)
+            try
+            {
+                await SaveStreamingChatData(finalContent, session.Id, userId, userMessageContent,
+                    isFirstMessage, session.ModelName, documentSources);
+                _logger.LogInformation("✅ [SAVE-SUCCESS] Data saved for session: {SessionId}", session.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "🔴 [SAVE-ERROR] Failed to save for session {SessionId}", session.Id);
+                // Vẫn tiếp tục return response cho user
+            }
+
+            // Option B: Nếu muốn dùng Task.Run, phải chờ nó start
+            // var saveTask = Task.Run(async () =>
+            // {
+            //     _logger.LogInformation("🟢 [SAVE-TASK-START] Session: {SessionId}", session.Id);
+            //     try
+            //     {
+            //         await SaveStreamingChatData(finalContent, session.Id, userId, userMessageContent,
+            //             isFirstMessage, session.ModelName, documentSources);
+            //         _logger.LogInformation("✅ [SAVE-TASK-SUCCESS] Session: {SessionId}", session.Id);
+            //     }
+            //     catch (Exception ex)
+            //     {
+            //         _logger.LogError(ex, "🔴 [SAVE-TASK-ERROR] Session {SessionId}", session.Id);
+            //     }
+            // });
+            // 
+            // // Chờ task start (không chờ complete)
+            // await Task.Delay(10); // Đảm bảo task đã start
+
+            // NOW yield final response
+            _logger.LogInformation("🔵 [STREAM-FINAL-SENDING] Sending final response for session: {SessionId}", session.Id);
+
             yield return new ChatStreamResponse
             {
                 SessionId = session.Id,
-                Message = finalContent, // ✅ Full final message (for completeness)
+                Message = finalContent,
                 MessageChunk = "",
                 Role = MessageRole.Assistant,
                 Timestamp = timestamp,
                 ModelUsed = session.ModelName,
-                DocumentSources = cleanDocumentSources, // ✅ Clean DocumentSources CHỈ Ở CUỐI
+                DocumentSources = cleanDocumentSources,
                 HasDocumentContext = hasDocumentContext,
                 IsComplete = true,
-                TotalTokenCount = tokenCount
+                TotalTokenCount = finalTokenCount
             };
 
-
-
-            // ✅ Save async - fire and forget
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await SaveStreamingChatData(finalContent, session.Id, userId, userMessageContent,
-                        isFirstMessage, session.ModelName, documentSources);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to save streaming chat data for session {SessionId}", session.Id);
-                }
-            }, cancellationToken);
+            _logger.LogInformation("🔵 [STREAM-METHOD-END] Session: {SessionId}", session.Id);
         }
 
         private async Task SaveStreamingChatData(string fullResponse, string sessionId, string userId, string userMessageContent, bool isFirstMessage, string modelName, List<DocumentInfo> documentSources = null)
         {
+            _logger.LogInformation("📝 [SAVE-START] Session: {SessionId}, Creating messages...", sessionId);
+
             try
             {
                 var (userMessage, aiMessage) = CreateStreamingChatMessages(userMessageContent, fullResponse, sessionId, userId, modelName, documentSources);
@@ -951,13 +1015,49 @@ namespace ChatBox.API.Services.Implement
                 await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(userMessage);
                 await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(aiMessage);
 
-                await UpdateStreamingSession(sessionId, userId, isFirstMessage, userMessageContent);
+                // ✅ FIX: Check if session is already tracked
+                var trackedSession = _unitOfWork.Context.ChangeTracker
+                    .Entries<ChatSession>()
+                    .FirstOrDefault(e => e.Entity.Id == sessionId);
 
-                await _unitOfWork.CommitAsync();
+                if (trackedSession != null)
+                {
+                    _logger.LogInformation("📝 [SAVE-SESSION-TRACKED] Using tracked session");
+                    var session = trackedSession.Entity;
+                    session.LastActiveAt = DateTime.UtcNow;
+                    session.UpdatedBy = userId;
+
+                    if (isFirstMessage && ShouldGenerateNewTitle(session.Title))
+                    {
+                        await GenerateAndSetSessionTitle(session, userMessageContent);
+                    }
+                    // Không cần UpdateAsync vì đã tracked
+                }
+                else
+                {
+                    _logger.LogInformation("📝 [SAVE-SESSION-NOT-TRACKED] Loading session");
+                    var session = await GetSessionByIdOnly(sessionId);
+                    if (session != null)
+                    {
+                        session.LastActiveAt = DateTime.UtcNow;
+                        session.UpdatedBy = userId;
+
+                        if (isFirstMessage && ShouldGenerateNewTitle(session.Title))
+                        {
+                            await GenerateAndSetSessionTitle(session, userMessageContent);
+                        }
+
+                        _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
+                    }
+                }
+
+                var changes = await _unitOfWork.CommitAsync();
+                _logger.LogInformation("✅ [SAVE-COMMIT-SUCCESS] Session: {SessionId}, Changes: {Changes}", sessionId, changes);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to save streaming chat data for session {SessionId}", sessionId);
+                _logger.LogError(ex, "🔴 [SAVE-ERROR] Failed to save for session {SessionId}", sessionId);
+                throw;
             }
         }
 
@@ -1001,20 +1101,60 @@ namespace ChatBox.API.Services.Implement
 
         private async Task UpdateStreamingSession(string sessionId, string userId, bool isFirstMessage, string userMessageContent)
         {
+            _logger.LogInformation("🔄 [UPDATE-SESSION-START] SessionId: {SessionId}, IsFirstMessage: {IsFirst}",
+                sessionId, isFirstMessage);
+
+            // Check tracked entities BEFORE loading
+            var trackedSession = _unitOfWork.Context.ChangeTracker
+                .Entries<ChatSession>()
+                .FirstOrDefault(e => e.Entity.Id == sessionId);
+
+            if (trackedSession != null)
+            {
+                _logger.LogWarning("⚠️ [UPDATE-SESSION-TRACKED] Session {SessionId} already tracked with state: {State}",
+                    sessionId, trackedSession.State);
+            }
+
             var session = await GetSessionByIdOnly(sessionId);
-            if (session == null) return;
+            if (session == null)
+            {
+                _logger.LogWarning("⚠️ [UPDATE-SESSION-NULL] Session {SessionId} not found", sessionId);
+                return;
+            }
+
+            _logger.LogInformation("🔄 [UPDATE-SESSION-FOUND] Session: {SessionId}, Title: {Title}",
+                sessionId, session.Title);
 
             session.LastActiveAt = DateTime.UtcNow;
             session.UpdatedBy = userId;
 
             if (isFirstMessage && ShouldGenerateNewTitle(session.Title))
             {
+                _logger.LogInformation("🔄 [UPDATE-SESSION-TITLE] Generating title for session: {SessionId}", sessionId);
                 await GenerateAndSetSessionTitle(session, userMessageContent);
             }
 
+            _logger.LogInformation("🔄 [UPDATE-SESSION-CALL] Calling UpdateAsync for session: {SessionId}", sessionId);
             _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
-        }
 
+            _logger.LogInformation("🔄 [UPDATE-SESSION-END] Session update queued: {SessionId}", sessionId);
+        }
+        public async Task<bool> VerifyMessagesInDatabase(string sessionId)
+        {
+            var messages = await _unitOfWork.GetRepository<ChatMessage>()
+                .GetListAsync(predicate: m => m.SessionId == sessionId);
+
+            _logger.LogInformation("🔍 [DB-CHECK] Session {SessionId} has {Count} messages in database",
+                sessionId, messages.Count);
+
+            foreach (var msg in messages)
+            {
+                _logger.LogInformation("🔍 [DB-MESSAGE] Id: {Id}, Role: {Role}, Created: {Created}, Content: {Content}",
+                    msg.Id, msg.Role, msg.CreatedAt, msg.Content.Substring(0, Math.Min(50, msg.Content.Length)));
+            }
+
+            return messages.Any();
+        }
         #endregion
 
         #region Utility Methods (Unchanged)
