@@ -141,44 +141,41 @@ namespace Notification.API.Services.Implement
                 var subject = $"Document Submission Confirmed: {documentTitle}";
                 var content = $"Your document '{documentTitle}' (Version: {documentVersion}) has been successfully submitted for approval and is now pending review by department managers.";
 
-                // Send system notification to submitter
-                var systemNotification = new CreateSystemNotificationRequest
-                {
-                    UserId = submitterId,
-                    Title = subject,
-                    Content = content,
-                    Type = NotificationType.DocumentSubmission,
-                    RelatedEntityId = documentId,
-                    RelatedEntityType = "DocumentVersion"
-                };
-
-                await _systemNotificationService.CreateNotificationAsync(systemNotification);
-                _logger.LogInformation("System notification sent to submitter {SubmitterId} for document {DocumentId}", submitterId, documentId);
+                // Create email body
+                var emailBody = $@"
+                    <h2>Document Submission Confirmation</h2>
+                    <p>Dear {submitterName},</p>
+                    <p>Your document has been successfully submitted for approval:</p>
+                    <ul>
+                        <li><strong>Document:</strong> {documentTitle}</li>
+                        <li><strong>Version:</strong> {documentVersion}</li>
+                        <li><strong>Department:</strong> {departmentName}</li>
+                        <li><strong>Status:</strong> Pending Approval</li>
+                    </ul>
+                    <p>Department managers have been notified and will review your submission. You will receive another notification once the review is complete.</p>
+                    {(string.IsNullOrEmpty(documentLink) ? "" : $"<p><a href='{documentLink}'>View Document</a></p>")}
+                    <p>Thank you for your submission.</p>
+                ";
 
                 // Send email notification to submitter
-                var emailRequest = new SendEmailRequest
+                var emailSent = await _emailService.SendEmailAsync(submitterEmail, subject, emailBody);
+
+                // Create notification log
+                var log = new NotificationLog
                 {
-                    ToEmail = submitterEmail,
-                    ToName = submitterName,
+                    DocumentId = documentId,
+                    DocumentVersion = documentVersion,
+                    NotificationType = NotificationType.DocumentSubmitted,
+                    RecipientType = RecipientType.Email,
+                    RecipientAddress = submitterEmail,
                     Subject = subject,
-                    Body = $@"
-                        <h2>Document Submission Confirmation</h2>
-                        <p>Dear {submitterName},</p>
-                        <p>Your document has been successfully submitted for approval:</p>
-                        <ul>
-                            <li><strong>Document:</strong> {documentTitle}</li>
-                            <li><strong>Version:</strong> {documentVersion}</li>
-                            <li><strong>Department:</strong> {departmentName}</li>
-                            <li><strong>Status:</strong> Pending Approval</li>
-                        </ul>
-                        <p>Department managers have been notified and will review your submission. You will receive another notification once the review is complete.</p>
-                        {(string.IsNullOrEmpty(documentLink) ? "" : $"<p><a href='{documentLink}'>View Document</a></p>")}
-                        <p>Thank you for your submission.</p>
-                    ",
-                    IsHtml = true
+                    Message = emailBody,
+                    IsSent = emailSent,
+                    SentAt = emailSent ? DateTime.UtcNow : null,
+                    ErrorMessage = emailSent ? null : "Failed to send email notification"
                 };
 
-                await _emailService.SendEmailAsync(emailRequest);
+                await _logService.CreateLogAsync(log);
                 _logger.LogInformation("Email notification sent to submitter {SubmitterEmail} for document {DocumentId}", submitterEmail, documentId);
             }
             catch (Exception ex)
