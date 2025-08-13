@@ -43,6 +43,7 @@ try
 
     builder.Services.AddOpenApi();
     builder.Services.AddDatabase();
+    builder.Services.AddRedis(builder.Configuration);
     builder.Services.AddUnitOfWork();
     builder.Services.AddServices(builder.Configuration);
     builder.Services.AddAutoMapper();
@@ -95,6 +96,7 @@ try
     app.UseSerilogRequestLogging();
     app.UseCors(CorConstant.PolicyName);
     app.UseMiddleware<ExceptionHandlingMiddleware>();
+    app.UseMiddleware<RateLimitingMiddleware>();
     app.UseAuthentication();
     app.UseAuthorization();
     app.MapControllers();

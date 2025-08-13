@@ -19,6 +19,7 @@ using Polly.Retry;
 using Quartz;
 using Serilog;
 using Shared.Command;
+using StackExchange.Redis;
 
 namespace Notification.API.Extensions;
 
@@ -27,6 +28,21 @@ public static class DependencyService
     public static IServiceCollection AddUnitOfWork(this IServiceCollection services)
     {
         services.AddScoped<IUnitOfWork<NotificationDbContext>, UnitOfWork<NotificationDbContext>>();
+        return services;
+    }
+    
+    public static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
+    {
+        var redisConnectionString = configuration.GetConnectionString("Redis");
+
+        if (string.IsNullOrEmpty(redisConnectionString))
+        {
+            throw new InvalidOperationException(" Connection string cho Redis không được cấu hình.");
+        }
+
+        services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(redisConnectionString));
+        services.AddScoped<IRedisService, RedisService>();
+
         return services;
     }
 
