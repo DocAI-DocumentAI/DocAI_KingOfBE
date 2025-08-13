@@ -1,5 +1,6 @@
 ﻿using ChatBox.API.Payload.Request;
 using ChatBox.API.Payload.Response;
+using ChatBox.API.Services.Implement;
 
 namespace ChatBox.API.Services.Interfaces
 {
@@ -15,6 +16,7 @@ namespace ChatBox.API.Services.Interfaces
         Task<List<AvailableModelResponse>> GetAvailableModelsAsync();
         Task<bool> SwitchSessionModelAsync(string sessionId, string newModelName, string userId);
 
+        Task<bool> VerifyMessagesInDatabase(string sessionId);
 
     }
 }

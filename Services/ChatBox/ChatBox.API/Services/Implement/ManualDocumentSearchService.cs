@@ -22,7 +22,7 @@ namespace ChatBox.API.Services.Implement
         /// <summary>
         /// ✅ ENHANCED: Get raw document content with intelligent caching and query optimization
         /// </summary>
-        public async Task<string> SearchAndAnswerAsync(string query, string userId)
+        public async Task<string> SearchAndAnswerAsync(string query, string userId, string? documentId = null) // ✅ THÊM documentId
         {
             if (string.IsNullOrWhiteSpace(query))
             {
@@ -56,11 +56,12 @@ namespace ChatBox.API.Services.Implement
                     _logger.LogWarning(cacheEx, "💾 [MINIMAL] Cache read failed, proceeding with search");
                 }
 
-                _logger.LogInformation("🔍 [MINIMAL] Performing RAW CONTENT search for user: {UserId}, query: '{Query}'",
-                    userId, query.Length > 50 ? query.Substring(0, 50) + "..." : query);
+                _logger.LogInformation("🔍 [MINIMAL] Performing RAW CONTENT search for user: {UserId}, query: '{Query}', DocumentId: {DocumentId}",
+                          userId, query.Length > 50 ? query.Substring(0, 50) + "..." : query, documentId ?? "None");
+
 
                 // ✅ ENHANCED: Get raw content with better error handling
-                var rawContent = await _documentSearchService.GetRawContentAsync(query, userId);
+                var rawContent = await _documentSearchService.GetRawContentAsync(query, userId, documentId);
 
                 // ✅ ENHANCED: Better result validation and logging
                 if (!string.IsNullOrEmpty(rawContent))
@@ -102,7 +103,7 @@ namespace ChatBox.API.Services.Implement
         /// <summary>
         /// ✅ ENHANCED: Get raw content with sources and better error handling
         /// </summary>
-        public async Task<(string RawContent, List<DocumentInfo> Sources)> SearchWithSourcesAsync(string query, string userId)
+        public async Task<(string RawContent, List<DocumentInfo> Sources)> SearchWithSourcesAsync(string query, string userId, string? documentId = null) // ✅ THÊM documentId
         {
             if (string.IsNullOrWhiteSpace(query))
             {
@@ -112,10 +113,10 @@ namespace ChatBox.API.Services.Implement
 
             try
             {
-                _logger.LogInformation("🔍 [SOURCES] Searching with sources for user: {UserId}, query: '{Query}'",
-                    userId, query.Length > 50 ? query.Substring(0, 50) + "..." : query);
+                _logger.LogInformation("🔍 [SOURCES] Searching with sources for user: {UserId}, query: '{Query}', DocumentId: {DocumentId}",
+                  userId, query.Length > 50 ? query.Substring(0, 50) + "..." : query, documentId ?? "None");
 
-                var (rawContent, sources) = await _documentSearchService.GetRawContentWithSourcesAsync(query, userId);
+                var (rawContent, sources) = await _documentSearchService.GetRawContentWithSourcesAsync(query, userId, documentId);
 
                 if (!string.IsNullOrEmpty(rawContent))
                 {

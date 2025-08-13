@@ -38,14 +38,14 @@ namespace ChatBox.API.Services.Implement
         /// <summary>
         /// ✅ ENHANCED: Get raw document content from Document microservice
         /// </summary>
-        public async Task<ChatBoxDocumentResponse?> SearchDocumentsWithRAGAsync(string query, string userId, int maxResults = 5)
+        public async Task<ChatBoxDocumentResponse?> SearchDocumentsWithRAGAsync(string query, string userId, int maxResults = 5, string? documentId = null) // ✅ THÊM documentId
         {
             // ✅ ENHANCED: Better parameter validation and optimization
             maxResults = Math.Min(Math.Max(maxResults, 1), 10); // Ensure 1-10 range
             var userContext = GetUserContextFromJWT();
 
             // ✅ ENHANCED: Better cache key with more context
-            var cacheKey = $"doc_raw_v2_{query.GetHashCode():X}_{userId}_{userContext.Role}_{userContext.DepartmentId}_{maxResults}";
+            var cacheKey = $"doc_raw_v2_{query.GetHashCode():X}_{userId}_{userContext.Role}_{userContext.DepartmentId}_{maxResults}_{documentId ?? "any"}"; // ✅ THÊM documentId vào cache key
 
             try
             {
@@ -66,6 +66,7 @@ namespace ChatBox.API.Services.Implement
             {
                 var request = new ChatBoxDocumentRequest
                 {
+                    DocumentId = documentId,
                     RequestId = Guid.NewGuid().ToString(),
                     Query = OptimizeQueryForSearch(query),
                     UserId = userId,
@@ -81,6 +82,7 @@ namespace ChatBox.API.Services.Implement
                     OnlyPublic = false,
                     OnlyOfficial = false, // ✅ REMOVED: No longer filtering by official status
                     RequestTime = DateTime.UtcNow
+
                 };
 
                 _logger.LogInformation("🔍 [SEARCH] Raw content request - User: {FullName} ({Role}), Dept: {DeptName}, MaxResults: {MaxResults}, Query: '{Query}'",
@@ -137,7 +139,7 @@ namespace ChatBox.API.Services.Implement
         /// <summary>
         /// ✅ ENHANCED: Get raw content only with better error handling
         /// </summary>
-        public async Task<string> GetRawContentAsync(string query, string userId)
+        public async Task<string> GetRawContentAsync(string query, string userId, string? documentId = null) // ✅ THÊM documentId
         {
             if (string.IsNullOrWhiteSpace(query))
             {
@@ -145,7 +147,7 @@ namespace ChatBox.API.Services.Implement
                 return null;
             }
 
-            var result = await SearchDocumentsWithRAGAsync(query, userId, 5);
+            var result = await SearchDocumentsWithRAGAsync(query, userId, 5, documentId); // ✅ Truyền documentId
 
             if (result?.Success == true && !string.IsNullOrEmpty(result.RawContent))
             {
@@ -160,7 +162,7 @@ namespace ChatBox.API.Services.Implement
         /// <summary>
         /// ✅ ENHANCED: Get raw content with sources
         /// </summary>
-        public async Task<(string RawContent, List<DocumentInfo> Sources)> GetRawContentWithSourcesAsync(string query, string userId)
+        public async Task<(string RawContent, List<DocumentInfo> Sources)> GetRawContentWithSourcesAsync(string query, string userId, string? documentId = null) // ✅ THÊM documentId
         {
             if (string.IsNullOrWhiteSpace(query))
             {
@@ -168,7 +170,7 @@ namespace ChatBox.API.Services.Implement
                 return (null, new List<DocumentInfo>());
             }
 
-            var result = await SearchDocumentsWithRAGAsync(query, userId, 5);
+            var result = await SearchDocumentsWithRAGAsync(query, userId, 5, documentId); // ✅ Truyền documentId
 
             if (result?.Success == true && !string.IsNullOrEmpty(result.RawContent))
             {

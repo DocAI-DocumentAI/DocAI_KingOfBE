@@ -151,6 +151,14 @@ namespace ChatBox.API.Controllers
                     }
                 }
                 await Response.CompleteAsync();
+
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(2000);
+                    var saved = await _chatService.VerifyMessagesInDatabase(request.SessionId);
+                    _logger.LogInformation("🔍 [CONTROLLER-VERIFY] Session {SessionId} messages saved: {Saved}",
+                        request.SessionId, saved);
+                });
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("thay đổi model"))
             {
