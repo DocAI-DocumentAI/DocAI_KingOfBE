@@ -41,48 +41,12 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             {
                 Id = Guid.Parse("13d466ed-8a2d-414d-88c0-9c7adcac2616"),
                 Password = HashPassword("admin"),
-                Email = "admin@gmail.com",
+                Email = "nguyenhuyphc@gmail.com",
                 Phone = "0847911068",
-                FullName = "Admin",
+                FullName = "Phc Admin",
                 Active = true,
                 RoleId = Guid.Parse("a996692c-1f5e-4458-8dcf-c2494a47b6d6"), //Admin
                 DepartmentId = Guid.Parse("d8854d21-8fae-46aa-b51b-0de060b92ee3"), // Company
-                CreatAt = DateTime.UtcNow,
-                UpdateAt = DateTime.UtcNow,
-            },
-            new User
-            {
-                Id = Guid.Parse("595dd357-aaec-455e-9fa7-4fc88d4b819c"),
-                Password = HashPassword("manager"),
-                Email = "manager@gmail.com",
-                Phone = "0123456789",
-                FullName = "Manager",
-                RoleId = Guid.Parse("a5ddf431-aae9-4d9f-8d61-1a37776bb4bb"), //Manager
-                DepartmentId = Guid.Parse("8bf13891-1ce9-405c-add9-0ada93308671"), //DepartmentA
-                CreatAt = DateTime.UtcNow,
-                UpdateAt = DateTime.UtcNow
-            },
-            new User
-            {
-                Id = Guid.Parse("fd05266c-baf5-49bb-a846-554461bcc411"),
-                Password = HashPassword("employee"),
-                Email = "employee@gmail.com",
-                Phone = "0123456789",
-                FullName = "Employee",
-                RoleId = Guid.Parse("4e29a870-9131-4cc2-97ca-eaa748b5f17f"), //Employee
-                DepartmentId = Guid.Parse("8bf13891-1ce9-405c-add9-0ada93308671"), //DepartmentA
-                CreatAt = DateTime.UtcNow,
-                UpdateAt = DateTime.UtcNow,
-            },
-            new User
-            {
-                Id = Guid.Parse("5c49c1cb-719e-42eb-8028-f2eb3eaea4cd"),
-                Password = HashPassword("editor"),
-                Email = "editor@gmail.com",
-                Phone = "0123456789",
-                FullName = "Editor",
-                RoleId = Guid.Parse("8e7d55e4-67d3-4b73-9995-21b163493136"), //Editor
-                DepartmentId = Guid.Parse("8bf13891-1ce9-405c-add9-0ada93308671"), //DepartmentA
                 CreatAt = DateTime.UtcNow,
                 UpdateAt = DateTime.UtcNow,
             }
