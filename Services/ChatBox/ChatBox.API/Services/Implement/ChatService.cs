@@ -59,7 +59,7 @@ namespace ChatBox.API.Services.Implement
                 session.Id, isFirstMessage);
 
             // ✅ UPDATED: Get raw document content instead of processed answer
-            var (documentContent, documentSources, hasDocumentContext) = await SearchDocumentContext(request.Message, userId);
+            var (documentContent, documentSources, hasDocumentContext) = await SearchDocumentContext(request.Message, userId, request.DocumentId);
             var aiResponse = await GenerateAIResponse(session, request.Message, documentContent, hasDocumentContext);
 
             await ValidateAIResponse(aiResponse, session.Id);
@@ -86,7 +86,7 @@ namespace ChatBox.API.Services.Implement
                 session.Id, isFirstMessage);
 
             // ✅ UPDATED: Get raw document content
-            var (documentContent, documentSources, hasDocumentContext) = await SearchDocumentContext(request.Message, userId);
+            var (documentContent, documentSources, hasDocumentContext) = await SearchDocumentContext(request.Message, userId, request.DocumentId);
             var responseStream = await GenerateAIResponseStream(session, request.Message, documentContent);
 
             return WrapStreamWithChatResponse(responseStream, session, userId, request.Message, isFirstMessage, documentSources, hasDocumentContext, cancellationToken);
@@ -95,7 +95,7 @@ namespace ChatBox.API.Services.Implement
         /// <summary>
         /// ✅ UPDATED: SearchDocumentContext - now returns RAW CONTENT
         /// </summary>
-        private async Task<(string DocumentContent, List<DocumentInfo> Sources, bool HasContext)> SearchDocumentContext(string message, string userId)
+        private async Task<(string DocumentContent, List<DocumentInfo> Sources, bool HasContext)> SearchDocumentContext(string message, string userId, string? documentId = null) // ✅ THÊM documentId
         {
             string documentContent = null;
             List<DocumentInfo> documentSources = new();
@@ -108,7 +108,7 @@ namespace ChatBox.API.Services.Implement
                 // ✅ FIX: Use SearchWithSourcesAsync ONCE to get both content and sources
                 try
                 {
-                    var (content, sources) = await _manualDocumentSearchService.SearchWithSourcesAsync(message, userId);
+                    var (content, sources) = await _manualDocumentSearchService.SearchWithSourcesAsync(message, userId, documentId);
 
                     if (!string.IsNullOrEmpty(content))
                     {

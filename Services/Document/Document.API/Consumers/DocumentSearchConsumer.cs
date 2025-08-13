@@ -39,6 +39,7 @@ namespace Document.API.Consumers
                 // ✅ CREATE COMPREHENSIVE RAG REQUEST
                 var ragRequest = new DocumentRAGRequest
                 {
+                    DocumentId = request.DocumentId,
                     RequestId = request.RequestId,
                     Query = request.Query,
                     UserId = request.UserId,

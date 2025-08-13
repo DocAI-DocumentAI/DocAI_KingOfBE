@@ -2,6 +2,7 @@
 {
     public record DocumentRAGRequest
     {
+        public string? DocumentId { get; set; }
         public string RequestId { get; set; } = string.Empty;
         public string Query { get; set; } = string.Empty;
 

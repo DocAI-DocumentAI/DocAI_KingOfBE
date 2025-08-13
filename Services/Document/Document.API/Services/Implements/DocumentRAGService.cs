@@ -259,6 +259,15 @@ namespace Document.API.Services.Implements
         private MemoryFilter BuildDynamicFilter(DocumentRAGRequest request, QueryType queryType, string requestId)
         {
             var filter = new MemoryFilter();
+
+            if (!string.IsNullOrEmpty(request.DocumentId))
+            {
+                filter = filter.ByTag("documentId", request.DocumentId);
+                _logger.LogInformation("🔎 [FILTER-{RequestId}] CONSTRAINED search to specific DocumentId: {DocumentId}",
+                    requestId, request.DocumentId);
+                return filter;
+            }
+
             var role = request.Role?.ToUpper() ?? "NONE";
 
             // ✅ ALWAYS filter approved documents

@@ -26,5 +26,7 @@ namespace Shared.DTOs
         public DateTime? EffectiveFrom { get; set; }
         public DateTime? EffectiveUntil { get; set; }
         public DateTime RequestTime { get; set; } = DateTime.UtcNow;
+        public string? DocumentId { get; set; }
+
     }
 }
