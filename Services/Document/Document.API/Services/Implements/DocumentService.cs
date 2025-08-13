@@ -1914,21 +1914,25 @@ public class DocumentService : IDocumentService
         var distinctTagNames = tagNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         _logger.LogInformation("Processing tags: {Tags}", JsonSerializer.Serialize(tagNames));
         _logger.LogInformation("Distinct tags: {Tags}", JsonSerializer.Serialize(distinctTagNames));
-        
+
+        // Normalize tag names to lowercase for consistent database comparison
+        var normalizedTagNames = distinctTagNames.Select(t => t.ToLowerInvariant()).ToList();
+
         // Find which tags already exist in the database
         var existingTags = await _unitOfWork.GetRepository<Tag>()
-            .GetListWithTrackingAsync(predicate: t => distinctTagNames.Contains(t.Name));
+            .GetListWithTrackingAsync(predicate: t => normalizedTagNames.Contains(t.Name));
 
         var existingTagNames = existingTags.Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         _logger.LogInformation("Existing tags: {Tags}", JsonSerializer.Serialize(existingTags.Select(t => t.Name)));
 
         // Create a list of the new tags that need to be inserted
         var newTagsToInsert = new List<Tag>();
-        foreach (var tagName in distinctTagNames)
+        for (int i = 0; i < distinctTagNames.Count; i++)
         {
-            if (!existingTagNames.Contains(tagName))
+            var normalizedTagName = normalizedTagNames[i];
+            if (!existingTagNames.Contains(normalizedTagName))
             {
-                newTagsToInsert.Add(new Tag { Name = tagName.ToLowerInvariant(), CreatedBy = userId });
+                newTagsToInsert.Add(new Tag { Name = normalizedTagName, CreatedBy = userId });
             }
         }
 

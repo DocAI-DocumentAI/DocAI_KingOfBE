@@ -43,7 +43,7 @@ namespace Document.API.Services.Implements
                     SubmitterId = GetUserIdAsGuid(submitterUser),
                     SubmitterEmail = GetUserEmail(submitterUser),
                     SubmitterName = GetUserFullName(submitterUser),
-                    DepartmentId = Guid.Parse(departmentId),
+                    DepartmentId = GetDepartmentIdAsGuid(submitterUser),
                     DepartmentName = GetDepartmentName(submitterUser)
                 };
 
@@ -53,6 +53,42 @@ namespace Document.API.Services.Implements
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error sending document submission notification for document {DocumentId}", documentId);
+                // Don't throw - notification failures shouldn't break the main workflow
+            }
+        }
+
+        public async Task SendDocumentSubmissionConfirmationAsync(
+            string documentId,
+            string documentTitle,
+            string documentVersion,
+            string submitterEmail,
+            string submitterName,
+            ClaimsPrincipal submitterUser,
+            string? documentLink = null)
+        {
+            try
+            {
+                _logger.LogInformation("Sending document submission confirmation for document {DocumentId} to submitter {SubmitterEmail}", documentId, submitterEmail);
+
+                var command = new DocumentSubmissionConfirmationCommand
+                {
+                    DocumentId = documentId,
+                    DocumentTitle = documentTitle,
+                    DocumentVersion = documentVersion,
+                    DocumentLink = documentLink,
+                    SubmitterEmail = submitterEmail,
+                    SubmitterName = submitterName,
+                    SubmitterId = GetUserIdAsGuid(submitterUser),
+                    DepartmentId = GetDepartmentIdAsGuid(submitterUser),
+                    DepartmentName = GetDepartmentName(submitterUser)
+                };
+
+                await _publishEndpoint.Publish(command);
+                _logger.LogInformation("Document submission confirmation sent for document {DocumentId}", documentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending document submission confirmation for document {DocumentId}", documentId);
                 // Don't throw - notification failures shouldn't break the main workflow
             }
         }
@@ -208,6 +244,16 @@ namespace Document.API.Services.Implements
         private static string GetDepartmentId(ClaimsPrincipal user)
         {
             return user?.FindFirst("departmentId")?.Value ?? "Unknown";
+        }
+
+        private static Guid GetDepartmentIdAsGuid(ClaimsPrincipal user)
+        {
+            var departmentIdString = user?.FindFirst("departmentId")?.Value;
+            if (Guid.TryParse(departmentIdString, out var departmentId))
+            {
+                return departmentId;
+            }
+            return Guid.Empty; // Return empty Guid if parsing fails
         }
 
         #endregion

@@ -83,6 +83,53 @@ namespace Notification.API.Consumers
     }
 
     /// <summary>
+    /// Consumer for document submission confirmation notifications
+    /// </summary>
+    public class DocumentSubmissionConfirmationConsumer : IConsumer<DocumentSubmissionConfirmationCommand>
+    {
+        private readonly IDocumentWorkflowNotificationService _notificationService;
+        private readonly ILogger<DocumentSubmissionConfirmationConsumer> _logger;
+        private readonly IUserService _userService;
+
+        public DocumentSubmissionConfirmationConsumer(
+            IDocumentWorkflowNotificationService notificationService,
+            ILogger<DocumentSubmissionConfirmationConsumer> logger,
+            IUserService userService)
+        {
+            _notificationService = notificationService;
+            _logger = logger;
+            _userService = userService;
+        }
+
+        public async Task Consume(ConsumeContext<DocumentSubmissionConfirmationCommand> context)
+        {
+            var command = context.Message;
+
+            try
+            {
+                _logger.LogInformation("Processing document submission confirmation for document {DocumentId}", command.DocumentId);
+
+                await _notificationService.SendDocumentSubmissionConfirmationAsync(
+                    command.DocumentId,
+                    command.DocumentTitle,
+                    command.DocumentVersion,
+                    command.SubmitterEmail,
+                    command.SubmitterName,
+                    command.SubmitterId,
+                    command.DepartmentName,
+                    command.DocumentLink);
+
+                _logger.LogInformation("Successfully processed document submission confirmation for document {DocumentId}", command.DocumentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing document submission confirmation for document {DocumentId}", command.DocumentId);
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
     /// Consumer for document approval notifications
     /// </summary>
     public class DocumentApprovalNotificationConsumer : IConsumer<DocumentApprovalNotificationCommand>

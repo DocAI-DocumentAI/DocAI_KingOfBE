@@ -25,6 +25,18 @@ namespace Shared.Commands
     }
 
     /// <summary>
+    /// Command to send document submission confirmation to the submitter
+    /// </summary>
+    public class DocumentSubmissionConfirmationCommand : DocumentWorkflowNotificationCommand
+    {
+        public string SubmitterEmail { get; set; } = string.Empty;
+        public string SubmitterName { get; set; } = string.Empty;
+        public Guid SubmitterId { get; set; } = Guid.Empty;
+        public Guid DepartmentId { get; set; } = Guid.Empty;
+        public string DepartmentName { get; set; } = string.Empty;
+    }
+
+    /// <summary>
     /// Command to send document approval notification to document owner
     /// </summary>
     public class DocumentApprovalNotificationCommand : DocumentWorkflowNotificationCommand

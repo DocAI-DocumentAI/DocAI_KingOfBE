@@ -52,7 +52,7 @@ namespace Notification.API.Services.Implement
                 _logger.LogInformation("Sending document submission notification for document {DocumentId} by {SubmitterName} from {DepartmentName}",
                     documentId, submitterInfo.Name, submitterInfo.DepartmentName);
 
-                // ✅ FIX: Validate required information
+                // Validate required information
                 if (string.IsNullOrEmpty(documentTitle))
                 {
                     _logger.LogError("Document title is empty for document {DocumentId}", documentId);
@@ -82,7 +82,7 @@ namespace Notification.API.Services.Implement
                 var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
                 var submissionDate = DateTime.UtcNow;
 
-                // ✅ FIX: Prevent duplicate notifications with tracking
+                // Prevent duplicate notifications with tracking
                 var notificationTasks = managers.Select(async manager =>
                 {
                     try
@@ -119,6 +119,71 @@ namespace Notification.API.Services.Implement
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error sending document submission notification for document {DocumentId}", documentId);
+                throw;
+            }
+        }
+
+        public async Task SendDocumentSubmissionConfirmationAsync(
+            string documentId,
+            string documentTitle,
+            string documentVersion,
+            string submitterEmail,
+            string submitterName,
+            Guid submitterId,
+            string departmentName,
+            string? documentLink = null)
+        {
+            try
+            {
+                _logger.LogInformation("Sending document submission confirmation for document {DocumentId} to submitter {SubmitterEmail}", documentId, submitterEmail);
+
+                // Create notification content
+                var subject = $"Document Submission Confirmed: {documentTitle}";
+                var content = $"Your document '{documentTitle}' (Version: {documentVersion}) has been successfully submitted for approval and is now pending review by department managers.";
+
+                // Send system notification to submitter
+                var systemNotification = new CreateSystemNotificationRequest
+                {
+                    UserId = submitterId,
+                    Title = subject,
+                    Content = content,
+                    Type = NotificationType.DocumentSubmission,
+                    RelatedEntityId = documentId,
+                    RelatedEntityType = "DocumentVersion"
+                };
+
+                await _systemNotificationService.CreateNotificationAsync(systemNotification);
+                _logger.LogInformation("System notification sent to submitter {SubmitterId} for document {DocumentId}", submitterId, documentId);
+
+                // Send email notification to submitter
+                var emailRequest = new SendEmailRequest
+                {
+                    ToEmail = submitterEmail,
+                    ToName = submitterName,
+                    Subject = subject,
+                    Body = $@"
+                        <h2>Document Submission Confirmation</h2>
+                        <p>Dear {submitterName},</p>
+                        <p>Your document has been successfully submitted for approval:</p>
+                        <ul>
+                            <li><strong>Document:</strong> {documentTitle}</li>
+                            <li><strong>Version:</strong> {documentVersion}</li>
+                            <li><strong>Department:</strong> {departmentName}</li>
+                            <li><strong>Status:</strong> Pending Approval</li>
+                        </ul>
+                        <p>Department managers have been notified and will review your submission. You will receive another notification once the review is complete.</p>
+                        {(string.IsNullOrEmpty(documentLink) ? "" : $"<p><a href='{documentLink}'>View Document</a></p>")}
+                        <p>Thank you for your submission.</p>
+                    ",
+                    IsHtml = true
+                };
+
+                await _emailService.SendEmailAsync(emailRequest);
+                _logger.LogInformation("Email notification sent to submitter {SubmitterEmail} for document {DocumentId}", submitterEmail, documentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending document submission confirmation for document {DocumentId}", documentId);
                 throw;
             }
         }
@@ -268,16 +333,10 @@ namespace Notification.API.Services.Implement
 
                 var recipients = new List<UserDto>();
 
-                // ✅ FIX: Get department users
-                if (Guid.TryParse(departmentId, out var deptGuid))
-                {
-                    var departmentUsers = await _userService.GetUsersByDepartmentAsync(deptGuid);
-                    recipients.AddRange(departmentUsers);
-                }
-
-                // ✅ FIX: For public documents, notify all company
+                // ✅ FIX: Determine recipients based on document visibility
                 if (isPublic)
                 {
+                    // For public documents, notify all company members
                     var allEmployees = await _userService.GetUsersByRoleAsync("Employee");
                     var allManagers = await _userService.GetUsersByRoleAsync("Manager");
                     var allEditors = await _userService.GetUsersByRoleAsync("Editor");
@@ -285,6 +344,19 @@ namespace Notification.API.Services.Implement
                     recipients.AddRange(allEmployees);
                     recipients.AddRange(allManagers);
                     recipients.AddRange(allEditors);
+
+                    _logger.LogInformation("Notifying all company members for public document {DocumentId}", documentId);
+                }
+                else
+                {
+                    // For private documents, notify only department members
+                    if (Guid.TryParse(departmentId, out var deptGuid))
+                    {
+                        var departmentUsers = await _userService.GetUsersByDepartmentAsync(deptGuid);
+                        recipients.AddRange(departmentUsers);
+
+                        _logger.LogInformation("Notifying department {DepartmentId} members for private document {DocumentId}", departmentId, documentId);
+                    }
                 }
 
                 // Remove duplicates

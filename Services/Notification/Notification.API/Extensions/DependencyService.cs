@@ -164,6 +164,7 @@ public static class DependencyService
 
             // Document workflow notification consumers
             busConfig.AddConsumer<DocumentSubmissionNotificationConsumer>();
+            busConfig.AddConsumer<DocumentSubmissionConfirmationConsumer>();
             busConfig.AddConsumer<DocumentApprovalNotificationConsumer>();
             busConfig.AddConsumer<DocumentRejectionNotificationConsumer>();
             busConfig.AddConsumer<DocumentPublicationNotificationConsumer>();
@@ -226,6 +227,13 @@ public static class DependencyService
                 mqConfig.ReceiveEndpoint("document-submission-notifications-queue", e =>
                 {
                     e.ConfigureConsumer<DocumentSubmissionNotificationConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
+                mqConfig.ReceiveEndpoint("document-submission-confirmation-queue", e =>
+                {
+                    e.ConfigureConsumer<DocumentSubmissionConfirmationConsumer>(context);
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
                     e.UseInMemoryOutbox();
                 });

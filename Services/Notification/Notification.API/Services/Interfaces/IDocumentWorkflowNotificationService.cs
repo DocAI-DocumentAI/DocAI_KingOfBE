@@ -17,6 +17,19 @@ namespace Notification.API.Services.Interfaces
            Guid departmentId,
            string? documentLink = null);
 
+        /// <summary>
+        /// Sends confirmation notification to the submitter when a document is submitted for approval
+        /// </summary>
+        Task SendDocumentSubmissionConfirmationAsync(
+            string documentId,
+            string documentTitle,
+            string documentVersion,
+            string submitterEmail,
+            string submitterName,
+            Guid submitterId,
+            string departmentName,
+            string? documentLink = null);
+
         Task SendDocumentApprovalNotificationAsync(
             string documentId,
             string documentTitle,

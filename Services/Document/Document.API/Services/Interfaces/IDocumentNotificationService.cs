@@ -25,6 +25,25 @@ namespace Document.API.Services.Interfaces
             string? documentLink = null);
 
         /// <summary>
+        /// Sends confirmation notification to the submitter when a document is submitted for approval
+        /// </summary>
+        /// <param name="documentId">Document version ID</param>
+        /// <param name="documentTitle">Document title</param>
+        /// <param name="documentVersion">Document version name</param>
+        /// <param name="submitterEmail">Email of the document submitter</param>
+        /// <param name="submitterName">Name of the document submitter</param>
+        /// <param name="submitterUser">Claims principal of the user who submitted the document</param>
+        /// <param name="documentLink">Optional link to the document</param>
+        Task SendDocumentSubmissionConfirmationAsync(
+            string documentId,
+            string documentTitle,
+            string documentVersion,
+            string submitterEmail,
+            string submitterName,
+            ClaimsPrincipal submitterUser,
+            string? documentLink = null);
+
+        /// <summary>
         /// Sends notification when a document is approved
         /// </summary>
         /// <param name="documentId">Document version ID</param>

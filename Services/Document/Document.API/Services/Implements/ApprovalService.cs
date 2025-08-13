@@ -897,24 +897,41 @@ namespace Document.API.Services.Implements
             }
             */
 
-            //8. Send notification to department managers
+            //8. Send notifications
             try
             {
                 var currentUser = _httpContextAccessor.HttpContext?.User;
                 if (currentUser != null)
                 {
+                    // 8a. Send confirmation notification to submitter
+                    var submitterEmail = JwtTokenHelper.GetUserEmail(_httpContextAccessor);
+                    var submitterName = JwtTokenHelper.GetUserFullName(_httpContextAccessor);
+
+                    if (!string.IsNullOrEmpty(submitterEmail))
+                    {
+                        await _notificationService.SendDocumentSubmissionConfirmationAsync(
+                            versionId,
+                            version.Title,
+                            version.VersionName,
+                            submitterEmail,
+                            submitterName ?? "Document Submitter",
+                            currentUser);
+                        _logger.LogInformation("Document submission confirmation sent to submitter for document {VersionId}", versionId);
+                    }
+
+                    // 8b. Send notification to department managers
                     await _notificationService.SendDocumentSubmissionNotificationAsync(
                         versionId,
                         version.Title,
                         version.VersionName,
                         currentUser,
                         version.DocumentFile.DepartmentId);
-                    _logger.LogInformation("Document submission notification sent for document {VersionId}", versionId);
+                    _logger.LogInformation("Document submission notification sent to managers for document {VersionId}", versionId);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to send submission notification for document {VersionId}", versionId);
+                _logger.LogError(ex, "Failed to send submission notifications for document {VersionId}", versionId);
                 // Don't fail the entire operation for notification errors
             }
         }
