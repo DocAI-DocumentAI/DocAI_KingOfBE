@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Auth.Domain.Migrations
 {
     [DbContext(typeof(DocAIAuthContext))]
-    [Migration("20250813073241_migration1")]
+    [Migration("20250813170435_migration1")]
     partial class migration1
     {
         /// <inheritdoc />
@@ -53,10 +53,10 @@ namespace Auth.Domain.Migrations
                         new
                         {
                             Id = new Guid("d8854d21-8fae-46aa-b51b-0de060b92ee3"),
-                            CreateAt = new DateTime(2025, 8, 13, 7, 32, 40, 483, DateTimeKind.Utc).AddTicks(7302),
+                            CreateAt = new DateTime(2025, 8, 13, 17, 4, 34, 922, DateTimeKind.Utc).AddTicks(1263),
                             Description = "Company",
                             Name = "Company",
-                            UpdateAt = new DateTime(2025, 8, 13, 7, 32, 40, 483, DateTimeKind.Utc).AddTicks(7509)
+                            UpdateAt = new DateTime(2025, 8, 13, 17, 4, 34, 922, DateTimeKind.Utc).AddTicks(1375)
                         });
                 });
 
@@ -88,10 +88,10 @@ namespace Auth.Domain.Migrations
                         new
                         {
                             Id = new Guid("3796cdb0-7c0a-4cc6-a757-883fe1865fb6"),
-                            CreateAt = new DateTime(2025, 8, 13, 7, 32, 40, 484, DateTimeKind.Utc).AddTicks(7437),
+                            CreateAt = new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(847),
                             Description = "Quyền xem mọi tài liệu trong hệ thống ",
                             Name = "VIEW_ANY_DOCUMENT",
-                            UpdateAt = new DateTime(2025, 8, 13, 7, 32, 40, 484, DateTimeKind.Utc).AddTicks(7547)
+                            UpdateAt = new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(956)
                         });
                 });
 
@@ -123,34 +123,34 @@ namespace Auth.Domain.Migrations
                         new
                         {
                             Id = new Guid("4e29a870-9131-4cc2-97ca-eaa748b5f17f"),
-                            CreateAt = new DateTime(2025, 8, 13, 7, 32, 40, 485, DateTimeKind.Utc).AddTicks(76),
+                            CreateAt = new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3523),
                             Description = "Employee",
                             RoleName = "Employee",
-                            UpdateAt = new DateTime(2025, 8, 13, 7, 32, 40, 485, DateTimeKind.Utc).AddTicks(176)
+                            UpdateAt = new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3616)
                         },
                         new
                         {
                             Id = new Guid("a996692c-1f5e-4458-8dcf-c2494a47b6d6"),
-                            CreateAt = new DateTime(2025, 8, 13, 7, 32, 40, 485, DateTimeKind.Utc).AddTicks(260),
+                            CreateAt = new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3694),
                             Description = "Admin",
                             RoleName = "Admin",
-                            UpdateAt = new DateTime(2025, 8, 13, 7, 32, 40, 485, DateTimeKind.Utc).AddTicks(260)
+                            UpdateAt = new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3695)
                         },
                         new
                         {
                             Id = new Guid("a5ddf431-aae9-4d9f-8d61-1a37776bb4bb"),
-                            CreateAt = new DateTime(2025, 8, 13, 7, 32, 40, 485, DateTimeKind.Utc).AddTicks(262),
+                            CreateAt = new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3697),
                             Description = "Manager",
                             RoleName = "Manager",
-                            UpdateAt = new DateTime(2025, 8, 13, 7, 32, 40, 485, DateTimeKind.Utc).AddTicks(263)
+                            UpdateAt = new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3697)
                         },
                         new
                         {
                             Id = new Guid("8e7d55e4-67d3-4b73-9995-21b163493136"),
-                            CreateAt = new DateTime(2025, 8, 13, 7, 32, 40, 485, DateTimeKind.Utc).AddTicks(264),
+                            CreateAt = new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3698),
                             Description = "Editor",
                             RoleName = "Editor",
-                            UpdateAt = new DateTime(2025, 8, 13, 7, 32, 40, 485, DateTimeKind.Utc).AddTicks(265)
+                            UpdateAt = new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3699)
                         });
                 });
 
@@ -210,15 +210,15 @@ namespace Auth.Domain.Migrations
                         {
                             Id = new Guid("13d466ed-8a2d-414d-88c0-9c7adcac2616"),
                             Active = true,
-                            CreatAt = new DateTime(2025, 8, 13, 7, 32, 40, 510, DateTimeKind.Utc).AddTicks(9678),
+                            CreatAt = new DateTime(2025, 8, 13, 17, 4, 34, 951, DateTimeKind.Utc).AddTicks(481),
                             DepartmentId = new Guid("d8854d21-8fae-46aa-b51b-0de060b92ee3"),
                             Email = "nguyenhuyphc@gmail.com",
                             FullName = "Phc Admin",
-                            Password = "6Zu/ajpyTC0NvFCnSWrci1C6mlVSfad4s6V+OHbcvv0rt7D4RvYY9RSJjS/QU2XM",
+                            Password = "G+1BwISNYFEccnjbnhhCXUInwXmfbaz0kcjlTFFE32HXfz0pwX5yEtOXJSuzsUiS",
                             Phone = "0847911068",
                             RequirePasswordChange = true,
                             RoleId = new Guid("a996692c-1f5e-4458-8dcf-c2494a47b6d6"),
-                            UpdateAt = new DateTime(2025, 8, 13, 7, 32, 40, 510, DateTimeKind.Utc).AddTicks(9795)
+                            UpdateAt = new DateTime(2025, 8, 13, 17, 4, 34, 951, DateTimeKind.Utc).AddTicks(580)
                         });
                 });
 
@@ -245,7 +245,7 @@ namespace Auth.Domain.Migrations
                     b.HasData(
                         new
                         {
-                            Id = new Guid("3e14a895-c74c-40ad-affa-8bbf56302776"),
+                            Id = new Guid("fe9b9d32-c0ae-4f07-8ab3-970353090901"),
                             PermissionId = new Guid("3796cdb0-7c0a-4cc6-a757-883fe1865fb6"),
                             UserId = new Guid("13d466ed-8a2d-414d-88c0-9c7adcac2616")
                         });
@@ -285,7 +285,7 @@ namespace Auth.Domain.Migrations
                             NotificationsEnabled = true,
                             TwoFactorEnabled = false,
                             TwoFactorMethod = "email",
-                            UpdateAt = new DateTime(2025, 8, 13, 7, 32, 40, 511, DateTimeKind.Utc).AddTicks(4597),
+                            UpdateAt = new DateTime(2025, 8, 13, 17, 4, 34, 951, DateTimeKind.Utc).AddTicks(5540),
                             UserId = new Guid("13d466ed-8a2d-414d-88c0-9c7adcac2616")
                         });
                 });
