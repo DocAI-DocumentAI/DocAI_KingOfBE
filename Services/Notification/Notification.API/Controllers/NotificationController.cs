@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System.Security.Claims;
+using Microsoft.AspNetCore.Mvc;
 using Notification.Api.Constants;
 using Notification.API.Attributes;
 using Notification.API.Constants;
@@ -40,7 +41,7 @@ public class NotificationController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy danh sách notification logs - Admin/Manager xem tất cả, user khác chỉ xem của mình
+    /// Lấy danh sách notification logs -  user khác chỉ xem của mình
     /// </summary>
     [HttpGet(ApiEndpointConstant.Notification.GetLogs)]
     [CustomAuthorize]
@@ -50,7 +51,7 @@ public class NotificationController : ControllerBase
     {
         try
         {
-            var currentUserEmail = User.FindFirst("email")?.Value;
+            var currentUserEmail = User.FindFirst(ClaimTypes.Email)?.Value;
             if (!string.IsNullOrEmpty(currentUserEmail))
             {
                 request.Recipient = currentUserEmail; // Force filter theo email của user hiện tại
