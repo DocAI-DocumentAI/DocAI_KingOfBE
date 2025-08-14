@@ -189,6 +189,7 @@ private async Task<List<Citation>> SearchSpecificDocument(DocumentRAGRequest req
                 );
 
                 citations = primaryResult.Results.ToList();
+                    _logger.LogInformation("🎯 [DEBUG-SEARCH] Found {Count} raw citations", citations.Count);
 
                 if (citations.Any())
                 {
@@ -254,35 +255,35 @@ private async Task<List<Citation>> SearchSpecificDocument(DocumentRAGRequest req
             }
 
             // ✅ STRATEGY 3: Last resort - exact title match but verify document
-            try
-            {
-                _logger.LogDebug("🔍 [SPECIFIC-{RequestId}] Trying title-based search as last resort", requestId);
+            //try
+            //{
+            //    _logger.LogDebug("🔍 [SPECIFIC-{RequestId}] Trying title-based search as last resort", requestId);
 
-                var titleResult = await _memory.SearchAsync(
-                    request.DocumentId, // Use documentId as search term
-                    limit: 100,
-                    filter: new MemoryFilter().ByTag("status", "approved"),
-                    minRelevance: 0.1
-                );
+            //    var titleResult = await _memory.SearchAsync(
+            //        request.DocumentId, // Use documentId as search term
+            //        limit: 100,
+            //        filter: new MemoryFilter().ByTag("status", "approved"),
+            //        minRelevance: 0.1
+            //    );
 
-                if (titleResult.Results.Any())
-                {
-                    var titleCitations = titleResult.Results
-                        .Where(c => IsFromTargetDocument(c, request.DocumentId))
-                        .ToList();
+            //    if (titleResult.Results.Any())
+            //    {
+            //        var titleCitations = titleResult.Results
+            //            .Where(c => IsFromTargetDocument(c, request.DocumentId))
+            //            .ToList();
 
-                    if (titleCitations.Any())
-                    {
-                        _logger.LogInformation("✅ [SPECIFIC-{RequestId}] Found {Count} partitions using title search",
-                            requestId, titleCitations.Count);
-                        return titleCitations;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "⚠️ [SPECIFIC-{RequestId}] Title search failed", requestId);
-            }
+            //        if (titleCitations.Any())
+            //        {
+            //            _logger.LogInformation("✅ [SPECIFIC-{RequestId}] Found {Count} partitions using title search",
+            //                requestId, titleCitations.Count);
+            //            return titleCitations;
+            //        }
+            //    }
+            //}
+            //catch (Exception ex)
+            //{
+            //    _logger.LogWarning(ex, "⚠️ [SPECIFIC-{RequestId}] Title search failed", requestId);
+            //}
 
             _logger.LogWarning("❌ [SPECIFIC-{RequestId}] No partitions found for document: {DocId}", requestId, request.DocumentId);
             return new List<Citation>();
