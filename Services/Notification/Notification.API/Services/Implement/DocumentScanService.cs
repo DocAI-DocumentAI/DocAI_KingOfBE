@@ -139,11 +139,23 @@ namespace Notification.API.Services.Implement
             try
             {
                 var logRepo = _unitOfWork.GetRepository<NotificationLog>();
-                return await logRepo.AnyAsync(l =>
+
+                // Kiểm tra dismissed
+                var isDismissed = await logRepo.AnyAsync(l =>
                     l.DocumentId == doc.DocumentId &&
                     l.DocumentVersion == doc.Version &&
-                    l.IsDismissed == true
-                );
+                    l.IsDismissed == true);
+
+                if (isDismissed) return true;
+
+                var last24Hours = DateTime.UtcNow.AddHours(-24);
+                var recentlySent = await logRepo.AnyAsync(l =>
+                    l.DocumentId == doc.DocumentId &&
+                    l.DocumentVersion == doc.Version &&
+                    l.IsSent == true &&
+                    l.SentAt >= last24Hours);
+
+                return recentlySent;
             }
             catch (Exception ex)
             {
