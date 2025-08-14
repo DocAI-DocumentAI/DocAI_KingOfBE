@@ -325,7 +325,7 @@ namespace Notification.API.Services.Implement
                     return;
                 }
 
-                var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
+                var finalDocumentLink = documentLink ?? $"https://docai.asia/manager/document-review/{documentId}";
                 var publicationDate = DateTime.UtcNow;
 
                 var recipients = new List<UserDto>();
