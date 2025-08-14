@@ -3,7 +3,7 @@
 public class ApiEndPointConstant
 {
     static ApiEndPointConstant() {}
-    
+
     public const string RootEndPoint = "/api";
     public const string DocumentApiVersion = "/document"; // New constant
     public const string ApiEndpoint = RootEndPoint + DocumentApiVersion; // Base for document-related APIs
@@ -28,6 +28,12 @@ public class ApiEndPointConstant
         public const string GetRejectedDocuments = ApiEndpoint + "/rejected-documents";
         public const string GetRejectedById = ApiEndpoint + "/rejected-documents/{id}";
         public const string GetMyDocumentDetail = ApiEndpoint + "/my-documents/{id}";
+
+
+        // My documents extras
+        public const string GetMyDocumentsWithStats = GetMyDocuments + "/with-stats";
+        public const string GetEditorApprovalHistory = GetMyDocuments + "/approval-history";
+        public const string GetEditorApprovalHistoryDetail = GetMyDocuments + "/approval-history/{id}";
 
         // File serving endpoints
         public const string ViewFile = ApiEndpoint + "/files/{versionId}/view";
