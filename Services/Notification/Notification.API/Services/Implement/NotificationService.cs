@@ -199,6 +199,26 @@ public class NotificationService : INotificationService
     private async Task SendSingleNotificationAsync(DocumentExpirationDto document,
         NotificationType type, string templateName, UserDto user)
     {
+        // ✅ THÊM: Kiểm tra trùng lặp trước khi làm gì cả
+        var logRepo = _unitOfWork.GetRepository<NotificationLog>();
+        var last24Hours = DateTime.UtcNow.AddHours(-24);
+
+        var alreadySent = await logRepo.AnyAsync(l =>
+            l.DocumentId == document.DocumentId &&
+            l.DocumentVersion == document.Version &&
+            l.NotificationType == type &&
+            l.RecipientAddress == user.Email &&
+            l.IsSent == true &&
+            l.SentAt >= last24Hours);
+
+        if (alreadySent)
+        {
+            _logger.LogDebug("Notification already sent to {Email} for document {DocId}/{Version}",
+                user.Email, document.DocumentId, document.Version);
+            return;
+        }
+
+        // PHẦN CŨ KHÔNG ĐỔI
         var dismissToken = Guid.NewGuid();
         var dismissLink = $"https://docai.asia/api/notifications/dismiss-by-token?token={dismissToken}";
         var documentLink = $"https://docai.asia/documents/{document.DocumentId}";
@@ -221,8 +241,6 @@ public class NotificationService : INotificationService
             .Replace("{{DocumentLink}}", documentLink)
             .Replace("{{DismissLink}}", dismissLink)
             .Replace("{{DepartmentName}}", document.DepartmentName ?? "Unknown Department")
-
-            // ✅ FIX: Expiration specific information
             .Replace("{{ExpirationStatus}}", type == NotificationType.Expired ? "đã hết hạn" : "sắp hết hạn")
             .Replace("{{DaysUntilExpiration}}", GetDaysUntilExpiration(document.EffectiveUntil));
 
@@ -251,6 +269,7 @@ public class NotificationService : INotificationService
 
         // Send SignalR notification
         await SendSignalRNotificationAsync(user, type, subject, document);
+
     }
     private string GetDaysUntilExpiration(DateTime? effectiveUntil)
     {
