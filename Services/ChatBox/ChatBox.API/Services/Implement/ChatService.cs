@@ -229,14 +229,16 @@ namespace ChatBox.API.Services.Implement
 0. ĐƯỢC GIAO TIẾP CƠ BẢN
 
 1. **NGUỒN THÔNG TIN DUY NHẤT**
-   - CHỈ sử dụng thông tin từ phần 'THÔNG TIN TÀI LIỆU NỘI BỘ' ở trên
-   - KHÔNG được sử dụng kiến thức bên ngoài hoặc suy luận thêm
-   - KHÔNG được bổ sung thông tin không có trong tài liệu
+  - TUYỆT ĐỐI chỉ copy/paste nguyên văn từ phần trên
+   - Chỉ được trả lời dựa trên thông tin trong phần 'THÔNG TIN TÀI LIỆU NỘI BỘ'
+   - KHÔNG ĐƯỢC sử dụng kiến thức từ bên ngoài (internet, kiến thức chung, kinh nghiệm)
+   - KHÔNG ĐƯỢC suy luận hoặc bổ sung thông tin không có trong tài liệu
+   - KHÔNG ĐƯỢC so sánh với thông tin bên ngoài
 
 2. **CÁCH TRẢ LỜI HỢP LÝ**
    - Bắt đầu: Theo tài liệu nội bộ:
    - Trích dẫn nguyên văn phần liên quan từ tài liệu
-   - Có thể tóm tắt ngắn gọn nếu user yêu cầu cụ thể
+   - Có thể tóm tắt ngắn gọn nếu và chỉ nếu user yêu cầu cụ thể
    - Kết thúc: {citationSuffix}
 
 3. **KHI THÔNG TIN KHÔNG ĐỦ**
