@@ -136,7 +136,9 @@ public class DocumentController : ControllerBase
     }
 
     /// <summary>
-    /// Get all approved/official documents with comprehensive filtering and pagination
+    /// Get all approved/official documents with comprehensive filtering and pagination.
+    /// Use DepartmentOnly=true to show only documents from user's department (both public and private).
+    /// Use DepartmentOnly=false to show public documents from all departments.
     /// </summary>
     [HttpGet(ApiEndPointConstant.Document.GetAllOfficialDocuments)]
     [ProducesResponseType(typeof(ApiResponse<IPaginate<DocumentResponse>>), StatusCodes.Status200OK)]
@@ -165,7 +167,8 @@ public class DocumentController : ControllerBase
             MinFileSize = filterRequest.MinFileSize,
             MaxFileSize = filterRequest.MaxFileSize,
             MinDownloads = filterRequest.MinDownloads,
-            MaxDownloads = filterRequest.MaxDownloads
+            MaxDownloads = filterRequest.MaxDownloads,
+            DepartmentOnly = filterRequest.DepartmentOnly
         };
 
         // Use the new filtered method

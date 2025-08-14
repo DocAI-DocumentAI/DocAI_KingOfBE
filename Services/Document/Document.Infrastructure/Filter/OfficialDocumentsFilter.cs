@@ -42,6 +42,9 @@ public class OfficialDocumentsFilter : IFilter<DocumentVersion>
     public int? MinDownloads { get; set; }
     public int? MaxDownloads { get; set; }
 
+    // Department filtering control
+    public bool DepartmentOnly { get; set; } = false;
+
     public Expression<Func<DocumentVersion, bool>> ToExpression()
     {
         return documentVersion =>

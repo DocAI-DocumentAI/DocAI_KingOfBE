@@ -133,4 +133,11 @@ public class OfficialDocumentsFilterRequest
     [FromQuery]
     [Range(0, int.MaxValue, ErrorMessage = "Số lượt tải tối đa phải lớn hơn hoặc bằng 0")]
     public int? MaxDownloads { get; set; }
+
+    /// <summary>
+    /// Filter to show only documents from user's department (both public and private)
+    /// If false, shows public documents from all departments
+    /// </summary>
+    [FromQuery]
+    public bool DepartmentOnly { get; set; } = false;
 }
