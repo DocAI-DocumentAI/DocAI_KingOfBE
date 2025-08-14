@@ -263,39 +263,53 @@ public class DocumentService : IDocumentService
             fileHash = uploadResponse.Md5Hash;
             _logger.LogInformation("File uploaded successfully with ID {FileId} for draft creation", uploadResponse.FileIdentifier);
 
-            // 5. Check for file duplication using the MD5 hash.
+            // 5. Duplicate check (updated to match AnalyzeDocument logic)
+            // Previous logic (commented out): checked duplicates across ALL statuses with owner-specific messages.
+            // It was stricter and often blocked drafts due to other users' drafts/rejections.
+            /*
             var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash, include: i => i.Include(v => v.DocumentFile));
-
             if (existingFile != null)
             {
                 _logger.LogWarning("Duplicate file detected with hash {FileHash}, deleting uploaded file {FileId}", fileHash, uploadResponse.FileIdentifier);
                 await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
-
                 switch (existingFile.Status)
                 {
                     case StatusEnum.Pending:
                     case StatusEnum.Approved:
                     case StatusEnum.Archived:
                         throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
-
                     case StatusEnum.Rejected:
                         if (existingFile.DocumentFile.OwnerId == userId)
-                        {
                             throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.RejectedFileExists);
-                        }
                         else
-                        {
                             throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.AnotherUserRejectedFileExists);
-                        }
-
                     case StatusEnum.Draft:
                         if (existingFile.DocumentFile.OwnerId == userId)
-                        {
                             throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DraftFileExists);
-                        }
                         break;
                 }
+            }
+            */
+
+            // New logic: only consider Approved/Archived duplicates and respect department visibility
+            var existingApprovedOrArchived = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(
+                    predicate: v => v.FileHash == fileHash && (v.Status == StatusEnum.Approved || v.Status == StatusEnum.Archived),
+                    include: i => i.Include(v => v.DocumentFile));
+
+            // If duplicate is private and belongs to another department, ignore it
+            if (existingApprovedOrArchived != null && !existingApprovedOrArchived.IsPublic && existingApprovedOrArchived.DocumentFile.DepartmentId != departmentId)
+            {
+                existingApprovedOrArchived = null;
+            }
+
+            if (existingApprovedOrArchived != null)
+            {
+                _logger.LogWarning("Duplicate approved/archived file detected with hash {FileHash}, deleting uploaded file {FileId}", fileHash, uploadResponse.FileIdentifier);
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
+                    string.Format(MessageConstant.FileAlreadyExists, existingApprovedOrArchived.Title, existingApprovedOrArchived.VersionName, existingApprovedOrArchived.Status));
             }
         }
         catch (Exception ex) when (uploadResponse != null)
