@@ -162,7 +162,7 @@ namespace ChatBox.API.Services.Implement
         /// <summary>
         /// ✅ ENHANCED: Get raw content with sources
         /// </summary>
-        public async Task<(string RawContent, List<DocumentInfo> Sources)> GetRawContentWithSourcesAsync(string query, string userId, string? documentId = null) // ✅ THÊM documentId
+        public async Task<(string RawContent, List<DocumentInfo> Sources)> GetRawContentWithSourcesAsync(string query, string userId, string? documentId = null)
         {
             if (string.IsNullOrWhiteSpace(query))
             {
@@ -170,23 +170,71 @@ namespace ChatBox.API.Services.Implement
                 return (null, new List<DocumentInfo>());
             }
 
-            var result = await SearchDocumentsWithRAGAsync(query, userId, 5, documentId); // ✅ Truyền documentId
+            var result = await SearchDocumentsWithRAGAsync(query, userId, 5, documentId);
 
             if (result?.Success == true && !string.IsNullOrEmpty(result.RawContent))
             {
+                // ✅ COMPLETE MAPPING từ ChatBoxDocumentSource → DocumentInfo
                 var sources = result.Sources?.Select(s => new DocumentInfo
                 {
+                    // Core Identity
                     DocumentId = s.DocumentId,
+                    VersionId = s.VersionId,
                     Title = s.Title ?? "Unknown Document",
                     VersionName = s.VersionName ?? "1",
+
+                    // Legal & Approval Info  
+                    SignedBy = s.SignedBy,
+                    OwnerName = s.OwnerName,
+                    CreatedBy = s.CreatedBy,
+                    ReviewerName = s.ReviewerName,
+                    ApprovedBy = s.ApprovedBy,
+
+                    // Organizational Info
                     DepartmentId = s.DepartmentId,
-                    RelevanceScore = s.RelevanceScore,
-                    Summary = s.Summary,
-                    Tags = s.Tags ?? new List<string>(),
+                    DepartmentName = s.DepartmentName,
+
+                    // Temporal Info
                     EffectiveFrom = s.EffectiveFrom,
-                    EffectiveUntil = s.EffectiveUntil
+                    EffectiveUntil = s.EffectiveUntil,
+                    ApprovalDate = s.ApprovalDate,
+                    SignedDate = s.SignedDate,
+                    ReviewDate = s.ReviewDate,
+
+                    // Content Info
+                    Summary = s.Summary,
+                    Description = s.Description,
+                    Tags = s.Tags ?? new List<string>(),
+
+                    // File Info
+                    FileType = s.FileType,
+                    FileSize = s.FileSize,
+                    FileName = s.FileName,
+
+                    // Document Classification
+                    DocumentType = s.DocumentType,
+                    Status = s.Status,
+                    Category = s.Category,
+                    Priority = s.Priority,
+
+                    // Search & Relevance
+                    RelevanceScore = s.RelevanceScore,
+
+                    // Version Info
+                    IsLatestVersion = s.IsLatestVersion,
+                    VersionNumber = s.VersionNumber,
+
+                    // Access Control
+                    Visibility = s.Visibility,
+                    PermissionLevel = s.PermissionLevel,
+
+                    // Relationships
+                    ParentDocumentId = s.ParentDocumentId,
+                    RelatedDocumentIds = s.RelatedDocumentIds ?? new List<string>()
+
                 }).ToList() ?? new List<DocumentInfo>();
 
+                _logger.LogInformation("✅ [COMPLETE-MAPPING] Mapped {SourceCount} sources with ALL metadata fields", sources.Count);
 
                 return (result.RawContent, sources);
             }

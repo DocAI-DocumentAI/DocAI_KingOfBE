@@ -1,6 +1,7 @@
 ﻿using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using AutoMapper;
 using ChatBox.API.Constants;
@@ -208,59 +209,49 @@ namespace ChatBox.API.Services.Implement
             {
                 string enhancedSystemPrompt;
 
-                if (!string.IsNullOrEmpty(documentContent))
+                if (!string.IsNullOrEmpty(documentContent) || documentSources?.Any() == true)
                 {
-                    _logger.LogInformation("📄 [CHAT] RAW DOCUMENT CONTENT received: {DocumentContent}",
-                        documentContent.Substring(0, Math.Min(200, documentContent.Length)));
-
+                    // ✅ BUILD COMPLETE DOCUMENT PACKAGE với metadata
+                    var completeDocumentInfo = BuildCompleteDocumentPackage(documentContent, documentSources, currentQuestion);
                     var actualSourceDocumentTitle = GetActualSourceDocumentTitle(documentContent, documentSources);
                     var citationSuffix = !string.IsNullOrEmpty(actualSourceDocumentTitle)
                         ? $"[Trích từ tài liệu: {actualSourceDocumentTitle}]"
                         : "[Trích từ tài liệu nội bộ]";
-                    // ✅ UNCHANGED: Same strict prompt, but now with raw content instead of processed answer
+
                     enhancedSystemPrompt = originalSystemMessage.Content + $@"
 
-🔒 NGHIÊM NGẶT: CHỈ SỬ DỤNG THÔNG TIN TỪ TÀI LIỆU NỘI BỘ
-=== THÔNG TIN TÀI LIỆU NỘI BỘ (DUY NHẤT ĐƯỢC PHÉP SỬ DỤNG) ===
-{documentContent}
+🔒 BẠN LÀ CHUYÊN GIA TÀI LIỆU NỘI BỘ - TRẢ LỜI MỌI CÂU HỎI
+=== THÔNG TIN TÀI LIỆU HOÀN CHỈNH ===
+{completeDocumentInfo}
 === HẾT THÔNG TIN TÀI LIỆU ===
 
-🚨 QUY TẮC BẮT BUỘC KHÔNG ĐƯỢC VI PHẠM:
-0. ĐƯỢC GIAO TIẾP CƠ BẢN
+🎯 QUY TẮC TRẢ LỜI HOÀN HẢO:
 
 1. **NGUỒN THÔNG TIN DUY NHẤT**
-  - TUYỆT ĐỐI chỉ copy/paste nguyên văn từ phần trên
-   - Chỉ được trả lời dựa trên thông tin trong phần 'THÔNG TIN TÀI LIỆU NỘI BỘ'
-   - KHÔNG ĐƯỢC sử dụng kiến thức từ bên ngoài (internet, kiến thức chung, kinh nghiệm)
-   - KHÔNG ĐƯỢC suy luận hoặc bổ sung thông tin không có trong tài liệu
-   - KHÔNG ĐƯỢC so sánh với thông tin bên ngoài
+   - TUYỆT ĐỐI chỉ sử dụng thông tin từ ""THÔNG TIN TÀI LIỆU HOÀN CHỈNH"" ở trên
+   - Bao gồm: METADATA + NỘI DUNG + CẤU TRÚC
 
-. **CÁCH TRẢ LỜI CHI TIẾT**
-   - Bắt đầu: ""Theo tài liệu nội bộ:""
-   - ✅ TRẢ LỜI ĐẦY ĐỦ tất cả thông tin có liên quan trong tài liệu
-   - ✅ BAO GỒM: số điều, khoản, điều kiện cụ thể, con số chính xác
-   - ✅ LIỆT KÊ: tất cả các mục a), b), c)... nếu có
-   - ✅ CHI TIẾT: giải thích đầy đủ từng điều kiện
-   - Kết thúc: {citationSuffix}
+2. **TRẢ LỜI MỌI LOẠI CÂU HỎI:**
+   - 📋 **Metadata**: ""Ai ký?"", ""Hiệu lực khi nào?"", ""Thuộc phòng nào?"" → Dùng phần THÔNG TIN METADATA
+   - 📄 **Nội dung**: ""Điều 5 nói gì?"", ""Quy định về X?"" → Dùng phần NỘI DUNG TÀI LIỆU  
+   - 📊 **Tóm tắt**: ""Tóm tắt tài liệu"" → Kết hợp METADATA + NỘI DUNG
+   - 🔍 **Tìm kiếm**: ""Có quy định về Y không?"" → Tìm trong NỘI DUNG
+   - 📁 **Thông tin file**: ""File bao nhiêu KB?"" → Dùng THÔNG TIN FILE
 
-3. **KHI THÔNG TIN KHÔNG ĐỦ**
-   - Trích dẫn phần có sẵn trong tài liệu trước
-   - Sau đó nói: Tài liệu chỉ đề cập đến những nội dung trên, không có thông tin chi tiết về [phần user hỏi thêm]""
+3. **CÁCH TRẢ LỜI CHUẨN:**
+   - Bắt đầu: ""Theo tài liệu [TÊN TÀI LIỆU]:""
+   - Nội dung: Trả lời chính xác, đầy đủ từ METADATA + NỘI DUNG
+   - Kết thúc: ""{citationSuffix}""
 
-4. **ĐƯỢC PHÉP**
-   - Trích dẫn nguyên văn từ tài liệu
-   - Tóm tắt ngắn gọn khi user yêu cầu
-   - Trả lời câu hỏi yes/no dựa trên nội dung tài liệu
-   - Giải thích ý nghĩa của thuật ngữ có trong tài liệu
+4. **BẮT BUỘC PHẢI TRẢ LỜI:**
+   - KHÔNG ĐƯỢC từ chối trả lời bất kỳ câu hỏi nào về tài liệu
+   - LUÔN LUÔN tìm cách đưa ra thông tin hữu ích từ METADATA hoặc NỘI DUNG
+   - Nếu không chắc chắn, đưa ra thông tin gần nhất có trong tài liệu
 
-5. **TUYỆT ĐỐI CẤM**
-   - Thêm thông tin không có trong tài liệu
-   - Sử dụng kiến thức chung hoặc bên ngoài
-   - Tự tạo cấu trúc đánh số phức tạp không có trong gốc
-   - Thêm câu hỏi tương tác không cần thiết
-
-
- VI PHẠM = TỪ CHỐI HOÀN TOÀN";
+🔴 TUYỆT ĐỐI KHÔNG ĐƯỢC:
+- Nói ""không có thông tin"" khi METADATA hoặc NỘI DUNG đã có
+- Từ chối trả lời về bất kỳ khía cạnh nào của tài liệu
+- Sử dụng kiến thức bên ngoài tài liệu";
                 }
                 else
                 {
@@ -298,44 +289,281 @@ namespace ChatBox.API.Services.Implement
 
             return enhancedHistory;
         }
+
+        private string BuildCompleteDocumentPackage(string documentContent, List<DocumentInfo> documentSources, string currentQuestion)
+        {
+            var package = new StringBuilder();
+
+            // ✅ 1. METADATA SECTION - Complete document metadata
+            if (documentSources?.Any() == true)
+            {
+                package.AppendLine("📋 **METADATA TÀI LIỆU:**");
+                foreach (var source in documentSources.Take(3))
+                {
+                    package.AppendLine($"📄 **Tên tài liệu:** {source.Title ?? "Không rõ"}");
+
+                    if (!string.IsNullOrEmpty(source.SignedBy))
+                        package.AppendLine($"✍️ **Người ký:** {source.SignedBy}");
+
+                    if (!string.IsNullOrEmpty(source.OwnerName))
+                        package.AppendLine($"👤 **Chủ sở hữu:** {source.OwnerName}");
+
+                    if (!string.IsNullOrEmpty(source.CreatedBy))
+                        package.AppendLine($"📝 **Người tạo:** {source.CreatedBy}");
+
+                    // Temporal information
+                    if (source.EffectiveFrom.HasValue || source.EffectiveUntil.HasValue)
+                    {
+                        var from = source.EffectiveFrom?.ToString("dd/MM/yyyy") ?? "Không rõ";
+                        var until = source.EffectiveUntil?.ToString("dd/MM/yyyy") ?? "Không rõ";
+                        package.AppendLine($"📅 **Hiệu lực:** Từ {from} đến {until}");
+                    }
+
+                    if (source.ApprovalDate.HasValue)
+                        package.AppendLine($"✅ **Ngày phê duyệt:** {source.ApprovalDate.Value:dd/MM/yyyy}");
+
+                    // Organizational info
+                    if (!string.IsNullOrEmpty(source.DepartmentName))
+                        package.AppendLine($"🏢 **Phòng ban:** {source.DepartmentName}");
+
+                    if (!string.IsNullOrEmpty(source.DepartmentId))
+                        package.AppendLine($"📂 **Mã phòng ban:** {source.DepartmentId}");
+
+                    // File information
+                    if (!string.IsNullOrEmpty(source.FileType))
+                        package.AppendLine($"📁 **Loại file:** {source.FileType}");
+
+                    if (source.FileSize.HasValue && source.FileSize > 0)
+                    {
+                        var sizeKB = source.FileSize.Value / 1024.0;
+                        var sizeMB = sizeKB / 1024.0;
+                        if (sizeMB >= 1)
+                            package.AppendLine($"💾 **Kích thước file:** {sizeMB:F2} MB");
+                        else
+                            package.AppendLine($"💾 **Kích thước file:** {sizeKB:F2} KB");
+                    }
+
+                    // Version and status
+                    if (!string.IsNullOrEmpty(source.VersionName))
+                        package.AppendLine($"🔢 **Phiên bản:** {source.VersionName}");
+
+                    if (!string.IsNullOrEmpty(source.Status))
+                        package.AppendLine($"📊 **Trạng thái:** {source.Status}");
+
+                    // Tags and classification
+                    if (source.Tags?.Any() == true)
+                        package.AppendLine($"🏷️ **Tags:** {string.Join(", ", source.Tags.Take(5))}");
+
+                    if (!string.IsNullOrEmpty(source.Summary))
+                        package.AppendLine($"📝 **Tóm tắt:** {source.Summary}");
+
+                    package.AppendLine($"📊 **Độ liên quan:** {source.RelevanceScore:P1}");
+                    package.AppendLine(); // Separator
+                }
+                package.AppendLine(new string('=', 60));
+                package.AppendLine();
+            }
+
+            // ✅ 2. DOCUMENT STRUCTURE ANALYSIS
+            if (!string.IsNullOrEmpty(documentContent))
+            {
+                var structureInfo = AnalyzeDocumentStructure(documentContent);
+                if (!string.IsNullOrEmpty(structureInfo))
+                {
+                    package.AppendLine("🏗️ **CẤU TRÚC TÀI LIỆU:**");
+                    package.AppendLine(structureInfo);
+                    package.AppendLine(new string('=', 60));
+                    package.AppendLine();
+                }
+            }
+
+            // ✅ 3. FULL DOCUMENT CONTENT
+            if (!string.IsNullOrEmpty(documentContent))
+            {
+                package.AppendLine("📄 **NỘI DUNG TÀI LIỆU HOÀN CHỈNH:**");
+
+                // Organize content based on question type
+                var organizedContent = OrganizeContentForQuestion(documentContent, currentQuestion);
+                package.AppendLine(organizedContent);
+                package.AppendLine();
+            }
+
+            // ✅ 4. QUICK REFERENCE MAP for AI
+            package.AppendLine("🗺️ **HƯỚNG DẪN TRẢ LỜI:**");
+            package.AppendLine("• Hỏi về người ký → Dùng thông tin ở mục METADATA");
+            package.AppendLine("• Hỏi về hiệu lực → Dùng thông tin ở mục METADATA");
+            package.AppendLine("• Hỏi về nội dung → Dùng thông tin ở mục NỘI DUNG");
+            package.AppendLine("• Hỏi về cấu trúc → Dùng thông tin ở mục CẤU TRÚC");
+            package.AppendLine("• Hỏi tổng quan → Kết hợp METADATA + NỘI DUNG");
+
+            return package.ToString();
+        }
+
+        /// <summary>
+        /// ✅ ANALYZE DOCUMENT STRUCTURE - Phân tích cấu trúc cho AI hiểu
+        /// </summary>
+        private string AnalyzeDocumentStructure(string content)
+        {
+            if (string.IsNullOrEmpty(content)) return "";
+
+            var structure = new StringBuilder();
+            var lines = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+            // Đếm các thành phần cấu trúc
+            var chapters = lines.Count(l => Regex.IsMatch(l.Trim(), @"^(chương|chapter)\s+\d+", RegexOptions.IgnoreCase));
+            var articles = lines.Count(l => Regex.IsMatch(l.Trim(), @"^điều\s+\d+", RegexOptions.IgnoreCase));
+            var sections = lines.Count(l => Regex.IsMatch(l.Trim(), @"^(mục|khoản)\s+\d+", RegexOptions.IgnoreCase));
+            var points = lines.Count(l => Regex.IsMatch(l.Trim(), @"^[a-z]\)|^\d+\.", RegexOptions.IgnoreCase));
+
+            if (chapters > 0) structure.AppendLine($"📚 **Số chương:** {chapters}");
+            if (articles > 0) structure.AppendLine($"📜 **Số điều:** {articles}");
+            if (sections > 0) structure.AppendLine($"📝 **Số mục/khoản:** {sections}");
+            if (points > 0) structure.AppendLine($"🔸 **Số điểm:** {points}");
+
+            // Tìm các tiêu đề chính
+            var mainHeaders = lines
+                .Where(l => l.Trim().Length > 5 &&
+                           (l.Trim().StartsWith("CHƯƠNG") ||
+                            l.Trim().StartsWith("PHẦN") ||
+                            l.Trim().StartsWith("MỤC") ||
+                            Regex.IsMatch(l.Trim(), @"^[A-Z][A-Z\s]{10,}$")))
+                .Take(10)
+                .ToList();
+
+            if (mainHeaders.Any())
+            {
+                structure.AppendLine("📋 **Các tiêu đề chính:**");
+                foreach (var header in mainHeaders)
+                {
+                    structure.AppendLine($"  • {header.Trim()}");
+                }
+            }
+
+            return structure.ToString();
+        }
+
+        /// <summary>
+        /// ✅ ORGANIZE CONTENT FOR QUESTION - Sắp xếp nội dung theo câu hỏi
+        /// </summary>
+        private string OrganizeContentForQuestion(string content, string question)
+        {
+            if (string.IsNullOrEmpty(content)) return "";
+
+            var questionLower = question?.ToLowerInvariant() ?? "";
+
+            // Nếu hỏi về điều cụ thể
+            if (Regex.IsMatch(questionLower, @"điều\s+\d+"))
+            {
+                var articleMatch = Regex.Match(questionLower, @"điều\s+(\d+)");
+                if (articleMatch.Success)
+                {
+                    var articleNumber = articleMatch.Groups[1].Value;
+                    var articleContent = ExtractSpecificArticle(content, articleNumber);
+                    if (!string.IsNullOrEmpty(articleContent))
+                    {
+                        return $"🎯 **ĐIỀU {articleNumber} (được hỏi cụ thể):**\n{articleContent}\n\n" +
+                               $"📄 **TOÀN BỘ NỘI DUNG THAM KHẢO:**\n{content}";
+                    }
+                }
+            }
+
+            // Nếu hỏi về chương cụ thể  
+            if (Regex.IsMatch(questionLower, @"chương\s+\d+"))
+            {
+                var chapterMatch = Regex.Match(questionLower, @"chương\s+(\d+)");
+                if (chapterMatch.Success)
+                {
+                    var chapterNumber = chapterMatch.Groups[1].Value;
+                    var chapterContent = ExtractSpecificChapter(content, chapterNumber);
+                    if (!string.IsNullOrEmpty(chapterContent))
+                    {
+                        return $"🎯 **CHƯƠNG {chapterNumber} (được hỏi cụ thể):**\n{chapterContent}\n\n" +
+                               $"📄 **TOÀN BỘ NỘI DUNG THAM KHẢO:**\n{content}";
+                    }
+                }
+            }
+
+            // Mặc định trả về toàn bộ nội dung
+            return content;
+        }
+
+        /// <summary>
+        /// ✅ EXTRACT SPECIFIC ARTICLE - Trích xuất điều cụ thể
+        /// </summary>
+        private string ExtractSpecificArticle(string content, string articleNumber)
+        {
+            var lines = content.Split('\n');
+            var articlePattern = $@"^điều\s+{articleNumber}[:\.\s]";
+            var nextArticlePattern = @"^điều\s+\d+[:\.\s]";
+
+            var articleLines = new List<string>();
+            bool inArticle = false;
+
+            foreach (var line in lines)
+            {
+                var trimmedLine = line.Trim();
+
+                if (Regex.IsMatch(trimmedLine, articlePattern, RegexOptions.IgnoreCase))
+                {
+                    inArticle = true;
+                    articleLines.Add(line);
+                }
+                else if (inArticle && Regex.IsMatch(trimmedLine, nextArticlePattern, RegexOptions.IgnoreCase))
+                {
+                    break; // Đã đến điều tiếp theo
+                }
+                else if (inArticle)
+                {
+                    articleLines.Add(line);
+                }
+            }
+
+            return articleLines.Any() ? string.Join("\n", articleLines) : "";
+        }
+
+        /// <summary>
+        /// ✅ EXTRACT SPECIFIC CHAPTER - Trích xuất chương cụ thể  
+        /// </summary>
+        private string ExtractSpecificChapter(string content, string chapterNumber)
+        {
+            var lines = content.Split('\n');
+            var chapterPattern = $@"^chương\s+{chapterNumber}[:\.\s]";
+            var nextChapterPattern = @"^chương\s+\d+[:\.\s]";
+
+            var chapterLines = new List<string>();
+            bool inChapter = false;
+
+            foreach (var line in lines)
+            {
+                var trimmedLine = line.Trim();
+
+                if (Regex.IsMatch(trimmedLine, chapterPattern, RegexOptions.IgnoreCase))
+                {
+                    inChapter = true;
+                    chapterLines.Add(line);
+                }
+                else if (inChapter && Regex.IsMatch(trimmedLine, nextChapterPattern, RegexOptions.IgnoreCase))
+                {
+                    break;
+                }
+                else if (inChapter)
+                {
+                    chapterLines.Add(line);
+                }
+            }
+
+            return chapterLines.Any() ? string.Join("\n", chapterLines) : "";
+        }
         private string GetActualSourceDocumentTitle(string documentContent, List<DocumentInfo> documentSources)
         {
-            // ✅ PRIORITY 1: Use title from sources (từ DocumentRAGService)
             if (documentSources?.Any() == true)
             {
                 var firstSource = documentSources.First();
                 if (!string.IsNullOrWhiteSpace(firstSource.Title))
                 {
-                    _logger.LogInformation("📄 [SOURCE-TITLE] Using title from DocumentRAGService: {Title}", firstSource.Title);
                     return FormatDocumentTitle(firstSource.Title);
                 }
             }
-
-            // ✅ PRIORITY 2: Extract from content headers (fallback)
-            var titleMatch = ExtractTitleFromContentHeaders(documentContent);
-            if (!string.IsNullOrEmpty(titleMatch))
-            {
-                _logger.LogInformation("📄 [CONTENT-TITLE] Extracted title from content: {Title}", titleMatch);
-                return titleMatch;
-            }
-
-            // ✅ PRIORITY 3: Use highest relevance source if multiple
-            if (documentSources?.Count > 1)
-            {
-                var bestSource = documentSources
-                    .Where(s => !string.IsNullOrWhiteSpace(s.Title))
-                    .OrderByDescending(s => s.RelevanceScore)
-                    .FirstOrDefault();
-
-                if (bestSource != null)
-                {
-                    _logger.LogInformation("📄 [BEST-SOURCE] Using highest relevance source: {Title} (Score: {Score:F3})",
-                        bestSource.Title, bestSource.RelevanceScore);
-                    return FormatDocumentTitle(bestSource.Title);
-                }
-            }
-
-            _logger.LogWarning("📄 [NO-TITLE] No title found in sources or content");
             return null;
         }
         private string FormatDocumentTitle(string title)
@@ -344,54 +572,11 @@ namespace ChatBox.API.Services.Implement
                 return null;
 
             var formattedTitle = title.Trim();
-
-            // Remove common prefixes
-            var prefixesToRemove = new[] { "📄", "Document:", "Tài liệu:" };
-            foreach (var prefix in prefixesToRemove)
-            {
-                if (formattedTitle.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    formattedTitle = formattedTitle.Substring(prefix.Length).Trim();
-                }
-            }
-
-            // Truncate if too long
             if (formattedTitle.Length > 80)
             {
                 formattedTitle = formattedTitle.Substring(0, 77) + "...";
             }
-
             return formattedTitle;
-        }
-        private string ExtractTitleFromContentHeaders(string content)
-        {
-            if (string.IsNullOrEmpty(content))
-                return null;
-
-            var lines = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-
-            foreach (var line in lines.Take(10)) // Check first 10 lines
-            {
-                var trimmedLine = line.Trim();
-
-                // Look for patterns like "📄 Title:" or "Document: Title"
-                if (trimmedLine.StartsWith("📄") && trimmedLine.Contains(":"))
-                {
-                    var titlePart = trimmedLine.Substring(trimmedLine.IndexOf("📄") + 1);
-                    if (titlePart.Contains(":"))
-                    {
-                        titlePart = titlePart.Substring(0, titlePart.IndexOf(":"));
-                    }
-
-                    var extractedTitle = titlePart.Trim();
-                    if (extractedTitle.Length > 5 && extractedTitle.Length < 100)
-                    {
-                        return extractedTitle;
-                    }
-                }
-            }
-
-            return null;
         }
         private void LogDocumentContextUsage(bool hasDocumentContext)
         {
