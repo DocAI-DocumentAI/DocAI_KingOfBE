@@ -235,10 +235,12 @@ namespace ChatBox.API.Services.Implement
    - KHÔNG ĐƯỢC suy luận hoặc bổ sung thông tin không có trong tài liệu
    - KHÔNG ĐƯỢC so sánh với thông tin bên ngoài
 
-2. **CÁCH TRẢ LỜI HỢP LÝ**
-   - Bắt đầu: Theo tài liệu nội bộ:
-   - Trích dẫn nguyên văn phần liên quan từ tài liệu
-   - Có thể tóm tắt ngắn gọn nếu và chỉ nếu user yêu cầu cụ thể
+. **CÁCH TRẢ LỜI CHI TIẾT**
+   - Bắt đầu: ""Theo tài liệu nội bộ:""
+   - ✅ TRẢ LỜI ĐẦY ĐỦ tất cả thông tin có liên quan trong tài liệu
+   - ✅ BAO GỒM: số điều, khoản, điều kiện cụ thể, con số chính xác
+   - ✅ LIỆT KÊ: tất cả các mục a), b), c)... nếu có
+   - ✅ CHI TIẾT: giải thích đầy đủ từng điều kiện
    - Kết thúc: {citationSuffix}
 
 3. **KHI THÔNG TIN KHÔNG ĐỦ**
