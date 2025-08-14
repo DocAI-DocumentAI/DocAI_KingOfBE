@@ -409,20 +409,19 @@ namespace Document.API.Services.Implements
             if (!citations.Any()) return null;
 
             var contentBuilder = new StringBuilder();
-            var processedContent = new HashSet<int>(); // Use hash for deduplication
-            var maxContentLength = 8000;
+            var processedContent = new HashSet<string>(); 
+            var maxContentLength = 12000;
             var currentLength = 0;
 
-            // ✅ Get multiple partitions per document (up to 3 best partitions per document)
+            // Get multiple partitions per document (up to 3 best partitions per document)
             var allPartitions = citations
                 .SelectMany(c => {
                     var title = GetTagValueFromCitation(c, "title") ?? GetTagValueFromCitation(c, "documentTitle") ?? "Document";
 
-                    // ✅ Take top 3 partitions from each document (instead of just 1)
                     return c.Partitions
                         .Where(p => !string.IsNullOrWhiteSpace(p.Text) && p.Text.Length > 50 && p.Relevance > 0.01)
                         .OrderByDescending(p => p.Relevance)
-                        .Take(3) // ✅ Up to 3 partitions per document
+                        .Take(3)
                         .Select(p => new {
                             Citation = c,
                             Partition = p,
@@ -430,33 +429,38 @@ namespace Document.API.Services.Implements
                             Title = title
                         });
                 })
-                .OrderByDescending(x => x.Relevance) // ✅ Then sort all partitions by relevance
+                .OrderByDescending(x => x.Relevance)
                 .ToList();
 
-            _logger.LogInformation("🔍 [CONTENT] Processing {Count} partitions from {DocumentCount} documents, highest relevance: {MaxRelevance:F3}, query: '{QueryPreview}'",
+            _logger.LogInformation("🔍 [CONTENT] Processing {Count} partitions from {DocumentCount} documents, highest relevance: {MaxRelevance:F3}",
                 allPartitions.Count,
                 citations.Count,
-                allPartitions.FirstOrDefault()?.Relevance ?? 0,
-                query.Length > 50 ? query.Substring(0, 50) + "..." : query);
+                allPartitions.FirstOrDefault()?.Relevance ?? 0);
 
             foreach (var item in allPartitions)
             {
                 if (currentLength >= maxContentLength) break;
 
                 var text = item.Partition.Text;
+                var snippet = text.Length <= 1200 ? text : ExtractRelevantSnippet(text, query, 1000);
 
-                // ✅ Take content as-is if short, or extract relevant snippet if long
-                var snippet = text.Length <= 800 ? text : ExtractRelevantSnippet(text, query, 600);
+                // ✅ FIX 1: Better duplicate detection - use meaningful portion of content
+                var contentKey = snippet.Length > 100 ? snippet.Substring(0, 100).Trim() : snippet.Trim();
 
-                // Check for duplicate using better content matching
-                var contentKey = snippet.Length < 100 ? snippet : snippet.Substring(0, 100);
-                var contentHash = contentKey.Trim().GetHashCode();
-                if (processedContent.Contains(contentHash))
+                if (processedContent.Contains(contentKey))
                 {
                     _logger.LogDebug("🔍 [CONTENT] Skipping duplicate content from: {Title}", item.Title);
                     continue;
                 }
-                processedContent.Add(contentHash);
+
+                // ✅ FIX 2: Validate content quality - reject if too repetitive
+                if (IsContentTooRepetitive(snippet))
+                {
+                    _logger.LogDebug("🔍 [CONTENT] Skipping repetitive content from: {Title}", item.Title);
+                    continue;
+                }
+
+                processedContent.Add(contentKey);
 
                 if (contentBuilder.Length > 0)
                 {
@@ -487,25 +491,56 @@ namespace Document.API.Services.Implements
 
             return result;
         }
+        private bool IsContentTooRepetitive(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text) || text.Length < 100)
+                return false;
 
+            // ✅ Simple check: if same phrase appears more than 3 times, it's too repetitive
+            var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length < 10) return false;
+
+            // Check for repeated 3-word phrases
+            for (int i = 0; i <= words.Length - 6; i++) // Need at least 6 words to check for repetition
+            {
+                var phrase = string.Join(" ", words.Skip(i).Take(3));
+                var occurrences = 0;
+
+                for (int j = i + 3; j <= words.Length - 3; j++)
+                {
+                    var checkPhrase = string.Join(" ", words.Skip(j).Take(3));
+                    if (phrase.Equals(checkPhrase, StringComparison.OrdinalIgnoreCase))
+                    {
+                        occurrences++;
+                        if (occurrences >= 2) // Same 3-word phrase appears 3+ times total
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
         // ✅ EXTRACT MOST RELEVANT SNIPPET FROM TEXT
         private string ExtractRelevantSnippet(string text, string query, int maxLength)
         {
-            if (text.Length <= maxLength) return text;
+            if (string.IsNullOrWhiteSpace(text) || text.Length <= maxLength)
+                return text;
 
-            // Try to find query terms in text
             var queryWords = query.ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries);
             var textLower = text.ToLower();
 
-            int bestStart = 0;
-            int bestScore = 0;
+            var bestStart = 0;
+            var bestScore = 0;
 
-            // Find position with most query word matches
-            for (int i = 0; i < text.Length - maxLength; i += 50)
+            // ✅ Find section with most query matches, but expand context
+            for (int i = 0; i <= text.Length - maxLength; i += 200) // ✅ Smaller steps for better coverage
             {
-                var segment = textLower.Substring(i, Math.Min(maxLength, text.Length - i));
-                var score = queryWords.Count(word => segment.Contains(word));
+                var segmentEnd = Math.Min(i + maxLength, text.Length);
+                var segment = textLower.Substring(i, segmentEnd - i);
 
+                var score = queryWords.Count(word => segment.Contains(word));
                 if (score > bestScore)
                 {
                     bestScore = score;
@@ -513,22 +548,38 @@ namespace Document.API.Services.Implements
                 }
             }
 
-            // Extract snippet from best position
-            var snippet = text.Substring(bestStart, Math.Min(maxLength, text.Length - bestStart));
+            var snippetEnd = Math.Min(bestStart + maxLength, text.Length);
+            var snippet = text.Substring(bestStart, snippetEnd - bestStart);
 
-            // Clean up edges
+            // ✅ Better edge trimming to preserve complete information
             if (bestStart > 0)
             {
-                var firstSpace = snippet.IndexOf(' ');
-                if (firstSpace > 0 && firstSpace < 50)
-                    snippet = "..." + snippet.Substring(firstSpace);
+                // Find natural break point (sentence or paragraph)
+                var breakPoints = new[] { "\n\n", ". ", ";\n", ":\n" };
+                foreach (var breakPoint in breakPoints)
+                {
+                    var firstBreak = snippet.IndexOf(breakPoint);
+                    if (firstBreak > 0 && firstBreak < 100) // Only trim if break is near start
+                    {
+                        snippet = snippet.Substring(firstBreak + breakPoint.Length);
+                        break;
+                    }
+                }
             }
 
-            if (bestStart + maxLength < text.Length)
+            if (snippetEnd < text.Length)
             {
-                var lastSpace = snippet.LastIndexOf(' ');
-                if (lastSpace > snippet.Length - 50)
-                    snippet = snippet.Substring(0, lastSpace) + "...";
+                // Find natural end point
+                var breakPoints = new[] { "\n\n", ". ", ";\n", ":\n" };
+                foreach (var breakPoint in breakPoints)
+                {
+                    var lastBreak = snippet.LastIndexOf(breakPoint);
+                    if (lastBreak > snippet.Length - 100) // Only trim if break is near end
+                    {
+                        snippet = snippet.Substring(0, lastBreak + 1);
+                        break;
+                    }
+                }
             }
 
             return snippet.Trim();
@@ -713,6 +764,7 @@ namespace Document.API.Services.Implements
                                 _logger.LogDebug("🔓 [ACCESS-{RequestId}] Member access granted for dept: {DeptId}",
                                     requestId, departmentId);
                                 return true;
+
                             case "NONE":
                                 _logger.LogDebug("🔒 [ACCESS-{RequestId}] Role NONE - no department access", requestId);
                                 return false;

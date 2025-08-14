@@ -18,6 +18,8 @@
             public const string GetModelsFailed = "Lấy danh sách model thất bại";
             public const string SuggestTitleFailed = "Tạo tiêu đề thất bại";
             public const string ValidateContextFailed = "Kiểm tra ngữ cảnh thất bại";
+            public const string UpdateSessionTitleFailed = "Failed to update session title";
+            public const string SessionTitleUpdated = "Session title updated successfully";
 
             public const string EmptyMessage = "Tin nhắn không được để trống";
             public const string MessageTooLong = "Tin nhắn quá dài. Vui lòng rút ngắn nội dung xuống dưới {0} ký tự";

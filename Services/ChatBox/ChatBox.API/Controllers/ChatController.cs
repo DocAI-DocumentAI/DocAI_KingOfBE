@@ -284,6 +284,37 @@ namespace ChatBox.API.Controllers
             }
         }
         /// <summary>
+        /// Đổi tên/title session
+        /// </summary>
+        [HttpPut(ApiEndPointConstant.Chat.UpdateSessionTitle)]
+        [CustomAuthorize]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<IActionResult> UpdateSessionTitleAsync(string sessionId, [FromBody] string title)
+        {
+            try
+            {
+                var userId = GetUserId();
+                var result = await _chatService.UpdateSessionTitleAsync(sessionId, title, userId);
+
+                if (!result)
+                    return NotFound(MessageConstant.Chat.SessionNotFound);
+
+                return Ok(MessageConstant.Chat.SessionTitleUpdated);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update session title");
+                return Problem(MessageConstant.Chat.UpdateSessionTitleFailed);
+            }
+        }
+        /// <summary>
         /// Chuyển đổi model cho session - DISABLED (phải tạo session mới)
         /// </summary>
         [HttpPatch(ApiEndPointConstant.Chat.SwitchModel)]
