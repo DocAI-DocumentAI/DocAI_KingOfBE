@@ -390,9 +390,12 @@ namespace Document.API.Services.Implements
                 // Check if this document REPLACES another document (different from versioning)
                 if (!string.IsNullOrEmpty(documentFile.ReplacementId))
                 {
+                    // Load the document being replaced regardless of its current IsReplaced flag.
+                    // BR-037 sets IsReplaced at submission to block concurrent replacements,
+                    // but at approval time we must still archive its latest approved version.
                     replacedDocument = await _unitOfWork.GetRepository<DocumentFile>()
                         .SingleOrDefaultAsync(
-                            predicate: df => df.Id == documentFile.ReplacementId && !df.IsReplaced,
+                            predicate: df => df.Id == documentFile.ReplacementId,
                             include: i => i.Include(df => df.DocumentVersions.Where(v => v.Status == StatusEnum.Approved))
                                           .ThenInclude(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
                         );
@@ -1020,43 +1023,36 @@ namespace Document.API.Services.Implements
         /// <summary>
         /// Get user email by ID from Auth service via MassTransit
         /// </summary>
-        private Task<string?> GetUserEmailByIdAsync(string userId)
+        private async Task<string?> GetUserEmailByIdAsync(string userId)
         {
             try
             {
-                // This would typically use a request client to Auth service
-                // For now, we'll use the permission manager's existing functionality
-                // In a real implementation, you might want to add a dedicated method
                 _logger.LogInformation("Getting user email for user ID: {UserId}", userId);
-
-                // TODO: Implement proper user lookup via MassTransit
-                // For now, return a placeholder that indicates we need the email
-                return Task.FromResult<string?>($"user-{userId}@company.com"); // Placeholder - should be replaced with actual lookup
+                var email = await _permissionManager.GetUserEmailAsync(userId);
+                return string.IsNullOrWhiteSpace(email) ? null : email;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting user email for user ID: {UserId}", userId);
-                return Task.FromResult<string?>(null);
+                return null;
             }
         }
 
         /// <summary>
         /// Get user name by ID from Auth service via MassTransit
         /// </summary>
-        private Task<string?> GetUserNameByIdAsync(string userId)
+        private async Task<string?> GetUserNameByIdAsync(string userId)
         {
             try
             {
                 _logger.LogInformation("Getting user name for user ID: {UserId}", userId);
-
-                // TODO: Implement proper user lookup via MassTransit
-                // For now, return a placeholder
-                return Task.FromResult<string?>($"User {userId}"); // Placeholder - should be replaced with actual lookup
+                var name = await _nameLookupService.GetUserNameAsync(userId);
+                return string.IsNullOrWhiteSpace(name) ? null : name;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting user name for user ID: {UserId}", userId);
-                return Task.FromResult<string?>(null);
+                return null;
             }
         }
 

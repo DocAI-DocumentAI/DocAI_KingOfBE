@@ -349,7 +349,8 @@ public class DocumentService : IDocumentService
             OwnerId = userId,
             CreatedBy = userId,
             ReplacementId = request.ReplacementDocumentId,
-            IsReplaced = !string.IsNullOrEmpty(request.ReplacementDocumentId),
+            // Do not set IsReplaced on the NEW document; it applies to the document being replaced.
+            IsReplaced = false,
             DocumentTypeId = request.DocumentTypeId
         };
 
