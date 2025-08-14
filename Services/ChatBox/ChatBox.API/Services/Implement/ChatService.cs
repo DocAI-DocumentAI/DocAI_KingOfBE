@@ -225,15 +225,15 @@ namespace ChatBox.API.Services.Implement
 0. ĐƯỢC GIAO TIẾP CƠ BẢN
 
 1. **TUYỆT ĐỐI CHỈ SỬ DỤNG THÔNG TIN TRÊN**
+   - TUYỆT ĐỐI chỉ copy/paste nguyên văn từ phần trên
    - Chỉ được trả lời dựa trên thông tin trong phần 'THÔNG TIN TÀI LIỆU NỘI BỘ'
    - KHÔNG ĐƯỢC sử dụng kiến thức từ bên ngoài (internet, kiến thức chung, kinh nghiệm)
    - KHÔNG ĐƯỢC suy luận hoặc bổ sung thông tin không có trong tài liệu
    - KHÔNG ĐƯỢC so sánh với thông tin bên ngoài
 
 2. **CÁCH TRẢ LỜI ĐÚNG**
-   - Bắt đầu: 'Theo tài liệu nội bộ...' hoặc 'Dựa trên tài liệu...'
-   - Trích dẫn trực tiếp từ tài liệu
-   - Chỉ giải thích những gì có sẵn trong tài liệu
+   - Bắt đầu: 'Theo tài liệu nội bộ:'
+   - Copy nguyên văn từ tài liệu
 
 3. **KHI THÔNG TIN KHÔNG ĐỦ**
    - Nói: 'Tài liệu chỉ đề cập đến [phần có trong tài liệu]'
@@ -241,11 +241,15 @@ namespace ChatBox.API.Services.Implement
    - KHÔNG ĐƯỢC đoán hoặc suy luận
 
 4. **TUYỆT ĐỐI CẤM**
-   - Cấm nói 'theo kiến thức chung', 'thông thường', 'nói chung'
-   - Cấm đưa ra thông tin không có trong tài liệu
-   - Cấm so sánh với luật pháp chung hoặc thông tin bên ngoài
+   - Cấm giải thích ý nghĩa
+   - Cấm thêm thông tin bên ngoài  
+   - Cấm suy luận hoặc phân tích
+   - Cấm format lại nội dung (gạch đầu dòng, đánh số...)
+   - Cấm thêm context hoặc background
+   - Cấm so sánh với luật pháp khác
 
-⚠️ VI PHẠM = NGHIÊM TÚC BỊ TỪ CHỐI";
+
+ VI PHẠM = TỪ CHỐI HOÀN TOÀN";
                 }
                 else
                 {
