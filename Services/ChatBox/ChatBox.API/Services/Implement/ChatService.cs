@@ -53,13 +53,8 @@ namespace ChatBox.API.Services.Implement
             var session = await GetOrCreateSessionAsync(request.SessionId, request.ModelName, userId);
             await ValidateSessionModelConsistency(session, request.ModelName);
             await EnsureSessionModelIsActive(session);
-                var requestTimestamp = DateTime.UtcNow;
 
             var isFirstMessage = await IsFirstUserMessageInSession(session.Id);
-
-            var userMessage = CreateUserChatMessage(request.Message, session.Id, userId, requestTimestamp, session.ModelName);
-            await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(userMessage);
-            await _unitOfWork.CommitAsync();
 
             _logger.LogInformation("Processing chat message for session {SessionId}, isFirstMessage: {IsFirstMessage}",
                 session.Id, isFirstMessage);
