@@ -197,7 +197,7 @@ public class DocumentController : ControllerBase
     /// <summary>
     /// Get current user's documents with filtering, pagination, and status statistics
     /// </summary>
-    [HttpGet(ApiEndPointConstant.Document.GetMyDocuments + "/with-stats")]
+    [HttpGet(ApiEndPointConstant.Document.GetMyDocumentsWithStats)]
     [CustomAuthorize(Roles = new[] { Roles.Editor })]
     [ProducesResponseType(typeof(ApiResponse<MyDocumentsWithStatsResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -211,7 +211,7 @@ public class DocumentController : ControllerBase
     /// <summary>
     /// Get editor's approval history (approved/rejected documents) with filtering and pagination
     /// </summary>
-    [HttpGet(ApiEndPointConstant.Document.GetMyDocuments + "/approval-history")]
+    [HttpGet(ApiEndPointConstant.Document.GetEditorApprovalHistory)]
     [CustomAuthorize(Roles = new[] { Roles.Editor })]
     [ProducesResponseType(typeof(ApiResponse<IPaginate<EditorApprovalHistoryResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -241,7 +241,7 @@ public class DocumentController : ControllerBase
     /// <summary>
     /// Get detailed information of a specific approved/rejected document with approval log
     /// </summary>
-    [HttpGet(ApiEndPointConstant.Document.GetMyDocuments + "/approval-history/{id}")]
+    [HttpGet(ApiEndPointConstant.Document.GetEditorApprovalHistoryDetail)]
     [CustomAuthorize(Roles = new[] { Roles.Editor })]
     [ProducesResponseType(typeof(ApiResponse<EditorApprovalHistoryResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
