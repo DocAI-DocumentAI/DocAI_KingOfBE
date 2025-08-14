@@ -50,15 +50,17 @@ public class NotificationController : ControllerBase
     {
         try
         {
-            // Only Admin and Manager can view all logs, others can only see their own
-            if (!_authService.HasAnyRole(Roles.Admin, Roles.Manager))
+            var currentUserEmail = User.FindFirst("email")?.Value;
+            if (!string.IsNullOrEmpty(currentUserEmail))
             {
-                var currentUserEmail = User.FindFirst("email")?.Value;
-                if (!string.IsNullOrEmpty(currentUserEmail))
-                {
-                    request.Recipient = currentUserEmail;
-                }
+                request.Recipient = currentUserEmail; // Force filter theo email của user hiện tại
             }
+            else
+            {
+                _logger.LogWarning("User email not found in token");
+                return BadRequest("User email not found in token");
+            }
+
 
             var logs = await _logService.GetNotificationLogsAsync(request);
             return Ok(logs);
@@ -69,7 +71,29 @@ public class NotificationController : ControllerBase
             return Problem("Failed to retrieve notification logs");
         }
     }
-
+    // ✅ HOẶC nếu muốn Admin có API riêng để xem tất cả (tùy chọn)
+    /// <summary>
+    /// [ADMIN ONLY] Lấy tất cả notification logs của hệ thống
+    /// </summary>
+    [HttpGet(ApiEndpointConstant.Notification.GetAllSystemLogs)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin })]
+    [ProducesResponseType(typeof(IPaginate<NotificationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetAllSystemLogsAsync([FromQuery] NotificationRequest request)
+    {
+        try
+        {
+            // Admin có thể xem tất cả mà không filter
+            var logs = await _logService.GetNotificationLogsAsync(request);
+            return Ok(logs);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get system notification logs");
+            return Problem("Failed to retrieve system notification logs");
+        }
+    }
     /// <summary>
     /// Dismiss notification bằng user action
     /// </summary>
