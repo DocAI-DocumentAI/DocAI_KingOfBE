@@ -199,7 +199,7 @@ namespace ChatBox.API.Services.Implement
         /// <summary>
         /// ✅ KEEP EXISTING: CreateEnhancedChatHistoryForAI - same prompt logic, now with raw content
         /// </summary>
-        private ChatHistory CreateEnhancedChatHistoryForAI(ChatHistory cleanHistory, string documentContent, string currentQuestion)
+        private ChatHistory CreateEnhancedChatHistoryForAI(ChatHistory cleanHistory, string documentContent, string currentQuestion, List<DocumentInfo> documentSources = null)
         {
             var enhancedHistory = new ChatHistory();
             var originalSystemMessage = cleanHistory.FirstOrDefault(m => m.Role == AuthorRole.System);
@@ -213,6 +213,10 @@ namespace ChatBox.API.Services.Implement
                     _logger.LogInformation("📄 [CHAT] RAW DOCUMENT CONTENT received: {DocumentContent}",
                         documentContent.Substring(0, Math.Min(200, documentContent.Length)));
 
+                    var actualSourceDocumentTitle = GetActualSourceDocumentTitle(documentContent, documentSources);
+                    var citationSuffix = !string.IsNullOrEmpty(actualSourceDocumentTitle)
+                        ? $"[Trích từ tài liệu: {actualSourceDocumentTitle}]"
+                        : "[Trích từ tài liệu nội bộ]";
                     // ✅ UNCHANGED: Same strict prompt, but now with raw content instead of processed answer
                     enhancedSystemPrompt = originalSystemMessage.Content + $@"
 
@@ -233,7 +237,7 @@ namespace ChatBox.API.Services.Implement
    - Bắt đầu: Theo tài liệu nội bộ:
    - Trích dẫn nguyên văn phần liên quan từ tài liệu
    - Có thể tóm tắt ngắn gọn nếu user yêu cầu cụ thể
-   - Kết thúc: [Trích từ tài liệu nội bộ]
+   - Kết thúc: {citationSuffix}
 
 3. **KHI THÔNG TIN KHÔNG ĐỦ**
    - Trích dẫn phần có sẵn trong tài liệu trước
@@ -290,7 +294,101 @@ namespace ChatBox.API.Services.Implement
 
             return enhancedHistory;
         }
+        private string GetActualSourceDocumentTitle(string documentContent, List<DocumentInfo> documentSources)
+        {
+            // ✅ PRIORITY 1: Use title from sources (từ DocumentRAGService)
+            if (documentSources?.Any() == true)
+            {
+                var firstSource = documentSources.First();
+                if (!string.IsNullOrWhiteSpace(firstSource.Title))
+                {
+                    _logger.LogInformation("📄 [SOURCE-TITLE] Using title from DocumentRAGService: {Title}", firstSource.Title);
+                    return FormatDocumentTitle(firstSource.Title);
+                }
+            }
 
+            // ✅ PRIORITY 2: Extract from content headers (fallback)
+            var titleMatch = ExtractTitleFromContentHeaders(documentContent);
+            if (!string.IsNullOrEmpty(titleMatch))
+            {
+                _logger.LogInformation("📄 [CONTENT-TITLE] Extracted title from content: {Title}", titleMatch);
+                return titleMatch;
+            }
+
+            // ✅ PRIORITY 3: Use highest relevance source if multiple
+            if (documentSources?.Count > 1)
+            {
+                var bestSource = documentSources
+                    .Where(s => !string.IsNullOrWhiteSpace(s.Title))
+                    .OrderByDescending(s => s.RelevanceScore)
+                    .FirstOrDefault();
+
+                if (bestSource != null)
+                {
+                    _logger.LogInformation("📄 [BEST-SOURCE] Using highest relevance source: {Title} (Score: {Score:F3})",
+                        bestSource.Title, bestSource.RelevanceScore);
+                    return FormatDocumentTitle(bestSource.Title);
+                }
+            }
+
+            _logger.LogWarning("📄 [NO-TITLE] No title found in sources or content");
+            return null;
+        }
+        private string FormatDocumentTitle(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+                return null;
+
+            var formattedTitle = title.Trim();
+
+            // Remove common prefixes
+            var prefixesToRemove = new[] { "📄", "Document:", "Tài liệu:" };
+            foreach (var prefix in prefixesToRemove)
+            {
+                if (formattedTitle.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    formattedTitle = formattedTitle.Substring(prefix.Length).Trim();
+                }
+            }
+
+            // Truncate if too long
+            if (formattedTitle.Length > 80)
+            {
+                formattedTitle = formattedTitle.Substring(0, 77) + "...";
+            }
+
+            return formattedTitle;
+        }
+        private string ExtractTitleFromContentHeaders(string content)
+        {
+            if (string.IsNullOrEmpty(content))
+                return null;
+
+            var lines = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var line in lines.Take(10)) // Check first 10 lines
+            {
+                var trimmedLine = line.Trim();
+
+                // Look for patterns like "📄 Title:" or "Document: Title"
+                if (trimmedLine.StartsWith("📄") && trimmedLine.Contains(":"))
+                {
+                    var titlePart = trimmedLine.Substring(trimmedLine.IndexOf("📄") + 1);
+                    if (titlePart.Contains(":"))
+                    {
+                        titlePart = titlePart.Substring(0, titlePart.IndexOf(":"));
+                    }
+
+                    var extractedTitle = titlePart.Trim();
+                    if (extractedTitle.Length > 5 && extractedTitle.Length < 100)
+                    {
+                        return extractedTitle;
+                    }
+                }
+            }
+
+            return null;
+        }
         private void LogDocumentContextUsage(bool hasDocumentContext)
         {
             if (hasDocumentContext)
@@ -585,7 +683,7 @@ namespace ChatBox.API.Services.Implement
             if (documentSources?.Any() == true)
             {
                 sourcesString = string.Join(";", documentSources.Select(doc =>
-                    $"{doc.DocumentId ?? ""}|{doc.Title ?? ""}"));
+                 $"{doc.DocumentId ?? ""}|{doc.Title ?? ""}|{doc.RelevanceScore:F3}"));
             }
             var aiMessage = new ChatMessage
             {
