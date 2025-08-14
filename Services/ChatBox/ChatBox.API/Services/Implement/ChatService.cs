@@ -481,6 +481,39 @@ namespace ChatBox.API.Services.Implement
 
             return userMessages.Count == 0;
         }
+        public async Task<bool> UpdateSessionTitleAsync(string sessionId, string title, string userId)
+        {
+            try
+            {
+                // Validate input
+                if (string.IsNullOrWhiteSpace(title))
+                    throw new ArgumentException("Title không được để trống");
+
+                if (title.Length > ChatConstants.MaxTitleLength)
+                    throw new ArgumentException($"Title không được vượt quá {ChatConstants.MaxTitleLength} ký tự");
+
+                // Get session
+                var session = await GetSessionByIdAndUser(sessionId, userId);
+                if (session == null)
+                    return false;
+
+                // Update title
+                session.Title = title.Trim();
+                session.UpdatedAt = DateTime.UtcNow;
+                session.UpdatedBy = userId;
+
+                _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
+                await _unitOfWork.CommitAsync();
+
+                _logger.LogInformation("Updated session title: {SessionId} -> {Title}", sessionId, title);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update session title for {SessionId}", sessionId);
+                throw;
+            }
+        }
 
         #endregion
 

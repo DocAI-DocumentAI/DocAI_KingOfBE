@@ -17,6 +17,7 @@
             public const string GetUserSessions = "sessions";
             public const string DeleteSession = "session/{sessionId}";
             public const string SwitchModel = "session/{sessionId}/model";
+            public const string UpdateSessionTitle = "session/{sessionId}/title"; 
             public const string ValidateMessage = "validate";
             public const string AvailableModels = "models";
             public const string SuggestTitle = "suggest-title";
