@@ -1344,7 +1344,7 @@ public class DocumentService : IDocumentService
         var versionToDelete = documentToDelete.DocumentVersions.FirstOrDefault(v => v.Id == versionId);
 
         // BR-117: Check if the document's status is "Draft".
-        if (versionToDelete == null || versionToDelete.Status != StatusEnum.Draft)
+        if (versionToDelete == null || versionToDelete.Status != StatusEnum.Draft || versionToDelete.Status != StatusEnum.Rejected)
         {
             var currentStatus = versionToDelete?.Status.ToString() ?? "Unknown";
             var message = string.Format(MessageConstant.CanOnlyDeleteDrafts, currentStatus);

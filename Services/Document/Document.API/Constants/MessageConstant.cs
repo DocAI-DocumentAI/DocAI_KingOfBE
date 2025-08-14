@@ -27,7 +27,7 @@ public class MessageConstant
     public const string CannotEditWithStatus = "Cannot edit a document with status '{0}'";
     public const string DocumentNotFound = "Document not found.";
     public const string UnauthorizedToDelete = "You do not have permission to delete this document.";
-    public const string CanOnlyDeleteDrafts = "Only documents with a 'Draft' status can be deleted. The status of this document is '{0}'.";
+    public const string CanOnlyDeleteDrafts = "Only documents with a 'Draft' and 'Rejected' status can be deleted. The status of this document is '{0}'.";
     public const string DraftDocumentNotFound = "Draft document not found.";
     public const string RejectedDocumentNotFound = "Rejected document not found.";
     public const string OfficialDocumentNotFoundForId = "Official document not found for the given document file ID.";
