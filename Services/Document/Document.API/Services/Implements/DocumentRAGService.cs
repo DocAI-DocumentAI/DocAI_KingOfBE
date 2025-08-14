@@ -170,30 +170,60 @@ namespace Document.API.Services.Implements
             }
         }
 
-        // ✅ SEARCH SPECIFIC DOCUMENT - Load toàn bộ để user hỏi gì cũng được
-        private async Task<List<Citation>> SearchSpecificDocument(DocumentRAGRequest request, string requestId)
+private async Task<List<Citation>> SearchSpecificDocument(DocumentRAGRequest request, string requestId)
         {
-            _logger.LogInformation("🎯 [SPECIFIC-{RequestId}] Loading document: {DocId}", requestId, request.DocumentId);
+            _logger.LogInformation("🎯 [SPECIFIC-{RequestId}] Loading ONLY document: {DocId}", requestId, request.DocumentId);
 
-            // ✅ Load ALL partitions của document này
-            var allPartitionsResult = await _memory.SearchAsync(
-                string.IsNullOrEmpty(request.Query) ? "*" : request.Query, // Wildcard nếu không có query
-                limit: 300, // Load nhiều partitions
-                filter: new MemoryFilter()
-                    .ByTag("status", "approved")
-                    .ByTag("documentId", request.DocumentId),
-                minRelevance: 0.0 // Load tất cả content
-            );
+            var citations = new List<Citation>();
 
-            var citations = allPartitionsResult.Results.ToList();
-
-            // ✅ Nếu không tìm thấy, thử các format khác
-            if (!citations.Any())
+            // ✅ STRATEGY 1: Primary search by documentId tag
+            try
             {
-                var alternativeFields = new[] { "__document_id", "docId", "document_id", "versionId" };
+                var primaryResult = await _memory.SearchAsync(
+                    string.IsNullOrEmpty(request.Query) ? "*" : request.Query,
+                    limit: 300, // Load nhiều partitions của document này
+                    filter: new MemoryFilter()
+                        .ByTag("status", "approved")
+                        .ByTag("documentId", request.DocumentId),
+                    minRelevance: 0.0 // Load tất cả content của document này
+                );
 
-                foreach (var field in alternativeFields)
+                citations = primaryResult.Results.ToList();
+                    _logger.LogInformation("🎯 [DEBUG-SEARCH] Found {Count} raw citations", citations.Count);
+
+                if (citations.Any())
                 {
+                    _logger.LogInformation("✅ [SPECIFIC-{RequestId}] Found {Count} partitions using documentId tag",
+                        requestId, citations.Count);
+
+                    // ✅ VERIFY tất cả citations đều thuộc về cùng 1 document
+                    var uniqueDocIds = citations.Select(c => GetDocumentIdFromCitation(c)).Distinct().ToList();
+                    if (uniqueDocIds.Count > 1)
+                    {
+                        _logger.LogWarning("⚠️ [SPECIFIC-{RequestId}] Multiple documents found ({DocCount}), filtering to target document only",
+                            requestId, uniqueDocIds.Count);
+
+                        // ✅ FILTER chỉ giữ lại citations của document target
+                        citations = citations.Where(c => GetDocumentIdFromCitation(c) == request.DocumentId).ToList();
+                    }
+
+                    return citations;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "⚠️ [SPECIFIC-{RequestId}] Primary search failed, trying alternatives", requestId);
+            }
+
+            // ✅ STRATEGY 2: Alternative field searches - nhưng vẫn verify document match
+            var alternativeFields = new[] { "__document_id", "docId", "document_id", "versionId" };
+
+            foreach (var field in alternativeFields)
+            {
+                try
+                {
+                    _logger.LogDebug("🔍 [SPECIFIC-{RequestId}] Trying alternative field: {Field}", requestId, field);
+
                     var altResult = await _memory.SearchAsync(
                         string.IsNullOrEmpty(request.Query) ? "*" : request.Query,
                         limit: 300,
@@ -205,19 +235,197 @@ namespace Document.API.Services.Implements
 
                     if (altResult.Results.Any())
                     {
-                        citations = altResult.Results.ToList();
-                        _logger.LogInformation("✅ [SPECIFIC-{RequestId}] Found using field: {Field}", requestId, field);
-                        break;
+                        var altCitations = altResult.Results.ToList();
+
+                        // ✅ STRICT VERIFICATION: Chỉ giữ citations của document target
+                        var filteredCitations = altCitations.Where(c => IsFromTargetDocument(c, request.DocumentId)).ToList();
+
+                        if (filteredCitations.Any())
+                        {
+                            _logger.LogInformation("✅ [SPECIFIC-{RequestId}] Found {Count} partitions using field: {Field}",
+                                requestId, filteredCitations.Count, field);
+                            return filteredCitations;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "⚠️ [SPECIFIC-{RequestId}] Alternative field {Field} search failed", requestId, field);
+                }
+            }
+
+            // ✅ STRATEGY 3: Last resort - exact title match but verify document
+            //try
+            //{
+            //    _logger.LogDebug("🔍 [SPECIFIC-{RequestId}] Trying title-based search as last resort", requestId);
+
+            //    var titleResult = await _memory.SearchAsync(
+            //        request.DocumentId, // Use documentId as search term
+            //        limit: 100,
+            //        filter: new MemoryFilter().ByTag("status", "approved"),
+            //        minRelevance: 0.1
+            //    );
+
+            //    if (titleResult.Results.Any())
+            //    {
+            //        var titleCitations = titleResult.Results
+            //            .Where(c => IsFromTargetDocument(c, request.DocumentId))
+            //            .ToList();
+
+            //        if (titleCitations.Any())
+            //        {
+            //            _logger.LogInformation("✅ [SPECIFIC-{RequestId}] Found {Count} partitions using title search",
+            //                requestId, titleCitations.Count);
+            //            return titleCitations;
+            //        }
+            //    }
+            //}
+            //catch (Exception ex)
+            //{
+            //    _logger.LogWarning(ex, "⚠️ [SPECIFIC-{RequestId}] Title search failed", requestId);
+            //}
+
+            _logger.LogWarning("❌ [SPECIFIC-{RequestId}] No partitions found for document: {DocId}", requestId, request.DocumentId);
+            return new List<Citation>();
+        }
+        /// <summary>
+        /// ✅ STRICT VERIFICATION: Check if citation belongs to target document
+        /// </summary>
+        private bool IsFromTargetDocument(Citation citation, string targetDocumentId)
+        {
+            if (citation?.Partitions == null || !citation.Partitions.Any())
+                return false;
+
+            var firstPartition = citation.Partitions.FirstOrDefault();
+            if (firstPartition?.Tags == null)
+                return false;
+
+            // ✅ Check all possible document ID fields
+            var possibleDocIdFields = new[] { "documentId", "__document_id", "docId", "document_id", "versionId" };
+
+            foreach (var field in possibleDocIdFields)
+            {
+                if (firstPartition.Tags.TryGetValue(field, out var values) && values?.Any() == true)
+                {
+                    var documentId = values.FirstOrDefault();
+                    if (!string.IsNullOrEmpty(documentId) && documentId == targetDocumentId)
+                    {
+                        return true;
                     }
                 }
             }
 
-            _logger.LogInformation("📄 [SPECIFIC-{RequestId}] Loaded {Count} partitions for document",
-                requestId, citations.Count);
+            // ✅ Also check title match as fallback
+            if (firstPartition.Tags.TryGetValue("title", out var titleValues) && titleValues?.Any() == true)
+            {
+                var title = titleValues.FirstOrDefault();
+                if (!string.IsNullOrEmpty(title) && title.Contains(targetDocumentId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
 
-            return citations;
+            return false;
         }
 
+        // ✅ ENHANCED GetDocumentIdFromCitation với better fallback
+        private string GetDocumentIdFromCitation(Citation citation)
+        {
+            var firstPartition = citation.Partitions.FirstOrDefault();
+            if (firstPartition?.Tags != null)
+            {
+                var possibleTags = new[] { "documentId", "__document_id", "docId", "document_id", "versionId" };
+                foreach (var tag in possibleTags)
+                {
+                    if (firstPartition.Tags.TryGetValue(tag, out var values))
+                    {
+                        var value = values.FirstOrDefault();
+                        if (!string.IsNullOrEmpty(value))
+                            return value;
+                    }
+                }
+            }
+            return string.Empty;
+        }
+
+        // ✅ ENHANCED FilterCitationsWithCompleteBlocking để đảm bảo single document
+        private async Task<List<Citation>> FilterCitationsWithCompleteBlocking(
+            List<Citation> citations,
+            DocumentRAGRequest request,
+            string requestId)
+        {
+            var today = DateTime.UtcNow.Date;
+            var accessibleCitations = new List<Citation>();
+
+            // ✅ SPECIAL HANDLING for specific document requests
+            if (!string.IsNullOrEmpty(request.DocumentId))
+            {
+                _logger.LogInformation("🔒 [PERMISSION-{RequestId}] Specific document mode: filtering for DocumentId: {DocId}",
+                    requestId, request.DocumentId);
+
+                // ✅ FIRST: Filter only citations from target document
+                var targetDocCitations = citations.Where(c => IsFromTargetDocument(c, request.DocumentId)).ToList();
+
+                if (!targetDocCitations.Any())
+                {
+                    _logger.LogWarning("❌ [PERMISSION-{RequestId}] No citations found for target document: {DocId}",
+                        requestId, request.DocumentId);
+                    return new List<Citation>();
+                }
+
+                citations = targetDocCitations;
+                _logger.LogInformation("🎯 [PERMISSION-{RequestId}] Filtered to {Count} citations from target document",
+                    requestId, citations.Count);
+            }
+
+            // ✅ THEN: Apply permission filtering (existing logic)
+            var citationsByDoc = citations
+                .GroupBy(c => GetDocumentIdFromCitation(c))
+                .ToList();
+
+            _logger.LogInformation("🔒 [PERMISSION-{RequestId}] Checking {DocCount} documents for user {Role}",
+                requestId, citationsByDoc.Count, request.Role);
+
+            foreach (var docGroup in citationsByDoc)
+            {
+                var docId = docGroup.Key;
+                var firstCitation = docGroup.First();
+
+                try
+                {
+                    // ✅ Check document-level permissions
+                    var hasAccess = await IsDocumentAccessibleToUser(firstCitation, request, requestId);
+                    var isEffective = IsDocumentCurrentlyEffective(firstCitation, today, requestId);
+
+                    if (hasAccess && isEffective)
+                    {
+                        accessibleCitations.AddRange(docGroup);
+                        _logger.LogDebug("✅ [PERMISSION-{RequestId}] Document {DocId} ACCESSIBLE - added {Count} citations",
+                            requestId, docId, docGroup.Count());
+                    }
+                    else
+                    {
+                        _logger.LogDebug("❌ [PERMISSION-{RequestId}] Document {DocId} BLOCKED - HasAccess: {Access}, IsEffective: {Effective}",
+                            requestId, docId, hasAccess, isEffective);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "⚠️ [PERMISSION-{RequestId}] Error checking document {DocId} - BLOCKING by default",
+                        requestId, docId);
+                }
+            }
+
+            // ✅ Sort accessible citations by relevance
+            var sortedResults = accessibleCitations
+                .OrderByDescending(c => CalculateEnhancedRelevance(c, request))
+                .ToList(); // No limit for specific document - load all content
+
+            _logger.LogInformation("🔒 [PERMISSION-{RequestId}] Final result: {Accessible} citations from {Total} documents",
+                requestId, sortedResults.Count, citationsByDoc.Count);
+
+            return sortedResults;
+        }
         // ✅ SEARCH ALL DOCUMENTS - Tìm kiếm thông minh
         private async Task<List<Citation>> SearchAllDocuments(DocumentRAGRequest request, string requestId)
         {
@@ -315,69 +523,7 @@ namespace Document.API.Services.Implements
 
         #region ✅ CRITICAL: COMPLETE PERMISSION BLOCKING
 
-        private async Task<List<Citation>> FilterCitationsWithCompleteBlocking(
-            List<Citation> citations,
-            DocumentRAGRequest request,
-            string requestId)
-        {
-            var today = DateTime.UtcNow.Date;
-            var accessibleCitations = new List<Citation>();
-
-            // ✅ Group by document to check permissions once per document
-            var citationsByDoc = citations
-                .GroupBy(c => GetDocumentIdFromCitation(c))
-                .ToList();
-
-            _logger.LogInformation("🔒 [PERMISSION-{RequestId}] Checking {DocCount} documents for user {Role}",
-                requestId, citationsByDoc.Count, request.Role);
-
-            foreach (var docGroup in citationsByDoc)
-            {
-                var docId = docGroup.Key;
-                var firstCitation = docGroup.First();
-
-                try
-                {
-                    // ✅ Check document-level permissions
-                    var hasAccess = await IsDocumentAccessibleToUser(firstCitation, request, requestId);
-                    var isEffective = IsDocumentCurrentlyEffective(firstCitation, today, requestId);
-
-                    if (hasAccess && isEffective)
-                    {
-                        // ✅ User có quyền - Add ALL citations from this document
-                        accessibleCitations.AddRange(docGroup);
-
-                        _logger.LogDebug("✅ [PERMISSION-{RequestId}] Document {DocId} ACCESSIBLE - added {Count} citations",
-                            requestId, docId, docGroup.Count());
-                    }
-                    else
-                    {
-                        // ❌ User KHÔNG có quyền - COMPLETELY BLOCK document
-                        _logger.LogDebug("❌ [PERMISSION-{RequestId}] Document {DocId} BLOCKED - HasAccess: {Access}, IsEffective: {Effective}",
-                            requestId, docId, hasAccess, isEffective);
-
-                        // ✅ KHÔNG add gì từ document này - Complete blocking!
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "⚠️ [PERMISSION-{RequestId}] Error checking document {DocId} - BLOCKING by default",
-                        requestId, docId);
-                    // ✅ Error = Block by default for security
-                }
-            }
-
-            // ✅ Sort accessible citations by relevance
-            var sortedResults = accessibleCitations
-                .OrderByDescending(c => CalculateEnhancedRelevance(c, request))
-                .Take(request.MaxResults * 3) // Allow more content for full document scenarios
-                .ToList();
-
-            _logger.LogInformation("🔒 [PERMISSION-{RequestId}] Final result: {Accessible} citations from {Total} documents",
-                requestId, sortedResults.Count, citationsByDoc.Count);
-
-            return sortedResults;
-        }
+    
 
         #endregion
 
@@ -1099,24 +1245,6 @@ namespace Document.API.Services.Implements
             }
         }
 
-        private string GetDocumentIdFromCitation(Citation citation)
-        {
-            var firstPartition = citation.Partitions.FirstOrDefault();
-            if (firstPartition?.Tags != null)
-            {
-                var possibleTags = new[] { "documentId", "__document_id", "docId", "document_id" };
-                foreach (var tag in possibleTags)
-                {
-                    if (firstPartition.Tags.TryGetValue(tag, out var values))
-                    {
-                        var value = values.FirstOrDefault();
-                        if (!string.IsNullOrEmpty(value))
-                            return value;
-                    }
-                }
-            }
-            return string.Empty;
-        }
 
         private string GetTagValueFromCitation(Citation citation, string tagKey)
         {
