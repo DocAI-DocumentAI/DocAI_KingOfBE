@@ -410,33 +410,52 @@ namespace Document.API.Services.Implements
 
             var contentBuilder = new StringBuilder();
             var processedContent = new HashSet<int>(); // Use hash for deduplication
-            var maxContentLength = 10000;
+            var maxContentLength = 8000;
             var currentLength = 0;
 
-            // ✅ PRIORITIZE MOST RELEVANT PARTITIONS
+            // ✅ Get multiple partitions per document (up to 3 best partitions per document)
             var allPartitions = citations
-                .SelectMany(c => c.Partitions.Select(p => new {
-                    Citation = c,
-                    Partition = p,
-                    Relevance = p.Relevance
-                }))
-                .OrderByDescending(x => x.Relevance)
+                .SelectMany(c => {
+                    var title = GetTagValueFromCitation(c, "title") ?? GetTagValueFromCitation(c, "documentTitle") ?? "Document";
+
+                    // ✅ Take top 3 partitions from each document (instead of just 1)
+                    return c.Partitions
+                        .Where(p => !string.IsNullOrWhiteSpace(p.Text) && p.Text.Length > 50 && p.Relevance > 0.01)
+                        .OrderByDescending(p => p.Relevance)
+                        .Take(3) // ✅ Up to 3 partitions per document
+                        .Select(p => new {
+                            Citation = c,
+                            Partition = p,
+                            Relevance = p.Relevance,
+                            Title = title
+                        });
+                })
+                .OrderByDescending(x => x.Relevance) // ✅ Then sort all partitions by relevance
                 .ToList();
+
+            _logger.LogInformation("🔍 [CONTENT] Processing {Count} partitions from {DocumentCount} documents, highest relevance: {MaxRelevance:F3}, query: '{QueryPreview}'",
+                allPartitions.Count,
+                citations.Count,
+                allPartitions.FirstOrDefault()?.Relevance ?? 0,
+                query.Length > 50 ? query.Substring(0, 50) + "..." : query);
 
             foreach (var item in allPartitions)
             {
                 if (currentLength >= maxContentLength) break;
 
                 var text = item.Partition.Text;
-                if (string.IsNullOrWhiteSpace(text) || text.Length < 50) continue;
 
-                // ✅ EXTRACT RELEVANT SNIPPET (if text is too long)
-                var snippet = ExtractRelevantSnippet(text, query, 500);
+                // ✅ Take content as-is if short, or extract relevant snippet if long
+                var snippet = text.Length <= 800 ? text : ExtractRelevantSnippet(text, query, 600);
 
-                // Check for duplicate using better hash
-                var contentHash = snippet.GetHashCode();
-                if (processedContent.Contains(contentHash)) continue;
-
+                // Check for duplicate using better content matching
+                var contentKey = snippet.Length < 100 ? snippet : snippet.Substring(0, 100);
+                var contentHash = contentKey.Trim().GetHashCode();
+                if (processedContent.Contains(contentHash))
+                {
+                    _logger.LogDebug("🔍 [CONTENT] Skipping duplicate content from: {Title}", item.Title);
+                    continue;
+                }
                 processedContent.Add(contentHash);
 
                 if (contentBuilder.Length > 0)
@@ -444,20 +463,29 @@ namespace Document.API.Services.Implements
                     contentBuilder.AppendLine("\n---\n");
                 }
 
-                // ✅ ADD CONTEXT HEADER
-                var title = GetTagValueFromCitation(item.Citation, "title");
-                if (!string.IsNullOrEmpty(title))
-                {
-                    contentBuilder.AppendLine($"📄 {title}:");
-                    contentBuilder.AppendLine();
-                }
+                // Add title header
+                contentBuilder.AppendLine($"📄 **{item.Title}**:");
+                contentBuilder.AppendLine();
+                contentBuilder.AppendLine(snippet);
 
-                contentBuilder.Append(snippet);
                 currentLength += snippet.Length;
+
+                _logger.LogDebug("🔍 [CONTENT] Added content (Relevance: {Relevance:F3}, Length: {Length}) from: {Title}",
+                    item.Relevance, snippet.Length, item.Title);
             }
 
             var result = contentBuilder.ToString().Trim();
-            return string.IsNullOrEmpty(result) ? null : result;
+
+            if (string.IsNullOrEmpty(result))
+            {
+                _logger.LogWarning("🔍 [CONTENT] No content extracted for query: '{Query}'", query);
+                return null;
+            }
+
+            _logger.LogInformation("✅ [CONTENT] Final content: {Length} chars from {Count} partitions",
+                result.Length, allPartitions.Count);
+
+            return result;
         }
 
         // ✅ EXTRACT MOST RELEVANT SNIPPET FROM TEXT
@@ -681,6 +709,10 @@ namespace Document.API.Services.Implements
                                     requestId, departmentId);
                                 return true;
 
+                            case "EMPLOYEE":
+                                _logger.LogDebug("🔓 [ACCESS-{RequestId}] Member access granted for dept: {DeptId}",
+                                    requestId, departmentId);
+                                return true;
                             case "NONE":
                                 _logger.LogDebug("🔒 [ACCESS-{RequestId}] Role NONE - no department access", requestId);
                                 return false;
@@ -748,7 +780,7 @@ namespace Document.API.Services.Implements
             var firstPartition = citation.Partitions.FirstOrDefault();
             if (firstPartition?.Tags != null)
             {
-                var possibleTags = new[] { "versionId", "version_id", "__version_id" };
+                var possibleTags = new[] { "versionId", "version_id", "__version_id"};
                 foreach (var tag in possibleTags)
                 {
                     if (firstPartition.Tags.TryGetValue(tag, out var values))
@@ -772,7 +804,7 @@ namespace Document.API.Services.Implements
             return string.Empty;
         }
 
-        private async Task<List<DocumentSourceResponse>> ExtractDocumentSources(List<Citation> citations, string requestId)
+    private async Task<List<DocumentSourceResponse>> ExtractDocumentSources(List<Citation> citations, string requestId)
         {
             try
             {
@@ -782,14 +814,12 @@ namespace Document.API.Services.Implements
                 {
                     try
                     {
-                        // ✅ Extract IDs from citation
+                        // Extract IDs from citation
                         var documentId = GetDocumentIdFromCitation(citation);
                         var versionId = GetVersionIdFromCitation(citation);
 
-                        // ✅ Try to extract versionId from documentId if it looks like a GUID
                         if (string.IsNullOrEmpty(versionId) && !string.IsNullOrEmpty(documentId) && Guid.TryParse(documentId, out _))
                         {
-                            // In KernelMemory, documentId might actually be the versionId
                             versionId = documentId;
                         }
 
@@ -801,121 +831,56 @@ namespace Document.API.Services.Implements
                             VersionName = GetTagValueFromCitation(citation, "version") ?? GetTagValueFromCitation(citation, "versionName") ?? "1"
                         };
 
-                        // ✅ ALWAYS try to get title from database first
-                        DocumentVersion documentVersion = null;
-                        bool titleFound = false;
-
-                        try
+                        // ✅ NEW: Get title from tags FIRST (no database calls)
+                        source.Title = GetTagValueFromCitation(citation, "title");
+                        if (string.IsNullOrWhiteSpace(source.Title))
+                            source.Title = GetTagValueFromCitation(citation, "documentTitle");
+                        if (string.IsNullOrWhiteSpace(source.Title))
+                            source.Title = GetTagValueFromCitation(citation, "name");
+                        if (string.IsNullOrWhiteSpace(source.Title))
                         {
-                            // Try with versionId first (most specific)
-                            if (!string.IsNullOrEmpty(versionId))
-                            {
-                                _logger.LogDebug("📋 [SOURCE-{RequestId}] Looking up version by ID: {VersionId}",
-                                    requestId, versionId);
-
-                                documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
-                                    .SingleOrDefaultAsync(
-                                        predicate: dv => dv.Id == versionId,
-                                        include: i => i.Include(dv => dv.DocumentFile));
-
-                                if (documentVersion != null)
-                                {
-                                    _logger.LogDebug("📋 [SOURCE-{RequestId}] Found document version: {Title}",
-                                        requestId, documentVersion.Title);
-                                }
-                            }
-
-                            // If not found and we have a documentId that looks like a versionId
-                            if (documentVersion == null && !string.IsNullOrEmpty(documentId) && Guid.TryParse(documentId, out _))
-                            {
-                                _logger.LogDebug("📋 [SOURCE-{RequestId}] Looking up version by documentId as versionId: {DocumentId}",
-                                    requestId, documentId);
-
-                                documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
-                                    .SingleOrDefaultAsync(
-                                        predicate: dv => dv.Id == documentId,
-                                        include: i => i.Include(dv => dv.DocumentFile));
-
-                                if (documentVersion != null)
-                                {
-                                    versionId = documentId; // Update versionId
-                                    _logger.LogDebug("📋 [SOURCE-{RequestId}] Found document version using documentId: {Title}",
-                                        requestId, documentVersion.Title);
-                                }
-                            }
-
-                            // Try with documentFileId if still not found
-                            if (documentVersion == null && !string.IsNullOrEmpty(documentId))
-                            {
-                                _logger.LogDebug("📋 [SOURCE-{RequestId}] Looking up approved version by documentFileId: {DocumentId}",
-                                    requestId, documentId);
-
-                                documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
-                                    .SingleOrDefaultAsync(
-                                        predicate: dv => dv.DocumentFile.Id == documentId && dv.Status == Domain.Enums.StatusEnum.Approved,
-                                        include: i => i.Include(dv => dv.DocumentFile),
-                                        orderBy: q => q.OrderByDescending(dv => dv.CreatedTime));
-
-                                if (documentVersion != null)
-                                {
-                                    _logger.LogDebug("📋 [SOURCE-{RequestId}] Found approved version for documentFile: {Title}",
-                                        requestId, documentVersion.Title);
-                                }
-                            }
-
-                            // ✅ If found in database, use all metadata
-                            if (documentVersion != null)
-                            {
-                                source.Title = documentVersion.Title;
-                                source.Summary = documentVersion.Summary ?? "";
-                                source.VersionName = documentVersion.VersionName ?? source.VersionName;
-                                source.DocumentId = documentVersion.DocumentFile?.Id ?? source.DocumentId;
-                                source.DepartmentId = documentVersion.DocumentFile?.DepartmentId ?? source.DepartmentId;
-                                source.EffectiveFrom = documentVersion.EffectiveFrom;
-                                source.EffectiveUntil = documentVersion.EffectiveUntil;
-                                source.FileType = documentVersion.FileType;
-
-                                titleFound = true;
-                                _logger.LogDebug("📋 [SOURCE-{RequestId}] Successfully enhanced source with DB data: {Title}",
-                                    requestId, source.Title);
-                            }
-                        }
-                        catch (Exception dbEx)
-                        {
-                            _logger.LogWarning(dbEx, "📋 [SOURCE-{RequestId}] Database lookup failed for document", requestId);
-                        }
-
-                        // ✅ Fallback: Try to extract meaningful title from content if no DB match
-                        if (!titleFound || string.IsNullOrWhiteSpace(source.Title))
-                        {
-                            _logger.LogDebug("📋 [SOURCE-{RequestId}] No title from DB, extracting from content", requestId);
-
                             var firstPartition = citation.Partitions.FirstOrDefault();
-                            if (firstPartition?.Text != null)
-                            {
-                                // Try to extract a meaningful title from content
-                                var extractedTitle = ExtractTitleFromContent(firstPartition.Text);
-                                source.Title = extractedTitle;
-
-                                _logger.LogDebug("📋 [SOURCE-{RequestId}] Extracted title from content: {Title}",
-                                    requestId, source.Title);
-                            }
-                            else
-                            {
-                                source.Title = "Document";
-                            }
+                            source.Title = firstPartition?.Text != null ?
+                                          ExtractTitleFromContent(firstPartition.Text) : "Document";
                         }
+
+                        // Get other metadata from tags
+                        source.Summary = GetTagValueFromCitation(citation, "summary") ?? "";
+                        source.FileType = GetTagValueFromCitation(citation, "fileType") ?? "";
+
+                        // Parse dates from tags
+                        if (DateTime.TryParse(GetTagValueFromCitation(citation, "effectiveFrom"), out var effectiveFrom))
+                            source.EffectiveFrom = effectiveFrom;
+
+                        if (DateTime.TryParse(GetTagValueFromCitation(citation, "effectiveUntil"), out var effectiveUntil))
+                            source.EffectiveUntil = effectiveUntil;
 
                         sources.Add(source);
+
+                        _logger.LogDebug("📋 [SOURCE-{RequestId}] Got title from tags: '{Title}' for doc: {DocId}",
+                            requestId, source.Title, source.DocumentId);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "📋 [SOURCE-{RequestId}] Error processing citation", requestId);
+                        _logger.LogWarning(ex, "📋 [SOURCE-{RequestId}] Error processing citation for doc",
+                            requestId);
+
+                        // ✅ Add minimal source on error to avoid losing data
+                        sources.Add(new DocumentSourceResponse
+                        {
+                            DocumentId = Guid.NewGuid().ToString(),
+                            Title = "Error Loading Document",
+                            VersionName = "1.0",
+                            RelevanceScore = 0,
+                            DepartmentId = "",
+                            Summary = "",
+                            FileType = ""
+                        });
                     }
                 }
 
                 var result = sources.OrderByDescending(s => s.RelevanceScore).ToList();
-                _logger.LogInformation("📋 [SOURCE-{RequestId}] Extracted {Count} document sources", requestId, result.Count);
+                _logger.LogInformation("📋 [SOURCE-{RequestId}] Extracted {Count} sources from tags (no DB calls)", requestId, result.Count);
                 return result;
             }
             catch (Exception ex)
