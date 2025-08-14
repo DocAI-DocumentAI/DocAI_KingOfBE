@@ -277,11 +277,11 @@ public static class DependencyService
             .WithPostgresMemoryDb(postgresConfig)
             .WithOpenAITextGeneration(openRouterTextGenerationConfig, new CL100KTokenizer())
             .WithOpenAITextEmbeddingGeneration(openAITextEmbeddingConfig, new CL100KTokenizer())
-            .WithCustomTextPartitioningOptions(new TextPartitioningOptions
-            {
-                MaxTokensPerParagraph = 1600, // recommended for text-embedding-3 family
-                OverlappingTokens = 200       // good balance of recall vs. cost
-            })
+            // .WithCustomTextPartitioningOptions(new TextPartitioningOptions
+            // {
+            //     MaxTokensPerParagraph = 100, // recommended for text-embedding-3 family
+            //     OverlappingTokens = 200       // good balance of recall vs. cost
+            // })
             .WithSearchClientConfig(new()
             {
                 EmptyAnswer = "No results found. Please try again.",
