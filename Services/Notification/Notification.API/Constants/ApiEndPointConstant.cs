@@ -22,6 +22,8 @@ public static class ApiEndpointConstant
         public const string GetLogs = "logs";
         public const string Dismiss = "dismiss/{logId:guid}";
         public const string DismissByToken = "dismiss-by-token";
+        public const string GetAllSystemLogs = "admin/all-logs"; 
+
     }
 
     public static class Config

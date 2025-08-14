@@ -39,7 +39,7 @@
         // Preference limits
         public const int MaxCharacteristics = 2;
         public const int MaxAdditionalInfoLength = 200;
-        public const int MaxTitleLength = 100;
+        public const int MaxTitleLength = 50;
 
         // Prompts
         public const string SystemPrompt = @"Bạn là AI Assistant của hệ thống tài liệu nội bộ công ty, chuyên hỗ trợ nhân viên tìm kiếm thông tin và trả lời câu hỏi.
@@ -80,7 +80,6 @@ LƯU Ý: Hệ thống sẽ tự động tìm kiếm tài liệu cho mọi câu h
         public const string TestUserMessage = "Chào bạn! Test connection.";
         public const string FallbackSystemPrompt = "Bạn là trợ lý AI. Trả lời ngắn gọn bằng tiếng Việt.";
         public const string DefaultFallbackMessage = "Xin chào";
-
 
     }
 }
