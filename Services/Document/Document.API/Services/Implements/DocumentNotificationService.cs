@@ -47,7 +47,8 @@ namespace Document.API.Services.Implements
                     DepartmentName = GetDepartmentName(submitterUser)
                 };
 
-                await _publishEndpoint.Publish(command);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _publishEndpoint.Publish(command, cts.Token);
                 _logger.LogInformation("Document submission notification sent for document {DocumentId}", documentId);
             }
             catch (Exception ex)
@@ -83,7 +84,8 @@ namespace Document.API.Services.Implements
                     DepartmentName = GetDepartmentName(submitterUser)
                 };
 
-                await _publishEndpoint.Publish(command);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _publishEndpoint.Publish(command, cts.Token);
                 _logger.LogInformation("Document submission confirmation sent for document {DocumentId}", documentId);
             }
             catch (Exception ex)
@@ -121,7 +123,8 @@ namespace Document.API.Services.Implements
                     Comments = comments
                 };
 
-                await _publishEndpoint.Publish(command);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _publishEndpoint.Publish(command, cts.Token);
                 _logger.LogInformation("Document approval notification sent for document {DocumentId}", documentId);
             }
             catch (Exception ex)
@@ -159,7 +162,8 @@ namespace Document.API.Services.Implements
                     RejectionComments = rejectionComments
                 };
 
-                await _publishEndpoint.Publish(command);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _publishEndpoint.Publish(command, cts.Token);
                 _logger.LogInformation("Document rejection notification sent for document {DocumentId}", documentId);
             }
             catch (Exception ex)
@@ -204,7 +208,8 @@ namespace Document.API.Services.Implements
                     Tags = tags ?? new List<string>()
                 };
 
-                await _publishEndpoint.Publish(command);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _publishEndpoint.Publish(command, cts.Token);
                 _logger.LogInformation("Document publication notification sent for document {DocumentId}", documentId);
             }
             catch (Exception ex)

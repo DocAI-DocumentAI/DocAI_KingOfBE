@@ -95,21 +95,64 @@ public static class SemanticSearchConstant
     /// </summary>
     public static class MemoryTags
     {
+        // Core identifiers
         public const string DocumentId = "documentId";
         public const string DepartmentId = "departmentId";
         public const string OwnerId = "ownerId";
-        public const string ApprovalDate = "approvalDate";
-        public const string IsPublic = "isPublic";
-        public const string DocumentType = "documentType";
         public const string Status = "status";
-        public const string Tags = "tags";
+        public const string Version = "version";
+        public const string IsOfficial = "isOfficial";
+        public const string IsPublic = "isPublic";
+        public const string ApprovalDate = "approvalDate";
+        public const string CreatedBy = "createdBy";
+        public const string SubmittedBy = "submittedBy";
+        public const string LastSubmitted = "lastSubmitted";
+
+        // Document core metadata
+        public const string Title = "title";
+        public const string Description = "description";
+        public const string Summary = "summary";
+        public const string VersionTitle = "versionTitle";
+        public const string DocumentType = "documentType";
+        public const string DocumentTypeName = "documentTypeName";
+        public const string DocumentTypeDescription = "documentTypeDescription";
         public const string SignedBy = "signedBy";
         public const string EffectiveFrom = "effectiveFrom";
         public const string EffectiveUntil = "effectiveUntil";
+
+        // Classification
+        public const string Tags = "tags";
+
+        // Organizational metadata
+        public const string DepartmentName = "departmentName";
+        public const string OwnerName = "ownerName";
+        public const string OwnerEmail = "ownerEmail";
+        public const string ReviewerId = "reviewerId";
+        public const string ReviewerName = "reviewerName";
+        public const string ReviewComments = "reviewComments";
+        public const string ReviewAction = "reviewAction";
+        public const string ReviewDate = "reviewDate";
+
+        // File system metadata
+        public const string FileName = "fileName";
         public const string FileType = "fileType";
-        public const string CreatedBy = "createdBy";
-        public const string Version = "version";
-        public const string IsOfficial = "isOfficial";
+        public const string FileSize = "fileSize";
+        public const string FileHash = "fileHash";
+        public const string GoogleDriveFileId = "googleDriveFileId";
+        public const string FolderPath = "folderPath";
+        public const string StorageLocation = "storageLocation";
+
+        // Relationship metadata
+        public const string ReplacementOfDocumentId = "replacementOfDocumentId";
+        public const string ReplacedDocumentId = "replacedDocumentId";
+        public const string PreviousApprovedVersionId = "previousApprovedVersionId";
+        public const string PreviousApprovedVersionName = "previousApprovedVersionName";
+        public const string PreviousApprovedAt = "previousApprovedAt";
+
+        // Access control metadata
+        public const string Visibility = "visibility";
+        public const string PermissionLevel = "permissionLevel";
+        public const string DepartmentRestriction = "departmentRestriction";
     }
 
     /// <summary>

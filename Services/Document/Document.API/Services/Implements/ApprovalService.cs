@@ -31,7 +31,9 @@ namespace Document.API.Services.Implements
         private readonly IDocumentNotificationService _notificationService;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public ApprovalService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ApprovalService> logger, IStorageService storageService, IKernelMemory kernelMemory, IDocumentEnrichmentService enrichmentService, IDocumentPermissionManager permissionManager, IDocumentNotificationService notificationService, IHttpContextAccessor httpContextAccessor)
+        private readonly INameLookupService _nameLookupService;
+
+        public ApprovalService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ApprovalService> logger, IStorageService storageService, IKernelMemory kernelMemory, IDocumentEnrichmentService enrichmentService, IDocumentPermissionManager permissionManager, IDocumentNotificationService notificationService, IHttpContextAccessor httpContextAccessor, INameLookupService nameLookupService)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
@@ -42,6 +44,7 @@ namespace Document.API.Services.Implements
             _permissionManager = permissionManager;
             _notificationService = notificationService;
             _httpContextAccessor = httpContextAccessor;
+            _nameLookupService = nameLookupService;
         }
         /// <summary>
         /// Enhanced approval queue with comprehensive filtering and summary statistics
@@ -411,37 +414,20 @@ namespace Document.API.Services.Implements
                             await _storageService.MoveFileAsync(replacedFileId, StorageFolderConstant.Approved, StorageFolderConstant.Archived,
                                 replacedDocument.DepartmentId, replacedApprovedVersion.IsPublic);
 
-                            // Archive replaced document in Kernel Memory
+                            // Remove replaced document from Kernel Memory instead of archiving its embeddings
                             var replacedVersionKmId = replacedApprovedVersion.Id.ToString();
-                            var replacedTags = new TagCollection
+                            try
                             {
-                                { SemanticSearchConstant.MemoryTags.Status, "archived" },
-                                { SemanticSearchConstant.MemoryTags.DepartmentId, replacedDocument.DepartmentId },
-                                { SemanticSearchConstant.MemoryTags.DocumentId, replacedDocument.Id.ToString() },
-                                { SemanticSearchConstant.MemoryTags.Version, replacedApprovedVersion.VersionName },
-                                { SemanticSearchConstant.MemoryTags.ApprovalDate, replacedApprovedVersion.CreatedTime.ToString("yyyy-MM-dd") },
-                                { SemanticSearchConstant.MemoryTags.OwnerId, replacedDocument.OwnerId },
-                                { SemanticSearchConstant.MemoryTags.IsPublic, replacedApprovedVersion.IsPublic.ToString() },
-                                { SemanticSearchConstant.MemoryTags.EffectiveFrom, replacedApprovedVersion.EffectiveFrom?.ToString("yyyy-MM-dd") },
-                                { SemanticSearchConstant.MemoryTags.EffectiveUntil, replacedApprovedVersion.EffectiveUntil?.ToString("yyyy-MM-dd") },
-                                { SemanticSearchConstant.MemoryTags.SignedBy, replacedApprovedVersion.SignedBy },
-                                { SemanticSearchConstant.MemoryTags.DocumentType, replacedDocument.DocumentTypeId },
-                                { SemanticSearchConstant.MemoryTags.IsOfficial, "false" },
-                                { "replacedBy", documentFile.Id.ToString() },
-                                { "replacementReason", "Document replaced by newer version" }
-                            };
-
-                            if (replacedApprovedVersion.DocumentTags != null)
-                            {
-                                foreach (var docTag in replacedApprovedVersion.DocumentTags)
-                                {
-                                    replacedTags.Add(SemanticSearchConstant.MemoryTags.Tags, docTag.Tag.Name);
-                                }
+                                await _memory.DeleteDocumentAsync(replacedVersionKmId).WaitAsync(TimeSpan.FromSeconds(10));
+                                _logger.LogInformation("Removed replaced version {VersionId} from Kernel Memory.", replacedVersionKmId);
                             }
-
-                            using (var fileStream = await _storageService.DownloadFileAsync(replacedApprovedVersion.FilePath))
+                            catch (TimeoutException)
                             {
-                                await _memory.ImportDocumentAsync(fileStream, replacedApprovedVersion.FileName, documentId: replacedVersionKmId, tags: replacedTags);
+                                _logger.LogWarning("Timeout removing replaced version {VersionId} from Kernel Memory", replacedVersionKmId);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to remove replaced version {VersionId} from Kernel Memory", replacedVersionKmId);
                             }
 
                             // Update database - mark replaced document as archived
@@ -466,6 +452,22 @@ namespace Document.API.Services.Implements
                         await _storageService.MoveFileAsync(previousFileId, StorageFolderConstant.Approved, StorageFolderConstant.Archived,
                             previousApprovedVersion.DocumentFile.DepartmentId, previousApprovedVersion.IsPublic);
                         // FilePath remains the Google Drive file ID - no change needed
+
+                        // Remove previous approved version embeddings immediately (no archiving)
+                        var previousVersionKmIdEarly = previousApprovedVersion.Id.ToString();
+                        try
+                        {
+                            await _memory.DeleteDocumentAsync(previousVersionKmIdEarly).WaitAsync(TimeSpan.FromSeconds(10));
+                            _logger.LogInformation("Removed previous approved version {VersionId} from Kernel Memory (early).", previousVersionKmIdEarly);
+                        }
+                        catch (TimeoutException)
+                        {
+                            _logger.LogWarning("Timeout removing previous approved version {VersionId} from Kernel Memory (early)", previousVersionKmIdEarly);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to remove previous approved version {VersionId} from Kernel Memory (early)", previousVersionKmIdEarly);
+                        }
                     }
 
                     // ========================================
@@ -497,32 +499,20 @@ namespace Document.API.Services.Implements
                     if (previousApprovedVersion != null)
                     {
                         var previousVersionKmId = previousApprovedVersion.Id.ToString();
-                        var oldTags = new TagCollection
-                        {
-                            { SemanticSearchConstant.MemoryTags.Status, "archived" },
-                            { SemanticSearchConstant.MemoryTags.DepartmentId, documentFile.DepartmentId },
-                            { SemanticSearchConstant.MemoryTags.DocumentId, documentFile.Id.ToString() },
-                            { SemanticSearchConstant.MemoryTags.Version, previousApprovedVersion.VersionName },
-                            { SemanticSearchConstant.MemoryTags.ApprovalDate, previousApprovedVersion.CreatedTime.ToString("yyyy-MM-dd") },
-                            { SemanticSearchConstant.MemoryTags.OwnerId, documentFile.OwnerId },
-                            { SemanticSearchConstant.MemoryTags.IsPublic, previousApprovedVersion.IsPublic.ToString() },
-                            { SemanticSearchConstant.MemoryTags.EffectiveFrom, previousApprovedVersion.EffectiveFrom?.ToString("yyyy-MM-dd") },
-                            { SemanticSearchConstant.MemoryTags.EffectiveUntil, previousApprovedVersion.EffectiveUntil?.ToString("yyyy-MM-dd") },
-                            { SemanticSearchConstant.MemoryTags.SignedBy, previousApprovedVersion.SignedBy },
-                            { SemanticSearchConstant.MemoryTags.DocumentType, previousApprovedVersion.DocumentFile.DocumentTypeId },
-                            { SemanticSearchConstant.MemoryTags.IsOfficial, previousApprovedVersion.IsOfficial.ToString().ToLower() }
-                        };
 
-                        if (previousApprovedVersion.DocumentTags != null)
+                        // Remove previous approved version embeddings instead of archiving in Kernel Memory
+                        try
                         {
-                            foreach (var docTag in previousApprovedVersion.DocumentTags)
-                            {
-                                oldTags.Add(SemanticSearchConstant.MemoryTags.Tags, docTag.Tag.Name);
-                            }
+                            await _memory.DeleteDocumentAsync(previousVersionKmId).WaitAsync(TimeSpan.FromSeconds(10));
+                            _logger.LogInformation("Removed previous approved version {VersionId} from Kernel Memory.", previousVersionKmId);
                         }
-                        using (var fileStream = await _storageService.DownloadFileAsync(previousApprovedVersion.FilePath))
+                        catch (TimeoutException)
                         {
-                            await _memory.ImportDocumentAsync(fileStream, previousApprovedVersion.FileName, documentId: previousVersionKmId, tags: oldTags);
+                            _logger.LogWarning("Timeout removing previous approved version {VersionId} from Kernel Memory", previousVersionKmId);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to remove previous approved version {VersionId} from Kernel Memory", previousVersionKmId);
                         }
 
                         previousApprovedVersion.Status = StatusEnum.Archived;
@@ -548,19 +538,95 @@ namespace Document.API.Services.Implements
                     // Index the approved document in Kernel Memory with complete metadata
                     var tags = new TagCollection
                     {
+                        // Core identifiers
                         { SemanticSearchConstant.MemoryTags.Status, "approved" },
-                        { SemanticSearchConstant.MemoryTags.DepartmentId, documentFile.DepartmentId },
                         { SemanticSearchConstant.MemoryTags.DocumentId, documentFile.Id.ToString() },
-                        { SemanticSearchConstant.MemoryTags.Version, versionToReview.VersionName },
-                        { SemanticSearchConstant.MemoryTags.ApprovalDate, DateTime.UtcNow.ToString("yyyy-MM-dd") },
+                        { SemanticSearchConstant.MemoryTags.DepartmentId, documentFile.DepartmentId },
                         { SemanticSearchConstant.MemoryTags.OwnerId, documentFile.OwnerId },
+                        { SemanticSearchConstant.MemoryTags.Version, versionToReview.VersionName },
+                        { SemanticSearchConstant.MemoryTags.IsOfficial, versionToReview.IsOfficial.ToString().ToLower() },
                         { SemanticSearchConstant.MemoryTags.IsPublic, versionToReview.IsPublic.ToString() },
+                        { SemanticSearchConstant.MemoryTags.ApprovalDate, DateTime.UtcNow.ToString("yyyy-MM-dd") },
+                        { SemanticSearchConstant.MemoryTags.CreatedBy, versionToReview.CreatedBy },
+                        { SemanticSearchConstant.MemoryTags.SubmittedBy, versionToReview.SubmittedBy ?? versionToReview.CreatedBy },
+                        { SemanticSearchConstant.MemoryTags.LastSubmitted, versionToReview.LastSubmitted?.ToString("o") },
+
+                        // Document core metadata
+                        { SemanticSearchConstant.MemoryTags.Title, documentFile.Title },
+                        { SemanticSearchConstant.MemoryTags.Description, documentFile.Description },
+                        { SemanticSearchConstant.MemoryTags.VersionTitle, versionToReview.Title },
+                        { SemanticSearchConstant.MemoryTags.Summary, versionToReview.Summary },
+                        { SemanticSearchConstant.MemoryTags.DocumentType, versionToReview.DocumentFile.DocumentTypeId },
+                        { SemanticSearchConstant.MemoryTags.SignedBy, versionToReview.SignedBy },
                         { SemanticSearchConstant.MemoryTags.EffectiveFrom, versionToReview.EffectiveFrom?.ToString("yyyy-MM-dd") },
                         { SemanticSearchConstant.MemoryTags.EffectiveUntil, versionToReview.EffectiveUntil?.ToString("yyyy-MM-dd") },
-                        { SemanticSearchConstant.MemoryTags.SignedBy, versionToReview.SignedBy },
-                        { SemanticSearchConstant.MemoryTags.DocumentType, versionToReview.DocumentFile.DocumentTypeId },
-                        { SemanticSearchConstant.MemoryTags.IsOfficial, versionToReview.IsOfficial.ToString().ToLower() }
+
+                        // File system metadata
+                        { SemanticSearchConstant.MemoryTags.FileName, versionToReview.FileName },
+                        { SemanticSearchConstant.MemoryTags.FileType, versionToReview.FileType },
+                        { SemanticSearchConstant.MemoryTags.FileSize, versionToReview.FileSize.ToString() },
+                        { SemanticSearchConstant.MemoryTags.FileHash, versionToReview.FileHash },
+                        { SemanticSearchConstant.MemoryTags.GoogleDriveFileId, versionToReview.GoogleDriveFileId ?? versionToReview.FilePath },
+                        { SemanticSearchConstant.MemoryTags.StorageLocation, "GoogleDrive" }
                     };
+
+                    // Classification: tags and document type details
+                    if (versionToReview.DocumentTags != null)
+                    {
+                        foreach (var docTag in versionToReview.DocumentTags)
+                        {
+                            if (!string.IsNullOrWhiteSpace(docTag.Tag?.Name))
+                                tags.Add(SemanticSearchConstant.MemoryTags.Tags, docTag.Tag.Name);
+                        }
+                    }
+
+                    // Add document type friendly name/description if available
+                    if (versionToReview.DocumentFile.DocumentType != null)
+                    {
+                        tags.Add(SemanticSearchConstant.MemoryTags.DocumentTypeName, versionToReview.DocumentFile.DocumentType.Name);
+                        if (!string.IsNullOrWhiteSpace(versionToReview.DocumentFile.DocumentType.Description))
+                            tags.Add(SemanticSearchConstant.MemoryTags.DocumentTypeDescription, versionToReview.DocumentFile.DocumentType.Description);
+                    }
+
+                    // Organizational metadata (names via NameLookupService)
+                    try
+                    {
+                        var ownerName = await _nameLookupService.GetUserNameAsync(documentFile.OwnerId);
+                        if (!string.IsNullOrWhiteSpace(ownerName))
+                            tags.Add(SemanticSearchConstant.MemoryTags.OwnerName, ownerName);
+
+                        var deptName = await _nameLookupService.GetDepartmentNameAsync(documentFile.DepartmentId);
+                        if (!string.IsNullOrWhiteSpace(deptName))
+                            tags.Add(SemanticSearchConstant.MemoryTags.DepartmentName, deptName);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to enrich organizational metadata for indexing");
+                    }
+
+                    // Relationship metadata: previous approved version
+                    if (previousApprovedVersion != null)
+                    {
+                        tags.Add(SemanticSearchConstant.MemoryTags.PreviousApprovedVersionId, previousApprovedVersion.Id);
+                        tags.Add(SemanticSearchConstant.MemoryTags.PreviousApprovedVersionName, previousApprovedVersion.VersionName);
+                        tags.Add(SemanticSearchConstant.MemoryTags.PreviousApprovedAt, previousApprovedVersion.CreatedTime.ToString("o"));
+                    }
+
+                    // Relationship metadata: replacement
+                    if (!string.IsNullOrEmpty(documentFile.ReplacementId))
+                    {
+                        tags.Add(SemanticSearchConstant.MemoryTags.ReplacementOfDocumentId, documentFile.ReplacementId);
+                    }
+                    if (replacedDocument != null)
+                    {
+                        tags.Add(SemanticSearchConstant.MemoryTags.ReplacedDocumentId, replacedDocument.Id);
+                    }
+
+                    // Access control metadata
+                    tags.Add(SemanticSearchConstant.MemoryTags.Visibility, versionToReview.IsPublic ? "public" : "department");
+                    tags.Add(SemanticSearchConstant.MemoryTags.DepartmentRestriction, versionToReview.IsPublic ? "none" : documentFile.DepartmentId);
+                    // Optional: permission level placeholder (readers via Drive, editors via company account)
+                    tags.Add(SemanticSearchConstant.MemoryTags.PermissionLevel, versionToReview.IsPublic ? "company-read" : "department-read");
 
                     if (versionToReview.DocumentTags != null)
                     {
@@ -574,7 +640,8 @@ namespace Document.API.Services.Implements
                     using (var fileStream = await _storageService.DownloadFileAsync(versionToReview.FilePath))
                     {
                         _logger.LogInformation("Content length: {Length}, Name: {FileName}", fileStream.Length, versionToReview.FileName);
-                        await _memory.ImportDocumentAsync(fileStream, versionToReview.FileName, documentId: versionKmId, tags: tags);
+                        using var kmCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                        await _memory.ImportDocumentAsync(fileStream, versionToReview.FileName, documentId: versionKmId, tags: tags, cancellationToken: kmCts.Token);
                     }
                     _logger.LogInformation("Indexed approved version {VersionId} in Kernel Memory with structured tags.", versionId);
                 }

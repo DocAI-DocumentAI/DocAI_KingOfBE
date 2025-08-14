@@ -1,4 +1,6 @@
 using Document.API.Consumers;
+using Microsoft.KernelMemory.Configuration;
+
 using MassTransit;
 using Document.API.Services.Implements;
 using Document.API.Services.Interfaces;
@@ -170,11 +172,11 @@ public static class DependencyService
 
 
         return services;
-    } 
+    }
 
     public static IServiceCollection AddUnitOfWork(this IServiceCollection services)
     {
-        
+
         //services.AddScoped<IUnitOfWork<DocAIDocumentContext>, UnitOfWork<DocAIDocumentContext>>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         return services;
@@ -275,10 +277,15 @@ public static class DependencyService
             .WithPostgresMemoryDb(postgresConfig)
             .WithOpenAITextGeneration(openRouterTextGenerationConfig, new CL100KTokenizer())
             .WithOpenAITextEmbeddingGeneration(openAITextEmbeddingConfig, new CL100KTokenizer())
+            .WithCustomTextPartitioningOptions(new TextPartitioningOptions
+            {
+                MaxTokensPerParagraph = 1600, // recommended for text-embedding-3 family
+                OverlappingTokens = 200       // good balance of recall vs. cost
+            })
             .WithSearchClientConfig(new()
             {
                 EmptyAnswer = "No results found. Please try again.",
-                AnswerTokens = 1500, 
+                AnswerTokens = 1500,
                 MaxMatchesCount = 10
             })
             .Build<MemoryServerless>(kmbOptions);
