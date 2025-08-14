@@ -53,15 +53,20 @@ namespace ChatBox.API.Services.Implement
             var session = await GetOrCreateSessionAsync(request.SessionId, request.ModelName, userId);
             await ValidateSessionModelConsistency(session, request.ModelName);
             await EnsureSessionModelIsActive(session);
+                var requestTimestamp = DateTime.UtcNow;
 
             var isFirstMessage = await IsFirstUserMessageInSession(session.Id);
+
+            var userMessage = CreateUserChatMessage(request.Message, session.Id, userId, requestTimestamp, session.ModelName);
+            await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(userMessage);
+            await _unitOfWork.CommitAsync();
 
             _logger.LogInformation("Processing chat message for session {SessionId}, isFirstMessage: {IsFirstMessage}",
                 session.Id, isFirstMessage);
 
             // ✅ UPDATED: Get raw document content instead of processed answer
             var (documentContent, documentSources, hasDocumentContext) = await SearchDocumentContext(request.Message, userId, request.DocumentId);
-            var aiResponse = await GenerateAIResponse(session, request.Message, documentContent, hasDocumentContext);
+            var aiResponse = await GenerateAIResponse(session, request.Message, documentContent, documentSources, hasDocumentContext);
 
             await ValidateAIResponse(aiResponse, session.Id);
 
@@ -89,7 +94,7 @@ namespace ChatBox.API.Services.Implement
 
             // ✅ UPDATED: Get raw document content
             var (documentContent, documentSources, hasDocumentContext) = await SearchDocumentContext(request.Message, userId, request.DocumentId);
-            var responseStream = await GenerateAIResponseStream(session, request.Message, documentContent);
+            var responseStream = await GenerateAIResponseStream(session, request.Message, documentContent, documentSources);
 
             return WrapStreamWithChatResponse(responseStream, session, userId, request.Message, isFirstMessage, documentSources, hasDocumentContext, cancellationToken);
         }
@@ -172,13 +177,13 @@ namespace ChatBox.API.Services.Implement
         /// <summary>
         /// ✅ UPDATED: Generate AI response with raw document content
         /// </summary>
-        private async Task<string> GenerateAIResponse(ChatSession session, string userMessage, string documentContent, bool hasDocumentContext)
+        private async Task<string> GenerateAIResponse(ChatSession session, string userMessage, string documentContent, List<DocumentInfo> documentSources, bool hasDocumentContext)
         {
             var cleanChatHistory = await BuildCleanChatHistoryAsync(session.Id);
             cleanChatHistory.AddUserMessage(userMessage);
 
             var aiChatHistory = hasDocumentContext
-                ? CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage)
+                ? CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage, documentSources)
                 : cleanChatHistory;
 
             LogDocumentContextUsage(hasDocumentContext);
@@ -189,11 +194,12 @@ namespace ChatBox.API.Services.Implement
         /// <summary>
         /// ✅ UPDATED: Generate streaming AI response with raw content
         /// </summary>
-        private async Task<IAsyncEnumerable<string>> GenerateAIResponseStream(ChatSession session, string userMessage, string documentContent)
+        private async Task<IAsyncEnumerable<string>> GenerateAIResponseStream(ChatSession session, string userMessage, string documentContent, List<DocumentInfo> documentSources)
         {
             var cleanChatHistory = await BuildCleanChatHistoryAsync(session.Id);
             cleanChatHistory.AddUserMessage(userMessage);
-            var aiChatHistory = CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage);
+            var aiChatHistory = CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage, documentSources);
+
 
             return await _semanticKernelService.GetChatResponseStreamAsync(session.ModelName, aiChatHistory);
         }
@@ -303,13 +309,25 @@ namespace ChatBox.API.Services.Implement
             // ✅ 1. METADATA SECTION - Complete document metadata
             if (documentSources?.Any() == true)
             {
-                package.AppendLine("📋 **METADATA TÀI LIỆU:**");
+                package.AppendLine("📋 **METADATA TÀI LIỆU QUAN TRỌNG:**");
+
                 foreach (var source in documentSources.Take(3))
                 {
                     package.AppendLine($"📄 **Tên tài liệu:** {source.Title ?? "Không rõ"}");
 
+                    // ✅ HIGHLIGHT SignedBy ở đầu
                     if (!string.IsNullOrEmpty(source.SignedBy))
-                        package.AppendLine($"✍️ **Người ký:** {source.SignedBy}");
+                    {
+                        package.AppendLine($"");
+                        package.AppendLine($"🔴 **NGƯỜI KÝ VĂN BẢN: {source.SignedBy.ToUpper()}** 🔴");
+                        package.AppendLine($"");
+                    }
+                    else
+                    {
+                        package.AppendLine($"");
+                        package.AppendLine($"🔴 **NGƯỜI KÝ VĂN BẢN: Không có** 🔴");
+                        package.AppendLine($"");
+                    }
 
                     if (!string.IsNullOrEmpty(source.OwnerName))
                         package.AppendLine($"👤 **Chủ sở hữu:** {source.OwnerName}");
@@ -317,6 +335,8 @@ namespace ChatBox.API.Services.Implement
                     if (!string.IsNullOrEmpty(source.CreatedBy))
                         package.AppendLine($"📝 **Người tạo:** {source.CreatedBy}");
 
+                    if (!string.IsNullOrEmpty(source.CreatedBy))
+                        package.AppendLine($"📝 **Người tạo:** {source.CreatedBy}");
                     // Temporal information
                     if (source.EffectiveFrom.HasValue || source.EffectiveUntil.HasValue)
                     {
@@ -401,7 +421,8 @@ namespace ChatBox.API.Services.Implement
             package.AppendLine("• Hỏi về nội dung → Dùng thông tin ở mục NỘI DUNG");
             package.AppendLine("• Hỏi về cấu trúc → Dùng thông tin ở mục CẤU TRÚC");
             package.AppendLine("• Hỏi tổng quan → Kết hợp METADATA + NỘI DUNG");
-
+            package.AppendLine();
+            package.AppendLine("⚠️ **CHÚ Ý: Khi được hỏi về người ký, LUÔN TRẢ LỜI TỪ METADATA phần 'NGƯỜI KÝ VĂN BẢN' ở trên, KHÔNG dùng thông tin từ nội dung văn bản.**");
             return package.ToString();
         }
 
@@ -1271,15 +1292,21 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
                 DocumentId = doc.DocumentId,
                 Title = doc.Title,
                 RelevanceScore = doc.RelevanceScore,
-                Summary = "",
+                Summary = "",  // ❌ Reset thành empty
                 VersionId = doc.VersionId,
                 VersionName = doc.VersionName,
-                DepartmentId = "",
-                Description = null,
-                Tags = null,
+                DepartmentId = doc.DepartmentId,  
+                DepartmentName = doc.DepartmentName,  
+                ApprovedBy = doc.ApprovedBy,
+                CreatedBy = doc.CreatedBy,
+                SignedBy = doc.SignedBy,
+                OwnerName = doc.OwnerName,        
+                Description = null,  
+                Tags = null,  
                 EffectiveFrom = doc.EffectiveFrom,
                 EffectiveUntil = doc.EffectiveUntil,
-                ApprovalDate = null
+                ApprovalDate = doc.ApprovalDate,
+                ReviewerName = doc.ReviewerName,
             }).ToList();
 
             // ✅ FIX 1: Save TRƯỚC KHI yield return cuối cùng
@@ -1410,11 +1437,22 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
                 UpdatedAt = DateTime.UtcNow
             };
             string sourcesString = null;
-            if (documentSources?.Any() == true)
+            var sourcesData = documentSources.Select(doc => new
             {
-                sourcesString = string.Join(";", documentSources.Select(doc =>
-                    $"{doc.DocumentId ?? ""}|{doc.Title ?? ""}"));
-            }
+                DocumentId = doc.DocumentId,
+                VersionName = doc.VersionName,
+                Title = doc.Title,
+                SignedBy = doc.SignedBy, 
+                CreateBy = doc.CreatedBy,
+                ReviewName = doc.ReviewerName,
+                ApprovedBy =doc.ApprovedBy,
+                DepartmentName = doc.DepartmentName,
+                EffectiveFrom = doc.EffectiveFrom,
+                EffectiveUntil = doc.EffectiveUntil,
+                RelevanceScore = doc.RelevanceScore
+            });
+            sourcesString = JsonSerializer.Serialize(sourcesData);
+
             var aiMessage = new ChatMessage
             {
                 Content = aiContent,
