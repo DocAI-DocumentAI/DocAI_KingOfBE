@@ -13,6 +13,7 @@ namespace Document.Domain.Models
         public DocumentVersion()
         {
             DocumentTags = new HashSet<DocumentTag>();
+            ApprovalLogs = new HashSet<ApprovalLog>();
         }
         public string VersionName { get; set; }
         public string Title { get; set; }
@@ -36,5 +37,6 @@ namespace Document.Domain.Models
         public DocumentFile DocumentFile { get; set; }
         public virtual ICollection<DocumentTag> DocumentTags { get; set; }
         public virtual ApprovalClaim? ApprovalClaim { get; set; }
+        public virtual ICollection<ApprovalLog> ApprovalLogs { get; set; }
     }
 }

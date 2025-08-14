@@ -1424,6 +1424,131 @@ public class DocumentService : IDocumentService
         return enrichedResponse;
     }
 
+    public async Task<MyDocumentsWithStatsResponse> GetMyDocumentsWithStatsAsync(MyDocumentsFilter filter, int pageNumber, int pageSize)
+    {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
+        // Get paginated documents
+        var myDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
+            selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
+            filter: filter,
+            predicate: d => d.DocumentFile.OwnerId == userId,
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
+            page: pageNumber,
+            size: pageSize
+        );
+
+        // Enrich documents with names
+        var enrichedDocuments = await _enrichmentService.EnrichDocumentDraftResponsesAsync(myDocuments.Items.ToList());
+
+        // Create enriched paginated result
+        var enrichedPaginated = new Paginate<DocumentDraftResponse>
+        {
+            Items = enrichedDocuments,
+            Page = myDocuments.Page,
+            Size = myDocuments.Size,
+            Total = myDocuments.Total,
+            TotalPages = myDocuments.TotalPages
+        };
+
+        // Calculate statistics
+        var statistics = await CalculateMyDocumentsStatisticsAsync(userId);
+
+        return new MyDocumentsWithStatsResponse
+        {
+            Documents = enrichedPaginated,
+            Statistics = statistics
+        };
+    }
+
+    private async Task<MyDocumentsStatistics> CalculateMyDocumentsStatisticsAsync(string userId)
+    {
+        var allUserDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
+            predicate: d => d.DocumentFile.OwnerId == userId,
+            include: i => i.Include(v => v.DocumentFile)
+        );
+
+        var statistics = new MyDocumentsStatistics
+        {
+            TotalDrafts = allUserDocuments.Count(d => d.Status == StatusEnum.Draft),
+            TotalPending = allUserDocuments.Count(d => d.Status == StatusEnum.Pending),
+            TotalApproved = allUserDocuments.Count(d => d.Status == StatusEnum.Approved),
+            TotalRejected = allUserDocuments.Count(d => d.Status == StatusEnum.Rejected),
+            TotalArchived = allUserDocuments.Count(d => d.Status == StatusEnum.Archived),
+            TotalDocuments = allUserDocuments.Count
+        };
+
+        return statistics;
+    }
+
+    public async Task<IPaginate<EditorApprovalHistoryResponse>> GetEditorApprovalHistoryAsync(EditorApprovalHistoryFilter filter, int pageNumber, int pageSize)
+    {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
+        // Only show approved, rejected, or archived documents owned by the user
+        Expression<Func<DocumentVersion, bool>> accessControlPredicate = v =>
+            v.DocumentFile.OwnerId == userId &&
+            (v.Status == StatusEnum.Approved || v.Status == StatusEnum.Rejected || v.Status == StatusEnum.Archived);
+
+        var documents = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
+            selector: dv => dv,
+            filter: filter,
+            predicate: accessControlPredicate,
+            include: i => i.Include(v => v.DocumentFile)
+                          .ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentTags)
+                          .ThenInclude(dt => dt.Tag)
+                          .Include(v => v.ApprovalLogs),
+            orderBy: q => q.OrderByDescending(v => v.LastUpdatedTime),
+            page: pageNumber,
+            size: pageSize
+        );
+
+        // Map to response with approval log details
+        var responseItems = documents.Items.Select(v => MapToEditorApprovalHistoryResponse(v)).ToList();
+
+        // Enrich with names
+        var enrichedItems = await EnrichEditorApprovalHistoryResponsesAsync(responseItems);
+
+        return new Paginate<EditorApprovalHistoryResponse>
+        {
+            Items = enrichedItems,
+            Page = documents.Page,
+            Size = documents.Size,
+            Total = documents.Total,
+            TotalPages = documents.TotalPages
+        };
+    }
+
+    public async Task<EditorApprovalHistoryResponse> GetEditorApprovalHistoryDetailAsync(string versionId)
+    {
+        // Get current user ID from JWT token
+        var userId = GetCurrentUserId();
+
+        var document = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
+            predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId &&
+                           (v.Status == StatusEnum.Approved || v.Status == StatusEnum.Rejected || v.Status == StatusEnum.Archived),
+            include: i => i.Include(v => v.DocumentFile)
+                          .ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentTags)
+                          .ThenInclude(dt => dt.Tag)
+                          .Include(v => v.ApprovalLogs)
+        );
+
+        if (document == null)
+        {
+            throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
+        }
+
+        var response = MapToEditorApprovalHistoryResponse(document);
+        var enrichedResponse = await EnrichEditorApprovalHistoryResponseAsync(response);
+
+        return enrichedResponse;
+    }
+
     public async Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(int pageNumber, int pageSize)
     {
         // Get current user ID from JWT token
@@ -2553,5 +2678,72 @@ public class DocumentService : IDocumentService
         _logger.LogInformation("File info retrieved for version {VersionId}", versionId);
 
         return version;
+    }
+
+    private EditorApprovalHistoryResponse MapToEditorApprovalHistoryResponse(DocumentVersion version)
+    {
+        var response = new EditorApprovalHistoryResponse
+        {
+            DocumentId = version.DocumentFileId,
+            VersionId = version.Id,
+            Title = version.Title,
+            Description = version.DocumentFile?.Description,
+            Summary = version.Summary,
+            FileName = version.FileName,
+            FileSize = version.FileSize,
+            FileType = version.FileType,
+            Status = version.Status.ToString(),
+            VersionName = version.VersionName,
+            DepartmentId = version.DocumentFile?.DepartmentId ?? string.Empty,
+            DocumentTypeId = version.DocumentFile?.DocumentTypeId ?? string.Empty,
+            Tags = version.DocumentTags?.Select(dt => dt.Tag.Name).ToList() ?? new List<string>(),
+            CreatedTime = version.CreatedTime,
+            LastUpdatedTime = version.LastUpdatedTime,
+            LastSubmitted = version.LastSubmitted,
+            SubmittedBy = version.SubmittedBy,
+            SignedBy = version.SignedBy,
+            EffectiveFrom = version.EffectiveFrom,
+            EffectiveUntil = version.EffectiveUntil,
+            IsPublic = version.IsPublic,
+            IsOfficial = version.IsOfficial,
+            TotalDownloads = version.TotalDownloads
+        };
+
+        // Get the latest approval log for review details
+        var latestApprovalLog = version.ApprovalLogs?
+            .Where(log => log.Action == ApprovalAction.Approve || log.Action == ApprovalAction.Reject)
+            .OrderByDescending(log => log.CreatedTime)
+            .FirstOrDefault();
+
+        if (latestApprovalLog != null)
+        {
+            response.ReviewedBy = latestApprovalLog.CreatedBy;
+            response.ReviewedAt = latestApprovalLog.CreatedTime;
+            response.ReviewComments = latestApprovalLog.Comments;
+        }
+
+        return response;
+    }
+
+    private Task<List<EditorApprovalHistoryResponse>> EnrichEditorApprovalHistoryResponsesAsync(List<EditorApprovalHistoryResponse> responses)
+    {
+        try
+        {
+            // For now, return responses without enrichment
+            // TODO: Implement proper enrichment using the existing enrichment service patterns
+            _logger.LogInformation("Enriching {Count} editor approval history responses", responses.Count);
+            return Task.FromResult(responses);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error enriching editor approval history responses with names");
+            return Task.FromResult(responses);
+        }
+    }
+
+    private async Task<EditorApprovalHistoryResponse> EnrichEditorApprovalHistoryResponseAsync(EditorApprovalHistoryResponse response)
+    {
+        var enrichedList = await EnrichEditorApprovalHistoryResponsesAsync(new List<EditorApprovalHistoryResponse> { response });
+        return enrichedList.First();
     }
 }

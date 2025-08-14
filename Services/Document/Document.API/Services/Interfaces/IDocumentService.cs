@@ -22,7 +22,10 @@ public interface IDocumentService
     Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize, bool departmentOnly = false);
     Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(OfficialDocumentsFilter filter, int pageNumber, int pageSize);
     Task<IPaginate<DocumentDraftResponse>> GetMyDocumentsAsync(MyDocumentsFilter filter, int pageNumber, int pageSize);
+    Task<MyDocumentsWithStatsResponse> GetMyDocumentsWithStatsAsync(MyDocumentsFilter filter, int pageNumber, int pageSize);
     Task<DocumentDraftResponse> GetMyDocumentByIdAsync(string versionId);
+    Task<IPaginate<EditorApprovalHistoryResponse>> GetEditorApprovalHistoryAsync(EditorApprovalHistoryFilter filter, int pageNumber, int pageSize);
+    Task<EditorApprovalHistoryResponse> GetEditorApprovalHistoryDetailAsync(string versionId);
     Task<DocumentDraftResponse> CreateNewVersionAsync(string documentId, CreateNewVersionDraftRequest request);
     Task<List<DocumentVersionResponse>> GetDocumentVersionsAsync(string documentId);
     Task<DocumentVersionResponse> GetDocumentVersionByVersionIdAsync(string documentId, string versionId);

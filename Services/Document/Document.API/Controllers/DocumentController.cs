@@ -195,6 +195,64 @@ public class DocumentController : ControllerBase
     }
 
     /// <summary>
+    /// Get current user's documents with filtering, pagination, and status statistics
+    /// </summary>
+    [HttpGet(ApiEndPointConstant.Document.GetMyDocuments + "/with-stats")]
+    [CustomAuthorize(Roles = new[] { Roles.Editor })]
+    [ProducesResponseType(typeof(ApiResponse<MyDocumentsWithStatsResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetMyDocumentsWithStats([FromQuery] MyDocumentsFilter filter, int pageNumber = 1, int pageSize = 10)
+    {
+        var result = await _documentService.GetMyDocumentsWithStatsAsync(filter, pageNumber, pageSize);
+        return Ok(ApiResponse<object>.Success(result));
+    }
+
+    /// <summary>
+    /// Get editor's approval history (approved/rejected documents) with filtering and pagination
+    /// </summary>
+    [HttpGet(ApiEndPointConstant.Document.GetMyDocuments + "/approval-history")]
+    [CustomAuthorize(Roles = new[] { Roles.Editor })]
+    [ProducesResponseType(typeof(ApiResponse<IPaginate<EditorApprovalHistoryResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetEditorApprovalHistory([FromQuery] EditorApprovalHistoryFilterRequest filterRequest, int pageNumber = 1, int pageSize = 10)
+    {
+        // Map request to filter
+        var filter = new EditorApprovalHistoryFilter
+        {
+            Title = filterRequest.Title,
+            Keyword = filterRequest.Keyword,
+            Status = filterRequest.Status,
+            FromDate = filterRequest.FromDate,
+            ToDate = filterRequest.ToDate,
+            ReviewedFromDate = filterRequest.ReviewedFromDate,
+            ReviewedToDate = filterRequest.ReviewedToDate,
+            DocumentTypeId = filterRequest.DocumentTypeId,
+            Tags = filterRequest.Tags,
+            SignedBy = filterRequest.SignedBy,
+            ReviewedBy = filterRequest.ReviewedBy
+        };
+
+        var result = await _documentService.GetEditorApprovalHistoryAsync(filter, pageNumber, pageSize);
+        return Ok(ApiResponse<object>.Success(result));
+    }
+
+    /// <summary>
+    /// Get detailed information of a specific approved/rejected document with approval log
+    /// </summary>
+    [HttpGet(ApiEndPointConstant.Document.GetMyDocuments + "/approval-history/{id}")]
+    [CustomAuthorize(Roles = new[] { Roles.Editor })]
+    [ProducesResponseType(typeof(ApiResponse<EditorApprovalHistoryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetEditorApprovalHistoryDetail([FromRoute(Name = "id")] string versionId)
+    {
+        var result = await _documentService.GetEditorApprovalHistoryDetailAsync(versionId);
+        return Ok(ApiResponse<object>.Success(result));
+    }
+
+    /// <summary>
     /// Get detailed information of a specific user's document draft
     /// </summary>
     /// <param name="versionId">The version ID of the document draft</param>
