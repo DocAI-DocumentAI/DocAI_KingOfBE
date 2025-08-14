@@ -709,6 +709,10 @@ namespace Document.API.Services.Implements
                                     requestId, departmentId);
                                 return true;
 
+                            case "EMPLOYEE":
+                                _logger.LogDebug("🔓 [ACCESS-{RequestId}] Member access granted for dept: {DeptId}",
+                                    requestId, departmentId);
+                                return true;
                             case "NONE":
                                 _logger.LogDebug("🔒 [ACCESS-{RequestId}] Role NONE - no department access", requestId);
                                 return false;
