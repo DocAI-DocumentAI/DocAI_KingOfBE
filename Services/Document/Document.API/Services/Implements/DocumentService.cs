@@ -1499,15 +1499,28 @@ public class DocumentService : IDocumentService
         return enrichedResponse;
     }
 
-    public async Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize)
+    public async Task<IPaginate<DocumentDraftResponse>> GetAllOfficialDocumentsAsync(int pageNumber, int pageSize, bool departmentOnly = false)
     {
         // Get user's department ID for permission filtering
         var userDepartmentId = GetCurrentUserDepartmentId();
 
+        // Build predicate based on departmentOnly parameter
+        Expression<Func<DocumentVersion, bool>> accessControlPredicate;
+        if (departmentOnly)
+        {
+            // Show only documents from user's department (both public and private)
+            accessControlPredicate = v => v.IsOfficial && v.Status == StatusEnum.Approved && v.DocumentFile.DepartmentId == userDepartmentId;
+        }
+        else
+        {
+            // Show documents from all departments, but only public ones (cannot view private documents from other departments)
+            accessControlPredicate = v => v.IsOfficial && v.Status == StatusEnum.Approved && v.IsPublic;
+        }
+
         var officialDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             filter: null,
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
-            predicate: v => v.IsOfficial && (v.IsPublic || v.DocumentFile.DepartmentId == userDepartmentId),
+            predicate: accessControlPredicate,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
@@ -1547,17 +1560,22 @@ public class DocumentService : IDocumentService
             // - If it's different department: show only public documents
             if (filter.DepartmentId == userDepartmentId)
             {
-                accessControlPredicate = v => v.IsOfficial && v.DocumentFile.DepartmentId == filter.DepartmentId;
+                accessControlPredicate = v => v.IsOfficial && v.Status == StatusEnum.Approved && v.DocumentFile.DepartmentId == filter.DepartmentId;
             }
             else
             {
-                accessControlPredicate = v => v.IsOfficial && v.DocumentFile.DepartmentId == filter.DepartmentId && v.IsPublic;
+                accessControlPredicate = v => v.IsOfficial && v.Status == StatusEnum.Approved && v.DocumentFile.DepartmentId == filter.DepartmentId && v.IsPublic;
             }
+        }
+        else if (filter.DepartmentOnly)
+        {
+            // Show only documents from user's department (both public and private)
+            accessControlPredicate = v => v.IsOfficial && v.Status == StatusEnum.Approved && v.DocumentFile.DepartmentId == userDepartmentId;
         }
         else
         {
-            // Default access control: user can see public documents + private documents from their department
-            accessControlPredicate = v => v.IsOfficial && (v.IsPublic || v.DocumentFile.DepartmentId == userDepartmentId);
+            // Show documents from all departments, but only public ones (cannot view private documents from other departments)
+            accessControlPredicate = v => v.IsOfficial && v.Status == StatusEnum.Approved && v.IsPublic;
         }
 
         var officialDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
