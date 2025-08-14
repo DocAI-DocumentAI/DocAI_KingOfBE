@@ -169,7 +169,10 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
 		#region Update
 		public override Task UpdateAsync(T entity)
 		{
-			_dbSet.Update(entity);
+			if (entity == null) return Task.CompletedTask;
+			// Avoid graph updates that can cause duplicate tracking of related entities
+			// Mark only the root entity as Modified without traversing the graph
+			_dbContext.Entry(entity).State = EntityState.Modified;
 			return Task.CompletedTask;
     }
 

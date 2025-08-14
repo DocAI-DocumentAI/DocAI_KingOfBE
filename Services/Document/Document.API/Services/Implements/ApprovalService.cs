@@ -635,6 +635,8 @@ namespace Document.API.Services.Implements
             // Update document metadata and save all changes
             documentFile.LastUpdatedBy = userId;
             documentFile.LastUpdatedTime = DateTime.UtcNow;
+            // Persist DocumentFile metadata separately to avoid EF graph tracking conflicts
+            await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentFile);
             await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(versionToReview);
 
             var approvalLog = new ApprovalLog

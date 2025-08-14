@@ -1,3 +1,4 @@
+using Document.API.Attributes;
 using Document.API.Constants;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
@@ -13,6 +14,7 @@ namespace Document.API.Controllers
     /// </summary>
     [Route(ApiEndPointConstant.ApiEndpoint)]
     [ApiController]
+    [CustomAuthorize]
     public class TagController : ControllerBase
     {
         private readonly ITagService _tagService;
