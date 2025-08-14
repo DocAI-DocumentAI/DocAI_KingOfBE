@@ -1343,15 +1343,14 @@ public class DocumentService : IDocumentService
         // A draft document should only have one version. We get that version to check its status.
         var versionToDelete = documentToDelete.DocumentVersions.FirstOrDefault(v => v.Id == versionId);
 
-        // BR-117: Check if the document's status is "Draft".
-        if (versionToDelete == null || versionToDelete.Status != StatusEnum.Draft || versionToDelete.Status != StatusEnum.Rejected)
+        // BR-117: Check if the document's status is "Draft" or "Rejected".
+        if (versionToDelete == null || (versionToDelete.Status != StatusEnum.Draft && versionToDelete.Status != StatusEnum.Rejected))
         {
             var currentStatus = versionToDelete?.Status.ToString() ?? "Unknown";
-            var message = string.Format(MessageConstant.CanOnlyDeleteDrafts, currentStatus);
-            _logger.LogWarning("Attempted to delete a document with status '{Status}', not 'Draft'.", currentStatus);
+            var message = string.Format(MessageConstant.CanOnlyDeleteDrafts, currentStatus); // You might want to update this message
+            _logger.LogWarning("Attempted to delete a document with status '{Status}', which is not 'Draft' or 'Rejected'.", currentStatus);
             throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, message);
         }
-
         _logger.LogInformation("Version to delete: {VersionName}, Status: {Status}", versionToDelete.VersionName, versionToDelete.Status);
 
         // 3. Delete the physical file from Google Drive.

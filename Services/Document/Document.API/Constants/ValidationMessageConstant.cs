@@ -264,9 +264,9 @@ public static class ValidationConstants
     public const int DocumentReplacementSuggestionTagsMaxCount = 10;
 
     // Common regex patterns
-    public const string VietnameseTextRegex = @"^[a-zA-ZÀ-ỹ0-9\s\.\-_,;:!?\(\)\[\]""'']+$";
+    public const string VietnameseTextRegex = @"^[a-zA-ZÀ-ỹ0-9\s\.\-_,;:!?\(\)\[\]""''/]+$";
     public const string DocumentTypeNameRegex = @"^[a-zA-ZÀ-ỹ0-9\s\-_]+$";
-    public const string VersionNameRegex = @"^[a-zA-ZÀ-ỹ0-9\s\.\-_]+$";
+    public const string VersionNameRegex = @"^[a-zA-ZÀ-ỹ0-9\s\.\-_/]+$";
     public const string TagRegex = @"^[a-zA-ZÀ-ỹ0-9\s\-]+$";
     public const string VietnameseNameRegex = @"^[a-zA-ZÀ-ỹ\s]+$";
 }
