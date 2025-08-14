@@ -10,7 +10,7 @@ using Microsoft.KernelMemory;
 using System.Text;
 
 namespace Document.API.Services.Implements
-    {
+{
     public class DocumentRAGService : BaseService<DocumentRAGService>, IDocumentRAGService
     {
         #region Fields
@@ -18,7 +18,6 @@ namespace Document.API.Services.Implements
         private readonly INameLookupService _nameLookupService;
         private readonly IDocumentEnrichmentService _enrichmentService;
 
-        // ✅ OPTIMIZED CONFIGURATION
         private readonly bool _enableDebugLogging;
         private readonly int _maxSearchResults;
         private readonly double _baseMinRelevanceScore;
@@ -41,12 +40,12 @@ namespace Document.API.Services.Implements
             _enrichmentService = enrichmentService;
 
             _enableDebugLogging = _configuration.GetValue<bool>("RAG:EnableDebugLogging", true);
-            _maxSearchResults = _configuration.GetValue<int>("RAG:MaxSearchResults", 10); // ✅ Reduced from 50
-            _baseMinRelevanceScore = _configuration.GetValue<double>("RAG:BaseMinRelevanceScore", 0.001); // ✅ Lower threshold
+            _maxSearchResults = _configuration.GetValue<int>("RAG:MaxSearchResults", 10);
+            _baseMinRelevanceScore = _configuration.GetValue<double>("RAG:BaseMinRelevanceScore", 0.001);
         }
         #endregion
 
-        #region Public Methods
+        #region Main Public Methods
         public async Task<DocumentRAGResponse> SearchDocumentsWithRAGAsync(DocumentRAGRequest request)
         {
             var requestId = request.RequestId ?? Guid.NewGuid().ToString();
@@ -54,8 +53,8 @@ namespace Document.API.Services.Implements
 
             try
             {
-                _logger.LogInformation("🔍 [RAG-{RequestId}] Starting search - Query: '{Query}', User: {FullName} ({Role}), Dept: {DeptName}",
-                    requestId, request.Query, request.FullName, request.Role, request.DepartmentName);
+                _logger.LogInformation("🔍 [RAG-{RequestId}] Starting search - DocumentId: {DocId}, Query: '{Query}', User: {FullName} ({Role}), Dept: {DeptName}",
+                    requestId, request.DocumentId ?? "None", request.Query, request.FullName, request.Role, request.DepartmentName);
 
                 // ✅ VALIDATE REQUEST
                 if (string.IsNullOrWhiteSpace(request.Query))
@@ -63,7 +62,7 @@ namespace Document.API.Services.Implements
                     return CreateEmptyResponse(request, startTime, "Empty query provided");
                 }
 
-                // ✅ SINGLE OPTIMIZED SEARCH
+                // ✅ PERFORM SEARCH
                 var citations = await PerformOptimizedSearch(request, requestId);
 
                 if (!citations.Any())
@@ -74,18 +73,18 @@ namespace Document.API.Services.Implements
 
                 _logger.LogInformation("📄 [RAG-{RequestId}] Found {Count} citations from KernelMemory", requestId, citations.Count);
 
-                // ✅ SMART PERMISSION FILTERING WITH DATE CHECK
-                var validCitations = await FilterCitationsSmartly(citations, request, requestId);
+                // ✅ CRITICAL: PERMISSION FILTERING WITH COMPLETE BLOCKING
+                var validCitations = await FilterCitationsWithCompleteBlocking(citations, request, requestId);
 
-                _logger.LogInformation("🔒 [RAG-{RequestId}] Smart filtered: {Valid}/{Total} citations",
+                _logger.LogInformation("🔒 [RAG-{RequestId}] After permission filter: {Valid}/{Total} citations",
                     requestId, validCitations.Count, citations.Count);
 
                 if (!validCitations.Any())
                 {
-                    return CreateEmptyResponse(request, startTime, "No accessible documents after filtering");
+                    return CreateEmptyResponse(request, startTime, "No accessible documents found");
                 }
 
-                // ✅ EXTRACT OPTIMIZED CONTENT AND SOURCES
+                // ✅ EXTRACT CONTENT AND SOURCES WITH COMPLETE METADATA
                 var rawContent = ExtractOptimizedContent(validCitations, request.Query);
                 var sources = await ExtractDocumentSources(validCitations, requestId);
 
@@ -120,7 +119,7 @@ namespace Document.API.Services.Implements
                 UserId = userId,
                 Role = "ADMIN",
                 MaxResults = 5,
-                MinRelevanceScore = 0.001 // ✅ Very low threshold for general queries
+                MinRelevanceScore = 0.001
             };
 
             var response = await SearchDocumentsWithRAGAsync(request);
@@ -146,231 +145,809 @@ namespace Document.API.Services.Implements
         }
         #endregion
 
-        #region ✅ OPTIMIZED SEARCH - Single Pass with Smart Filtering
+        #region ✅ OPTIMIZED SEARCH - Complete Implementation
 
         private async Task<List<Citation>> PerformOptimizedSearch(DocumentRAGRequest request, string requestId)
         {
             try
             {
-                // ✅ DETECT QUERY TYPE AND ADJUST PARAMETERS
-                var queryType = ClassifyQuery(request.Query);
-                var searchParams = GetOptimizedSearchParameters(queryType, request);
+                _logger.LogInformation("🔍 [SEARCH-{RequestId}] Starting - DocumentId: {DocId}, Query: '{Query}', User: {Role}",
+                    requestId, request.DocumentId ?? "None", request.Query, request.Role);
 
-                _logger.LogInformation("🔎 [SEARCH-{RequestId}] Query type: {QueryType}, Strategy: {Strategy}",
-                    requestId, queryType, searchParams.Strategy);
-
-                // ✅ BUILD SMART DYNAMIC FILTER
-                var filter = BuildDynamicFilter(request, queryType, requestId);
-
-                // ✅ SINGLE SEARCH WITH OPTIMIZED PARAMETERS
-                var searchQuery = searchParams.ExpandQuery ?
-                    ExpandQueryIntelligently(request.Query, queryType) :
-                    request.Query;
-
-                _logger.LogInformation("🔎 [SEARCH-{RequestId}] Searching with: '{Query}', Limit: {Limit}, MinRelevance: {MinRelevance}",
-                    requestId, searchQuery, searchParams.Limit, searchParams.MinRelevance);
-
-                var result = await _memory.SearchAsync(
-                    searchQuery,
-                    limit: searchParams.Limit,
-                    filter: filter,
-                    minRelevance: searchParams.MinRelevance);
-
-                var citations = result.Results.ToList();
-
-                // ✅ IF GENERAL QUERY AND LOW RESULTS, TRY BROADER SEARCH
-                if (queryType == QueryType.General && citations.Count < 3)
+                // ✅ CASE 1: SPECIFIC DOCUMENT - Load toàn bộ document
+                if (!string.IsNullOrEmpty(request.DocumentId))
                 {
-                    _logger.LogInformation("🔎 [SEARCH-{RequestId}] General query has few results, trying broader search", requestId);
-
-                    var broaderResult = await _memory.SearchAsync(
-                        request.Query.Split(' ').FirstOrDefault() ?? request.Query, // Use first keyword
-                        limit: 20,
-                        filter: new MemoryFilter().ByTag("status", "approved"), // Minimal filter
-                        minRelevance: 0.0);
-
-                    citations.AddRange(broaderResult.Results);
-                    citations = DeduplicateCitations(citations);
+                    return await SearchSpecificDocument(request, requestId);
                 }
 
-                // ✅ RANK BY RELEVANCE AND CONTEXT
-                citations = RankCitationsByRelevance(citations, request, queryType);
-
-                _logger.LogInformation("✅ [SEARCH-{RequestId}] Found {Count} results after optimization",
-                    requestId, citations.Count);
-
-                return citations;
+                // ✅ CASE 2: GENERAL SEARCH - Tìm kiếm thông minh
+                return await SearchAllDocuments(request, requestId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ [SEARCH-{RequestId}] Error in optimized search", requestId);
+                _logger.LogError(ex, "❌ [SEARCH-{RequestId}] Error in search", requestId);
                 return new List<Citation>();
             }
         }
 
-        // ✅ CLASSIFY QUERY TYPE FOR BETTER HANDLING
-        private QueryType ClassifyQuery(string query)
+        // ✅ SEARCH SPECIFIC DOCUMENT - Load toàn bộ để user hỏi gì cũng được
+        private async Task<List<Citation>> SearchSpecificDocument(DocumentRAGRequest request, string requestId)
         {
-            if (string.IsNullOrWhiteSpace(query)) return QueryType.Invalid;
+            _logger.LogInformation("🎯 [SPECIFIC-{RequestId}] Loading document: {DocId}", requestId, request.DocumentId);
 
-            var queryLower = query.ToLower();
-            var wordCount = query.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+            // ✅ Load ALL partitions của document này
+            var allPartitionsResult = await _memory.SearchAsync(
+                string.IsNullOrEmpty(request.Query) ? "*" : request.Query, // Wildcard nếu không có query
+                limit: 300, // Load nhiều partitions
+                filter: new MemoryFilter()
+                    .ByTag("status", "approved")
+                    .ByTag("documentId", request.DocumentId),
+                minRelevance: 0.0 // Load tất cả content
+            );
 
-            // Very short queries are general
-            if (wordCount <= 2) return QueryType.General;
+            var citations = allPartitionsResult.Results.ToList();
 
-            // Check for general patterns
-            var generalPatterns = new[] {
-                "quy định", "chính sách", "thủ tục", "hướng dẫn",
-                "quy trình", "nội quy", "tài liệu", "văn bản",
-                "có gì", "những gì", "tất cả", "toàn bộ"
-            };
-
-            if (generalPatterns.Any(p => queryLower.Contains(p) && wordCount <= 4))
-                return QueryType.General;
-
-            // Check for question patterns
-            var questionWords = new[] { "làm sao", "thế nào", "như thế nào", "khi nào", "bao giờ" };
-            if (questionWords.Any(queryLower.StartsWith))
-                return QueryType.Question;
-
-            // Check for specific document references
-            if (queryLower.Contains("số") || queryLower.Contains("quyết định") || queryLower.Contains("thông tư"))
-                return QueryType.DocumentReference;
-
-            return QueryType.Specific;
-        }
-
-        // ✅ GET OPTIMIZED SEARCH PARAMETERS BASED ON QUERY TYPE
-        private (int Limit, double MinRelevance, bool ExpandQuery, string Strategy) GetOptimizedSearchParameters(
-            QueryType queryType, DocumentRAGRequest request)
-        {
-            return queryType switch
+            // ✅ Nếu không tìm thấy, thử các format khác
+            if (!citations.Any())
             {
-                QueryType.General => (30, 0.0, true, "Broad"),
-                QueryType.Question => (15, 0.001, true, "Semantic"),
-                QueryType.DocumentReference => (5, 0.01, false, "Exact"),
-                QueryType.Specific => (10, 0.005, false, "Balanced"),
-                _ => (request.MaxResults, request.MinRelevanceScore ?? 0.001, false, "Default")
-            };
-        }
+                var alternativeFields = new[] { "__document_id", "docId", "document_id", "versionId" };
 
-        // ✅ BUILD DYNAMIC FILTER BASED ON CONTEXT
-        private MemoryFilter BuildDynamicFilter(DocumentRAGRequest request, QueryType queryType, string requestId)
-        {
-            var filter = new MemoryFilter();
-
-            if (!string.IsNullOrEmpty(request.DocumentId))
-            {
-                filter = filter.ByTag("documentId", request.DocumentId);
-                _logger.LogInformation("🔎 [FILTER-{RequestId}] CONSTRAINED search to specific DocumentId: {DocumentId}",
-                    requestId, request.DocumentId);
-                return filter;
-            }
-
-            var role = request.Role?.ToUpper() ?? "NONE";
-
-            // ✅ ALWAYS filter approved documents
-            filter = filter.ByTag("status", "approved");
-
-            // ❌ ADMIN - Should not search any documents
-            if (role == "ADMIN")
-            {
-                // Add impossible filter to ensure no results
-                filter = filter.ByTag("accessLevel", "SUPER_ADMIN_ONLY");
-                _logger.LogDebug("🔎 [FILTER-{RequestId}] Admin filter applied - no documents accessible", requestId);
-                return filter;
-            }
-
-            // ✅ FOR NONE role or OnlyPublic request - Only public documents
-            if (role == "NONE" || request.OnlyPublic)
-            {
-                filter = filter.ByTag("isPublic", "True");
-                _logger.LogDebug("🔎 [FILTER-{RequestId}] Public only filter applied for role: {Role}", requestId, role);
-            }
-
-            // ✅ FOR DOCUMENT REFERENCES - Add document type if detected
-            if (queryType == QueryType.DocumentReference)
-            {
-                var docType = ExtractDocumentType(request.Query);
-                if (!string.IsNullOrEmpty(docType))
+                foreach (var field in alternativeFields)
                 {
-                    filter = filter.ByTag("documentType", docType);
-                    _logger.LogDebug("🔎 [FILTER-{RequestId}] Document type filter: {DocType}", requestId, docType);
+                    var altResult = await _memory.SearchAsync(
+                        string.IsNullOrEmpty(request.Query) ? "*" : request.Query,
+                        limit: 300,
+                        filter: new MemoryFilter()
+                            .ByTag("status", "approved")
+                            .ByTag(field, request.DocumentId),
+                        minRelevance: 0.0
+                    );
+
+                    if (altResult.Results.Any())
+                    {
+                        citations = altResult.Results.ToList();
+                        _logger.LogInformation("✅ [SPECIFIC-{RequestId}] Found using field: {Field}", requestId, field);
+                        break;
+                    }
                 }
             }
 
-            // ✅ NOTE: Department filtering will be handled in post-processing
-            // because MemoryFilter doesn't support OR conditions effectively
+            _logger.LogInformation("📄 [SPECIFIC-{RequestId}] Loaded {Count} partitions for document",
+                requestId, citations.Count);
 
-            _logger.LogInformation("🔎 [FILTER-{RequestId}] Built filter for {Role}, QueryType: {QueryType}",
-                requestId, role, queryType);
-
-            return filter;
+            return citations;
         }
 
-        // ✅ INTELLIGENT QUERY EXPANSION
-        private string ExpandQueryIntelligently(string originalQuery, QueryType queryType)
+        // ✅ SEARCH ALL DOCUMENTS - Tìm kiếm thông minh
+        private async Task<List<Citation>> SearchAllDocuments(DocumentRAGRequest request, string requestId)
         {
-            var queryLower = originalQuery.ToLower();
+            _logger.LogInformation("🌐 [GENERAL-{RequestId}] Searching all documents", requestId);
 
-            // Expand based on query type
+            // ✅ Phân loại query để tối ưu search
+            var queryType = ClassifyQuerySmart(request.Query);
+            var (limit, minRelevance) = GetSearchParams(queryType);
+
+            _logger.LogInformation("🔎 [GENERAL-{RequestId}] QueryType: {Type}, Limit: {Limit}, MinRelevance: {MinRel}",
+                requestId, queryType, limit, minRelevance);
+
+            // ✅ Build filter dựa trên role (giữ nguyên logic phân quyền)
+            var filter = BuildSmartFilter(request, requestId);
+
+            // ✅ Perform search
+            var result = await _memory.SearchAsync(
+                request.Query,
+                limit: limit,
+                filter: filter,
+                minRelevance: minRelevance);
+
+            var citations = result.Results.ToList();
+
+            _logger.LogInformation("📊 [GENERAL-{RequestId}] Found {Count} citations", requestId, citations.Count);
+
+            return citations;
+        }
+
+        // ✅ CLASSIFY QUERY - Đơn giản và hiệu quả
+        private string ClassifyQuerySmart(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query)) return "general";
+
+            var queryLower = query.ToLower();
+
+            // Full document requests
+            if (queryLower.Contains("tóm tắt") || queryLower.Contains("toàn bộ") ||
+                queryLower.Contains("phân tích") || queryLower.Contains("đánh giá"))
+                return "full_document";
+
+            // Specific section requests
+            if (queryLower.Contains("điều") || queryLower.Contains("khoản") ||
+                queryLower.Contains("mục") || queryLower.Contains("phần"))
+                return "specific_section";
+
+            // Questions
+            if (queryLower.Contains("làm sao") || queryLower.Contains("thế nào") ||
+                queryLower.Contains("khi nào") || queryLower.Contains("có phải"))
+                return "question";
+
+            return "general";
+        }
+
+        // ✅ GET SEARCH PARAMS - Dựa trên query type
+        private (int limit, double minRelevance) GetSearchParams(string queryType)
+        {
             return queryType switch
             {
-                QueryType.General when queryLower.Contains("nghỉ phép") =>
-                    "nghỉ phép annual leave vacation holiday phép năm",
-
-                QueryType.General when queryLower.Contains("lương") =>
-                    "lương salary thưởng bonus thu nhập income",
-
-                QueryType.Question when queryLower.Contains("làm sao") =>
-                    originalQuery.Replace("làm sao", "cách thức quy trình thủ tục"),
-
-                _ => originalQuery
+                "full_document" => (100, 0.0),     // Load nhiều để có context đầy đủ
+                "specific_section" => (50, 0.01),  // Tìm section cụ thể
+                "question" => (75, 0.005),         // Câu hỏi cần context vừa phải
+                _ => (50, 0.01)                    // Default
             };
+        }
+
+        // ✅ BUILD SMART FILTER - Giữ nguyên logic phân quyền hiện tại
+        private MemoryFilter BuildSmartFilter(DocumentRAGRequest request, string requestId)
+        {
+            var filter = new MemoryFilter();
+            var role = request.Role?.ToUpper() ?? "NONE";
+
+            // ✅ Base filter - tài liệu đã approved
+            filter = filter.ByTag("status", "approved");
+
+            // ✅ Giữ nguyên logic phân quyền của bạn
+            if (role == "ADMIN")
+            {
+                // Admin không được search (theo yêu cầu của bạn)
+                filter = filter.ByTag("accessLevel", "SUPER_ADMIN_ONLY");
+                return filter;
+            }
+
+            // ✅ NONE role hoặc OnlyPublic - chỉ public docs
+            if (role == "NONE" || request.OnlyPublic)
+            {
+                filter = filter.ByTag("isPublic", "True");
+            }
+
+            _logger.LogDebug("🔒 [FILTER-{RequestId}] Built filter for role: {Role}", requestId, role);
+            return filter;
         }
 
         #endregion
 
-        #region ✅ SMART FILTERING WITH PARALLEL PROCESSING
+        #region ✅ CRITICAL: COMPLETE PERMISSION BLOCKING
 
-        private async Task<List<Citation>> FilterCitationsSmartly(
+        private async Task<List<Citation>> FilterCitationsWithCompleteBlocking(
             List<Citation> citations,
             DocumentRAGRequest request,
             string requestId)
         {
             var today = DateTime.UtcNow.Date;
+            var accessibleCitations = new List<Citation>();
 
-            // ✅ PARALLEL FILTERING FOR PERFORMANCE
-            var filterTasks = citations.Select(async citation =>
-            {
-                // Check date effectiveness
-                if (!IsDocumentCurrentlyEffective(citation, today, requestId))
-                    return (citation, false, 0.0);
-
-                // Check access permissions
-                var hasAccess = await IsDocumentAccessibleToUser(citation, request, requestId);
-                if (!hasAccess)
-                    return (citation, false, 0.0);
-
-                // Calculate relevance boost
-                var relevanceScore = CalculateEnhancedRelevance(citation, request);
-
-                return (citation, true, relevanceScore);
-            });
-
-            var results = await Task.WhenAll(filterTasks);
-
-            // ✅ RETURN TOP RESULTS SORTED BY ENHANCED RELEVANCE
-            return results
-                .Where(r => r.Item2) // Has access
-                .OrderByDescending(r => r.Item3) // By relevance
-                .Take(request.MaxResults)
-                .Select(r => r.citation)
+            // ✅ Group by document to check permissions once per document
+            var citationsByDoc = citations
+                .GroupBy(c => GetDocumentIdFromCitation(c))
                 .ToList();
+
+            _logger.LogInformation("🔒 [PERMISSION-{RequestId}] Checking {DocCount} documents for user {Role}",
+                requestId, citationsByDoc.Count, request.Role);
+
+            foreach (var docGroup in citationsByDoc)
+            {
+                var docId = docGroup.Key;
+                var firstCitation = docGroup.First();
+
+                try
+                {
+                    // ✅ Check document-level permissions
+                    var hasAccess = await IsDocumentAccessibleToUser(firstCitation, request, requestId);
+                    var isEffective = IsDocumentCurrentlyEffective(firstCitation, today, requestId);
+
+                    if (hasAccess && isEffective)
+                    {
+                        // ✅ User có quyền - Add ALL citations from this document
+                        accessibleCitations.AddRange(docGroup);
+
+                        _logger.LogDebug("✅ [PERMISSION-{RequestId}] Document {DocId} ACCESSIBLE - added {Count} citations",
+                            requestId, docId, docGroup.Count());
+                    }
+                    else
+                    {
+                        // ❌ User KHÔNG có quyền - COMPLETELY BLOCK document
+                        _logger.LogDebug("❌ [PERMISSION-{RequestId}] Document {DocId} BLOCKED - HasAccess: {Access}, IsEffective: {Effective}",
+                            requestId, docId, hasAccess, isEffective);
+
+                        // ✅ KHÔNG add gì từ document này - Complete blocking!
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "⚠️ [PERMISSION-{RequestId}] Error checking document {DocId} - BLOCKING by default",
+                        requestId, docId);
+                    // ✅ Error = Block by default for security
+                }
+            }
+
+            // ✅ Sort accessible citations by relevance
+            var sortedResults = accessibleCitations
+                .OrderByDescending(c => CalculateEnhancedRelevance(c, request))
+                .Take(request.MaxResults * 3) // Allow more content for full document scenarios
+                .ToList();
+
+            _logger.LogInformation("🔒 [PERMISSION-{RequestId}] Final result: {Accessible} citations from {Total} documents",
+                requestId, sortedResults.Count, citationsByDoc.Count);
+
+            return sortedResults;
         }
 
-        // ✅ CALCULATE ENHANCED RELEVANCE WITH MULTIPLE FACTORS
+        #endregion
+
+        #region ✅ OPTIMIZED CONTENT EXTRACTION
+
+        private string ExtractOptimizedContent(List<Citation> citations, string query)
+        {
+            if (!citations.Any()) return null;
+
+            var contentBuilder = new StringBuilder();
+            var maxContentLength = 25000; // Tăng limit để có đủ content
+
+            // ✅ Kiểm tra xem có phải 1 document duy nhất không
+            var uniqueDocIds = citations.Select(c => GetDocumentIdFromCitation(c)).Distinct().ToList();
+            var isSingleDocument = uniqueDocIds.Count == 1;
+
+            _logger.LogInformation("📝 [CONTENT] Extracting from {DocCount} documents, {CitationCount} citations",
+                uniqueDocIds.Count, citations.Count);
+
+            if (isSingleDocument)
+            {
+                // ✅ SINGLE DOCUMENT - Load toàn bộ content theo thứ tự
+                return ExtractSingleDocumentContent(citations, query, maxContentLength);
+            }
+            else
+            {
+                // ✅ MULTIPLE DOCUMENTS - Group theo document
+                return ExtractMultipleDocumentsContent(citations, query, maxContentLength);
+            }
+        }
+
+        // ✅ EXTRACT SINGLE DOCUMENT - Load toàn bộ document
+        private string ExtractSingleDocumentContent(List<Citation> citations, string query, int maxLength)
+        {
+            var contentBuilder = new StringBuilder();
+            var docTitle = GetTagValueFromCitation(citations.First(), "title") ??
+                           GetTagValueFromCitation(citations.First(), "documentTitle") ?? "Document";
+
+            contentBuilder.AppendLine($"📄 **{docTitle}**");
+            contentBuilder.AppendLine();
+
+            // ✅ Get ALL partitions và sort theo thứ tự logic
+            var allPartitions = citations
+                .SelectMany(c => c.Partitions)
+                .Where(p => !string.IsNullOrWhiteSpace(p.Text) && p.Text.Length > 20)
+                .OrderByDescending(p => p.Relevance) // Partition relevance cao nhất trước
+                .ToList();
+
+            var addedContent = new HashSet<string>();
+
+            foreach (var partition in allPartitions)
+            {
+                if (contentBuilder.Length >= maxLength) break;
+
+                var text = partition.Text.Trim();
+
+                // ✅ Simple duplicate check - chỉ check exact duplicates
+                var contentHash = text.Length > 100 ? text.Substring(0, 100) : text;
+                if (addedContent.Contains(contentHash)) continue;
+
+                addedContent.Add(contentHash);
+
+                // ✅ Add content with spacing
+                if (contentBuilder.Length > 100) // Không phải content đầu tiên
+                {
+                    contentBuilder.AppendLine("\n");
+                }
+
+                contentBuilder.AppendLine(text);
+            }
+
+            var result = contentBuilder.ToString().Trim();
+            _logger.LogInformation("📝 [SINGLE-DOC] Extracted {Length} chars from {Partitions} partitions",
+                result.Length, allPartitions.Count);
+
+            return result;
+        }
+
+        // ✅ EXTRACT MULTIPLE DOCUMENTS - Group theo document
+        private string ExtractMultipleDocumentsContent(List<Citation> citations, string query, int maxLength)
+        {
+            var contentBuilder = new StringBuilder();
+
+            // ✅ Group by document và sort by relevance
+            var citationsByDoc = citations
+                .GroupBy(c => GetDocumentIdFromCitation(c))
+                .OrderByDescending(g => g.Max(c => c.Partitions.Max(p => p.Relevance)))
+                .Take(5) // Top 5 documents
+                .ToList();
+
+            foreach (var docGroup in citationsByDoc)
+            {
+                if (contentBuilder.Length >= maxLength) break;
+
+                var firstCitation = docGroup.First();
+                var docTitle = GetTagValueFromCitation(firstCitation, "title") ??
+                               GetTagValueFromCitation(firstCitation, "documentTitle") ?? "Document";
+
+                // ✅ Add document separator
+                if (contentBuilder.Length > 0)
+                {
+                    contentBuilder.AppendLine("\n" + new string('=', 50) + "\n");
+                }
+
+                contentBuilder.AppendLine($"📄 **{docTitle}**:");
+                contentBuilder.AppendLine();
+
+                // ✅ Get best partitions from this document
+                var bestPartitions = docGroup
+                    .SelectMany(c => c.Partitions)
+                    .Where(p => !string.IsNullOrWhiteSpace(p.Text))
+                    .OrderByDescending(p => p.Relevance)
+                    .Take(5) // Top 5 partitions per document
+                    .ToList();
+
+                foreach (var partition in bestPartitions)
+                {
+                    contentBuilder.AppendLine(partition.Text);
+                    contentBuilder.AppendLine();
+
+                    if (contentBuilder.Length >= maxLength) break;
+                }
+            }
+
+            var result = contentBuilder.ToString().Trim();
+            _logger.LogInformation("📝 [MULTI-DOC] Extracted {Length} chars from {DocCount} documents",
+                result.Length, citationsByDoc.Count);
+
+            return result;
+        }
+
+        #endregion
+
+        #region ✅ COMPLETE METADATA EXTRACTION
+
+        /// <summary>
+        /// Extract COMPLETE document sources with ALL metadata available
+        /// </summary>
+        private async Task<List<DocumentSourceResponse>> ExtractDocumentSources(List<Citation> citations, string requestId)
+        {
+            try
+            {
+                var sources = new List<DocumentSourceResponse>();
+                var processedDocuments = new HashSet<string>(); // Avoid duplicate documents
+
+                _logger.LogInformation("📋 [SOURCES-{RequestId}] Extracting COMPLETE metadata from {Count} citations",
+                    requestId, citations.Count);
+
+                foreach (var citation in citations.Take(15)) // Increase limit for more sources
+                {
+                    try
+                    {
+                        var documentId = GetDocumentIdFromCitation(citation);
+
+                        // Skip if already processed this document
+                        if (processedDocuments.Contains(documentId))
+                            continue;
+
+                        processedDocuments.Add(documentId);
+
+                        var source = ExtractCompleteDocumentMetadata(citation, requestId);
+                        if (source != null)
+                        {
+                            sources.Add(source);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "📋 [SOURCES-{RequestId}] Error processing citation", requestId);
+                    }
+                }
+
+                // Sort by relevance and return
+                var sortedSources = sources
+                    .OrderByDescending(s => s.RelevanceScore)
+                    .ToList();
+
+                _logger.LogInformation("📋 [SOURCES-{RequestId}] Extracted {Count} complete document sources",
+                    requestId, sortedSources.Count);
+
+                return sortedSources;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "📋 [SOURCES-{RequestId}] Error extracting document sources", requestId);
+                return new List<DocumentSourceResponse>();
+            }
+        }
+
+        /// <summary>
+        /// Extract COMPLETE metadata for a single document - ALL FIELDS POSSIBLE
+        /// </summary>
+        private DocumentSourceResponse ExtractCompleteDocumentMetadata(Citation citation, string requestId)
+        {
+            var source = new DocumentSourceResponse();
+
+            try
+            {
+                // ✅ CORE IDENTIFIERS - Tất cả IDs quan trọng
+                source.DocumentId = GetDocumentIdFromCitation(citation) ?? Guid.NewGuid().ToString();
+                source.VersionId = GetTagValueFromCitation(citation, "versionId");
+                source.DepartmentId = GetTagValueFromCitation(citation, "departmentId");
+                source.OwnerId = GetTagValueFromCitation(citation, "ownerId");
+                source.Status = GetTagValueFromCitation(citation, "status");
+                source.VersionName = GetTagValueFromCitation(citation, "version") ?? "1.0";
+                source.CreatedBy = GetTagValueFromCitation(citation, "createdBy");
+                source.SubmittedBy = GetTagValueFromCitation(citation, "submittedBy");
+
+                // ✅ BOOLEAN VALUES - EXISTING
+                source.IsOfficial = ParseBooleanTag(citation, "isOfficial");
+                source.IsPublic = ParseBooleanTag(citation, "isPublic");
+
+                // ✅ NEW BOOLEAN VALUES
+                source.IsLatestVersion = ParseBooleanTag(citation, "isLatestVersion");
+                source.IsArchived = ParseBooleanTag(citation, "isArchived");
+
+                // ✅ DOCUMENT CORE METADATA - EXISTING + NEW
+                source.Title = GetTagValueFromCitation(citation, "title") ??
+                              GetTagValueFromCitation(citation, "documentTitle") ?? "Document";
+                source.Description = GetTagValueFromCitation(citation, "description");
+                source.Summary = GetTagValueFromCitation(citation, "summary");
+                source.VersionTitle = GetTagValueFromCitation(citation, "versionTitle");
+                source.DocumentType = GetTagValueFromCitation(citation, "documentType");
+                source.DocumentTypeName = GetTagValueFromCitation(citation, "documentTypeName");
+                source.DocumentTypeDescription = GetTagValueFromCitation(citation, "documentTypeDescription");
+                source.SignedBy = GetTagValueFromCitation(citation, "signedBy"); // ✅ QUAN TRỌNG: Ai ký
+
+                // ✅ NEW DOCUMENT METADATA
+                source.ApprovedBy = GetTagValueFromCitation(citation, "approvedBy");
+                source.Category = GetTagValueFromCitation(citation, "category");
+                source.Priority = GetTagValueFromCitation(citation, "priority");
+                source.DocumentLanguage = GetTagValueFromCitation(citation, "language");
+                source.AccessLevel = GetTagValueFromCitation(citation, "accessLevel");
+                source.ConfidentialityLevel = GetTagValueFromCitation(citation, "confidentialityLevel");
+
+                // ✅ DATES - EXISTING + NEW
+                source.ApprovalDate = ParseDateTag(citation, "approvalDate");
+                source.LastSubmitted = ParseDateTag(citation, "lastSubmitted");
+                source.EffectiveFrom = ParseDateTag(citation, "effectiveFrom");
+                source.EffectiveUntil = ParseDateTag(citation, "effectiveUntil");
+                source.ReviewDate = ParseDateTag(citation, "reviewDate");
+
+                // ✅ NEW DATE FIELDS
+                source.SignedDate = ParseDateTag(citation, "signedDate");
+                source.ExpiryDate = ParseDateTag(citation, "expiryDate");
+                source.PreviousApprovedAt = ParseDateTag(citation, "previousApprovedAt");
+
+                // ✅ NUMERIC VALUES - EXISTING + NEW  
+                source.FileSize = ParseLongTag(citation, "fileSize");
+
+                // ✅ NEW NUMERIC FIELDS
+                source.VersionNumber = ParseIntTag(citation, "versionNumber");
+                source.PageCount = ParseIntTag(citation, "pageCount");
+                source.WordCount = ParseIntTag(citation, "wordCount");
+
+                // ✅ CLASSIFICATION & TAGS - EXISTING
+                source.Tags = ParseTagsFromCitation(citation);
+
+                // ✅ ORGANIZATIONAL METADATA - EXISTING + NEW
+                source.DepartmentName = GetTagValueFromCitation(citation, "departmentName");
+                source.OwnerName = GetTagValueFromCitation(citation, "ownerName");
+                source.OwnerEmail = GetTagValueFromCitation(citation, "ownerEmail");
+                source.ReviewerId = GetTagValueFromCitation(citation, "reviewerId");
+                source.ReviewerName = GetTagValueFromCitation(citation, "reviewerName");
+                source.ReviewComments = GetTagValueFromCitation(citation, "reviewComments");
+                source.ReviewAction = GetTagValueFromCitation(citation, "reviewAction");
+
+                // ✅ FILE SYSTEM METADATA - EXISTING
+                source.FileName = GetTagValueFromCitation(citation, "fileName");
+                source.FileType = GetTagValueFromCitation(citation, "fileType");
+                source.FileHash = GetTagValueFromCitation(citation, "fileHash");
+                source.GoogleDriveFileId = GetTagValueFromCitation(citation, "googleDriveFileId");
+                source.FolderPath = GetTagValueFromCitation(citation, "folderPath");
+                source.StorageLocation = GetTagValueFromCitation(citation, "storageLocation");
+
+                // ✅ RELATIONSHIP METADATA - EXISTING + NEW
+                source.ReplacementOfDocumentId = GetTagValueFromCitation(citation, "replacementOfDocumentId");
+                source.ReplacedDocumentId = GetTagValueFromCitation(citation, "replacedDocumentId");
+                source.PreviousApprovedVersionId = GetTagValueFromCitation(citation, "previousApprovedVersionId");
+                source.PreviousApprovedVersionName = GetTagValueFromCitation(citation, "previousApprovedVersionName");
+
+                // ✅ NEW RELATIONSHIP FIELDS
+                source.ParentDocumentId = GetTagValueFromCitation(citation, "parentDocumentId");
+                source.RelatedDocumentIds = ParseRelatedDocumentIds(citation);
+
+                // ✅ ACCESS CONTROL METADATA - EXISTING
+                source.Visibility = GetTagValueFromCitation(citation, "visibility");
+                source.PermissionLevel = GetTagValueFromCitation(citation, "permissionLevel");
+                source.DepartmentRestriction = GetTagValueFromCitation(citation, "departmentRestriction");
+
+                // ✅ SEARCH-SPECIFIC METADATA - EXISTING
+                source.RelevanceScore = citation.Partitions.Any() ?
+                    citation.Partitions.Max(p => p.Relevance) : 0.0;
+
+                source.SearchSnippet = ExtractSearchSnippet(citation);
+                source.ContentPreview = ExtractContentPreview(citation);
+
+                // ✅ SEARCH KEYWORDS - Enhance existing
+                source.MatchedKeywords = ExtractMatchedKeywords(citation);
+
+                _logger.LogDebug("📋 [SOURCES-{RequestId}] Extracted COMPLETE metadata: {DocId} - {Title} - SignedBy: {SignedBy} - ApprovedBy: {ApprovedBy}",
+                    requestId, source.DocumentId, source.Title, source.SignedBy ?? "Unknown", source.ApprovedBy ?? "Unknown");
+
+                return source;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "📋 [SOURCES-{RequestId}] Error extracting complete metadata", requestId);
+                return null;
+            }
+        }
+
+        #endregion
+
+        #region Enhanced Helper Methods cho Complete Metadata Extraction
+
+        private List<string> ExtractMatchedKeywords(Citation citation)
+        {
+            var keywords = new HashSet<string>();
+
+            // Extract from tags if available
+            var keywordsValue = GetTagValueFromCitation(citation, "keywords");
+            if (!string.IsNullOrEmpty(keywordsValue))
+            {
+                try
+                {
+                    if (keywordsValue.StartsWith("[") && keywordsValue.EndsWith("]"))
+                    {
+                        var jsonKeywords = System.Text.Json.JsonSerializer.Deserialize<string[]>(keywordsValue);
+                        if (jsonKeywords != null)
+                        {
+                            foreach (var keyword in jsonKeywords)
+                            {
+                                keywords.Add(keyword);
+                            }
+                        }
+                    }
+                    else if (keywordsValue.Contains(","))
+                    {
+                        var splitKeywords = keywordsValue.Split(',')
+                            .Select(k => k.Trim())
+                            .Where(k => !string.IsNullOrEmpty(k));
+
+                        foreach (var keyword in splitKeywords)
+                        {
+                            keywords.Add(keyword);
+                        }
+                    }
+                    else
+                    {
+                        keywords.Add(keywordsValue.Trim());
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "📋 Error parsing keywords: {Keywords}", keywordsValue);
+                }
+            }
+
+            // Extract from tags as fallback
+            var tags = ParseTagsFromCitation(citation);
+            foreach (var tag in tags.Take(10)) // Limit to avoid too many keywords
+            {
+                keywords.Add(tag);
+            }
+
+            return keywords.Take(20).ToList(); // Limit to 20 keywords max
+        }
+        private List<string> ParseRelatedDocumentIds(Citation citation)
+        {
+            var relatedValue = GetTagValueFromCitation(citation, "relatedDocumentIds");
+            if (string.IsNullOrEmpty(relatedValue))
+                return new List<string>();
+
+            try
+            {
+                // Try JSON array format first
+                if (relatedValue.StartsWith("[") && relatedValue.EndsWith("]"))
+                {
+                    var jsonIds = System.Text.Json.JsonSerializer.Deserialize<string[]>(relatedValue);
+                    return jsonIds?.ToList() ?? new List<string>();
+                }
+
+                // Try comma-separated format
+                if (relatedValue.Contains(","))
+                {
+                    return relatedValue.Split(',')
+                        .Select(id => id.Trim())
+                        .Where(id => !string.IsNullOrEmpty(id))
+                        .ToList();
+                }
+
+                // Single ID
+                return new List<string> { relatedValue.Trim() };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "📋 Error parsing related document IDs: {RelatedIds}", relatedValue);
+                return new List<string>();
+            }
+        }
+        private int ParseIntTag(Citation citation, string tagKey)
+        {
+            var value = GetTagValueFromCitation(citation, tagKey);
+            if (string.IsNullOrEmpty(value)) return 0;
+
+            if (int.TryParse(value, out var result))
+                return result;
+
+            return 0;
+        }
+        /// <summary>
+        /// Parse boolean values from citation tags
+        /// </summary>
+        private bool ParseBooleanTag(Citation citation, string tagKey)
+        {
+            var value = GetTagValueFromCitation(citation, tagKey);
+            if (string.IsNullOrEmpty(value)) return false;
+
+            return value.ToLower() switch
+            {
+                "true" => true,
+                "1" => true,
+                "yes" => true,
+                "on" => true,
+                _ => false
+            };
+        }
+
+        /// <summary>
+        /// Parse date values from citation tags với multiple formats
+        /// </summary>
+        private DateTime? ParseDateTag(Citation citation, string tagKey)
+        {
+            var value = GetTagValueFromCitation(citation, tagKey);
+            if (string.IsNullOrEmpty(value)) return null;
+
+            // Try multiple date formats
+            var formats = new[]
+            {
+            "yyyy-MM-dd",
+            "yyyy-MM-ddTHH:mm:ssZ",
+            "yyyy-MM-ddTHH:mm:ss.fffffffZ",
+            "o", // ISO 8601
+            "yyyy-MM-dd HH:mm:ss",
+            "MM/dd/yyyy",
+            "dd/MM/yyyy"
+        };
+
+            foreach (var format in formats)
+            {
+                if (DateTime.TryParseExact(value, format, null, System.Globalization.DateTimeStyles.None, out var date))
+                {
+                    return date;
+                }
+            }
+
+            // Fallback to generic parse
+            if (DateTime.TryParse(value, out var genericDate))
+            {
+                return genericDate;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Parse long values from citation tags
+        /// </summary>
+        private long? ParseLongTag(Citation citation, string tagKey)
+        {
+            var value = GetTagValueFromCitation(citation, tagKey);
+            if (string.IsNullOrEmpty(value)) return null;
+
+            if (long.TryParse(value, out var result))
+                return result;
+
+            return null;
+        }
+
+        /// <summary>
+        /// Parse tags from citation - handle multiple formats (JSON array, comma-separated)
+        /// </summary>
+        private List<string> ParseTagsFromCitation(Citation citation)
+        {
+            var tagsValue = GetTagValueFromCitation(citation, "tags");
+            if (string.IsNullOrEmpty(tagsValue))
+                return new List<string>();
+
+            try
+            {
+                // Try JSON array format first
+                if (tagsValue.StartsWith("[") && tagsValue.EndsWith("]"))
+                {
+                    var jsonTags = System.Text.Json.JsonSerializer.Deserialize<string[]>(tagsValue);
+                    return jsonTags?.ToList() ?? new List<string>();
+                }
+
+                // Try comma-separated format
+                if (tagsValue.Contains(","))
+                {
+                    return tagsValue.Split(',')
+                        .Select(t => t.Trim())
+                        .Where(t => !string.IsNullOrEmpty(t))
+                        .ToList();
+                }
+
+                // Single tag
+                return new List<string> { tagsValue.Trim() };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "📋 Error parsing tags: {Tags}", tagsValue);
+                return new List<string>();
+            }
+        }
+
+        /// <summary>
+        /// Extract search snippet from citation content
+        /// </summary>
+        private string ExtractSearchSnippet(Citation citation)
+        {
+            var bestPartition = citation.Partitions
+                .OrderByDescending(p => p.Relevance)
+                .FirstOrDefault();
+
+            if (bestPartition?.Text == null) return "";
+
+            var text = bestPartition.Text.Trim();
+
+            // Return first 200 characters with ellipsis if longer
+            if (text.Length <= 200) return text;
+
+            var snippet = text.Substring(0, 200);
+            var lastSpace = snippet.LastIndexOf(' ');
+
+            if (lastSpace > 150) // Avoid cutting mid-word
+            {
+                snippet = snippet.Substring(0, lastSpace);
+            }
+
+            return snippet + "...";
+        }
+
+        /// <summary>
+        /// Extract content preview (first meaningful paragraph)
+        /// </summary>
+        private string ExtractContentPreview(Citation citation)
+        {
+            var allText = string.Join(" ", citation.Partitions
+                .OrderByDescending(p => p.Relevance)
+                .Take(3)
+                .Select(p => p.Text?.Trim())
+                .Where(t => !string.IsNullOrEmpty(t)));
+
+            if (string.IsNullOrEmpty(allText)) return "";
+
+            // Find first complete sentence or paragraph
+            var sentences = allText.Split(new[] { '.', '!', '?' }, StringSplitOptions.RemoveEmptyEntries);
+            var preview = sentences.Take(2).FirstOrDefault()?.Trim();
+
+            if (string.IsNullOrEmpty(preview)) return allText.Length > 300 ? allText.Substring(0, 300) + "..." : allText;
+
+            return preview.Length > 300 ? preview.Substring(0, 300) + "..." : preview + ".";
+        }
+
+        #endregion
+
+        #region Helper Methods (Keep existing implementation)
+
         private double CalculateEnhancedRelevance(Citation citation, DocumentRAGRequest request)
         {
             var baseRelevance = citation.Partitions.Any() ?
@@ -400,261 +977,6 @@ namespace Document.API.Services.Implements
             return baseRelevance * boost;
         }
 
-        #endregion
-
-        #region ✅ OPTIMIZED CONTENT EXTRACTION
-
-        private string ExtractOptimizedContent(List<Citation> citations, string query)
-        {
-            if (!citations.Any()) return null;
-
-            var contentBuilder = new StringBuilder();
-            var processedContent = new HashSet<string>(); 
-            var maxContentLength = 12000;
-            var currentLength = 0;
-
-            // Get multiple partitions per document (up to 3 best partitions per document)
-            var allPartitions = citations
-                .SelectMany(c => {
-                    var title = GetTagValueFromCitation(c, "title") ?? GetTagValueFromCitation(c, "documentTitle") ?? "Document";
-
-                    return c.Partitions
-                        .Where(p => !string.IsNullOrWhiteSpace(p.Text) && p.Text.Length > 50 && p.Relevance > 0.01)
-                        .OrderByDescending(p => p.Relevance)
-                        .Take(3)
-                        .Select(p => new {
-                            Citation = c,
-                            Partition = p,
-                            Relevance = p.Relevance,
-                            Title = title
-                        });
-                })
-                .OrderByDescending(x => x.Relevance)
-                .ToList();
-
-            _logger.LogInformation("🔍 [CONTENT] Processing {Count} partitions from {DocumentCount} documents, highest relevance: {MaxRelevance:F3}",
-                allPartitions.Count,
-                citations.Count,
-                allPartitions.FirstOrDefault()?.Relevance ?? 0);
-
-            foreach (var item in allPartitions)
-            {
-                if (currentLength >= maxContentLength) break;
-
-                var text = item.Partition.Text;
-                var snippet = text.Length <= 1200 ? text : ExtractRelevantSnippet(text, query, 1000);
-
-                // ✅ FIX 1: Better duplicate detection - use meaningful portion of content
-                var contentKey = snippet.Length > 100 ? snippet.Substring(0, 100).Trim() : snippet.Trim();
-
-                if (processedContent.Contains(contentKey))
-                {
-                    _logger.LogDebug("🔍 [CONTENT] Skipping duplicate content from: {Title}", item.Title);
-                    continue;
-                }
-
-                // ✅ FIX 2: Validate content quality - reject if too repetitive
-                if (IsContentTooRepetitive(snippet))
-                {
-                    _logger.LogDebug("🔍 [CONTENT] Skipping repetitive content from: {Title}", item.Title);
-                    continue;
-                }
-
-                processedContent.Add(contentKey);
-
-                if (contentBuilder.Length > 0)
-                {
-                    contentBuilder.AppendLine("\n---\n");
-                }
-
-                // Add title header
-                contentBuilder.AppendLine($"📄 **{item.Title}**:");
-                contentBuilder.AppendLine();
-                contentBuilder.AppendLine(snippet);
-
-                currentLength += snippet.Length;
-
-                _logger.LogDebug("🔍 [CONTENT] Added content (Relevance: {Relevance:F3}, Length: {Length}) from: {Title}",
-                    item.Relevance, snippet.Length, item.Title);
-            }
-
-            var result = contentBuilder.ToString().Trim();
-
-            if (string.IsNullOrEmpty(result))
-            {
-                _logger.LogWarning("🔍 [CONTENT] No content extracted for query: '{Query}'", query);
-                return null;
-            }
-
-            _logger.LogInformation("✅ [CONTENT] Final content: {Length} chars from {Count} partitions",
-                result.Length, allPartitions.Count);
-
-            return result;
-        }
-        private bool IsContentTooRepetitive(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text) || text.Length < 100)
-                return false;
-
-            // ✅ Simple check: if same phrase appears more than 3 times, it's too repetitive
-            var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (words.Length < 10) return false;
-
-            // Check for repeated 3-word phrases
-            for (int i = 0; i <= words.Length - 6; i++) // Need at least 6 words to check for repetition
-            {
-                var phrase = string.Join(" ", words.Skip(i).Take(3));
-                var occurrences = 0;
-
-                for (int j = i + 3; j <= words.Length - 3; j++)
-                {
-                    var checkPhrase = string.Join(" ", words.Skip(j).Take(3));
-                    if (phrase.Equals(checkPhrase, StringComparison.OrdinalIgnoreCase))
-                    {
-                        occurrences++;
-                        if (occurrences >= 2) // Same 3-word phrase appears 3+ times total
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            return false;
-        }
-        // ✅ EXTRACT MOST RELEVANT SNIPPET FROM TEXT
-        private string ExtractRelevantSnippet(string text, string query, int maxLength)
-        {
-            if (string.IsNullOrWhiteSpace(text) || text.Length <= maxLength)
-                return text;
-
-            var queryWords = query.ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            var textLower = text.ToLower();
-
-            var bestStart = 0;
-            var bestScore = 0;
-
-            // ✅ Find section with most query matches, but expand context
-            for (int i = 0; i <= text.Length - maxLength; i += 200) // ✅ Smaller steps for better coverage
-            {
-                var segmentEnd = Math.Min(i + maxLength, text.Length);
-                var segment = textLower.Substring(i, segmentEnd - i);
-
-                var score = queryWords.Count(word => segment.Contains(word));
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestStart = i;
-                }
-            }
-
-            var snippetEnd = Math.Min(bestStart + maxLength, text.Length);
-            var snippet = text.Substring(bestStart, snippetEnd - bestStart);
-
-            // ✅ Better edge trimming to preserve complete information
-            if (bestStart > 0)
-            {
-                // Find natural break point (sentence or paragraph)
-                var breakPoints = new[] { "\n\n", ". ", ";\n", ":\n" };
-                foreach (var breakPoint in breakPoints)
-                {
-                    var firstBreak = snippet.IndexOf(breakPoint);
-                    if (firstBreak > 0 && firstBreak < 100) // Only trim if break is near start
-                    {
-                        snippet = snippet.Substring(firstBreak + breakPoint.Length);
-                        break;
-                    }
-                }
-            }
-
-            if (snippetEnd < text.Length)
-            {
-                // Find natural end point
-                var breakPoints = new[] { "\n\n", ". ", ";\n", ":\n" };
-                foreach (var breakPoint in breakPoints)
-                {
-                    var lastBreak = snippet.LastIndexOf(breakPoint);
-                    if (lastBreak > snippet.Length - 100) // Only trim if break is near end
-                    {
-                        snippet = snippet.Substring(0, lastBreak + 1);
-                        break;
-                    }
-                }
-            }
-
-            return snippet.Trim();
-        }
-
-        #endregion
-
-        #region Helper Methods (Optimized)
-
-        // ✅ DEDUPLICATE CITATIONS
-        private List<Citation> DeduplicateCitations(List<Citation> citations)
-        {
-            var seen = new HashSet<string>();
-            var deduplicated = new List<Citation>();
-
-            foreach (var citation in citations)
-            {
-                var docId = GetDocumentIdFromCitation(citation);
-                var versionId = GetVersionIdFromCitation(citation);
-                var key = $"{docId}_{versionId}";
-
-                if (!seen.Contains(key))
-                {
-                    seen.Add(key);
-                    deduplicated.Add(citation);
-                }
-            }
-
-            return deduplicated;
-        }
-
-        // ✅ RANK CITATIONS BY MULTIPLE FACTORS
-        private List<Citation> RankCitationsByRelevance(
-            List<Citation> citations,
-            DocumentRAGRequest request,
-            QueryType queryType)
-        {
-            return citations
-                .Select(c => new {
-                    Citation = c,
-                    Score = CalculateEnhancedRelevance(c, request)
-                })
-                .OrderByDescending(x => x.Score)
-                .Select(x => x.Citation)
-                .ToList();
-        }
-
-        // ✅ EXTRACT DOCUMENT TYPE FROM QUERY
-        private string ExtractDocumentType(string query)
-        {
-            var queryLower = query.ToLower();
-
-            if (queryLower.Contains("quyết định")) return "QD";
-            if (queryLower.Contains("thông tư")) return "TT";
-            if (queryLower.Contains("nghị định")) return "ND";
-            if (queryLower.Contains("quy chế")) return "QC";
-            if (queryLower.Contains("quy định")) return "QD";
-
-            return null;
-        }
-
-        // ✅ QUERY TYPE ENUM
-        private enum QueryType
-        {
-            General,
-            Specific,
-            Question,
-            DocumentReference,
-            Invalid
-        }
-
-        #endregion
-
-        #region Existing Helper Methods (Keep unchanged)
-
         private bool IsDocumentCurrentlyEffective(Citation citation, DateTime today, string requestId)
         {
             try
@@ -662,12 +984,11 @@ namespace Document.API.Services.Implements
                 var effectiveFromStr = GetTagValueFromCitation(citation, "effectiveFrom");
                 var effectiveUntilStr = GetTagValueFromCitation(citation, "effectiveUntil");
 
-                // ✅ CHECK EFFECTIVE FROM - document có hiệu lực từ ngày (including today)
+                // Check effective from
                 if (!string.IsNullOrEmpty(effectiveFromStr))
                 {
                     if (DateTime.TryParse(effectiveFromStr, out var effectiveFrom))
                     {
-                        // Document phải có hiệu lực từ hôm nay hoặc trước đó
                         if (today < effectiveFrom.Date)
                         {
                             _logger.LogDebug("⏰ [EFFECTIVE-{RequestId}] Document not yet effective: EffectiveFrom {EffFrom} > Today {Today}",
@@ -677,12 +998,11 @@ namespace Document.API.Services.Implements
                     }
                 }
 
-                // ✅ CHECK EFFECTIVE UNTIL - document có hiệu lực đến ngày (including today)
+                // Check effective until
                 if (!string.IsNullOrEmpty(effectiveUntilStr))
                 {
                     if (DateTime.TryParse(effectiveUntilStr, out var effectiveUntil))
                     {
-                        // Document phải còn hiệu lực đến hôm nay hoặc sau đó
                         if (today > effectiveUntil.Date)
                         {
                             _logger.LogDebug("⏰ [EFFECTIVE-{RequestId}] Document expired: EffectiveUntil {EffUntil} < Today {Today}",
@@ -692,14 +1012,12 @@ namespace Document.API.Services.Implements
                     }
                 }
 
-                // ✅ Document is currently effective (including documents uploaded today)
-                _logger.LogDebug("✅ [EFFECTIVE-{RequestId}] Document is effective today", requestId);
                 return true;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "⏰ [EFFECTIVE-{RequestId}] Error checking effectiveness - denying access", requestId);
-                return false; // ✅ Deny by default for security
+                return false;
             }
         }
 
@@ -739,43 +1057,23 @@ namespace Document.API.Services.Implements
                 // ✅ DEPARTMENT ACCESS - Users can access their department's documents
                 if (!string.IsNullOrEmpty(userContext.DepartmentId))
                 {
-                    // User có department có thể xem tài liệu của department mình
                     if (departmentId == userContext.DepartmentId)
                     {
-                        // Check role permissions within department
                         switch (role)
                         {
                             case "MANAGER":
-                                _logger.LogDebug("🔓 [ACCESS-{RequestId}] Manager access granted for dept: {DeptId}",
-                                    requestId, departmentId);
-                                return true;
-
                             case "EDITOR":
-                                _logger.LogDebug("🔓 [ACCESS-{RequestId}] Editor access granted for dept: {DeptId}",
-                                    requestId, departmentId);
-                                return true;
-
                             case "MEMBER":
-                                _logger.LogDebug("🔓 [ACCESS-{RequestId}] Member access granted for dept: {DeptId}",
-                                    requestId, departmentId);
-                                return true;
-
                             case "EMPLOYEE":
-                                _logger.LogDebug("🔓 [ACCESS-{RequestId}] Member access granted for dept: {DeptId}",
-                                    requestId, departmentId);
+                                _logger.LogDebug("🔓 [ACCESS-{RequestId}] Department access granted for role {Role} in dept: {DeptId}",
+                                    requestId, role, departmentId);
                                 return true;
 
                             case "NONE":
-                                _logger.LogDebug("🔒 [ACCESS-{RequestId}] Role NONE - no department access", requestId);
-                                return false;
-
                             case "ADMIN":
-                                _logger.LogDebug("🔒 [ACCESS-{RequestId}] Admin role - no access allowed", requestId);
                                 return false;
 
                             default:
-                                _logger.LogDebug("🔒 [ACCESS-{RequestId}] Unknown role {Role} - access denied",
-                                    requestId, role);
                                 return false;
                         }
                     }
@@ -783,19 +1081,12 @@ namespace Document.API.Services.Implements
 
                 // ✅ SPECIAL PERMISSIONS (but not for Admin)
                 if (role != "ADMIN" && userContext.Permissions?.Any(p => new[] {
-                    "VIEW_ANY_DOCUMENT",
-                    "VIEW_DEPARTMENT_DOCUMENT"
-                }.Contains(p)) == true)
+                "VIEW_ANY_DOCUMENT",
+                "VIEW_DEPARTMENT_DOCUMENT"
+            }.Contains(p)) == true)
                 {
                     _logger.LogDebug("🔓 [ACCESS-{RequestId}] Special permission access granted", requestId);
                     return true;
-                }
-
-                // ✅ NONE role or NO DEPARTMENT - No access to any documents
-                if (role == "NONE" || string.IsNullOrEmpty(userContext.DepartmentId))
-                {
-                    _logger.LogDebug("🔒 [ACCESS-{RequestId}] No role/No department - access denied", requestId);
-                    return false;
                 }
 
                 _logger.LogDebug("🔒 [ACCESS-{RequestId}] Access denied - no matching criteria", requestId);
@@ -804,7 +1095,7 @@ namespace Document.API.Services.Implements
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "🔒 [ACCESS-{RequestId}] Error checking access - denying by default", requestId);
-                return false; // ✅ Deny by default for security
+                return false;
             }
         }
 
@@ -827,25 +1118,6 @@ namespace Document.API.Services.Implements
             return string.Empty;
         }
 
-        private string GetVersionIdFromCitation(Citation citation)
-        {
-            var firstPartition = citation.Partitions.FirstOrDefault();
-            if (firstPartition?.Tags != null)
-            {
-                var possibleTags = new[] { "versionId", "version_id", "__version_id"};
-                foreach (var tag in possibleTags)
-                {
-                    if (firstPartition.Tags.TryGetValue(tag, out var values))
-                    {
-                        var value = values.FirstOrDefault();
-                        if (!string.IsNullOrEmpty(value))
-                            return value;
-                    }
-                }
-            }
-            return string.Empty;
-        }
-
         private string GetTagValueFromCitation(Citation citation, string tagKey)
         {
             var firstPartition = citation.Partitions.FirstOrDefault();
@@ -854,165 +1126,6 @@ namespace Document.API.Services.Implements
                 return values.FirstOrDefault() ?? string.Empty;
             }
             return string.Empty;
-        }
-
-    private async Task<List<DocumentSourceResponse>> ExtractDocumentSources(List<Citation> citations, string requestId)
-        {
-            try
-            {
-                var sources = new List<DocumentSourceResponse>();
-
-                foreach (var citation in citations.Take(10))
-                {
-                    try
-                    {
-                        // Extract IDs from citation
-                        var documentId = GetDocumentIdFromCitation(citation);
-                        var versionId = GetVersionIdFromCitation(citation);
-
-                        if (string.IsNullOrEmpty(versionId) && !string.IsNullOrEmpty(documentId) && Guid.TryParse(documentId, out _))
-                        {
-                            versionId = documentId;
-                        }
-
-                        var source = new DocumentSourceResponse
-                        {
-                            DocumentId = documentId ?? versionId ?? Guid.NewGuid().ToString(),
-                            RelevanceScore = citation.Partitions.Any() ? citation.Partitions.Max(p => p.Relevance) : 0,
-                            DepartmentId = GetTagValueFromCitation(citation, "departmentId"),
-                            VersionName = GetTagValueFromCitation(citation, "version") ?? GetTagValueFromCitation(citation, "versionName") ?? "1"
-                        };
-
-                        // ✅ NEW: Get title from tags FIRST (no database calls)
-                        source.Title = GetTagValueFromCitation(citation, "title");
-                        if (string.IsNullOrWhiteSpace(source.Title))
-                            source.Title = GetTagValueFromCitation(citation, "documentTitle");
-                        if (string.IsNullOrWhiteSpace(source.Title))
-                            source.Title = GetTagValueFromCitation(citation, "name");
-                        if (string.IsNullOrWhiteSpace(source.Title))
-                        {
-                            var firstPartition = citation.Partitions.FirstOrDefault();
-                            source.Title = firstPartition?.Text != null ?
-                                          ExtractTitleFromContent(firstPartition.Text) : "Document";
-                        }
-
-                        // Get other metadata from tags
-                        source.Summary = GetTagValueFromCitation(citation, "summary") ?? "";
-                        source.FileType = GetTagValueFromCitation(citation, "fileType") ?? "";
-
-                        // Parse dates from tags
-                        if (DateTime.TryParse(GetTagValueFromCitation(citation, "effectiveFrom"), out var effectiveFrom))
-                            source.EffectiveFrom = effectiveFrom;
-
-                        if (DateTime.TryParse(GetTagValueFromCitation(citation, "effectiveUntil"), out var effectiveUntil))
-                            source.EffectiveUntil = effectiveUntil;
-
-                        sources.Add(source);
-
-                        _logger.LogDebug("📋 [SOURCE-{RequestId}] Got title from tags: '{Title}' for doc: {DocId}",
-                            requestId, source.Title, source.DocumentId);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "📋 [SOURCE-{RequestId}] Error processing citation for doc",
-                            requestId);
-
-                        // ✅ Add minimal source on error to avoid losing data
-                        sources.Add(new DocumentSourceResponse
-                        {
-                            DocumentId = Guid.NewGuid().ToString(),
-                            Title = "Error Loading Document",
-                            VersionName = "1.0",
-                            RelevanceScore = 0,
-                            DepartmentId = "",
-                            Summary = "",
-                            FileType = ""
-                        });
-                    }
-                }
-
-                var result = sources.OrderByDescending(s => s.RelevanceScore).ToList();
-                _logger.LogInformation("📋 [SOURCE-{RequestId}] Extracted {Count} sources from tags (no DB calls)", requestId, result.Count);
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "📋 [SOURCE-{RequestId}] Error extracting sources", requestId);
-                return new List<DocumentSourceResponse>();
-            }
-        }
-
-        // ✅ NEW METHOD: Smart title extraction from content
-        private string ExtractTitleFromContent(string content)
-        {
-            if (string.IsNullOrWhiteSpace(content))
-                return "Document";
-
-            var lines = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-
-            // Look for potential title patterns
-            foreach (var line in lines.Take(5)) // Check first 5 lines
-            {
-                var trimmedLine = line.Trim();
-
-                // Skip very short lines
-                if (trimmedLine.Length < 10) continue;
-
-                // Skip lines that look like metadata or form fields
-                if (trimmedLine.Contains("...") ||
-                    trimmedLine.Contains("___") ||
-                    trimmedLine.StartsWith("(") ||
-                    trimmedLine.EndsWith(":"))
-                    continue;
-
-                // Look for lines that might be titles (capitalized, no punctuation at end except "?")
-                if (trimmedLine.Length > 10 && trimmedLine.Length < 200)
-                {
-                    // Check if it looks like a title (has some uppercase, not all lowercase)
-                    bool hasUpperCase = trimmedLine.Any(char.IsUpper);
-                    bool notAllLower = trimmedLine != trimmedLine.ToLower();
-
-                    if (hasUpperCase && notAllLower)
-                    {
-                        // This might be a title, clean it up
-                        var title = trimmedLine;
-
-                        // Truncate if too long
-                        if (title.Length > 100)
-                        {
-                            title = title.Substring(0, 97) + "...";
-                        }
-
-                        return title;
-                    }
-                }
-            }
-
-            // Fallback: Use first meaningful line
-            var firstMeaningfulLine = lines.FirstOrDefault(l =>
-                l.Trim().Length > 10 &&
-                !l.Contains("...") &&
-                !l.Contains("___"));
-
-            if (!string.IsNullOrEmpty(firstMeaningfulLine))
-            {
-                var title = firstMeaningfulLine.Trim();
-                if (title.Length > 100)
-                {
-                    title = title.Substring(0, 97) + "...";
-                }
-                return title;
-            }
-
-            // Last resort: Use beginning of content
-            var fallbackTitle = content.Length > 100
-                ? content.Substring(0, 97) + "..."
-                : content;
-
-            // Clean up whitespace
-            fallbackTitle = System.Text.RegularExpressions.Regex.Replace(fallbackTitle, @"\s+", " ").Trim();
-
-            return string.IsNullOrWhiteSpace(fallbackTitle) ? "Document" : fallbackTitle;
         }
 
         private DocumentRAGResponse CreateEmptyResponse(DocumentRAGRequest request, DateTime startTime, string reason = null)
