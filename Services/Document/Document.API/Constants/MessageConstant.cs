@@ -28,6 +28,10 @@ public class MessageConstant
     public const string DocumentNotFound = "Document not found.";
     public const string UnauthorizedToDelete = "You do not have permission to delete this document.";
     public const string CanOnlyDeleteDrafts = "Only documents with a 'Draft' and 'Rejected' status can be deleted. The status of this document is '{0}'.";
+    public const string UnauthorizedToDeleteApproved = "Only Admins can delete approved or archived documents.";
+    public const string CannotDeleteApprovedFromOtherDepartment = "You can only delete approved documents from your own department.";
+    public const string DocumentHasActiveReplacements = "Cannot delete document that has active replacement documents in progress.";
+    public const string ConfirmDeleteApprovedDocument = "This will permanently delete the approved document and all its data. This action cannot be undone.";
     public const string DraftDocumentNotFound = "Draft document not found.";
     public const string RejectedDocumentNotFound = "Rejected document not found.";
     public const string OfficialDocumentNotFoundForId = "Official document not found for the given document file ID.";

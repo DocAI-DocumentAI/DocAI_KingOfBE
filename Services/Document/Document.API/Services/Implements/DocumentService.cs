@@ -38,8 +38,9 @@ public class DocumentService : IDocumentService
     private readonly IDocumentReplacementService _replacementService;
     private readonly IDocumentPermissionManager _permissionManager;
     private readonly ITokenUsageLogger _tokenUsageLogger;
+    private readonly IRedisService _redisService;
 
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService, IDocumentPermissionManager permissionManager, ITokenUsageLogger tokenUsageLogger)
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService, IDocumentPermissionManager permissionManager, ITokenUsageLogger tokenUsageLogger, IRedisService redisService)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
@@ -52,6 +53,7 @@ public class DocumentService : IDocumentService
         _replacementService = replacementService;
         _permissionManager = permissionManager;
         _tokenUsageLogger = tokenUsageLogger;
+        _redisService = redisService;
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
         var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
@@ -92,6 +94,24 @@ public class DocumentService : IDocumentService
     }
 
     /// <summary>
+    /// Gets the current user ID from JWT token
+    /// </summary>
+    /// <returns>User ID</returns>
+    private string GetCurrentUserId()
+    {
+        return JwtTokenHelper.GetUserId(_httpContextAccessor);
+    }
+
+    /// <summary>
+    /// Gets the current user role from JWT token
+    /// </summary>
+    /// <returns>User role</returns>
+    private string GetRoleFromJwt()
+    {
+        return JwtTokenHelper.GetUserRole(_httpContextAccessor);
+    }
+
+    /// <summary>
     /// Determines if a user can access a specific document version based on status, ownership, and department
     /// </summary>
     /// <param name="version">Document version to check access for</param>
@@ -126,14 +146,7 @@ public class DocumentService : IDocumentService
         }
     }
 
-    /// <summary>
-    /// Gets the current user's ID from JWT token
-    /// </summary>
-    /// <returns>User ID</returns>
-    private string GetCurrentUserId()
-    {
-        return JwtTokenHelper.GetUserId(_httpContextAccessor);
-    }
+
 
     /// <summary>
     /// Validates if a user can access a document based on department and isPublic status
@@ -263,39 +276,53 @@ public class DocumentService : IDocumentService
             fileHash = uploadResponse.Md5Hash;
             _logger.LogInformation("File uploaded successfully with ID {FileId} for draft creation", uploadResponse.FileIdentifier);
 
-            // 5. Check for file duplication using the MD5 hash.
+            // 5. Duplicate check (updated to match AnalyzeDocument logic)
+            // Previous logic (commented out): checked duplicates across ALL statuses with owner-specific messages.
+            // It was stricter and often blocked drafts due to other users' drafts/rejections.
+            /*
             var existingFile = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(predicate: v => v.FileHash == fileHash, include: i => i.Include(v => v.DocumentFile));
-
             if (existingFile != null)
             {
                 _logger.LogWarning("Duplicate file detected with hash {FileHash}, deleting uploaded file {FileId}", fileHash, uploadResponse.FileIdentifier);
                 await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
-
                 switch (existingFile.Status)
                 {
                     case StatusEnum.Pending:
                     case StatusEnum.Approved:
                     case StatusEnum.Archived:
                         throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
-
                     case StatusEnum.Rejected:
                         if (existingFile.DocumentFile.OwnerId == userId)
-                        {
                             throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.RejectedFileExists);
-                        }
                         else
-                        {
                             throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.AnotherUserRejectedFileExists);
-                        }
-
                     case StatusEnum.Draft:
                         if (existingFile.DocumentFile.OwnerId == userId)
-                        {
                             throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DraftFileExists);
-                        }
                         break;
                 }
+            }
+            */
+
+            // New logic: only consider Approved/Archived duplicates and respect department visibility
+            var existingApprovedOrArchived = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(
+                    predicate: v => v.FileHash == fileHash && (v.Status == StatusEnum.Approved || v.Status == StatusEnum.Archived),
+                    include: i => i.Include(v => v.DocumentFile));
+
+            // If duplicate is private and belongs to another department, ignore it
+            if (existingApprovedOrArchived != null && !existingApprovedOrArchived.IsPublic && existingApprovedOrArchived.DocumentFile.DepartmentId != departmentId)
+            {
+                existingApprovedOrArchived = null;
+            }
+
+            if (existingApprovedOrArchived != null)
+            {
+                _logger.LogWarning("Duplicate approved/archived file detected with hash {FileHash}, deleting uploaded file {FileId}", fileHash, uploadResponse.FileIdentifier);
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
+                    string.Format(MessageConstant.FileAlreadyExists, existingApprovedOrArchived.Title, existingApprovedOrArchived.VersionName, existingApprovedOrArchived.Status));
             }
         }
         catch (Exception ex) when (uploadResponse != null)
@@ -1368,6 +1395,317 @@ public class DocumentService : IDocumentService
         _logger.LogInformation("User {UserId} successfully deleted draft document {DocumentId}.", userId, documentId);
 
         // TODO: As per SRS 3.4.3, this action should be recorded in the system audit log.
+    }
+
+    public async Task DeleteApprovedDocumentAsync(string documentId, DeleteApprovedDocumentRequest request)
+    {
+        // Get current user ID and department ID from JWT token
+        var userId = GetCurrentUserId();
+        var userDepartmentId = GetCurrentUserDepartmentId();
+        var userRole = GetRoleFromJwt();
+
+        _logger.LogInformation("Attempting to delete approved document {DocumentId} by user {UserId} with role {UserRole}",
+            documentId, userId, userRole);
+
+        // Business Rule: Only Admins can delete approved/archived documents
+        if (userRole != Roles.Admin)
+        {
+            _logger.LogWarning("User {UserId} with role {UserRole} attempted to delete approved document", userId, userRole);
+            throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToDeleteApproved);
+        }
+
+        // Validate confirmation
+        if (!request.ConfirmPermanentDeletion)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,
+                "Confirmation is required to delete approved documents");
+        }
+
+        // Retrieve the document with all versions and related data
+        var documentToDelete = await _unitOfWork.GetRepository<DocumentFile>()
+            .SingleOrDefaultAsync(
+                predicate: d => d.Id == documentId,
+                include: q => q.Include(d => d.DocumentVersions)
+                    .ThenInclude(v => v.DocumentTags)
+                    .ThenInclude(dt => dt.Tag)
+                    .Include(d => d.DocumentType)
+            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
+
+        _logger.LogInformation("Document found: {Title} with {VersionCount} versions",
+            documentToDelete.Title, documentToDelete.DocumentVersions.Count);
+
+        // Check if document has approved or archived versions
+        var approvedOrArchivedVersions = documentToDelete.DocumentVersions
+            .Where(v => v.Status == StatusEnum.Approved || v.Status == StatusEnum.Archived)
+            .ToList();
+
+        if (!approvedOrArchivedVersions.Any())
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,
+                "Document has no approved or archived versions to delete");
+        }
+
+        // Business Rule: Check for active replacement documents
+        if (!request.ForceDelete)
+        {
+            var hasActiveReplacements = await _unitOfWork.GetRepository<DocumentFile>()
+                .CountAsync(predicate: d => d.ReplacementId == documentId &&
+                    d.DocumentVersions.Any(v => v.Status == StatusEnum.Draft || v.Status == StatusEnum.Pending)) > 0;
+
+            if (hasActiveReplacements)
+            {
+                throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, MessageConstant.DocumentHasActiveReplacements);
+            }
+        }
+
+        // Collect all file IDs and version IDs for cleanup
+        var fileIdsToDelete = new List<string>();
+        var versionIdsToDeleteFromMemory = new List<string>();
+
+        foreach (var version in documentToDelete.DocumentVersions)
+        {
+            var fileId = version.GoogleDriveFileId ?? version.FilePath;
+            if (!string.IsNullOrEmpty(fileId))
+            {
+                fileIdsToDelete.Add(fileId);
+            }
+            versionIdsToDeleteFromMemory.Add(version.Id);
+        }
+
+        _logger.LogInformation("Preparing to delete {FileCount} files and {VersionCount} memory entries",
+            fileIdsToDelete.Count, versionIdsToDeleteFromMemory.Count);
+
+        // Delete from database first (with transaction)
+        try
+        {
+            _logger.LogInformation("Deleting document from database: {DocumentId}", documentId);
+            _unitOfWork.GetRepository<DocumentFile>().DeleteAsync(documentToDelete);
+            await _unitOfWork.CommitAsync();
+            _logger.LogInformation("Successfully deleted document from database");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete document from database");
+            throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR,
+                "Failed to delete document from database");
+        }
+
+        // Delete files from storage (non-blocking, best effort)
+        var cleanupTasks = new List<Task>();
+
+        foreach (var fileId in fileIdsToDelete)
+        {
+            cleanupTasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    // Determine folder based on version status
+                    var version = documentToDelete.DocumentVersions.FirstOrDefault(v =>
+                        (v.GoogleDriveFileId ?? v.FilePath) == fileId);
+                    var folder = version?.Status switch
+                    {
+                        StatusEnum.Draft => StorageFolderConstant.Drafts,
+                        StatusEnum.Pending => StorageFolderConstant.Pending,
+                        StatusEnum.Approved => StorageFolderConstant.Approved,
+                        StatusEnum.Archived => StorageFolderConstant.Approved, // Archived files stay in approved folder
+                        _ => StorageFolderConstant.Approved
+                    };
+
+                    await _storageService.DeleteFileAsync(fileId, folder);
+                    _logger.LogInformation("Deleted file {FileId} from storage", fileId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete file {FileId} from storage", fileId);
+                }
+            }));
+        }
+
+        // Delete from Kernel Memory (non-blocking, best effort)
+        foreach (var versionId in versionIdsToDeleteFromMemory)
+        {
+            cleanupTasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    await _memory.DeleteDocumentAsync(versionId).WaitAsync(TimeSpan.FromSeconds(10));
+                    _logger.LogInformation("Deleted version {VersionId} from Kernel Memory", versionId);
+                }
+                catch (TimeoutException)
+                {
+                    _logger.LogWarning("Timeout deleting version {VersionId} from Kernel Memory", versionId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete version {VersionId} from Kernel Memory", versionId);
+                }
+            }));
+        }
+
+        // Wait for cleanup with timeout (don't block response)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.WhenAll(cleanupTasks).WaitAsync(TimeSpan.FromSeconds(30));
+                _logger.LogInformation("All cleanup operations completed for document {DocumentId}", documentId);
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("Some cleanup operations timed out for document {DocumentId}", documentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during cleanup operations for document {DocumentId}", documentId);
+            }
+        });
+
+        _logger.LogInformation("User {UserId} successfully deleted approved document {DocumentId}. Reason: {Reason}",
+            userId, documentId, request.DeletionReason ?? "No reason provided");
+
+        // Clear replacement suggestion cache since document was deleted
+        await _redisService.ClearReplacementSuggestionsAsync();
+    }
+
+    public async Task DeleteDocumentVersionAsync(string documentId, string versionId, DeleteApprovedDocumentRequest request)
+    {
+        // Get current user ID and role from JWT token
+        var userId = GetCurrentUserId();
+        var userRole = GetRoleFromJwt();
+
+        _logger.LogInformation("Attempting to delete document version {VersionId} from document {DocumentId} by user {UserId} with role {UserRole}",
+            versionId, documentId, userId, userRole);
+
+        // Business Rule: Only Admins can delete approved/archived document versions
+        if (userRole != Roles.Admin)
+        {
+            _logger.LogWarning("User {UserId} with role {UserRole} attempted to delete approved document version", userId, userRole);
+            throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToDeleteApproved);
+        }
+
+        // Validate confirmation
+        if (!request.ConfirmPermanentDeletion)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,
+                "Confirmation is required to delete approved document versions");
+        }
+
+        // Retrieve the document and specific version
+        var documentFile = await _unitOfWork.GetRepository<DocumentFile>()
+            .SingleOrDefaultAsync(
+                predicate: d => d.Id == documentId,
+                include: q => q.Include(d => d.DocumentVersions)
+                    .ThenInclude(v => v.DocumentTags)
+                    .ThenInclude(dt => dt.Tag)
+            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
+
+        var versionToDelete = documentFile.DocumentVersions.FirstOrDefault(v => v.Id == versionId)
+            ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, "Document version not found");
+
+        _logger.LogInformation("Version found: {VersionName}, Status: {Status}", versionToDelete.VersionName, versionToDelete.Status);
+
+        // Check if version is approved or archived
+        if (versionToDelete.Status != StatusEnum.Approved && versionToDelete.Status != StatusEnum.Archived)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,
+                $"Can only delete approved or archived versions. Current status: {versionToDelete.Status}");
+        }
+
+        // Business Rule: Cannot delete the only approved version if there are no other approved versions
+        var otherApprovedVersions = documentFile.DocumentVersions
+            .Where(v => v.Id != versionId && v.Status == StatusEnum.Approved)
+            .ToList();
+
+        if (versionToDelete.Status == StatusEnum.Approved && !otherApprovedVersions.Any() && !request.ForceDelete)
+        {
+            throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
+                "Cannot delete the only approved version. Use ForceDelete=true to override.");
+        }
+
+        var fileId = versionToDelete.GoogleDriveFileId ?? versionToDelete.FilePath;
+
+        // Delete from database first
+        try
+        {
+            _logger.LogInformation("Deleting version from database: {VersionId}", versionId);
+            _unitOfWork.GetRepository<DocumentVersion>().DeleteAsync(versionToDelete);
+            await _unitOfWork.CommitAsync();
+            _logger.LogInformation("Successfully deleted version from database");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete version from database");
+            throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR,
+                "Failed to delete version from database");
+        }
+
+        // Delete file from storage (non-blocking, best effort)
+        var cleanupTasks = new List<Task>();
+
+        if (!string.IsNullOrEmpty(fileId))
+        {
+            cleanupTasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    var folder = versionToDelete.Status switch
+                    {
+                        StatusEnum.Approved => StorageFolderConstant.Approved,
+                        StatusEnum.Archived => StorageFolderConstant.Approved,
+                        _ => StorageFolderConstant.Approved
+                    };
+
+                    await _storageService.DeleteFileAsync(fileId, folder);
+                    _logger.LogInformation("Deleted file {FileId} from storage", fileId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete file {FileId} from storage", fileId);
+                }
+            }));
+        }
+
+        // Delete from Kernel Memory (non-blocking, best effort)
+        cleanupTasks.Add(Task.Run(async () =>
+        {
+            try
+            {
+                await _memory.DeleteDocumentAsync(versionId).WaitAsync(TimeSpan.FromSeconds(10));
+                _logger.LogInformation("Deleted version {VersionId} from Kernel Memory", versionId);
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("Timeout deleting version {VersionId} from Kernel Memory", versionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete version {VersionId} from Kernel Memory", versionId);
+            }
+        }));
+
+        // Wait for cleanup with timeout (don't block response)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.WhenAll(cleanupTasks).WaitAsync(TimeSpan.FromSeconds(15));
+                _logger.LogInformation("All cleanup operations completed for version {VersionId}", versionId);
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("Some cleanup operations timed out for version {VersionId}", versionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during cleanup operations for version {VersionId}", versionId);
+            }
+        });
+
+        _logger.LogInformation("User {UserId} successfully deleted document version {VersionId}. Reason: {Reason}",
+            userId, versionId, request.DeletionReason ?? "No reason provided");
+
+        // Clear replacement suggestion cache since document structure changed
+        await _redisService.ClearReplacementSuggestionsAsync();
     }
 
     public async Task<IPaginate<DocumentDraftResponse>> GetDraftsAsync(int pageNumber, int pageSize)
