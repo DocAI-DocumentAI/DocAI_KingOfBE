@@ -12,6 +12,21 @@ public interface IDocumentService
     Task<DocumentDraftResponse> CreateDraftAsync(CreateDraftRequest request);
     Task<DocumentDraftResponse> UpdateDraftAsync(string versionId, UpdateDocumentDraftRequest request);
     Task DeleteDraftAsync(string documentId, string versionId);
+
+    /// <summary>
+    /// Delete an approved or archived document (Admin only)
+    /// </summary>
+    /// <param name="documentId">Document ID to delete</param>
+    /// <param name="request">Deletion request with confirmation</param>
+    Task DeleteApprovedDocumentAsync(string documentId, DeleteApprovedDocumentRequest request);
+
+    /// <summary>
+    /// Delete a specific document version (Admin only)
+    /// </summary>
+    /// <param name="documentId">Document ID</param>
+    /// <param name="versionId">Version ID to delete</param>
+    /// <param name="request">Deletion request with confirmation</param>
+    Task DeleteDocumentVersionAsync(string documentId, string versionId, DeleteApprovedDocumentRequest request);
     Task<IPaginate<DocumentDraftResponse>> GetDraftsAsync(int pageNumber, int pageSize);
     Task<DocumentDraftResponse> GetDraftByIdAsync(string versionId);
     Task<IPaginate<DocumentDraftResponse>> GetRejectDocumentsAsync(int pageNumber, int pageSize);

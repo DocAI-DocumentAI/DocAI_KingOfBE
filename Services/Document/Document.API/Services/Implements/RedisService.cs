@@ -436,5 +436,31 @@ namespace Document.API.Services.Implements
         }
 
         #endregion
+
+        #region Cache Management
+
+        public async Task ClearReplacementSuggestionsAsync()
+        {
+            try
+            {
+                // Clear all replacement suggestion cache keys
+                var pattern = "replacement_suggestions:*";
+                var server = _database.Multiplexer.GetServer(_database.Multiplexer.GetEndPoints().First());
+                var keys = server.Keys(pattern: pattern);
+
+                foreach (var key in keys)
+                {
+                    await _database.KeyDeleteAsync(key);
+                }
+
+                _logger.LogDebug("Cleared replacement suggestion cache");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error clearing replacement suggestion cache");
+            }
+        }
+
+        #endregion
     }
 }

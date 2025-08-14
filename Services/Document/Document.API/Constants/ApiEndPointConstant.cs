@@ -15,6 +15,8 @@ public class ApiEndPointConstant
         public const string GetDocumentDraft = ApiEndpoint + "/drafts/{id}"; // Changed from /documents/{id}
         public const string EditDraft = ApiEndpoint + "/drafts/{id}"; // Changed from /documents/{id}
         public const string DeleteDraft = ApiEndpoint + "/drafts/{id}"; // Changed from /documents/{id}
+        public const string DeleteApprovedDocument = ApiEndpoint + "/documents/{id}/delete"; // Delete approved/archived documents
+        public const string DeleteDocumentVersion = ApiEndpoint + "/documents/{documentId}/versions/{versionId}/delete"; // Delete specific version
         public const string GetOfficialDocument = ApiEndpoint + "/documents/{id}"; // Changed from /official-documents/{id}
         public const string GetAllOfficialDocuments = ApiEndpoint + "/documents"; // Changed from /official-documents
         public const string GetMyDocuments = ApiEndpoint + "/my-documents"; // Remains the same

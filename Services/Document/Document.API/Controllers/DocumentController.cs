@@ -463,4 +463,67 @@ public class DocumentController : ControllerBase
                 !filter.MinDownloads.HasValue &&
                 !filter.MaxDownloads.HasValue);
     }
+
+    /// <summary>
+    /// Delete an approved or archived document (Admin only)
+    /// This permanently removes the document from all systems including database, storage, and vector database
+    /// </summary>
+    /// <param name="id">Document ID to delete</param>
+    /// <param name="request">Deletion request with confirmation</param>
+    /// <returns>Success message</returns>
+    [HttpDelete(ApiEndPointConstant.Document.DeleteApprovedDocument)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteApprovedDocument(string id, [FromBody] DeleteApprovedDocumentRequest request)
+    {
+        _logger.LogInformation("Received request to delete approved document {DocumentId}", id);
+
+        try
+        {
+            await _documentService.DeleteApprovedDocumentAsync(id, request);
+            _logger.LogInformation("Successfully deleted approved document {DocumentId}", id);
+
+            return Ok(new { message = "Document deleted successfully", documentId = id });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting approved document {DocumentId}", id);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Delete a specific document version (Admin only)
+    /// This permanently removes the version from all systems including database, storage, and vector database
+    /// </summary>
+    /// <param name="documentId">Document ID</param>
+    /// <param name="versionId">Version ID to delete</param>
+    /// <param name="request">Deletion request with confirmation</param>
+    /// <returns>Success message</returns>
+    [HttpDelete(ApiEndPointConstant.Document.DeleteDocumentVersion)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteDocumentVersion(string documentId, string versionId, [FromBody] DeleteApprovedDocumentRequest request)
+    {
+        _logger.LogInformation("Received request to delete document version {VersionId} from document {DocumentId}", versionId, documentId);
+
+        try
+        {
+            await _documentService.DeleteDocumentVersionAsync(documentId, versionId, request);
+            _logger.LogInformation("Successfully deleted document version {VersionId} from document {DocumentId}", versionId, documentId);
+
+            return Ok(new { message = "Document version deleted successfully", documentId, versionId });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting document version {VersionId} from document {DocumentId}", versionId, documentId);
+            throw;
+        }
+    }
 }

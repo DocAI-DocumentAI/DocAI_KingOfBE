@@ -39,5 +39,8 @@ namespace Document.API.Services.Interfaces
         Task<List<string>?> GetAllCompanyEmployeesAsync();
         Task SetUserEmailAsync(string userId, string email, TimeSpan? expiry = null);
         Task<string?> GetUserEmailAsync(string userId);
+
+        // Cache management for document operations
+        Task ClearReplacementSuggestionsAsync();
     }
 }
