@@ -86,6 +86,7 @@ namespace ChatBox.API.Services.Implement
             _logger.LogInformation("Processing streaming chat for session {SessionId}, isFirstMessage: {IsFirstMessage}",
                 session.Id, isFirstMessage);
 
+
             // ✅ UPDATED: Get raw document content
             var (documentContent, documentSources, hasDocumentContext) = await SearchDocumentContext(request.Message, userId, request.DocumentId);
             var responseStream = await GenerateAIResponseStream(session, request.Message, documentContent);
@@ -227,6 +228,11 @@ namespace ChatBox.API.Services.Implement
 
 🎯 QUY TẮC TRẢ LỜI HOÀN HẢO:
 
+1. **SỬ DỤNG CHAT HISTORY**: Tham khảo cuộc hội thoại trước để hiểu context
+2. **REFERENCE AWARENESS**: Khi user nói ""tài liệu này"", ""quyết định này"" → dùng document đã thảo luận trước đó  
+3. **NATURAL CONVERSATION**: Trả lời như cuộc hội thoại liên tục, không lặp lại thông tin đã nói
+4. **DOCUMENT SOURCE**: Sử dụng thông tin từ tài liệu để trả lời, nhưng duy trì context awareness
+
 1. **NGUỒN THÔNG TIN DUY NHẤT**
    - TUYỆT ĐỐI chỉ sử dụng thông tin từ ""THÔNG TIN TÀI LIỆU HOÀN CHỈNH"" ở trên
    - Bao gồm: METADATA + NỘI DUNG + CẤU TRÚC
@@ -237,6 +243,7 @@ namespace ChatBox.API.Services.Implement
    - 📊 **Tóm tắt**: ""Tóm tắt tài liệu"" → Kết hợp METADATA + NỘI DUNG
    - 🔍 **Tìm kiếm**: ""Có quy định về Y không?"" → Tìm trong NỘI DUNG
    - 📁 **Thông tin file**: ""File bao nhiêu KB?"" → Dùng THÔNG TIN FILE
+   - Thông tin ai kí có thể nằm ở nơi nhận
 
 3. **CÁCH TRẢ LỜI CHUẨN:**
    - Bắt đầu: ""Theo tài liệu [TÊN TÀI LIỆU]:""
@@ -246,7 +253,6 @@ namespace ChatBox.API.Services.Implement
 4. **BẮT BUỘC PHẢI TRẢ LỜI:**
    - KHÔNG ĐƯỢC từ chối trả lời bất kỳ câu hỏi nào về tài liệu
    - LUÔN LUÔN tìm cách đưa ra thông tin hữu ích từ METADATA hoặc NỘI DUNG
-   - Nếu không chắc chắn, đưa ra thông tin gần nhất có trong tài liệu
 
 🔴 TUYỆT ĐỐI KHÔNG ĐƯỢC:
 - Nói ""không có thông tin"" khi METADATA hoặc NỘI DUNG đã có
