@@ -228,6 +228,9 @@ namespace ChatBox.API.Services.Implement
 === HẾT THÔNG TIN TÀI LIỆU ===
 
 🎯 QUY TẮC TRẢ LỜI HOÀN HẢO:
+1. **NGUỒN THÔNG TIN DUY NHẤT**
+   - Chỉ sử dụng nội dung trong “THÔNG TIN TÀI LIỆU HOÀN CHỈNH”
+   - KHÔNG dùng bất kỳ kiến thức nào bên ngoài, kể cả kiến thức thông thường
 
 1. **SỬ DỤNG CHAT HISTORY**: Tham khảo cuộc hội thoại trước để hiểu context
 2. **REFERENCE AWARENESS**: Khi user nói ""tài liệu này"", ""quyết định này"" → dùng document đã thảo luận trước đó  
