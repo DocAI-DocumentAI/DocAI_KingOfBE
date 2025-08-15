@@ -429,29 +429,106 @@ private async Task<List<Citation>> SearchSpecificDocument(DocumentRAGRequest req
         // ✅ SEARCH ALL DOCUMENTS - Tìm kiếm thông minh
         private async Task<List<Citation>> SearchAllDocuments(DocumentRAGRequest request, string requestId)
         {
-            _logger.LogInformation("🌐 [GENERAL-{RequestId}] Searching all documents", requestId);
+            _logger.LogInformation("🌐 [GENERAL-{RequestId}] Searching with department pre-filtering", requestId);
 
-            // ✅ Phân loại query để tối ưu search
             var queryType = ClassifyQuerySmart(request.Query);
             var (limit, minRelevance) = GetSearchParams(queryType);
 
             _logger.LogInformation("🔎 [GENERAL-{RequestId}] QueryType: {Type}, Limit: {Limit}, MinRelevance: {MinRel}",
                 requestId, queryType, limit, minRelevance);
 
-            // ✅ Build filter dựa trên role (giữ nguyên logic phân quyền)
-            var filter = BuildSmartFilter(request, requestId);
+            var citations = new List<Citation>();
 
-            // ✅ Perform search
-            var result = await _memory.SearchAsync(
-                request.Query,
-                limit: limit,
-                filter: filter,
-                minRelevance: minRelevance);
+            // ✅ STRATEGY 1: Search department documents first
+            if (!string.IsNullOrEmpty(request.DepartmentId) && request.Role?.ToUpper() != "ADMIN")
+            {
+                try
+                {
+                    var departmentFilter = new MemoryFilter()
+                        .ByTag("status", "approved")
+                        .ByTag("departmentId", request.DepartmentId);
 
-            var citations = result.Results.ToList();
+                    var deptResult = await _memory.SearchAsync(
+                        request.Query,
+                        limit: limit,
+                        filter: departmentFilter,
+                        minRelevance: minRelevance);
 
-            _logger.LogInformation("📊 [GENERAL-{RequestId}] Found {Count} citations", requestId, citations.Count);
+                    citations.AddRange(deptResult.Results);
 
+                    _logger.LogInformation("🏢 [GENERAL-{RequestId}] Found {Count} citations from department: {DeptId}",
+                        requestId, deptResult.Results.Count(), request.DepartmentId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "⚠️ [GENERAL-{RequestId}] Department search failed", requestId);
+                }
+            }
+
+            // ✅ STRATEGY 2: Search public documents if needed (to fill up results)
+            if (citations.Count < limit && request.Role?.ToUpper() != "ADMIN")
+            {
+                try
+                {
+                    var publicFilter = new MemoryFilter()
+                        .ByTag("status", "approved")
+                        .ByTag("isPublic", "True");
+
+                    var publicResult = await _memory.SearchAsync(
+                        request.Query,
+                        limit: limit - citations.Count,
+                        filter: publicFilter,
+                        minRelevance: minRelevance);
+
+                    // ✅ Avoid duplicates
+                    var newPublicCitations = publicResult.Results
+                        .Where(c => !citations.Any(existing =>
+                            GetDocumentIdFromCitation(existing) == GetDocumentIdFromCitation(c)))
+                        .ToList();
+
+                    citations.AddRange(newPublicCitations);
+
+                    _logger.LogInformation("🌍 [GENERAL-{RequestId}] Added {Count} public citations (total: {Total})",
+                        requestId, newPublicCitations.Count, citations.Count);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "⚠️ [GENERAL-{RequestId}] Public search failed", requestId);
+                }
+            }
+
+            // ✅ STRATEGY 3: Owner documents (if user is document owner)
+            if (citations.Count < limit && !string.IsNullOrEmpty(request.UserId) && request.Role?.ToUpper() != "ADMIN")
+            {
+                try
+                {
+                    var ownerFilter = new MemoryFilter()
+                        .ByTag("status", "approved")
+                        .ByTag("ownerId", request.UserId);
+
+                    var ownerResult = await _memory.SearchAsync(
+                        request.Query,
+                        limit: limit - citations.Count,
+                        filter: ownerFilter,
+                        minRelevance: minRelevance);
+
+                    var newOwnerCitations = ownerResult.Results
+                        .Where(c => !citations.Any(existing =>
+                            GetDocumentIdFromCitation(existing) == GetDocumentIdFromCitation(c)))
+                        .ToList();
+
+                    citations.AddRange(newOwnerCitations);
+
+                    _logger.LogInformation("👤 [GENERAL-{RequestId}] Added {Count} owner citations (total: {Total})",
+                        requestId, newOwnerCitations.Count, citations.Count);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "⚠️ [GENERAL-{RequestId}] Owner search failed", requestId);
+                }
+            }
+
+            _logger.LogInformation("📊 [GENERAL-{RequestId}] Total found: {Count} citations", requestId, citations.Count);
             return citations;
         }
 
@@ -501,10 +578,9 @@ private async Task<List<Citation>> SearchSpecificDocument(DocumentRAGRequest req
             // ✅ Base filter - tài liệu đã approved
             filter = filter.ByTag("status", "approved");
 
-            // ✅ Giữ nguyên logic phân quyền của bạn
+            // ❌ ADMIN - Không được search documents
             if (role == "ADMIN")
             {
-                // Admin không được search (theo yêu cầu của bạn)
                 filter = filter.ByTag("accessLevel", "SUPER_ADMIN_ONLY");
                 return filter;
             }
@@ -513,9 +589,43 @@ private async Task<List<Citation>> SearchSpecificDocument(DocumentRAGRequest req
             if (role == "NONE" || request.OnlyPublic)
             {
                 filter = filter.ByTag("isPublic", "True");
+                _logger.LogDebug("🔒 [FILTER-{RequestId}] Public-only filter applied for role: {Role}",
+                    requestId, role);
+                return filter;
             }
 
-            _logger.LogDebug("🔒 [FILTER-{RequestId}] Built filter for role: {Role}", requestId, role);
+            // ✅ CẢI THIỆN: Pre-filter theo department để tối ưu performance
+            if (!string.IsNullOrEmpty(request.DepartmentId))
+            {
+                // ✅ Tạo OR condition: documents thuộc department HOẶC public documents
+                var departmentFilter = new MemoryFilter()
+                    .ByTag("status", "approved");
+
+                // Option 1: Documents của department này
+                var ownDeptFilter = departmentFilter.ByTag("departmentId", request.DepartmentId);
+
+                // Option 2: Public documents (accessible to all departments)
+                var publicFilter = new MemoryFilter()
+                    .ByTag("status", "approved")
+                    .ByTag("isPublic", "True");
+
+                // ✅ QUAN TRỌNG: Combine filters cho department access
+                // KernelMemory không hỗ trợ OR trực tiếp, nên ta sẽ search 2 lần và merge
+                // Hoặc chỉ filter department trước, check public access sau
+
+                filter = filter.ByTag("departmentId", request.DepartmentId);
+
+                _logger.LogInformation("🔒 [FILTER-{RequestId}] Department filter applied: {DeptId} for role: {Role}",
+                    requestId, request.DepartmentId, role);
+            }
+            else
+            {
+                // ✅ Nếu không có departmentId, chỉ cho phép public documents
+                filter = filter.ByTag("isPublic", "True");
+                _logger.LogWarning("🔒 [FILTER-{RequestId}] No department - restricting to public only for role: {Role}",
+                    requestId, role);
+            }
+
             return filter;
         }
 
@@ -1172,75 +1282,82 @@ private async Task<List<Citation>> SearchSpecificDocument(DocumentRAGRequest req
             try
             {
                 var role = userContext.Role?.ToUpper() ?? "NONE";
+                var documentId = GetDocumentIdFromCitation(citation);
 
-                // ❌ ADMIN - NO ACCESS TO DOCUMENTS (per business requirement)
+                // ❌ ADMIN - NO ACCESS TO DOCUMENTS
                 if (role == "ADMIN")
                 {
-                    _logger.LogDebug("🔒 [ACCESS-{RequestId}] Admin access DENIED - Admins cannot search documents", requestId);
+                    _logger.LogDebug("🔒 [ACCESS-{RequestId}] DENIED - Admin role cannot access documents: {DocId}",
+                        requestId, documentId);
                     return false;
                 }
 
                 // ✅ GET DOCUMENT METADATA
-                var departmentId = GetTagValueFromCitation(citation, "departmentId");
+                var docDepartmentId = GetTagValueFromCitation(citation, "departmentId");
                 var ownerId = GetTagValueFromCitation(citation, "ownerId");
-                var isPublicStr = GetTagValueFromCitation(citation, "isPublic");
-                bool.TryParse(isPublicStr, out bool isPublic);
+                var isPublic = ParseBooleanTag(citation, "isPublic");
 
-                // ✅ OWNER ACCESS - Document owner always has access (except Admin)
-                if (!string.IsNullOrEmpty(ownerId) && ownerId == userContext.UserId && role != "ADMIN")
+                _logger.LogDebug("🔍 [ACCESS-{RequestId}] Checking access for {DocId}: DocDept={DocDept}, Owner={Owner}, Public={Public}, UserDept={UserDept}, UserId={UserId}",
+                    requestId, documentId, docDepartmentId ?? "None", ownerId ?? "None", isPublic,
+                    userContext.DepartmentId ?? "None", userContext.UserId ?? "None");
+
+                // ✅ OWNER ACCESS
+                if (!string.IsNullOrEmpty(ownerId) && ownerId == userContext.UserId)
                 {
-                    _logger.LogDebug("🔓 [ACCESS-{RequestId}] Owner access granted", requestId);
+                    _logger.LogDebug("✅ [ACCESS-{RequestId}] GRANTED - Owner access: {UserId} owns {DocId}",
+                        requestId, userContext.UserId, documentId);
                     return true;
                 }
 
-                // ✅ PUBLIC DOCUMENTS - Everyone except Admin can access
-                if (isPublic && role != "ADMIN")
+                // ✅ PUBLIC DOCUMENTS
+                if (isPublic)
                 {
-                    _logger.LogDebug("🔓 [ACCESS-{RequestId}] Public document access granted", requestId);
+                    _logger.LogDebug("✅ [ACCESS-{RequestId}] GRANTED - Public document: {DocId}",
+                        requestId, documentId);
                     return true;
                 }
 
-                // ✅ DEPARTMENT ACCESS - Users can access their department's documents
-                if (!string.IsNullOrEmpty(userContext.DepartmentId))
+                // ✅ DEPARTMENT ACCESS
+                if (!string.IsNullOrEmpty(userContext.DepartmentId) &&
+                    !string.IsNullOrEmpty(docDepartmentId) &&
+                    docDepartmentId == userContext.DepartmentId)
                 {
-                    if (departmentId == userContext.DepartmentId)
+                    switch (role)
                     {
-                        switch (role)
-                        {
-                            case "MANAGER":
-                            case "EDITOR":
-                            case "MEMBER":
-                            case "EMPLOYEE":
-                                _logger.LogDebug("🔓 [ACCESS-{RequestId}] Department access granted for role {Role} in dept: {DeptId}",
-                                    requestId, role, departmentId);
-                                return true;
+                        case "MANAGER":
+                        case "EDITOR":
+                        case "MEMBER":
+                        case "EMPLOYEE":
+                            _logger.LogDebug("✅ [ACCESS-{RequestId}] GRANTED - Department access: {Role} in {DeptId} can access {DocId}",
+                                requestId, role, userContext.DepartmentId, documentId);
+                            return true;
 
-                            case "NONE":
-                            case "ADMIN":
-                                return false;
-
-                            default:
-                                return false;
-                        }
+                        default:
+                            _logger.LogDebug("🔒 [ACCESS-{RequestId}] DENIED - Invalid role {Role} for department access: {DocId}",
+                                requestId, role, documentId);
+                            return false;
                     }
                 }
 
-                // ✅ SPECIAL PERMISSIONS (but not for Admin)
-                if (role != "ADMIN" && userContext.Permissions?.Any(p => new[] {
-                "VIEW_ANY_DOCUMENT",
-                "VIEW_DEPARTMENT_DOCUMENT"
-            }.Contains(p)) == true)
+                // ✅ SPECIAL PERMISSIONS
+                if (userContext.Permissions?.Any(p => new[] {
+            "VIEW_ANY_DOCUMENT",
+            "VIEW_DEPARTMENT_DOCUMENT"
+        }.Contains(p)) == true)
                 {
-                    _logger.LogDebug("🔓 [ACCESS-{RequestId}] Special permission access granted", requestId);
+                    _logger.LogDebug("✅ [ACCESS-{RequestId}] GRANTED - Special permission access: {DocId}",
+                        requestId, documentId);
                     return true;
                 }
 
-                _logger.LogDebug("🔒 [ACCESS-{RequestId}] Access denied - no matching criteria", requestId);
+                _logger.LogDebug("🔒 [ACCESS-{RequestId}] DENIED - No matching access criteria: {DocId} (UserDept: {UserDept}, DocDept: {DocDept})",
+                    requestId, documentId, userContext.DepartmentId ?? "None", docDepartmentId ?? "None");
+
                 return false;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "🔒 [ACCESS-{RequestId}] Error checking access - denying by default", requestId);
+                _logger.LogError(ex, "🔒 [ACCESS-{RequestId}] ERROR - Denying access by default for safety", requestId);
                 return false;
             }
         }
