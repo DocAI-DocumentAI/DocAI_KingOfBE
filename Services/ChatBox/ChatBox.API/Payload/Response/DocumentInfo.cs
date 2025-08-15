@@ -18,6 +18,8 @@
         public string DepartmentId { get; set; }
         public string DepartmentName { get; set; }
 
+        public bool IsPublic { get; set; } = false;
+
         // Temporal Info
         public DateTime? EffectiveFrom { get; set; }
         public DateTime? EffectiveUntil { get; set; }

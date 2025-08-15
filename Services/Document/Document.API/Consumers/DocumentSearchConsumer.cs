@@ -156,7 +156,7 @@ namespace Document.API.Consumers
                             FileType = internalSource.FileType ?? "",
                             Tags = internalSource.Tags ?? new List<string>(),
                             Status = internalSource.Status,
-
+                            IsPublic = internalSource.IsPublic,
                             // ✅ NEW FIELD MAPPING - CHỈ THÊM, không ảnh hưởng existing logic
                             VersionId = internalSource.VersionId,
                             SignedBy = internalSource.SignedBy,
@@ -178,6 +178,7 @@ namespace Document.API.Consumers
                             PermissionLevel = internalSource.PermissionLevel,
                             ParentDocumentId = internalSource.ParentDocumentId,
                             RelatedDocumentIds = internalSource.RelatedDocumentIds ?? new List<string>(),
+                            Description = internalSource.Description,
                         };
 
                         // ✅ OPTIONAL DATABASE ENHANCEMENT - Safe access only

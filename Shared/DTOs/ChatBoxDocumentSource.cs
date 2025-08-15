@@ -10,7 +10,7 @@ namespace Shared.DTOs
     {
         public string DocumentId { get; set; }
         public string VersionId { get; set; }
-        public string Title { get; set; }
+        public string Title { get; set; } 
         public string VersionName { get; set; }
 
         // Legal & Approval Info
@@ -23,7 +23,7 @@ namespace Shared.DTOs
         // Organizational Info
         public string DepartmentId { get; set; }
         public string DepartmentName { get; set; }
-
+        public bool IsPublic { get; set; } = false;
         // Temporal Info
         public DateTime? EffectiveFrom { get; set; }
         public DateTime? EffectiveUntil { get; set; }

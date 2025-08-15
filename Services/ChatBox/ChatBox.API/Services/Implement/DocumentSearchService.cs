@@ -200,7 +200,7 @@ namespace ChatBox.API.Services.Implement
                     ApprovalDate = s.ApprovalDate,
                     SignedDate = s.SignedDate,
                     ReviewDate = s.ReviewDate,
-
+                    IsPublic = s.IsPublic,
                     // Content Info
                     Summary = s.Summary,
                     Description = s.Description,
@@ -235,6 +235,7 @@ namespace ChatBox.API.Services.Implement
                 }).ToList() ?? new List<DocumentInfo>();
 
                 _logger.LogInformation("✅ [COMPLETE-MAPPING] Mapped {SourceCount} sources with ALL metadata fields", sources.Count);
+
 
                 return (result.RawContent, sources);
             }
@@ -481,16 +482,5 @@ namespace ChatBox.API.Services.Implement
 
     }
     #endregion
-    public class UserContextFromJWT
-    {
-        public string UserId { get; set; } = string.Empty;
-        public string Email { get; set; } = string.Empty;
-        public string FullName { get; set; } = string.Empty;
-        public string Phone { get; set; } = string.Empty;
-        public string Role { get; set; } = string.Empty;
-        public string DepartmentId { get; set; } = string.Empty;
-        public string DepartmentName { get; set; } = string.Empty;
-        public List<string> Permissions { get; set; } = new List<string>();
-    }
 }
 

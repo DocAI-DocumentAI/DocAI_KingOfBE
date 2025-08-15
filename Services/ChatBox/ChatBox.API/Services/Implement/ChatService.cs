@@ -27,7 +27,7 @@ namespace ChatBox.API.Services.Implement
         private readonly IPreferenceService _preferenceService;
         private readonly IManualDocumentSearchService _manualDocumentSearchService;
         private readonly ILogger<ChatService> _logger;
-
+        private readonly IHttpContextAccessor _httpContextAccessor; 
         public ChatService(
             IUnitOfWork<ChatBoxDbContext> unitOfWork,
             IMapper mapper,
@@ -35,7 +35,8 @@ namespace ChatBox.API.Services.Implement
             ITokenCountService tokenCountService,
             IPreferenceService preferenceService,
             IManualDocumentSearchService manualDocumentSearchService,
-            ILogger<ChatService> logger)
+            ILogger<ChatService> logger,
+            IHttpContextAccessor httpContextAccessor)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
@@ -44,6 +45,7 @@ namespace ChatBox.API.Services.Implement
             _preferenceService = preferenceService;
             _manualDocumentSearchService = manualDocumentSearchService;
             _logger = logger;
+            _httpContextAccessor = httpContextAccessor;
         }
 
         public async Task<ChatResponse> SendMessageAsync(ChatRequest request, string userId)
@@ -245,6 +247,13 @@ namespace ChatBox.API.Services.Implement
    - 📁 **Thông tin file**: ""File bao nhiêu KB?"" → Dùng THÔNG TIN FILE
    - Thông tin ai kí có thể nằm ở nơi nhận
 
+. **FORMAT TRẢ LỜI BẮT BUỘC cho câu hỏi đếm:**
+   - ""Theo thống kê, có [SỐ CHÍNH XÁC] tài liệu [LOẠI] [PHẠM VI]:""
+   - ""1. [Tên tài liệu 1]""
+   - ""2. [Tên tài liệu 2]""
+   - ""...""
+   - ""Tổng cộng: [SỐ] tài liệu.""
+
 3. **CÁCH TRẢ LỜI CHUẨN:**
    - Bắt đầu: ""Theo tài liệu [TÊN TÀI LIỆU]:""
    - Nội dung: Trả lời chính xác, đầy đủ từ METADATA + NỘI DUNG
@@ -303,98 +312,93 @@ namespace ChatBox.API.Services.Implement
         private string BuildCompleteDocumentPackage(string documentContent, List<DocumentInfo> documentSources, string currentQuestion)
         {
             var package = new StringBuilder();
+            var userContext = GetUserContextFromJWT();
 
-            // ✅ 1. METADATA SECTION - Complete document metadata
+            // ✅ 1. METADATA SECTION - THÊM SUMMARY STATISTICS
             if (documentSources?.Any() == true)
             {
-                package.AppendLine("📋 **METADATA TÀI LIỆU QUAN TRỌNG:**");
+                package.AppendLine("📋 **THỐNG KÊ TÀI LIỆU TỔNG QUAN:**");
 
-                foreach (var source in documentSources.Take(3))
+                // ✅ THÊM: Summary statistics cho AI
+                var totalDocs = documentSources.Count;
+                var publicDocs = documentSources.Count(s => s.IsPublic);
+                var privateDocs = documentSources.Count(s => !s.IsPublic);
+                var myDeptDocs = documentSources.Count(s => s.DepartmentName == userContext.DepartmentName);
+                var myDeptPublicDocs = documentSources.Count(s => s.DepartmentName == userContext.DepartmentName && s.IsPublic);
+                var myDeptPrivateDocs = documentSources.Count(s => s.DepartmentName == userContext.DepartmentName && !s.IsPublic);
+
+                package.AppendLine($"📊 **Tổng số tài liệu:** {totalDocs}");
+                package.AppendLine($"🔓 **Tài liệu PUBLIC:** {publicDocs}");
+                package.AppendLine($"🔒 **Tài liệu PRIVATE:** {privateDocs}");
+                package.AppendLine($"🏢 **Tài liệu phòng ban của tôi:** {myDeptDocs}");
+                package.AppendLine($"🔓🏢 **Tài liệu PUBLIC phòng ban của tôi:** {myDeptPublicDocs}");
+                package.AppendLine($"🔒🏢 **Tài liệu PRIVATE phòng ban của tôi:** {myDeptPrivateDocs}");
+                package.AppendLine();
+                package.AppendLine(new string('=', 60));
+                package.AppendLine();
+
+                package.AppendLine("📋 **CHI TIẾT TỪNG TÀI LIỆU:**");
+
+                // ✅ 2. CHI TIẾT TỪNG TÀI LIỆU với clear classification
+                for (int i = 0; i < documentSources.Count; i++)
                 {
-                    package.AppendLine($"📄 **Tên tài liệu:** {source.Title ?? "Không rõ"}");
+                    var source = documentSources[i];
+                    package.AppendLine($"📄 **TÀI LIỆU {i + 1}:**");
+                    package.AppendLine($"   **Tên:** {source.Title ?? "Không rõ"}");
 
-                    // ✅ HIGHLIGHT SignedBy ở đầu
-                    if (!string.IsNullOrEmpty(source.SignedBy))
+                    // ✅ HIGHLIGHT visibility và department 
+                    var visibility = source.IsPublic ? "PUBLIC (Công khai)" : "PRIVATE (Nội bộ)";
+                    var isMyDept = source.DepartmentName == userContext.DepartmentName ? "✅ PHÒNG BAN CỦA TÔI" : "❌ PHÒNG BAN KHÁC";
+
+                    package.AppendLine($"   🔓 **Quyền truy cập:** {visibility}");
+                    package.AppendLine($"   🏢 **Phòng ban:** {source.DepartmentName} ({isMyDept})");
+
+                    // ✅ CLEAR CLASSIFICATION for AI
+                    if (source.IsPublic && source.DepartmentName == userContext.DepartmentName)
                     {
-                        package.AppendLine($"");
-                        package.AppendLine($"🔴 **NGƯỜI KÝ VĂN BẢN: {source.SignedBy.ToUpper()}** 🔴");
-                        package.AppendLine($"");
+                        package.AppendLine($"   🎯 **PHÂN LOẠI: PUBLIC + PHÒNG BAN CỦA TÔI** 🎯");
+                    }
+                    else if (!source.IsPublic && source.DepartmentName == userContext.DepartmentName)
+                    {
+                        package.AppendLine($"   🎯 **PHÂN LOẠI: PRIVATE + PHÒNG BAN CỦA TÔI** 🎯");
+                    }
+                    else if (source.IsPublic && source.DepartmentName != userContext.DepartmentName)
+                    {
+                        package.AppendLine($"   🎯 **PHÂN LOẠI: PUBLIC + PHÒNG BAN KHÁC** 🎯");
                     }
                     else
                     {
-                        package.AppendLine($"");
-                        package.AppendLine($"🔴 **NGƯỜI KÝ VĂN BẢN: Không có** 🔴");
-                        package.AppendLine($"");
+                        package.AppendLine($"   🎯 **PHÂN LOẠI: PRIVATE + PHÒNG BAN KHÁC** 🎯");
                     }
 
-                    if (!string.IsNullOrEmpty(source.OwnerName))
-                        package.AppendLine($"👤 **Chủ sở hữu:** {source.OwnerName}");
-                    if (!string.IsNullOrEmpty(source.ReviewerName))
-                        package.AppendLine($"👤 **Người duyệt tài liệu này:** {source.ReviewerName}");
+                    // ✅ EXISTING metadata
+                    if (!string.IsNullOrEmpty(source.SignedBy))
+                    {
+                        package.AppendLine($"   🔴 **Người ký:** {source.SignedBy.ToUpper()}");
+                    }
+                    if (!string.IsNullOrEmpty(source.ApprovedBy))
+                        package.AppendLine($"   ✅ **Người phê duyệt:** {source.ApprovedBy}");
                     if (source.ApprovalDate.HasValue)
-                    {
-                        var approvalDate = source.ApprovalDate?.ToString("dd/MM/yyyy") ?? "Không rõ";
-                        package.AppendLine($"👤 **Ngày duyệt tài liệu này:** {source.ApprovalDate}");
-                    }
-                    if (!string.IsNullOrEmpty(source.CreatedBy))
-                        package.AppendLine($"📝 **Người tạo:** {source.CreatedBy}");
-
-                    if (!string.IsNullOrEmpty(source.CreatedBy))
-                        package.AppendLine($"📝 **Người tạo:** {source.CreatedBy}");
-                    // Temporal information
-                    if (source.EffectiveFrom.HasValue || source.EffectiveUntil.HasValue)
-                    {
-                        var from = source.EffectiveFrom?.ToString("dd/MM/yyyy") ?? "Không rõ";
-                        var until = source.EffectiveUntil?.ToString("dd/MM/yyyy") ?? "Không rõ";
-                        package.AppendLine($"📅 **Hiệu lực:** Từ {from} đến {until}");
-                    }
-
-                    if (source.ApprovalDate.HasValue)
-                        package.AppendLine($"✅ **Ngày phê duyệt:** {source.ApprovalDate.Value:dd/MM/yyyy}");
-
-                    // Organizational info
-                    if (!string.IsNullOrEmpty(source.DepartmentName))
-                        package.AppendLine($"🏢 **Phòng ban:** {source.DepartmentName}");
-
-                    if (!string.IsNullOrEmpty(source.DepartmentId))
-                        package.AppendLine($"📂 **Mã phòng ban:** {source.DepartmentId}");
-
-                    // File information
-                    if (!string.IsNullOrEmpty(source.FileType))
-                        package.AppendLine($"📁 **Loại file:** {source.FileType}");
-
-                    if (source.FileSize.HasValue && source.FileSize > 0)
-                    {
-                        var sizeKB = source.FileSize.Value / 1024.0;
-                        var sizeMB = sizeKB / 1024.0;
-                        if (sizeMB >= 1)
-                            package.AppendLine($"💾 **Kích thước file:** {sizeMB:F2} MB");
-                        else
-                            package.AppendLine($"💾 **Kích thước file:** {sizeKB:F2} KB");
-                    }
-
-                    // Version and status
-                    if (!string.IsNullOrEmpty(source.VersionName))
-                        package.AppendLine($"🔢 **Phiên bản:** {source.VersionName}");
-
+                        package.AppendLine($"   📅 **Ngày duyệt:** {source.ApprovalDate.Value:dd/MM/yyyy}");
                     if (!string.IsNullOrEmpty(source.Status))
-                        package.AppendLine($"📊 **Trạng thái:** {source.Status}");
+                        package.AppendLine($"   📊 **Trạng thái:** {source.Status}");
 
-                    // Tags and classification
-                    if (source.Tags?.Any() == true)
-                        package.AppendLine($"🏷️ **Tags:** {string.Join(", ", source.Tags.Take(5))}");
-
-                    if (!string.IsNullOrEmpty(source.Summary))
-                        package.AppendLine($"📝 **Tóm tắt:** {source.Summary}");
-
-                    package.AppendLine($"📊 **Độ liên quan:** {source.RelevanceScore:P1}");
-                    package.AppendLine(); // Separator
+                    package.AppendLine(); // Separator between documents
                 }
+
                 package.AppendLine(new string('=', 60));
                 package.AppendLine();
             }
 
-            // ✅ 2. DOCUMENT STRUCTURE ANALYSIS
+            // ✅ 3. THÊM USER CONTEXT cho AI
+            package.AppendLine("👤 **THÔNG TIN NGƯỜI DÙNG HIỆN TẠI:**");
+            package.AppendLine($"🏢 **Phòng ban của tôi:** {userContext.DepartmentName ?? "Không rõ"}");
+            package.AppendLine($"📂 **Mã phòng ban của tôi:** {userContext.DepartmentId ?? "Không rõ"}");
+            package.AppendLine($"👤 **Vai trò:** {userContext.Role ?? "Không rõ"}");
+            package.AppendLine($"👤 **Họ tên:** {userContext.FullName ?? "Không rõ"}");
+            package.AppendLine();
+
+            // ✅ 4. DOCUMENT STRUCTURE ANALYSIS (unchanged)
             if (!string.IsNullOrEmpty(documentContent))
             {
                 var structureInfo = AnalyzeDocumentStructure(documentContent);
@@ -407,26 +411,42 @@ namespace ChatBox.API.Services.Implement
                 }
             }
 
-            // ✅ 3. FULL DOCUMENT CONTENT
+            // ✅ 5. FULL DOCUMENT CONTENT (unchanged)
             if (!string.IsNullOrEmpty(documentContent))
             {
                 package.AppendLine("📄 **NỘI DUNG TÀI LIỆU HOÀN CHỈNH:**");
-
-                // Organize content based on question type
                 var organizedContent = OrganizeContentForQuestion(documentContent, currentQuestion);
                 package.AppendLine(organizedContent);
                 package.AppendLine();
             }
 
-            // ✅ 4. QUICK REFERENCE MAP for AI
-            package.AppendLine("🗺️ **HƯỚNG DẪN TRẢ LỜI:**");
-            package.AppendLine("• Hỏi về người ký → Dùng thông tin ở mục METADATA");
-            package.AppendLine("• Hỏi về hiệu lực → Dùng thông tin ở mục METADATA");
-            package.AppendLine("• Hỏi về nội dung → Dùng thông tin ở mục NỘI DUNG");
-            package.AppendLine("• Hỏi về cấu trúc → Dùng thông tin ở mục CẤU TRÚC");
-            package.AppendLine("• Hỏi tổng quan → Kết hợp METADATA + NỘI DUNG");
+            // ✅ 6. ENHANCED INSTRUCTIONS - FORCE AI TO COUNT CORRECTLY
+            package.AppendLine("🗺️ **HƯỚNG DẪN TRẢ LỜI CHO AI:**");
             package.AppendLine();
-            package.AppendLine("⚠️ **CHÚ Ý: Khi được hỏi về người ký, LUÔN TRẢ LỜI TỪ METADATA phần 'NGƯỜI KÝ VĂN BẢN' ở trên, KHÔNG dùng thông tin từ nội dung văn bản.**");
+            package.AppendLine("🔢 **QUY TẮC ĐẾM VÀ LIỆT KÊ:**");
+            package.AppendLine("• LUÔN LUÔN kiểm tra TẤT CẢ tài liệu trong phần 'CHI TIẾT TỪNG TÀI LIỆU'");
+            package.AppendLine("• KHÔNG ĐƯỢC chỉ nhìn vào tài liệu đầu tiên");
+            package.AppendLine("• SỬ DỤNG số liệu từ 'THỐNG KÊ TÀI LIỆU TỔNG QUAN' để trả lời chính xác");
+            package.AppendLine("• KHI ĐẾM, phải scan qua từng tài liệu và đếm những tài liệu phù hợp");
+            package.AppendLine();
+            package.AppendLine("🎯 **CÁC LOẠI CÂU HỎI:**");
+            package.AppendLine("• 'tài liệu public phòng ban của tôi' → Đếm tài liệu có 'PUBLIC + PHÒNG BAN CỦA TÔI'");
+            package.AppendLine("• 'tài liệu private phòng ban của tôi' → Đếm tài liệu có 'PRIVATE + PHÒNG BAN CỦA TÔI'");
+            package.AppendLine("• 'tài liệu public' → Đếm TẤT CẢ tài liệu có 'PUBLIC (Công khai)'");
+            package.AppendLine("• 'tài liệu private' → Đếm TẤT CẢ tài liệu có 'PRIVATE (Nội bộ)'");
+            package.AppendLine("• 'có mấy/bao nhiêu' → PHẢI đếm và trả lời số lượng chính xác");
+            package.AppendLine();
+            package.AppendLine("✅ **FORMAT TRẢ LỜI CHUẨN:**");
+            package.AppendLine("• Khi hỏi số lượng: 'Có [SỐ] tài liệu [LOẠI] trong [PHẠM VI]'");
+            package.AppendLine("• Sau đó liệt kê: '1. [Tên tài liệu 1], 2. [Tên tài liệu 2], ...'");
+            package.AppendLine("• Cuối cùng: 'Tổng cộng: [SỐ] tài liệu.'");
+            package.AppendLine();
+            package.AppendLine("⚠️ **CẤM TUYỆT ĐỐI:**");
+            package.AppendLine("- KHÔNG được đếm sai số lượng");
+            package.AppendLine("- KHÔNG được bỏ qua bất kỳ tài liệu nào");
+            package.AppendLine("- KHÔNG được chỉ nhìn vào tài liệu đầu tiên");
+            package.AppendLine("- KHÔNG được nói 'có 1 tài liệu' khi thực tế có nhiều hơn");
+
             return package.ToString();
         }
 
@@ -1713,7 +1733,80 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
                     $"Models có sẵn: {string.Join(", ", availableModels)}");
             }
         }
+        private UserContextFromJWT GetDefaultUserContext()
+        {
+            return new UserContextFromJWT
+            {
+                UserId = "anonymous",
+                Email = "anonymous@system.com",
+                FullName = "Anonymous User",
+                Phone = "",
+                Role = "Guest",
+                DepartmentId = "",
+                DepartmentName = "",
+                Permissions = new List<string>()
+            };
+        }
 
+        private List<string> ParsePermissions(string permissionsString)
+        {
+            if (string.IsNullOrEmpty(permissionsString))
+                return new List<string>();
+
+            try
+            {
+                return permissionsString.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(p => p.Trim())
+                    .Where(p => !string.IsNullOrEmpty(p))
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "🔐 [JWT] Failed to parse permissions: {Permissions}", permissionsString);
+                return new List<string>();
+            }
+        }
+
+        private UserContextFromJWT GetUserContextFromJWT()
+        {
+            try
+            {
+                var user = _httpContextAccessor.HttpContext?.User;
+                if (user?.Identity?.IsAuthenticated != true)
+                {
+                    _logger.LogWarning("🔐 [JWT] User is not authenticated, using default context");
+                    return GetDefaultUserContext();
+                }
+
+                var userContext = new UserContextFromJWT
+                {
+                    UserId = user.FindFirst("userId")?.Value ??
+                             user.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value ??
+                             string.Empty,
+                    Email = user.FindFirst("email")?.Value ??
+                            user.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")?.Value ??
+                            string.Empty,
+                    FullName = user.FindFirst("fullName")?.Value ??
+                               user.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value ??
+                               string.Empty,
+                    Phone = user.FindFirst("phone")?.Value ?? string.Empty,
+                    Role = user.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value ??
+                           user.FindFirst("role")?.Value ??
+                           string.Empty,
+                    DepartmentId = user.FindFirst("departmentId")?.Value ?? string.Empty,
+                    DepartmentName = user.FindFirst("departmentName")?.Value ?? string.Empty,
+                    Permissions = ParsePermissions(user.FindFirst("permissions")?.Value)
+                };
+
+                return userContext;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "🔐 [JWT] Failed to extract user context from JWT, using default");
+                return GetDefaultUserContext();
+            }
+        }
         #endregion
     }
+
 }
