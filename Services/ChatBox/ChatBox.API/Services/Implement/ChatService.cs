@@ -237,10 +237,6 @@ namespace ChatBox.API.Services.Implement
 3. **NATURAL CONVERSATION**: Trả lời như cuộc hội thoại liên tục, không lặp lại thông tin đã nói
 4. **DOCUMENT SOURCE**: Sử dụng thông tin từ tài liệu để trả lời, nhưng duy trì context awareness
 
-1. **NGUỒN THÔNG TIN DUY NHẤT**
-   - TUYỆT ĐỐI chỉ sử dụng thông tin từ ""THÔNG TIN TÀI LIỆU HOÀN CHỈNH"" ở trên
-   - Bao gồm: METADATA + NỘI DUNG + CẤU TRÚC
-
 2. **TRẢ LỜI MỌI LOẠI CÂU HỎI:**
    - 📋 **Metadata**: ""Ai ký?"", ""Hiệu lực khi nào?"", ""Thuộc phòng nào?"" → Dùng phần THÔNG TIN METADATA
    - 📄 **Nội dung**: ""Điều 5 nói gì?"", ""Quy định về X?"" → Dùng phần NỘI DUNG TÀI LIỆU  
@@ -254,14 +250,18 @@ namespace ChatBox.API.Services.Implement
    - Nội dung: Trả lời chính xác, đầy đủ từ METADATA + NỘI DUNG
    - Kết thúc: ""{citationSuffix}""
 
-4. **BẮT BUỘC PHẢI TRẢ LỜI:**
-   - KHÔNG ĐƯỢC từ chối trả lời bất kỳ câu hỏi nào về tài liệu
-   - LUÔN LUÔN tìm cách đưa ra thông tin hữu ích từ METADATA hoặc NỘI DUNG
-
 🔴 TUYỆT ĐỐI KHÔNG ĐƯỢC:
-- Nói ""không có thông tin"" khi METADATA hoặc NỘI DUNG đã có
-- Từ chối trả lời về bất kỳ khía cạnh nào của tài liệu
-- Sử dụng kiến thức bên ngoài tài liệu";
+- Đưa ra ""thông tin chung"" về bất kỳ chủ đề nào
+- Đề xuất tìm kiếm trên internet, liên hệ cơ quan, kiểm tra thư viện
+- Giải thích định nghĩa từ kiến thức chung
+- Đưa ra ví dụ không có trong tài liệu
+- ""Giúp đỡ"" bằng cách đưa ra thông tin ngoài tài liệu
+- Nói ""dựa trên các tài liệu đã được đề cập"" nếu thông tin không có trong tài liệu hiện tại
+- Đưa ra lời khuyên hoặc hướng dẫn chung không có trong tài liệu
+
+✅ CHỈ ĐƯỢC TRẢ LỜI:
+- Thông tin CÓ SẴN trong ""THÔNG TIN TÀI LIỆU HOÀN CHỈNH""
+- Câu từ chối chuẩn khi không có thông tin";
                 }
                 else
                 {
