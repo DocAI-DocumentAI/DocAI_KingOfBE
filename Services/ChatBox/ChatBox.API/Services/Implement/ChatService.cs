@@ -326,7 +326,13 @@ namespace ChatBox.API.Services.Implement
 
                     if (!string.IsNullOrEmpty(source.OwnerName))
                         package.AppendLine($"👤 **Chủ sở hữu:** {source.OwnerName}");
-
+                    if (!string.IsNullOrEmpty(source.ReviewerName))
+                        package.AppendLine($"👤 **Người duyệt tài liệu này:** {source.ReviewerName}");
+                    if (source.ApprovalDate.HasValue)
+                    {
+                        var approvalDate = source.ApprovalDate?.ToString("dd/MM/yyyy") ?? "Không rõ";
+                        package.AppendLine($"👤 **Ngày duyệt tài liệu này:** {source.ApprovalDate}");
+                    }
                     if (!string.IsNullOrEmpty(source.CreatedBy))
                         package.AppendLine($"📝 **Người tạo:** {source.CreatedBy}");
 
