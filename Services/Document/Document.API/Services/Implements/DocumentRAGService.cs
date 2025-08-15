@@ -868,6 +868,7 @@ private async Task<List<Citation>> SearchSpecificDocument(DocumentRAGRequest req
                 source.DocumentLanguage = GetTagValueFromCitation(citation, "language");
                 source.AccessLevel = GetTagValueFromCitation(citation, "accessLevel");
                 source.ConfidentialityLevel = GetTagValueFromCitation(citation, "confidentialityLevel");
+                source.Visibility = GetTagValueFromCitation(citation, "visibility");
 
                 // ✅ DATES - EXISTING + NEW
                 source.ApprovalDate = ParseDateTag(citation, "approvalDate");
