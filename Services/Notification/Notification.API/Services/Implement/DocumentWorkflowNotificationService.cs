@@ -79,7 +79,7 @@ namespace Notification.API.Services.Implement
                     return;
                 }
 
-                var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
+                var finalDocumentLink = documentLink ?? $"https://docai.asia/manager/document-review/{documentId}";
                 var submissionDate = DateTime.UtcNow;
 
                 // Prevent duplicate notifications with tracking
@@ -214,7 +214,7 @@ namespace Notification.API.Services.Implement
                     return;
                 }
 
-                var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
+                var finalDocumentLink = documentLink ?? $"https://docai.asia/editor/doc/{documentId}";
                 var approvalDate = DateTime.UtcNow;
 
                 await SendDocumentWorkflowNotificationAsync(
@@ -271,7 +271,7 @@ namespace Notification.API.Services.Implement
                     return;
                 }
 
-                var finalDocumentLink = documentLink ?? $"https://docai.asia/documents/{documentId}";
+                var finalDocumentLink = documentLink ?? $"https://docai.asia/editor/doc/{documentId}";
                 var rejectionDate = DateTime.UtcNow;
 
                 await SendDocumentWorkflowNotificationAsync(
@@ -325,7 +325,7 @@ namespace Notification.API.Services.Implement
                     return;
                 }
 
-                var finalDocumentLink = documentLink ?? $"https://docai.asia/manager/document-review/{documentId}";
+                var finalDocumentLink = documentLink ?? $"https://docai.asia/document/{documentId}";
                 var publicationDate = DateTime.UtcNow;
 
                 var recipients = new List<UserDto>();
