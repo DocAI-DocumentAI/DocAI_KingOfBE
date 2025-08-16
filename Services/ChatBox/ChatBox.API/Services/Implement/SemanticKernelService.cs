@@ -126,6 +126,8 @@ namespace ChatBox.API.Services.Implement
                 var kernel = await GetKernelAsync(config.ModelName);
 
                 var titleFunction = kernel.CreateFunctionFromPrompt(ChatConstants.TitleGenerationPrompt);
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                 var result = await titleFunction.InvokeAsync(kernel, new KernelArguments { ["input"] = message });
 
                 return ProcessGeneratedTitle(result.ToString());
