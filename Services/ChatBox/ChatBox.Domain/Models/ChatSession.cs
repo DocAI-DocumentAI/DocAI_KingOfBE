@@ -12,6 +12,7 @@ namespace ChatBox.Domain.Models
         public string ModelName { get; set; }
         public bool IsActive { get; set; } = true;
         public DateTime LastActiveAt { get; set; } = DateTime.UtcNow;
+        public string? DocumentId { get; set; } 
         public virtual ICollection<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
         public virtual ICollection<UserPreference> Preferences { get; set; } = new List<UserPreference>();
 

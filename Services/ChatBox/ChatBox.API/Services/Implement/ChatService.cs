@@ -52,7 +52,7 @@ namespace ChatBox.API.Services.Implement
         {
             await ValidateMessageStrictAsync(request.Message);
 
-            var session = await GetOrCreateSessionAsync(request.SessionId, request.ModelName, userId);
+            var session = await GetOrCreateSessionAsync(request.SessionId, request.ModelName, userId, request.DocumentId);
             await ValidateSessionModelConsistency(session, request.ModelName);
             await EnsureSessionModelIsActive(session);
 
@@ -79,7 +79,7 @@ namespace ChatBox.API.Services.Implement
         {
             await ValidateMessageStrictAsync(request.Message);
 
-            var session = await GetOrCreateSessionAsync(request.SessionId, request.ModelName, userId);
+            var session = await GetOrCreateSessionAsync(request.SessionId, request.ModelName, userId, request.DocumentId);
             await ValidateSessionModelConsistency(session, request.ModelName);
             await EnsureSessionModelIsActive(session);
 
@@ -125,13 +125,6 @@ namespace ChatBox.API.Services.Implement
                     {
                         documentSources = sources;
                         _logger.LogInformation("📄 [SOURCES] Found {Count} document sources", sources.Count);
-
-                        // Log source details for debugging
-                        foreach (var source in sources.Take(3))
-                        {
-                            _logger.LogDebug("📄 [SOURCE] Doc: {DocId}, Title: {Title}, Relevance: {Score}",
-                                source.DocumentId, source.Title, source.RelevanceScore);
-                        }
                     }
                     else
                     {
@@ -370,18 +363,28 @@ namespace ChatBox.API.Services.Implement
                     {
                         package.AppendLine($"   🎯 **PHÂN LOẠI: PRIVATE + PHÒNG BAN KHÁC** 🎯");
                     }
-
+                    if (!string.IsNullOrEmpty(source.DocumentType) && source.DocumentType != "Không rõ")
+                        package.AppendLine($"   📋 **Loại tài liệu:** {source.DocumentType}");
                     // ✅ EXISTING metadata
-                    if (!string.IsNullOrEmpty(source.SignedBy))
-                    {
+                    if (!string.IsNullOrEmpty(source.SignedBy) && source.SignedBy != "Không rõ")
                         package.AppendLine($"   🔴 **Người ký:** {source.SignedBy.ToUpper()}");
-                    }
-                    if (!string.IsNullOrEmpty(source.ApprovedBy))
+
+                    if (!string.IsNullOrEmpty(source.ApprovedBy) && source.ApprovedBy != "Không rõ")
                         package.AppendLine($"   ✅ **Người phê duyệt:** {source.ApprovedBy}");
                     if (source.ApprovalDate.HasValue)
                         package.AppendLine($"   📅 **Ngày duyệt:** {source.ApprovalDate.Value:dd/MM/yyyy}");
+
+                    if (source.EffectiveFrom.HasValue)
+                        package.AppendLine($"   ⏰ **Hiệu lực từ:** {source.EffectiveFrom.Value:dd/MM/yyyy}");
+                    if (source.EffectiveUntil.HasValue)
+                        package.AppendLine($"   ⏰ **Hiệu lực đến:** {source.EffectiveUntil.Value:dd/MM/yyyy}");
                     if (!string.IsNullOrEmpty(source.Status))
                         package.AppendLine($"   📊 **Trạng thái:** {source.Status}");
+
+                    if (source.FileSize.HasValue)
+                        package.AppendLine($"   📁 **Kích thước file:** {source.FileSize.Value / 1024.0:F1} KB");
+                    if (!string.IsNullOrEmpty(source.FileType))
+                        package.AppendLine($"   📄 **Loại file:** {source.FileType}");
 
                     package.AppendLine(); // Separator between documents
                 }
@@ -643,15 +646,15 @@ namespace ChatBox.API.Services.Implement
 
         #region Session Management (Unchanged)
 
-        private async Task<ChatSession> GetOrCreateSessionAsync(string sessionId, string modelName, string userId)
+        private async Task<ChatSession> GetOrCreateSessionAsync(string sessionId, string modelName, string userId, string documentId = null)
         {
             if (string.IsNullOrEmpty(sessionId))
-                return await CreateNewSession(modelName, userId);
+                return await CreateNewSession(modelName, userId, documentId);
 
             return await GetExistingSession(sessionId, userId);
         }
 
-        private async Task<ChatSession> CreateNewSession(string modelName, string userId)
+        private async Task<ChatSession> CreateNewSession(string modelName, string userId, string documentId = null)
         {
             var validModelName = await DetermineModelForNewSession(modelName, userId);
 
@@ -660,6 +663,7 @@ namespace ChatBox.API.Services.Implement
                 Title = ChatConstants.DefaultSessionTitle,
                 UserId = userId,
                 ModelName = validModelName,
+                DocumentId = documentId,  // ✅ Store document ID
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
                 CreatedBy = userId,
@@ -670,8 +674,9 @@ namespace ChatBox.API.Services.Implement
             await _unitOfWork.GetRepository<ChatSession>().InsertAsync(newSession);
             await _unitOfWork.CommitAsync();
 
-            _logger.LogInformation("Created new session {SessionId} for user {UserId} with model {ModelName}",
-                newSession.Id, userId, validModelName);
+            var sessionType = string.IsNullOrEmpty(documentId) ? "GENERAL" : "DOCUMENT";
+            _logger.LogInformation("Created new {SessionType} session {SessionId} for user {UserId} with model {ModelName}, documentId: {DocumentId}",
+                sessionType, newSession.Id, userId, validModelName, documentId ?? "N/A");
 
             return newSession;
         }
@@ -1018,15 +1023,91 @@ namespace ChatBox.API.Services.Implement
                 {
                     session.Title = newTitle;
                     _logger.LogInformation("Generated title for session {SessionId}: {Title}", session.Id, newTitle);
+                    return;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Title generation failed for session {SessionId}, keeping default", session.Id);
-                session.Title ??= ChatConstants.DefaultSessionTitle;
+                _logger.LogWarning(ex, "Title generation failed for session {SessionId}, using smart fallback", session.Id);
+            }
+            try
+            {
+                var smartTitle = GenerateSmartFallbackTitle(firstUserMessage);
+                session.Title = smartTitle;
+                _logger.LogInformation("Generated smart fallback title for session {SessionId}: {Title}", session.Id, smartTitle);
+            }
+            catch (Exception fallbackEx)
+            {
+                _logger.LogError(fallbackEx, "Smart fallback title generation failed for session {SessionId}", session.Id);
+                session.Title = ChatConstants.DefaultSessionTitle;
             }
         }
+        private string GenerateSmartFallbackTitle(string userMessage)
+        {
+            if (string.IsNullOrWhiteSpace(userMessage))
+                return ChatConstants.DefaultSessionTitle;
 
+            try
+            {
+                var cleanMessage = userMessage.Trim();
+
+                // Truncate if too long
+                if (cleanMessage.Length > 100)
+                {
+                    cleanMessage = cleanMessage.Substring(0, 100);
+                    // Find last complete word
+                    var lastSpace = cleanMessage.LastIndexOf(' ');
+                    if (lastSpace > 50)
+                    {
+                        cleanMessage = cleanMessage.Substring(0, lastSpace);
+                    }
+                    cleanMessage += "...";
+                }
+
+                // Remove question marks and common prefixes
+                cleanMessage = cleanMessage
+                    .Replace("?", "")
+                    .Replace("!", "")
+                    .Trim();
+
+                // Remove common Vietnamese question starters
+                var questionStarters = new[]
+                {
+            "bạn có thể", "bạn có", "làm thế nào", "làm sao",
+            "tôi muốn", "tôi cần", "cho tôi", "giúp tôi",
+            "xin chào", "chào bạn", "hello", "hi"
+        };
+
+                var lowerMessage = cleanMessage.ToLowerInvariant();
+                foreach (var starter in questionStarters)
+                {
+                    if (lowerMessage.StartsWith(starter))
+                    {
+                        cleanMessage = cleanMessage.Substring(starter.Length).Trim();
+                        break;
+                    }
+                }
+
+                // Capitalize first letter
+                if (!string.IsNullOrEmpty(cleanMessage))
+                {
+                    cleanMessage = char.ToUpperInvariant(cleanMessage[0]) + cleanMessage.Substring(1);
+                }
+
+                // Final validation
+                if (string.IsNullOrWhiteSpace(cleanMessage) || cleanMessage.Length < 3)
+                {
+                    return "Cuộc trò chuyện mới";
+                }
+
+                return cleanMessage;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in smart title generation fallback");
+                return ChatConstants.DefaultSessionTitle;
+            }
+        }
         private async Task ValidateAIResponse(string aiResponse, string sessionId)
         {
             if (string.IsNullOrEmpty(aiResponse))
@@ -1672,7 +1753,7 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
         {
             var result = await _unitOfWork.GetRepository<ChatSession>()
                  .GetListAsync(
-                     predicate: s => s.UserId == userId && s.IsActive,
+                     predicate: s => s.UserId == userId && s.IsActive && s.DocumentId == null,
                      orderBy: q => q.OrderByDescending(s => s.LastActiveAt),
                      include: query => query.Include(s => s.Messages));
 

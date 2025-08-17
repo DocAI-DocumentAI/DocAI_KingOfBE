@@ -11,15 +11,15 @@ namespace ChatBox.API.Services.Interfaces
         Task<AIConfigurationResponse> CreateAIConfigurationAsync(AIConfigurationRequest request, string userId);
         Task<AIConfigurationResponse> UpdateAIConfigurationAsync(string id, AIConfigurationRequest request, string userId);
         Task<bool> DeleteAIConfigurationAsync(string id);
-        Task<ModelTestResponse> TestModelAsync(string modelName, string userId);
+        Task<ModelTestResponse> TestModelByIdAsync(string configId, string userId);
         Task<SystemStatisticsResponse> GetSystemStatisticsAsync();
         Task<List<DailyActivityResponse>> GetDailyActivityAsync(int days = 30);
         Task<List<ModelUsageStatistics>> GetModelUsageStatisticsAsync();
         Task<ModelImpactResponse> GetModelImpactAnalysisAsync(string modelName);
         Task<bool> SetMultipleActiveModelsAsync(List<string> modelNames, string userId);
 
-        Task<ModelActivationResponse> TestAndActivateModelAsync(string modelName, string userId);
-        Task<bool> DeactivateModelAsync(string modelName, string userId);
-        Task<bool> SetDefaultModelAsync(string modelName, string userId); 
+        Task<ModelActivationResponse> TestAndActivateModelByIdAsync(string configId, string userId);
+        Task<(bool Success, string Message)> DeactivateModelByIdAsync(string configId, string userId);
+        Task<(bool Success, string Message)> SetDefaultModelByIdAsync(string configId, string userId);
     }
 }
