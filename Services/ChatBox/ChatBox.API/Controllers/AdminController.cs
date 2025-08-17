@@ -271,12 +271,12 @@ namespace ChatBox.API.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
-        public async Task<IActionResult> SetActiveModelAsync(string modelName)
+        public async Task<IActionResult> SetActiveModelAsync(string configId)
         {
             try
             {
                 var userId = GetUserId();
-                var result = await _adminService.TestAndActivateModelAsync(modelName, userId);
+                var result = await _adminService.TestAndActivateModelByIdAsync(configId, userId);
 
                 if (!result.Success)
                     return BadRequest(result);
@@ -294,17 +294,17 @@ namespace ChatBox.API.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> DeactivateModelAsync(string modelName)
+        public async Task<IActionResult> DeactivateModelAsync(string configId)
         {
             try
             {
                 var userId = GetUserId();
-                var result = await _adminService.DeactivateModelAsync(modelName, userId);
+                var result = await _adminService.DeactivateModelByIdAsync(configId, userId);
 
-                if (!result)
-                    return NotFound(string.Format(MessageConstant.Admin.ModelNotFound, modelName));
+                if (!result.Success)
+                    return NotFound(result.Message);
 
-                return Ok($"Model '{modelName}' đã được tắt");
+                return Ok(result.Message);
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("model cuối cùng"))
             {
@@ -312,7 +312,7 @@ namespace ChatBox.API.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to deactivate model {ModelName}", modelName);
+                _logger.LogError(ex, "Failed to deactivate model {ConfigId}", configId);
                 return Problem(MessageConstant.Admin.UpdateFailed);
             }
         }
@@ -321,17 +321,17 @@ namespace ChatBox.API.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> SetDefaultModelAsync(string modelName)
+        public async Task<IActionResult> SetDefaultModelAsync(string configId)
         {
             try
             {
                 var userId = GetUserId();
-                var result = await _adminService.SetDefaultModelAsync(modelName, userId);
+                var result = await _adminService.SetDefaultModelByIdAsync(configId, userId);
 
-                if (!result)
-                    return BadRequest(MessageConstant.Admin.UpdateFailed);
+                if (!result.Success)
+                    return BadRequest(result.Message);
 
-                return Ok($"Model '{modelName}' đã được đặt làm mặc định");
+                return Ok(result.Message);
             }
             catch (ArgumentException ex)
             {
@@ -343,7 +343,7 @@ namespace ChatBox.API.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to set default model {ModelName}", modelName);
+                _logger.LogError(ex, "Failed to set default model {ConfigId}", configId);
                 return Problem(MessageConstant.Admin.UpdateFailed);
             }
         }
@@ -353,21 +353,21 @@ namespace ChatBox.API.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
-        public async Task<IActionResult> TestModelAsync(string modelName)
+        public async Task<IActionResult> TestModelAsync(string configId)
         {
             try
             {
                 var userId = GetUserId();
-                var response = await _adminService.TestModelAsync(modelName, userId);
+                var response = await _adminService.TestModelByIdAsync(configId, userId);
 
-                _logger.LogInformation("Model test completed: {ModelName}, Success: {Success}",
-                    modelName, response.Success);
+                _logger.LogInformation("Model test completed: {ConfigId}, Success: {Success}",
+                    configId, response.Success);
 
                 return Ok(response);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to test model {ModelName}", modelName);
+                _logger.LogError(ex, "Failed to test model {ConfigId}", configId);
                 return Problem(MessageConstant.Admin.TestModelFailed);
             }
         }

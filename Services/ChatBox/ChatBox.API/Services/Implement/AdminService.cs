@@ -212,30 +212,24 @@ namespace ChatBox.API.Services.Implement
                 throw;
             }
         }
-        public async Task<ModelActivationResponse> TestAndActivateModelAsync(string modelName, string userId)
+        public async Task<ModelActivationResponse> TestAndActivateModelByIdAsync(string configId, string userId)
         {
             try
             {
-                var decodedModelName = Uri.UnescapeDataString(modelName ?? string.Empty);
-                var normalizedModelName = NormalizeModelName(decodedModelName);
-
-                _logger.LogInformation("Testing model - Input: {Input}, Decoded: {Decoded}, Normalized: {Normalized}",
-                    modelName, decodedModelName, normalizedModelName);
-
                 var targetConfig = await _unitOfWork.GetRepository<AIConfiguration>()
-                    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
+                    .SingleOrDefaultAsync(predicate: c => c.Id == configId);
 
                 if (targetConfig == null)
                     return new ModelActivationResponse
                     {
                         Success = false,
-                        Error = string.Format(MessageConstant.Admin.ModelNotFound, decodedModelName) // ✅ FIX: Use decoded
+                        Error = string.Format(MessageConstant.Admin.ConfigNotFound)
                     };
 
-                // ✅ FIX: Use decoded name for testing
-                _logger.LogInformation("Testing model {ModelName} before activation", decodedModelName);
+                _logger.LogInformation("Testing model {ModelName} (ID: {ConfigId}) before activation",
+                    targetConfig.ModelName, configId);
 
-                var testResult = await _kernelService.TestModelAsync(decodedModelName); // ✅ FIX: Use decoded
+                var testResult = await _kernelService.TestModelAsync(targetConfig.ModelName);
 
                 if (!testResult.Success)
                     return new ModelActivationResponse
@@ -246,7 +240,7 @@ namespace ChatBox.API.Services.Implement
                         ResponseTimeMs = (int)testResult.ResponseTimeMs
                     };
 
-                // ✅ STEP 2: Test passed → Activate
+                // Test passed → Activate
                 bool wasAlreadyActive = targetConfig.IsActive;
 
                 if (!targetConfig.IsActive)
@@ -261,14 +255,13 @@ namespace ChatBox.API.Services.Implement
                     await ClearAllModelCaches(targetConfig.ModelName);
                 }
 
-                // ✅ FIX: Use decoded name in logs and response
-                _logger.LogInformation("Model {ModelName} tested successfully and {Action} by {UserId}",
-                    decodedModelName, wasAlreadyActive ? "confirmed active" : "activated", userId);
+                _logger.LogInformation("Model {ModelName} (ID: {ConfigId}) tested successfully and {Action} by {UserId}",
+                    targetConfig.ModelName, configId, wasAlreadyActive ? "confirmed active" : "activated", userId);
 
                 return new ModelActivationResponse
                 {
                     Success = true,
-                    ModelName = decodedModelName, // ✅ FIX: Return decoded name
+                    ModelName = targetConfig.ModelName,
                     TestResponse = testResult.Response,
                     ResponseTimeMs = (int)testResult.ResponseTimeMs,
                     Message = wasAlreadyActive
@@ -279,7 +272,7 @@ namespace ChatBox.API.Services.Implement
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to test and activate model {ModelName}", modelName);
+                _logger.LogError(ex, "Failed to test and activate model by ID {ConfigId}", configId);
                 return new ModelActivationResponse
                 {
                     Success = false,
@@ -288,27 +281,24 @@ namespace ChatBox.API.Services.Implement
             }
         }
 
-        public async Task<bool> DeactivateModelAsync(string modelName, string userId)
+        public async Task<(bool Success, string Message)> DeactivateModelByIdAsync(string configId, string userId)
         {
             try
             {
-                var decodedModelName = Uri.UnescapeDataString(modelName ?? string.Empty);
-                var normalizedModelName = NormalizeModelName(decodedModelName);
-
                 var targetConfig = await _unitOfWork.GetRepository<AIConfiguration>()
-                    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
+                    .SingleOrDefaultAsync(predicate: c => c.Id == configId);
 
                 if (targetConfig == null || !targetConfig.IsActive)
-                    return false;
+                    return (false, string.Format(MessageConstant.Admin.ConfigNotFound));
 
-                // ✅ Safety: Don't allow deactivating last active model
+                // Safety: Don't allow deactivating last active model
                 var otherActiveConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
                     .GetListAsync(predicate: c => c.IsActive && c.Id != targetConfig.Id);
 
                 if (!otherActiveConfigs.Any())
                     throw new InvalidOperationException("Không thể tắt model cuối cùng. Hệ thống cần ít nhất 1 model active.");
 
-                // ✅ If this is default model, set another active model as default
+                // If this is default model, set another active model as default
                 if (targetConfig.IsDefault && otherActiveConfigs.Any())
                 {
                     var newDefault = otherActiveConfigs.First();
@@ -330,38 +320,36 @@ namespace ChatBox.API.Services.Implement
 
                 await ClearAllModelCaches(targetConfig.ModelName);
 
-                // ✅ FIX: Use decoded name in logs
-                _logger.LogInformation("Model {ModelName} deactivated by {UserId}", decodedModelName, userId);
-                return true;
+                _logger.LogInformation("Model {ModelName} (ID: {ConfigId}) deactivated by {UserId}",
+                    targetConfig.ModelName, configId, userId);
+
+                return (true, $"Model '{targetConfig.DisplayName}' đã được tắt");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to deactivate model: {ModelName}", modelName);
+                _logger.LogError(ex, "Failed to deactivate model by ID: {ConfigId}", configId);
                 throw;
             }
         }
 
 
-        public async Task<bool> SetDefaultModelAsync(string modelName, string userId)
+        public async Task<(bool Success, string Message)> SetDefaultModelByIdAsync(string configId, string userId)
         {
             try
             {
-                var decodedModelName = Uri.UnescapeDataString(modelName ?? string.Empty);
-                var normalizedModelName = NormalizeModelName(decodedModelName);
-
                 var targetConfig = await _unitOfWork.GetRepository<AIConfiguration>()
-                    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
+                    .SingleOrDefaultAsync(predicate: c => c.Id == configId);
 
                 if (targetConfig == null)
-                    throw new ArgumentException($"Model '{decodedModelName}' không tồn tại"); // ✅ FIX: Use decoded
+                    return (false, string.Format(MessageConstant.Admin.ConfigNotFound));
 
                 if (!targetConfig.IsActive)
-                    throw new InvalidOperationException($"Model '{decodedModelName}' phải được kích hoạt trước khi đặt làm mặc định"); // ✅ FIX: Use decoded
+                    return (false, $"Model '{targetConfig.DisplayName}' phải được kích hoạt trước khi đặt làm mặc định");
 
                 if (targetConfig.IsDefault)
-                    return true; // Already default
+                    return (true, $"Model '{targetConfig.DisplayName}' đã là mặc định"); // Already default
 
-                // ✅ Clear current default
+                // Clear current default
                 var currentDefault = await _unitOfWork.GetRepository<AIConfiguration>()
                     .SingleOrDefaultAsync(predicate: c => c.IsDefault);
 
@@ -373,7 +361,7 @@ namespace ChatBox.API.Services.Implement
                     _unitOfWork.GetRepository<AIConfiguration>().UpdateAsync(currentDefault);
                 }
 
-                // ✅ Set new default
+                // Set new default
                 targetConfig.IsDefault = true;
                 targetConfig.UpdatedAt = DateTime.UtcNow;
                 targetConfig.UpdatedBy = userId;
@@ -383,13 +371,14 @@ namespace ChatBox.API.Services.Implement
 
                 await ClearAllModelCaches();
 
-                // ✅ FIX: Use decoded name in logs
-                _logger.LogInformation("Model {ModelName} set as default by {UserId}", decodedModelName, userId);
-                return true;
+                _logger.LogInformation("Model {ModelName} (ID: {ConfigId}) set as default by {UserId}",
+                    targetConfig.ModelName, configId, userId);
+
+                return (true, $"Model '{targetConfig.DisplayName}' đã được đặt làm mặc định");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to set default model {ModelName}", modelName);
+                _logger.LogError(ex, "Failed to set default model by ID {ConfigId}", configId);
                 throw;
             }
         }
@@ -575,32 +564,27 @@ namespace ChatBox.API.Services.Implement
 
         #region Model Testing
 
-        public async Task<ModelTestResponse> TestModelAsync(string modelName, string userId)
+        public async Task<ModelTestResponse> TestModelByIdAsync(string configId, string userId)
         {
             try
             {
-                var decodedModelName = HttpUtility.UrlDecode(modelName);
-                var normalizedModelName = NormalizeModelName(decodedModelName);
-
                 var targetConfig = await _unitOfWork.GetRepository<AIConfiguration>()
-                    .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName);
+                    .SingleOrDefaultAsync(predicate: c => c.Id == configId);
 
                 if (targetConfig == null)
                 {
                     return new ModelTestResponse
                     {
                         Success = false,
-                        Error = string.Format(MessageConstant.Admin.ModelNotFound, decodedModelName), // ✅ FIX: Use decoded
+                        Error = string.Format(MessageConstant.Admin.ConfigNotFound),
                         TestTime = DateTime.UtcNow
                     };
                 }
 
-                // ✅ FIX: Use decoded name for API call
-                var testResult = await _kernelService.TestModelAsync(decodedModelName);
+                var testResult = await _kernelService.TestModelAsync(targetConfig.ModelName);
 
-                // ✅ FIX: Use decoded name in logs
-                _logger.LogInformation("Model test completed: {ModelName}, Success: {Success}",
-                    decodedModelName, testResult.Success);
+                _logger.LogInformation("Model test completed: {ModelName} (ID: {ConfigId}), Success: {Success}",
+                    targetConfig.ModelName, configId, testResult.Success);
 
                 return new ModelTestResponse
                 {
@@ -614,7 +598,7 @@ namespace ChatBox.API.Services.Implement
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to test model: {ModelName}", modelName);
+                _logger.LogError(ex, "Failed to test model by ID: {ConfigId}", configId);
                 return new ModelTestResponse
                 {
                     Success = false,
@@ -626,7 +610,7 @@ namespace ChatBox.API.Services.Implement
 
         #endregion
 
-        #region Model Impact Analysis
+            #region Model Impact Analysis
 
         public async Task<ModelImpactResponse> GetModelImpactAnalysisAsync(string modelName)
         {
