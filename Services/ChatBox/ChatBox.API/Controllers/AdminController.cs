@@ -38,7 +38,7 @@ namespace ChatBox.API.Controllers
         /// Thống kê hoạt động theo ngày
         /// </summary>
         [HttpGet(ApiEndPointConstant.Admin.DailyActivity)]
-        [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
+        [CustomAuthorize(Roles = new[] { Roles.Admin })]
         [ProducesResponseType(typeof(List<DailyActivityResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -376,7 +376,7 @@ namespace ChatBox.API.Controllers
         /// Thống kê tổng quan hệ thống
         /// </summary>
         [HttpGet(ApiEndPointConstant.Admin.Statistics)]
-        [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
+        [CustomAuthorize(Roles = new[] { Roles.Admin })]
         [ProducesResponseType(typeof(SystemStatisticsResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
