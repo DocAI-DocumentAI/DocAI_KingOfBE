@@ -207,7 +207,7 @@ namespace Document.API.Services.Implements
 
         private string GenerateDocumentLink(string documentId, string versionId)
         {
-            return $"/documents/{documentId}/versions/{versionId}";
+            return $"/document/{documentId}/versions/{versionId}";
         }
     }
 }
