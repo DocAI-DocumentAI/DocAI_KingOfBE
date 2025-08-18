@@ -651,7 +651,20 @@ namespace ChatBox.API.Services.Implement
             if (string.IsNullOrEmpty(sessionId))
                 return await CreateNewSession(modelName, userId, documentId);
 
-            return await GetExistingSession(sessionId, userId);
+            var session = await GetExistingSession(sessionId, userId);
+
+            // ✅ FIX: Thêm logic cập nhật DocumentId ở đây
+            // Kiểm tra xem documentId có được cung cấp và có khác với cái đang được lưu không
+            if (documentId != null && session.DocumentId != documentId)
+            {
+                _logger.LogInformation("Updating DocumentId for session {SessionId} from '{OldDocId}' to '{NewDocId}'",
+                    sessionId, session.DocumentId ?? "N/A", documentId);
+
+                session.DocumentId = documentId;
+                _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
+            }
+
+            return session;
         }
 
         private async Task<ChatSession> CreateNewSession(string modelName, string userId, string documentId = null)
@@ -1652,6 +1665,7 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
                 UserId = userId,
                 ModelName = modelName,
                 CreatedBy = userId,
+                DocumentId = null, 
                 UpdatedBy = userId,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
@@ -1753,7 +1767,9 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
         {
             var result = await _unitOfWork.GetRepository<ChatSession>()
                  .GetListAsync(
-                     predicate: s => s.UserId == userId && s.IsActive && s.DocumentId == null,
+                     predicate: s => s.UserId == userId &&
+                                   s.IsActive &&
+                                   string.IsNullOrWhiteSpace(s.DocumentId), 
                      orderBy: q => q.OrderByDescending(s => s.LastActiveAt),
                      include: query => query.Include(s => s.Messages));
 
