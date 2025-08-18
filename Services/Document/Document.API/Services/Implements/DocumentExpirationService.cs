@@ -38,16 +38,21 @@ namespace Document.API.Services.Implements
         {
             _logger.LogInformation("Getting documents for expiration check before {WarningDate}", warningDate);
 
+            // ✅ FIX: Chỉ lấy documents có cả EffectiveFrom và EffectiveUntil
             var expiringDocuments = await _unitOfWork.GetRepository<DocumentVersion>()
                 .GetListAsync(
                     predicate: dv =>
                         dv.Status == StatusEnum.Approved &&
                         dv.IsOfficial &&
-                        dv.EffectiveUntil.HasValue &&
-                        dv.EffectiveUntil.Value <= warningDate,
+                        dv.EffectiveFrom.HasValue &&      // ✅ THÊM: Phải có EffectiveFrom
+                        dv.EffectiveUntil.HasValue &&     // ✅ THÊM: Phải có EffectiveUntil
+                        dv.EffectiveUntil.Value <= warningDate, // ✅ Logic cũ nhưng đã có validation
                     include: i => i.Include(dv => dv.DocumentFile)
                                    .ThenInclude(df => df.DocumentType)
                 );
+
+            _logger.LogInformation("Found {Count} documents with both EffectiveFrom and EffectiveUntil that need expiration check",
+                expiringDocuments.Count);
 
             var result = new List<DocumentExpirationDto>();
 
@@ -59,6 +64,7 @@ namespace Document.API.Services.Implements
                 .Where(id => id != Guid.Empty)
                 .Distinct()
                 .ToList();
+
             // Get department names from Auth service
             var departmentNames = await GetDepartmentNamesAsync(departmentIds);
 
@@ -74,18 +80,17 @@ namespace Document.API.Services.Implements
                     Version = doc.VersionName,
                     DepartmentId = departmentId,
                     DepartmentName = departmentName,
-                    EffectiveUntil = doc.EffectiveUntil,
+                    EffectiveFrom = doc.EffectiveFrom,     // ✅ THÊM: Include EffectiveFrom
+                    EffectiveUntil = doc.EffectiveUntil,   // ✅ Đã có
                     Status = doc.Status.ToString(),
                     DocumentLink = GenerateDocumentLink(doc.DocumentFile.Id, doc.Id),
                     IsPublic = doc.IsPublic,
                     CreatedBy = doc.DocumentFile.CreatedBy
                 });
             }
-
-            _logger.LogInformation("Found {Count} documents for expiration notification", result.Count);
             return result;
-        }
 
+        }
         private async Task<Dictionary<Guid, string>> GetDepartmentNamesAsync(List<Guid> departmentIds)
         {
             if (!departmentIds.Any())
@@ -202,7 +207,7 @@ namespace Document.API.Services.Implements
 
         private string GenerateDocumentLink(string documentId, string versionId)
         {
-            return $"/documents/{documentId}/versions/{versionId}";
+            return $"/document/{documentId}/versions/{versionId}";
         }
     }
 }

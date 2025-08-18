@@ -11,8 +11,7 @@ namespace Notification.API.Services.Interfaces
         Task ProcessNearingExpirationNotification(DocumentExpirationDto document);
         Task ProcessExpiredDocumentNotification(DocumentExpirationDto document);
         Task SendGeneralNotificationAsync(string templateName, string recipientEmail, string recipientName);
-        Task<bool> DismissNotificationByUserAsync(Guid logId, Guid userId);
-        Task<string> DismissNotificationByTokenAsync(Guid token);
+        Task ProcessWeeklyGroupedNotificationAsync(List<DocumentExpirationDto> documents, string departmentName);
 
     }
 }

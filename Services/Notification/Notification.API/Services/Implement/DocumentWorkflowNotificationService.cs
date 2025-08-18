@@ -432,7 +432,6 @@ namespace Notification.API.Services.Implement
             string? comments = null)
         {
             var dismissToken = Guid.NewGuid();
-            var dismissLink = $"https://docai.asia/api/notification/dismiss-by-token?token={dismissToken}";
 
             try
             {
@@ -443,24 +442,28 @@ namespace Notification.API.Services.Implement
                     _logger.LogError("Template '{TemplateName}' not found", templateName);
                     return;
                 }
-
+                var displayName = GetDisplayName(recipientEmail, recipientName);
+                var displaySubmitterName = GetDisplayName(submitterName, submitterName);
                 // ✅ FIX: Replace ALL placeholders manually to ensure no missing info
                 var emailBody = template.BodyHtml
-                    .Replace("{{RecipientEmail}}", SanitizeValue(recipientEmail))
-                    .Replace("{{RecipientName}}", SanitizeValue(recipientName))
-                    .Replace("{{UserEmail}}", SanitizeValue(recipientEmail))
-                    .Replace("{{UserName}}", SanitizeValue(recipientName))
-                    .Replace("{{DocumentTitle}}", SanitizeValue(documentTitle))
-                    .Replace("{{DocumentVersion}}", SanitizeValue(documentVersion))
-                    .Replace("{{SubmitterName}}", SanitizeValue(submitterName))
-                    .Replace("{{SubmittedBy}}", SanitizeValue(submitterName))
-                    .Replace("{{DepartmentName}}", SanitizeValue(departmentName))
-                    .Replace("{{SubmissionDate}}", submissionDate.ToString("dd/MM/yyyy HH:mm"))
-                    .Replace("{{SubmittedDate}}", submissionDate.ToString("dd/MM/yyyy"))
-                    .Replace("{{DocumentLink}}", SanitizeValue(documentLink))
-                    .Replace("{{DismissLink}}", SanitizeValue(dismissLink))
-                    .Replace("{{Comments}}", SanitizeValue(comments) ?? "Không có ghi chú")
-                    .Replace("{{EffectiveUntil}}", "N/A"); // Default for workflow notifications
+                 .Replace("{{RecipientEmail}}", SanitizeValue(recipientEmail))
+            .Replace("{{RecipientName}}", displayName)
+            .Replace("{{UserEmail}}", SanitizeValue(recipientEmail))
+            .Replace("{{UserName}}", displayName)                           // ✅ Main user name
+            .Replace("{{DocumentTitle}}", SanitizeValue(documentTitle))
+            .Replace("{{DocumentVersion}}", SanitizeValue(documentVersion))
+            .Replace("{{SubmitterName}}", displaySubmitterName)
+            .Replace("{{SubmittedBy}}", displaySubmitterName)               // ✅ Alternative placeholder
+            .Replace("{{ApprovedBy}}", displaySubmitterName)                // ✅ For approval emails
+            .Replace("{{ReviewedBy}}", displaySubmitterName)                // ✅ For rejection emails
+            .Replace("{{DepartmentName}}", SanitizeValue(departmentName))
+            .Replace("{{SubmissionDate}}", submissionDate.ToString("dd/MM/yyyy HH:mm"))
+            .Replace("{{SubmittedDate}}", submissionDate.ToString("dd/MM/yyyy"))
+            .Replace("{{ApprovalDate}}", submissionDate.ToString("dd/MM/yyyy HH:mm"))  // ✅ For approval
+            .Replace("{{ReviewDate}}", submissionDate.ToString("dd/MM/yyyy HH:mm"))    // ✅ For rejection
+            .Replace("{{DocumentLink}}", SanitizeValue(documentLink))
+            .Replace("{{Comments}}", SanitizeValue(comments) ?? "Không có ghi chú")
+            .Replace("{{EffectiveUntil}}", "N/A");
 
                 var emailSent = await _emailService.SendEmailAsync(recipientEmail, subject, emailBody);
 
@@ -476,7 +479,6 @@ namespace Notification.API.Services.Implement
                     Message = emailBody,
                     IsSent = emailSent,
                     SentAt = emailSent ? DateTime.UtcNow : null,
-                    DismissToken = dismissToken,
                     ErrorMessage = emailSent ? null : "Failed to send email notification"
                 };
 
@@ -501,9 +503,30 @@ namespace Notification.API.Services.Implement
                 throw;
             }
         }
-        /// <summary>
-        /// ✅ NEW: Safe string sanitization method
-        /// </summary>
+        private static string GetDisplayName(string? email, string? name)
+        {
+            // Priority: name -> email prefix -> fallback
+            if (!string.IsNullOrWhiteSpace(name) && name != "[Không có thông tin]")
+                return name.Trim();
+
+            if (!string.IsNullOrWhiteSpace(email))
+            {
+                try
+                {
+                    var emailPart = email.Split('@')[0];
+                    // Convert email to readable name: "john.doe" -> "John Doe"
+                    var readableName = emailPart.Replace(".", " ").Replace("_", " ");
+                    return System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(readableName.ToLower());
+                }
+                catch
+                {
+                    return email; // Fallback to full email
+                }
+            }
+
+            return "User"; // Final fallback
+        }
+
         private static string SanitizeValue(string? value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -511,6 +534,7 @@ namespace Notification.API.Services.Implement
 
             return value.Replace("<", "&lt;").Replace(">", "&gt;").Trim();
         }
+
 
         /// <summary>
         /// ✅ FIX: SignalR notification with proper userId handling
