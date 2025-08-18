@@ -68,5 +68,11 @@ public class CreateDraftRequestValidator : AbstractValidator<CreateDraftRequest>
 
         RuleFor(x => x.DocumentTypeId)
             .NotEmpty().WithMessage(ValidationMessageConstant.Document.DocumentTypeRequired);
+
+        // ✅ NEW FOLDER DESIGN: Encourage folder selection for better organization
+        RuleFor(x => x.FolderId)
+            .NotEmpty().WithMessage("Target folder selection is recommended for better document organization. Documents without a target folder will remain in drafts after approval.")
+            .When(x => string.IsNullOrEmpty(x.FolderId))
+            .WithSeverity(Severity.Warning); // This is a warning, not an error
     }
 }

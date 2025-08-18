@@ -1,6 +1,7 @@
 ﻿using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.Infrastructure.Paginate;
+using static Document.API.Services.Interfaces.IFolderAwareApprovalService; // ✅ FOLDER-AWARE: For ApprovalReviewResponse
 
 namespace Document.API.Services.Interfaces
 {
@@ -18,7 +19,10 @@ namespace Document.API.Services.Interfaces
         /// </summary>
         Task<IPaginate<PendingDocumentResponse>> GetApprovalQueueLegacyAsync(Document.Infrastructure.Filter.ApprovalQueueFilter filter, int pageNumber, int pageSize);
 
-        Task ReviewDocument(string versionId, ReviewDocumentRequest reviewDocumentRequest);
+        /// <summary>
+        /// ✅ FOLDER-AWARE: Review document (approve/reject) with folder-aware logic and complete Kernel Memory integration
+        /// </summary>
+        Task<ApprovalReviewResponse> ReviewDocument(string versionId, ReviewDocumentRequest reviewDocumentRequest);
         Task ClaimDocumentForReviewAsync(string versionId);
         Task ReleaseClaimAsync(string versionId);
         Task KeepClaimAliveAsync(string versionId);

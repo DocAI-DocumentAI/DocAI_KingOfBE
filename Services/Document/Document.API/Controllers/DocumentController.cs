@@ -27,8 +27,10 @@ public class DocumentController : ControllerBase
 
     /// <summary>
     /// Upload a new document draft for review and approval
-    /// </summary> 
-    /// <param name="request">Document draft creation request with file and metadata</param>
+    /// Documents are initially created in drafts folder and moved to the specified target folder upon approval
+    /// Use GET /api/folders/accessible?permissionType=Edit to get available target folders
+    /// </summary>
+    /// <param name="request">Document draft creation request with file and metadata. Include FolderId to specify target folder for approval.</param>
     /// <returns>Created document draft information</returns>
     [HttpPost(ApiEndPointConstant.Document.UploadDraft)]
     [CustomAuthorize(Roles = new[] { Roles.Editor })]
@@ -376,7 +378,10 @@ public class DocumentController : ControllerBase
                 ToDate = request.ToDate,
                 EffectiveFrom = request.EffectiveFrom,
                 EffectiveUntil = request.EffectiveUntil,
-                DepartmentId = request.DepartmentId
+                DepartmentId = request.DepartmentId,
+                FolderId = request.FolderId,
+                IncludeSubfolders = request.IncludeSubfolders,
+                FolderPath = request.FolderPath
             };
 
             var result = await _documentService.SemanticSearch(request, filter, pageNumber, pageSize);

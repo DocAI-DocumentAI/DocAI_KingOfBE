@@ -2,6 +2,7 @@
 using Document.Domain.Model;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -34,7 +35,22 @@ namespace Document.Domain.Models
         public DateTime? LastSubmitted { get; set; }
         public string? SubmittedBy { get; set; }
         public string DocumentFileId { get; set; }
+
+        /// <summary>
+        /// Folder that contains this document version
+        /// Required for new folder-based organization
+        /// </summary>
+        public string? FolderId { get; set; }
+
+        // Navigation Properties
         public DocumentFile DocumentFile { get; set; }
+
+        /// <summary>
+        /// Folder that contains this document version
+        /// </summary>
+        [ForeignKey(nameof(FolderId))]
+        public virtual Folder? Folder { get; set; }
+
         public virtual ICollection<DocumentTag> DocumentTags { get; set; }
         public virtual ApprovalClaim? ApprovalClaim { get; set; }
         public virtual ICollection<ApprovalLog> ApprovalLogs { get; set; }

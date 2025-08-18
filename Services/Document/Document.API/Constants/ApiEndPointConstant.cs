@@ -118,4 +118,87 @@ public class ApiEndPointConstant
         public const string BulkInitialize = "bulk-initialize";
         public const string ValidateDepartment = "validate-department/{departmentId}";
     }
+
+    public class Folder
+    {
+        // Folder CRUD operations
+        public const string GetDepartmentTree = ApiEndpoint + "/folders/tree";
+        public const string GetPublicTree = ApiEndpoint + "/folders/tree/public";
+        public const string GetFolderById = ApiEndpoint + "/folders/{folderId}";
+        public const string CreateFolder = ApiEndpoint + "/folders";
+        public const string UpdateFolder = ApiEndpoint + "/folders/{folderId}";
+        public const string MoveFolder = ApiEndpoint + "/folders/{folderId}/move";
+        public const string DeleteFolder = ApiEndpoint + "/folders/{folderId}";
+
+        // Folder navigation and search
+        public const string GetAccessibleFolders = ApiEndpoint + "/folders/accessible";
+        public const string GetFolderBreadcrumb = ApiEndpoint + "/folders/{folderId}/breadcrumb";
+        public const string SearchFolders = ApiEndpoint + "/folders/search";
+        public const string ValidateFolderName = ApiEndpoint + "/folders/validate-name";
+
+        // Folder permissions
+        public const string GetFolderPermissions = ApiEndpoint + "/folders/{folderId}/permissions";
+        public const string SetFolderPermission = ApiEndpoint + "/folders/{folderId}/permissions";
+        public const string RemoveFolderPermission = ApiEndpoint + "/folders/{folderId}/permissions/{permissionId}";
+        public const string CheckFolderPermission = ApiEndpoint + "/folders/{folderId}/permissions/check";
+
+        // Folder initialization
+        public const string InitializeDepartmentFolders = ApiEndpoint + "/folders/initialize/department";
+        public const string InitializePublicFolders = ApiEndpoint + "/folders/initialize/public";
+    }
+
+    public class FolderDocument
+    {
+        // Folder document browsing
+        public const string BrowseFolderContents = ApiEndpoint + "/folder-documents/browse";
+        public const string SearchFolderDocuments = ApiEndpoint + "/folder-documents/search";
+        public const string GetFolderDocuments = ApiEndpoint + "/folder-documents/{folderId}/list";
+        public const string GetRecentDocuments = ApiEndpoint + "/folder-documents/recent";
+        public const string GetFolderDocumentStats = ApiEndpoint + "/folder-documents/{folderId}/statistics";
+        public const string MoveDocument = ApiEndpoint + "/folder-documents/{documentVersionId}/move";
+        public const string GetDocumentFolderPath = ApiEndpoint + "/folder-documents/{documentVersionId}/folder-path";
+    }
+
+    public class FolderPermission
+    {
+        // Basic permission operations
+        public const string GetPermissions = ApiEndpoint + "/folder-permissions/{folderId}";
+        public const string SetPermission = ApiEndpoint + "/folder-permissions/{folderId}";
+        public const string RemovePermission = ApiEndpoint + "/folder-permissions/{folderId}/{permissionId}";
+        public const string CheckPermission = ApiEndpoint + "/folder-permissions/{folderId}/check";
+
+        // Folder initialization
+        public const string InitializeDepartmentFolders = ApiEndpoint + "/folder-permissions/initialize/department";
+        public const string InitializePublicFolders = ApiEndpoint + "/folder-permissions/initialize/public";
+    }
+
+    public class FolderPermissionAdvanced
+    {
+        // Advanced permission analysis
+        public const string GetPermissionBreakdown = ApiEndpoint + "/folder-permissions-advanced/{folderId}/breakdown";
+        public const string BulkSetPermissions = ApiEndpoint + "/folder-permissions-advanced/{folderId}/bulk";
+        public const string InheritPermissions = ApiEndpoint + "/folder-permissions-advanced/{folderId}/inherit";
+        public const string PropagatePermissions = ApiEndpoint + "/folder-permissions-advanced/{folderId}/propagate";
+        public const string GetUserAccessibleFolders = ApiEndpoint + "/folder-permissions-advanced/accessible";
+        public const string ValidateAction = ApiEndpoint + "/folder-permissions-advanced/{folderId}/validate";
+    }
+
+    public class FolderAwareApproval
+    {
+        // Folder-aware approval operations
+        public const string SubmitForApproval = ApiEndpoint + "/folder-approval/{versionId}/submit";
+        public const string ReviewDocument = ApiEndpoint + "/folder-approval/{versionId}/review";
+        public const string GetApprovalQueue = ApiEndpoint + "/folder-approval/queue";
+        public const string GetFolderApprovalHistory = ApiEndpoint + "/folder-approval/{folderId}/history";
+        public const string GetFolderApprovalStats = ApiEndpoint + "/folder-approval/{folderId}/statistics";
+        public const string BulkReviewDocuments = ApiEndpoint + "/folder-approval/bulk-review";
+        public const string GetPendingDocumentsInFolder = ApiEndpoint + "/folder-approval/{folderId}/pending";
+    }
+
+    public class FolderSync
+    {
+        public const string VerifySync = ApiEndpoint + "/folder-sync/verify";
+        public const string VerifyPermissions = ApiEndpoint + "/folder-sync/verify-permissions/{folderId}";
+        public const string SyncPermissions = ApiEndpoint + "/folder-sync/sync-permissions/{folderId}";
+    }
 }

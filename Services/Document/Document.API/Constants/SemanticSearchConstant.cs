@@ -142,6 +142,12 @@ public static class SemanticSearchConstant
         public const string FolderPath = "folderPath";
         public const string StorageLocation = "storageLocation";
 
+        // ✅ FOLDER-AWARE: Folder metadata for enhanced search and organization
+        public const string FolderId = "folderId";
+        public const string FolderName = "folderName";
+        public const string FolderDescription = "folderDescription";
+        public const string FolderIsPublic = "folderIsPublic";
+
         // Relationship metadata
         public const string ReplacementOfDocumentId = "replacementOfDocumentId";
         public const string ReplacedDocumentId = "replacedDocumentId";

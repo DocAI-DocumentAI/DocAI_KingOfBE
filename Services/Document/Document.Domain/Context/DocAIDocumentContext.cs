@@ -1,9 +1,11 @@
 ﻿using Document.Domain.Model;
 using Document.Domain.Models;
+using Document.Domain.Configuration;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -27,10 +29,16 @@ namespace Document.Domain.Context
         public DbSet<Bookmark> Bookmarks { get; set; }
         public DbSet<ApprovalClaim> ApprovalClaims { get; set; }
         public DbSet<GoogleOAuthToken> GoogleOAuthTokens { get; set; }
+        public DbSet<Folder> Folders { get; set; }
+        public DbSet<FolderPermission> FolderPermissions { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.HasPostgresExtension("vector");
+
+            // Apply all configurations from assembly
+            modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+
             base.OnModelCreating(modelBuilder);
 
             modelBuilder.Entity<ApprovalClaim>()
@@ -58,6 +66,8 @@ namespace Document.Domain.Context
             modelBuilder.Entity<GoogleOAuthToken>()
                 .HasIndex(t => t.TokenType)
                 .IsUnique(); // Ensure only one token per type (company or user)
+
+            // Note: Folder and FolderPermission configurations are now handled by configuration classes
 
             //// Configure cascade delete for DocumentChunks
             //modelBuilder.Entity<DocumentFile>()

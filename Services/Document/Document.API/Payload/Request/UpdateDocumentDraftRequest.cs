@@ -19,5 +19,11 @@
         /// Indicates whether the document is public (accessible to all employees) or private (restricted to same department)
         /// </summary>
         public bool IsPublic { get; set; } = false;
+
+        /// <summary>
+        /// Target folder ID where the document should be moved
+        /// If not specified, document will remain in current folder
+        /// </summary>
+        public string? FolderId { get; set; }
     }
 }

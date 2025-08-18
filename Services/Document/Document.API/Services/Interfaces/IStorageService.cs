@@ -9,7 +9,7 @@ namespace Document.API.Services.Interfaces
     public interface IStorageService
     {
         /// <summary>
-        /// Upload file to the configured storage provider
+        /// Upload file to the configured storage provider (legacy method for backward compatibility)
         /// </summary>
         /// <param name="file">File to upload</param>
         /// <param name="folder">Target folder</param>
@@ -19,6 +19,14 @@ namespace Document.API.Services.Interfaces
         Task<StorageUploadResponse> UploadFileAsync(IFormFile file, string folder, string departmentId = null, bool isPublic = false);
 
         /// <summary>
+        /// Upload file to a specific folder by folder ID (new folder-based method)
+        /// </summary>
+        /// <param name="file">File to upload</param>
+        /// <param name="folderId">Target folder ID from folder management system</param>
+        /// <returns>Unified upload response</returns>
+        Task<StorageUploadResponse> UploadFileToFolderAsync(IFormFile file, string folderId);
+
+        /// <summary>
         /// Delete file from storage
         /// </summary>
         /// <param name="fileIdentifier">File identifier (blob name for Azure, file ID for Google Drive)</param>
@@ -26,7 +34,7 @@ namespace Document.API.Services.Interfaces
         Task DeleteFileAsync(string fileIdentifier, string folder = null);
 
         /// <summary>
-        /// Move file between folders
+        /// Move file between folders (legacy method for backward compatibility)
         /// </summary>
         /// <param name="fileIdentifier">File identifier</param>
         /// <param name="sourceFolder">Source folder</param>
@@ -34,6 +42,14 @@ namespace Document.API.Services.Interfaces
         /// <param name="departmentId">Department ID (Google Drive only)</param>
         /// <param name="isPublic">Whether document is public (Google Drive only)</param>
         Task MoveFileAsync(string fileIdentifier, string sourceFolder, string destinationFolder, string departmentId = null, bool isPublic = false);
+
+        /// <summary>
+        /// Move file to a specific folder by folder ID (new folder-based method)
+        /// </summary>
+        /// <param name="fileIdentifier">File identifier</param>
+        /// <param name="targetFolderId">Target folder ID from folder management system</param>
+        /// <returns>Success status</returns>
+        Task<bool> MoveFileToFolderAsync(string fileIdentifier, string targetFolderId);
 
         /// <summary>
         /// Download file from storage

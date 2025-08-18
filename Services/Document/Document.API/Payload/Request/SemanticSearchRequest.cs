@@ -83,6 +83,24 @@ public class SemanticSearchRequest
     /// </summary>
     [FromQuery]
     public string? DepartmentId { get; set; }
+
+    /// <summary>
+    /// Filter by specific folder ID (optional)
+    /// </summary>
+    [FromQuery]
+    public string? FolderId { get; set; }
+
+    /// <summary>
+    /// Include documents from subfolders when folder ID is specified
+    /// </summary>
+    [FromQuery]
+    public bool IncludeSubfolders { get; set; } = false;
+
+    /// <summary>
+    /// Filter by folder path pattern (optional)
+    /// </summary>
+    [FromQuery]
+    public string? FolderPath { get; set; }
 }
 
 public enum SearchScope

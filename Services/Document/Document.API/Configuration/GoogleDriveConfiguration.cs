@@ -30,7 +30,7 @@ namespace Document.API.Configuration
         /// <summary>
         /// Application name for Google Drive API
         /// </summary>
-        public string ApplicationName { get; set; } = "DocAI Document Management";
+        public string ApplicationName { get; set; } = "TEST";
 
         /// <summary>
         /// Required scopes for Google Drive operations
@@ -62,11 +62,6 @@ namespace Document.API.Configuration
         public bool EnableDetailedLogging { get; set; } = true;
 
         /// <summary>
-        /// Folder mapping for document workflow states
-        /// </summary>
-        public GoogleDriveFolderMapping FolderMapping { get; set; } = new();
-
-        /// <summary>
         /// Whether to use company account for all write operations
         /// </summary>
         public bool UseCompanyAccountForWrites { get; set; } = true;
@@ -80,16 +75,5 @@ namespace Document.API.Configuration
         /// </summary>
         public string BaseUrl { get; set; } = "https://production.docai.asia";
     }
-
-    /// <summary>
-    /// Mapping of workflow states to Google Drive folder names
-    /// </summary>
-    public class GoogleDriveFolderMapping
-    {
-        public string Drafts { get; set; } = "drafts";
-        public string Pending { get; set; } = "pending";
-        public string Approved { get; set; } = "approved";
-        public string Archived { get; set; } = "archived";
-        public string Public { get; set; } = "public";
-    }
+   
 }

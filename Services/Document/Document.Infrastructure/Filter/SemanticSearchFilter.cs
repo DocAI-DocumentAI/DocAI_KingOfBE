@@ -19,6 +19,11 @@ public class SemanticSearchFilter : IFilter<DocumentVersion>
     public string? DepartmentId { get; set; }
     public bool? IsPublic { get; set; }
 
+    // Folder-based filters
+    public string? FolderId { get; set; }
+    public bool IncludeSubfolders { get; set; } = false;
+    public string? FolderPath { get; set; }
+
     public Expression<Func<DocumentVersion, bool>> ToExpression()
     {
         return documentVersion =>
@@ -33,6 +38,13 @@ public class SemanticSearchFilter : IFilter<DocumentVersion>
 
             // Access control filters (handled internally)
             (string.IsNullOrEmpty(DepartmentId) || documentVersion.DocumentFile.DepartmentId == DepartmentId) &&
-            (!IsPublic.HasValue || documentVersion.IsPublic == IsPublic);
+            (!IsPublic.HasValue || documentVersion.IsPublic == IsPublic) &&
+
+            // Folder-based filtering
+            (string.IsNullOrEmpty(FolderId) || documentVersion.FolderId == FolderId ||
+             (IncludeSubfolders && documentVersion.Folder != null && documentVersion.Folder.FullPath.StartsWith(
+                 documentVersion.Folder.FullPath + "/"))) &&
+            (string.IsNullOrEmpty(FolderPath) || (documentVersion.Folder != null &&
+             documentVersion.Folder.FullPath.ToLower().Contains(FolderPath.ToLower())));
     }
 }

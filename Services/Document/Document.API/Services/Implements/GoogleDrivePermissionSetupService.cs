@@ -15,23 +15,27 @@ namespace Document.API.Services.Implements
         private readonly IRequestClient<DepartmentEmployeeRequest> _departmentEmployeeClient;
         private readonly IRequestClient<CompanyEmployeeRequest> _companyEmployeeClient;
         private readonly IRequestClient<GetAllDepartmentsRequest> _getAllDepartmentsClient;
+        private readonly IFolderService _folderService;
         private readonly ILogger<GoogleDrivePermissionSetupService> _logger;
 
-        // Folder types that require department-based permissions
-        private readonly string[] _departmentFolderTypes = { "approved", "archived" };
-        private readonly string[] _publicFolderTypes = { "approved", "archived" };
+        // No functional folders created automatically
+        // Managers can create custom folders as needed using folder management APIs
+        private readonly string[] _departmentFolderTypes = { }; // Empty - no automatic functional folders
+        private readonly string[] _publicFolderTypes = { }; // Empty - no automatic functional folders
 
         public GoogleDrivePermissionSetupService(
             IGoogleDriveService googleDriveService,
             IRequestClient<DepartmentEmployeeRequest> departmentEmployeeClient,
             IRequestClient<CompanyEmployeeRequest> companyEmployeeClient,
             IRequestClient<GetAllDepartmentsRequest> getAllDepartmentsClient,
+            IFolderService folderService,
             ILogger<GoogleDrivePermissionSetupService> logger)
         {
             _googleDriveService = googleDriveService;
             _departmentEmployeeClient = departmentEmployeeClient;
             _companyEmployeeClient = companyEmployeeClient;
             _getAllDepartmentsClient = getAllDepartmentsClient;
+            _folderService = folderService;
             _logger = logger;
         }
 
@@ -50,11 +54,22 @@ namespace Document.API.Services.Implements
 
             try
             {
-                // 1. Create department folders
+                // 1. Create department folders in both Google Drive and database
                 var createdFolders = await CreateDepartmentFoldersAsync(departmentId);
                 response.CreatedFolders.AddRange(createdFolders);
 
-                // 2. Grant permissions to all department users
+                // 2. Create database folder entries
+                try
+                {
+                    var databaseFolderIds = await _folderService.InitializeDepartmentFoldersAsync(departmentId, departmentName);
+                    _logger.LogInformation("Created {Count} database folder entries for department {DepartmentId}", databaseFolderIds.Count, departmentId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to create database folder entries for department {DepartmentId}. Google Drive folders created successfully.", departmentId);
+                }
+
+                // 3. Grant permissions to all department users
                 foreach (var userEmail in userEmails)
                 {
                     try
@@ -161,11 +176,22 @@ namespace Document.API.Services.Implements
                 // 1. Initialize company folder structure
                 await _googleDriveService.InitializeCompanyFoldersAsync();
 
-                // 2. Create public folders
+                // 2. Create public folders in both Google Drive and database
                 var publicFolders = await CreatePublicFoldersAsync();
                 response.CreatedFolders.AddRange(publicFolders);
 
-                // 3. Get all departments or specific ones
+                // 3. Create database public folder entries
+                try
+                {
+                    var databasePublicFolderIds = await _folderService.InitializePublicFoldersAsync();
+                    _logger.LogInformation("Created {Count} database public folder entries", databasePublicFolderIds.Count);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to create database public folder entries. Google Drive folders created successfully.");
+                }
+
+                // 4. Get all departments or specific ones
                 var departments = await GetDepartmentsForSetupAsync(specificDepartmentIds);
 
                 foreach (var department in departments)
@@ -401,8 +427,10 @@ namespace Document.API.Services.Implements
                 }
                 else
                 {
-                    // Get all departments from Auth service
-                    var departmentsResponse = await _getAllDepartmentsClient.GetResponse<GetAllDepartmentsResponse>(new GetAllDepartmentsRequest());
+                    // Get all departments from Auth service with extended timeout
+                    var departmentsResponse = await _getAllDepartmentsClient.GetResponse<GetAllDepartmentsResponse>(
+                        new GetAllDepartmentsRequest(),
+                        timeout: TimeSpan.FromMinutes(2));
 
                     if (!departmentsResponse.Message.Success || departmentsResponse.Message.Departments == null)
                     {
@@ -463,7 +491,8 @@ namespace Document.API.Services.Implements
             try
             {
                 var response = await _departmentEmployeeClient.GetResponse<DepartmentEmployeeResponse>(
-                    new DepartmentEmployeeRequest { DepartmentId = departmentId });
+                    new DepartmentEmployeeRequest { DepartmentId = departmentId },
+                    timeout: TimeSpan.FromMinutes(1));
 
                 return response.Message.EmployeeEmails.Select(email => new UserGoogleDriveInfo
                 {

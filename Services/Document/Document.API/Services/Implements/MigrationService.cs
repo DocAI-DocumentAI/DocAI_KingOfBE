@@ -229,8 +229,8 @@ namespace Document.API.Services.Implements
                 // Initialize company folders
                 await _googleDriveService.InitializeCompanyFoldersAsync();
 
-                // Migrate each folder
-                var folders = new[] { "drafts", "pending", "approved", "archived" };
+                // Migrate only drafts folder (approved documents go to functional folders)
+                var folders = new[] { "drafts" };
                 
                 foreach (var folder in folders)
                 {

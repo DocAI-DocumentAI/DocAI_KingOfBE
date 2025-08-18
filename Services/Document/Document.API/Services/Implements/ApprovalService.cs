@@ -2,7 +2,9 @@
 using Document.API.Constants;
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
+using Document.API.Payload.Response.Folder; // ✅ FOLDER-AWARE: For FolderSummaryResponse
 using Document.API.Services.Interfaces;
+using static Document.API.Services.Interfaces.IFolderAwareApprovalService; // ✅ FOLDER-AWARE: For ApprovalReviewResponse
 using Document.API.Utils;
 using Document.Domain.Enums;
 using Document.Domain.Models;
@@ -325,7 +327,10 @@ namespace Document.API.Services.Implements
             return enrichedResponse;
         }
 
-        public async Task ReviewDocument(string versionId, ReviewDocumentRequest request)
+        /// <summary>
+        /// ✅ FOLDER-AWARE: Review document (approve/reject) with folder-aware logic and complete Kernel Memory integration
+        /// </summary>
+        public async Task<ApprovalReviewResponse> ReviewDocument(string versionId, ReviewDocumentRequest request)
         {
             // Get current user ID and department ID from JWT token
             var userId = GetCurrentUserId();
@@ -334,7 +339,9 @@ namespace Document.API.Services.Implements
             var versionToReview = await _unitOfWork.GetRepository<DocumentVersion>()
             .SingleOrDefaultAsync(
                 predicate: v => v.Id == versionId,
-                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                              .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                              .Include(v => v.Folder) // ✅ FOLDER-AWARE: Include folder information
             ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
             var documentFile = versionToReview.DocumentFile;
 
@@ -412,10 +419,11 @@ namespace Document.API.Services.Implements
                         var replacedApprovedVersion = replacedDocument.DocumentVersions.FirstOrDefault(v => v.Status == StatusEnum.Approved);
                         if (replacedApprovedVersion != null)
                         {
-                            // Move replaced document to archived folder
+                            // ✅ NEW FOLDER DESIGN: Archive replaced document in-place (no folder movement)
+                            // Documents are archived by status change, not by moving to archive folders
                             var replacedFileId = replacedApprovedVersion.GoogleDriveFileId ?? replacedApprovedVersion.FilePath;
-                            await _storageService.MoveFileAsync(replacedFileId, StorageFolderConstant.Approved, StorageFolderConstant.Archived,
-                                replacedDocument.DepartmentId, replacedApprovedVersion.IsPublic);
+                            _logger.LogInformation("Archiving replaced document {FileId} in-place (no folder movement required)", replacedFileId);
+                            // No file movement needed - document stays in its functional folder but status changes to archived
 
                             // Remove replaced document from Kernel Memory instead of archiving its embeddings
                             var replacedVersionKmId = replacedApprovedVersion.Id.ToString();
@@ -450,10 +458,11 @@ namespace Document.API.Services.Implements
                     // If there's a previous approved version of the SAME document, archive it
                     if (previousApprovedVersion != null)
                     {
-                        // Use Google Drive file ID for move operation
+                        // ✅ NEW FOLDER DESIGN: Archive previous version in-place (no folder movement)
+                        // Previous versions are archived by status change, not by moving to archive folders
                         var previousFileId = previousApprovedVersion.GoogleDriveFileId ?? previousApprovedVersion.FilePath;
-                        await _storageService.MoveFileAsync(previousFileId, StorageFolderConstant.Approved, StorageFolderConstant.Archived,
-                            previousApprovedVersion.DocumentFile.DepartmentId, previousApprovedVersion.IsPublic);
+                        _logger.LogInformation("Archiving previous version {FileId} in-place (no folder movement required)", previousFileId);
+                        // No file movement needed - document stays in its functional folder but status changes to archived
                         // FilePath remains the Google Drive file ID - no change needed
 
                         // Remove previous approved version embeddings immediately (no archiving)
@@ -476,10 +485,28 @@ namespace Document.API.Services.Implements
                     // ========================================
                     // CURRENT DOCUMENT APPROVAL
                     // ========================================
-                    // Move the current document from Pending to Approved folder
+                    // ✅ FOLDER-AWARE: Move document from drafts to target functional folder
+                    // Documents stay in drafts during pending status, then move to functional folders when approved
                     var currentFileId = versionToReview.GoogleDriveFileId ?? versionToReview.FilePath;
-                    await _storageService.MoveFileAsync(currentFileId, StorageFolderConstant.Pending, StorageFolderConstant.Approved,
-                        versionToReview.DocumentFile.DepartmentId, versionToReview.IsPublic);
+
+                    // ✅ FOLDER-AWARE: Move to target functional folder if specified in request
+                    if (!string.IsNullOrEmpty(request.TargetFolderId))
+                    {
+                        // Get target folder information
+                        var targetFolder = await _unitOfWork.GetRepository<Folder>()
+                            .SingleOrDefaultAsync(predicate: f => f.Id == request.TargetFolderId);
+
+                        if (targetFolder != null && !string.IsNullOrEmpty(targetFolder.GoogleDriveFolderId))
+                        {
+                            // Move file to target functional folder in Google Drive
+                            await _storageService.MoveFileToFolderAsync(currentFileId, targetFolder.GoogleDriveFolderId);
+                            _logger.LogInformation("Moved approved document {FileId} to functional folder {FolderName}",
+                                currentFileId, targetFolder.Name);
+
+                            // ✅ FOLDER-AWARE: Update folder ID in database
+                            versionToReview.FolderId = request.TargetFolderId;
+                        }
+                    }
                     // FilePath remains the Google Drive file ID - no change needed
 
                     var fileExists = false;
@@ -533,7 +560,7 @@ namespace Document.API.Services.Implements
                     // Mark the current document as approved and official
                     versionToReview.Status = StatusEnum.Approved;
                     versionToReview.IsOfficial = true;
-                    logAction = ApprovalAction.Approve;
+                    logAction = ApprovalAction.Approved;
 
                     // ========================================
                     // KERNEL MEMORY INDEXING
@@ -631,6 +658,18 @@ namespace Document.API.Services.Implements
                     // Optional: permission level placeholder (readers via Drive, editors via company account)
                     tags.Add(SemanticSearchConstant.MemoryTags.PermissionLevel, versionToReview.IsPublic ? "company-read" : "department-read");
 
+                    // ✅ FOLDER-AWARE: Add folder metadata for enhanced search and organization
+                    if (versionToReview.Folder != null)
+                    {
+                        tags.Add(SemanticSearchConstant.MemoryTags.FolderId, versionToReview.Folder.Id);
+                        tags.Add(SemanticSearchConstant.MemoryTags.FolderName, versionToReview.Folder.Name);
+                        if (!string.IsNullOrWhiteSpace(versionToReview.Folder.FullPath))
+                            tags.Add(SemanticSearchConstant.MemoryTags.FolderPath, versionToReview.Folder.FullPath);
+                        if (!string.IsNullOrWhiteSpace(versionToReview.Folder.Description))
+                            tags.Add(SemanticSearchConstant.MemoryTags.FolderDescription, versionToReview.Folder.Description);
+                        tags.Add(SemanticSearchConstant.MemoryTags.FolderIsPublic, versionToReview.Folder.IsPublic.ToString().ToLower());
+                    }
+
                     if (versionToReview.DocumentTags != null)
                     {
                         foreach (var docTag in versionToReview.DocumentTags)
@@ -652,30 +691,31 @@ namespace Document.API.Services.Implements
                 {
                     _logger.LogError(ex, "An error occurred during the approval process for version {VersionId}. Reverting storage changes.", versionId);
 
-                    // Rollback replaced document if it was moved
+                    // ✅ NEW FOLDER DESIGN: No file movement rollback needed
+                    // Documents are archived in-place and current document stays in drafts until approved
+                    _logger.LogInformation("No file movement rollback needed - documents remain in their original locations");
+
+                    // Rollback replaced document status (no file movement)
                     if (replacedDocument != null)
                     {
                         var replacedApprovedVersion = replacedDocument.DocumentVersions.FirstOrDefault(v => v.Status == StatusEnum.Approved);
                         if (replacedApprovedVersion != null)
                         {
                             var replacedFileId = replacedApprovedVersion.GoogleDriveFileId ?? replacedApprovedVersion.FilePath;
-                            await _storageService.MoveFileAsync(replacedFileId, StorageFolderConstant.Archived, StorageFolderConstant.Approved,
-                                replacedDocument.DepartmentId, replacedApprovedVersion.IsPublic);
+                            _logger.LogInformation("Rollback: Replaced document {FileId} status will be reverted by database rollback", replacedFileId);
                         }
                     }
 
-                    // Rollback previous version if it was moved
+                    // Rollback previous version status (no file movement)
                     if (previousApprovedVersion != null)
                     {
                         var previousFileId = previousApprovedVersion.GoogleDriveFileId ?? previousApprovedVersion.FilePath;
-                        await _storageService.MoveFileAsync(previousFileId, StorageFolderConstant.Archived, StorageFolderConstant.Approved,
-                            previousApprovedVersion.DocumentFile.DepartmentId, previousApprovedVersion.IsPublic);
+                        _logger.LogInformation("Rollback: Previous version {FileId} status will be reverted by database rollback", previousFileId);
                     }
 
-                    // Rollback current document
+                    // Rollback current document (no file movement needed - stays in drafts)
                     var currentFileId = versionToReview.GoogleDriveFileId ?? versionToReview.FilePath;
-                    await _storageService.MoveFileAsync(currentFileId, StorageFolderConstant.Approved, StorageFolderConstant.Pending,
-                        versionToReview.DocumentFile.DepartmentId, versionToReview.IsPublic);
+                    _logger.LogInformation("Rollback: Current document {FileId} remains in drafts folder", currentFileId);
 
                     throw;
                 }
@@ -694,7 +734,7 @@ namespace Document.API.Services.Implements
                     throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, "Rejection comments must be at least 10 characters long (BR-232)");
 
                 versionToReview.Status = StatusEnum.Rejected;
-                logAction = ApprovalAction.Reject;
+                logAction = ApprovalAction.Rejected;
 
                 _logger.LogInformation("Document {VersionId} rejected with comments: {Comments}", versionId, request.Comments);
             }
@@ -810,6 +850,39 @@ namespace Document.API.Services.Implements
             _logger.LogInformation("Manager {UserId} has {Action} document version {VersionId}", userId, logAction, versionId);
 
             // ========================================
+            // CREATE FOLDER-AWARE RESPONSE
+            // ========================================
+            var response = new ApprovalReviewResponse
+            {
+                DocumentVersionId = versionId,
+                DocumentTitle = versionToReview.Title,
+                Decision = request.IsApproved ? "Approved" : "Rejected",
+                Comments = request.Comments,
+                PreviousStatus = "Pending",
+                NewStatus = versionToReview.Status.ToString(),
+                ReviewedBy = userId,
+                ReviewedAt = DateTime.UtcNow,
+                ApprovalLogId = approvalLog.Id
+            };
+
+            // ✅ FOLDER-AWARE: Add source folder information
+            if (versionToReview.Folder != null)
+            {
+                response.SourceFolder = MapToFolderSummary(versionToReview.Folder);
+            }
+
+            // ✅ FOLDER-AWARE: Add target folder information if moved
+            if (request.IsApproved && !string.IsNullOrEmpty(request.TargetFolderId))
+            {
+                var targetFolder = await _unitOfWork.GetRepository<Folder>()
+                    .SingleOrDefaultAsync(predicate: f => f.Id == request.TargetFolderId);
+                if (targetFolder != null)
+                {
+                    response.TargetFolder = MapToFolderSummary(targetFolder);
+                }
+            }
+
+            // ========================================
             // NOTIFICATION SYSTEM
             // ========================================
             // Send notifications to document owner and department users
@@ -886,6 +959,32 @@ namespace Document.API.Services.Implements
                 _logger.LogError(ex, "Failed to send notifications for document {VersionId}", versionId);
                 // Don't fail the entire operation for notification errors
             }
+
+            // ✅ FOLDER-AWARE: Return the response with folder information
+            return response;
+        }
+
+        /// <summary>
+        /// ✅ FOLDER-AWARE: Helper method to map Folder entity to FolderSummaryResponse
+        /// </summary>
+        private static FolderSummaryResponse MapToFolderSummary(Folder folder)
+        {
+            return new FolderSummaryResponse
+            {
+                Id = folder.Id,
+                Name = folder.Name,
+                Description = folder.Description,
+                FullPath = folder.FullPath,
+                Level = folder.Level,
+                IsSystemFolder = folder.IsSystemFolder,
+                IsPublic = folder.IsPublic,
+                FolderType = folder.FolderType,
+                SubFolderCount = folder.SubFolderCount,
+                DocumentCount = folder.DocumentCount,
+                DepartmentId = folder.DepartmentId,
+                CreatedTime = folder.CreatedTime,
+                CreatedBy = folder.CreatedBy
+            };
         }
 
         public async Task SubmitForApprovalAsync(string versionId)
@@ -915,14 +1014,13 @@ namespace Document.API.Services.Implements
             version.LastUpdatedTime = DateTime.UtcNow; // Update timestamp
             version.LastSubmitted = DateTime.UtcNow; // Track submission time for BR-214 (7-day timeout)
 
-            //4. Move the document file to the "Pending" folder in Google Drive
+            //4. ✅ NEW FOLDER DESIGN: Keep document in drafts folder during pending status
+            // Documents stay in drafts until approved, then move directly to functional folders
             var fileId = version.GoogleDriveFileId ?? version.FilePath;
             try
             {
-                await _storageService.MoveFileAsync(fileId, StorageFolderConstant.Drafts, StorageFolderConstant.Pending,
-                    version.DocumentFile.DepartmentId, version.IsPublic);
-                _logger.LogInformation("Successfully moved file {FileId} from Drafts to Pending folder", fileId);
-                // FilePath remains the Google Drive file ID - no change needed
+                _logger.LogInformation("Document {FileId} submitted for approval - staying in drafts folder until approved", fileId);
+                // No file movement needed - document stays in drafts during pending status
 
                 //5. Save changes to the database
                 await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(version);
@@ -933,12 +1031,12 @@ namespace Document.API.Services.Implements
             {
                 _logger.LogError(ex, "Failed to submit document {VersionId} for approval", versionId);
 
-                // Rollback: Move file back to drafts if database commit failed
+                // ✅ NEW FOLDER DESIGN: No rollback needed since file never moved from drafts
+                // Document stays in drafts folder during pending status, so no rollback required
+                _logger.LogInformation("No file rollback needed - document {FileId} remained in drafts folder", fileId);
                 try
                 {
-                    await _storageService.MoveFileAsync(fileId, StorageFolderConstant.Pending, StorageFolderConstant.Drafts,
-                        version.DocumentFile.DepartmentId, version.IsPublic);
-                    _logger.LogInformation("Successfully rolled back file {FileId} to Drafts folder", fileId);
+                    // No file movement rollback needed
                 }
                 catch (Exception rollbackEx)
                 {
@@ -1086,7 +1184,7 @@ namespace Document.API.Services.Implements
                     // Create approval log for auto-rejection
                     var approvalLog = new ApprovalLog
                     {
-                        Action = ApprovalAction.Reject,
+                        Action = ApprovalAction.Rejected,
                         Comments = "Automatically rejected due to 7-day timeout (BR-214)",
                         CreatedBy = "system",
                         LastUpdatedBy = "system",
