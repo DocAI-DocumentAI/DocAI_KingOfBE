@@ -43,7 +43,7 @@ namespace ChatBox.API.Services.Implement
         {
             try
             {
-                var kernel = await GetKernelAsync(modelName, requireActive); // ← ADD requireActive!
+                var kernel = await GetKernelAsync(modelName, requireActive);
                 var config = await GetAIConfigurationAsync(modelName, requireActive);
                 var chatService = kernel.GetRequiredService<IChatCompletionService>();
 
@@ -53,10 +53,17 @@ namespace ChatBox.API.Services.Implement
                 var result = await ExecuteChatCompletion(chatService, optimizedHistory, executionSettings);
                 return ProcessChatResult(result, chatService, executionSettings, optimizedHistory);
             }
+            catch (Microsoft.SemanticKernel.HttpOperationException ex) when (ex.Message.Contains("429"))
+            {
+                _logger.LogWarning("Rate limit exceeded for model {ModelName}: {Error}", modelName, ex.Message);
+                // ✅ Throw thay vì return error message
+                throw new InvalidOperationException("Máy chủ AI đang quá tải. Vui lòng thử lại sau vài giây.");
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to get chat response for model {ModelName}", modelName);
-                return MessageConstant.AI.ResponseGenerationFailed;
+                // ✅ Throw thay vì return MessageConstant.AI.ResponseGenerationFailed
+                throw new InvalidOperationException("Dịch vụ AI tạm thời gặp sự cố. Vui lòng thử lại.");
             }
         }
         public async Task<string> GetChatResponseAsync(string modelName, ChatHistory chatHistory)
