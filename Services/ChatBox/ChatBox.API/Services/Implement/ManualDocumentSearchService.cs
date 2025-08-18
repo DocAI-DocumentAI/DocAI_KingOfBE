@@ -19,10 +19,7 @@ namespace ChatBox.API.Services.Implement
             _cacheService = cacheService;
         }
 
-        /// <summary>
-        /// ✅ ENHANCED: Get raw document content with intelligent caching and query optimization
-        /// </summary>
-        public async Task<string> SearchAndAnswerAsync(string query, string userId, string? documentId = null) // ✅ THÊM documentId
+        public async Task<string> SearchAndAnswerAsync(string query, string userId, string? documentId = null)
         {
             if (string.IsNullOrWhiteSpace(query))
             {
@@ -33,9 +30,8 @@ namespace ChatBox.API.Services.Implement
             try
             {
                 var simplifiedQuery = SimplifyQueryForCache(query);
-                var cacheKey = $"doc_raw_minimal_v2_{simplifiedQuery.GetHashCode():X}_{userId}";
+                var cacheKey = $"doc_raw_minimal_v3_{simplifiedQuery.GetHashCode():X}_{userId}";
 
-                // ✅ ENHANCED: Try cache first with better error handling
                 try
                 {
                     var cached = await _cacheService.GetStringAsync(cacheKey);
@@ -59,17 +55,13 @@ namespace ChatBox.API.Services.Implement
                 _logger.LogInformation("🔍 [MINIMAL] Performing RAW CONTENT search for user: {UserId}, query: '{Query}', DocumentId: {DocumentId}",
                           userId, query.Length > 50 ? query.Substring(0, 50) + "..." : query, documentId ?? "None");
 
-
-                // ✅ ENHANCED: Get raw content with better error handling
                 var rawContent = await _documentSearchService.GetRawContentAsync(query, userId, documentId);
 
-                // ✅ ENHANCED: Better result validation and logging
                 if (!string.IsNullOrEmpty(rawContent))
                 {
                     _logger.LogInformation("✅ [MINIMAL] Found RAW CONTENT: {Length} chars for user: {UserId}",
                         rawContent.Length, userId);
 
-                    // ✅ ENHANCED: Validate content quality before caching
                     if (IsContentWorthCaching(rawContent))
                     {
                         var cacheHours = DetermineCacheHoursByContentQuality(rawContent);
@@ -83,27 +75,33 @@ namespace ChatBox.API.Services.Implement
                 }
                 else
                 {
-                    _logger.LogInformation("❌ [MINIMAL] No relevant documents found for user: {UserId}, query: '{Query}'",
+                    _logger.LogInformation("ℹ️ [MINIMAL] No relevant documents found for user: {UserId}, query: '{Query}'",
                         userId, simplifiedQuery);
 
-                    // ✅ Cache negative results for shorter time
                     await CacheResultSafely(cacheKey, "NO_RESULT", TimeSpan.FromMinutes(30));
                 }
 
                 return rawContent;
             }
+            catch (TimeoutException ex)
+            {
+                _logger.LogError(ex, "⏰ [MINIMAL] Search timeout");
+                throw;
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "💥 [MINIMAL] Service error");
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "💥 [MINIMAL] Search error for user: {UserId}, query: '{Query}' - {ErrorType}: {ErrorMessage}",
                     userId, query, ex.GetType().Name, ex.Message);
-                return null;
+                throw new InvalidOperationException($"Document search failed: {ex.Message}", ex);
             }
         }
 
-        /// <summary>
-        /// ✅ ENHANCED: Get raw content with sources and better error handling
-        /// </summary>
-        public async Task<(string RawContent, List<DocumentInfo> Sources)> SearchWithSourcesAsync(string query, string userId, string? documentId = null) // ✅ THÊM documentId
+        public async Task<(string RawContent, List<DocumentInfo> Sources)> SearchWithSourcesAsync(string query, string userId, string? documentId = null)
         {
             if (string.IsNullOrWhiteSpace(query))
             {
@@ -125,22 +123,17 @@ namespace ChatBox.API.Services.Implement
                 }
                 else
                 {
-                    _logger.LogInformation("❌ [SOURCES] No content found for user: {UserId}", userId);
+                    _logger.LogInformation("ℹ️ [SOURCES] No content found for user: {UserId}", userId);
                 }
 
                 return (rawContent, sources ?? new List<DocumentInfo>());
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "💥 [SOURCES] Error in search with sources for user: {UserId} - {ErrorType}: {ErrorMessage}",
-                    userId, ex.GetType().Name, ex.Message);
-                return (null, new List<DocumentInfo>());
+                throw;
             }
         }
 
-        /// <summary>
-        /// ✅ ENHANCED: Intelligent document search detection
-        /// </summary>
         public bool ShouldSearchDocuments(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
@@ -150,7 +143,6 @@ namespace ChatBox.API.Services.Implement
 
             var trimmedMessage = message.Trim();
 
-            // ✅ ENHANCED: Minimum length check
             if (trimmedMessage.Length < 3)
             {
                 return false;
@@ -158,7 +150,6 @@ namespace ChatBox.API.Services.Implement
 
             var lowerMessage = trimmedMessage.ToLowerInvariant();
 
-            // ✅ ENHANCED: Skip greetings and small talk with better patterns
             var skipPatterns = new[]
             {
                 "chào", "hello", "hi", "hey", "xin chào",
@@ -172,26 +163,16 @@ namespace ChatBox.API.Services.Implement
                 return false;
             }
 
-            // ✅ ENHANCED: Better document-related keyword detection
             var documentKeywords = new[]
             {
-                // Core document terms
                 "tài liệu", "văn bản", "quy định", "hướng dẫn",
                 "thông tư", "nghị định", "quyết định", "chỉ thị",
-                
-                // Process and procedure terms
                 "thủ tục", "quy trình", "hồ sơ", "đăng ký",
                 "đơn xin", "giấy phép", "chứng nhận",
-                
-                // Contract and legal terms
                 "hợp đồng", "thỏa thuận", "cam kết", "bảo hiểm",
                 "lương", "tiền lương", "chế độ", "chính sách",
-                
-                // Administrative terms
                 "lao động", "nhân sự", "quản lý", "điều hành",
                 "báo cáo", "thống kê", "đánh giá",
-                
-                // Department and organizational terms
                 "phòng ban", "bộ phận", "đơn vị", "cơ quan",
                 "công ty", "tổ chức", "ban", "sở"
             };
@@ -203,11 +184,9 @@ namespace ChatBox.API.Services.Implement
                 "thời hạn", "hạn chót", "deadline", "khi nào"
             };
 
-            // ✅ Check for document keywords or question patterns
             bool hasDocumentKeyword = documentKeywords.Any(k => lowerMessage.Contains(k));
             bool hasQuestionPattern = questionKeywords.Any(k => lowerMessage.Contains(k));
 
-            // ✅ ENHANCED: More intelligent detection
             if (hasDocumentKeyword)
             {
                 return true;
@@ -218,7 +197,6 @@ namespace ChatBox.API.Services.Implement
                 return true;
             }
 
-            // ✅ Check for procedural language patterns
             var proceduralPatterns = new[]
             {
                 "cần làm", "phải làm", "cần thực hiện",
@@ -233,11 +211,6 @@ namespace ChatBox.API.Services.Implement
             return false;
         }
 
-        #region Helper Methods
-
-        /// <summary>
-        /// ✅ ENHANCED: Better query simplification for caching
-        /// </summary>
         private string SimplifyQueryForCache(string query)
         {
             if (string.IsNullOrWhiteSpace(query))
@@ -249,7 +222,6 @@ namespace ChatBox.API.Services.Implement
                 .Replace(",", "").Replace(";", "").Replace(":", "")
                 .Replace("  ", " ");
 
-            // ✅ Remove common Vietnamese greeting words
             var wordsToRemove = new[] { "xin chào", "chào", "hello", "hi", "cảm ơn", "thank" };
             foreach (var word in wordsToRemove)
             {
@@ -259,19 +231,14 @@ namespace ChatBox.API.Services.Implement
             return simplified.Trim();
         }
 
-        /// <summary>
-        /// ✅ ENHANCED: Determine if content is worth caching
-        /// </summary>
         private bool IsContentWorthCaching(string content)
         {
             if (string.IsNullOrWhiteSpace(content))
                 return false;
 
-            // ✅ Minimum content length
             if (content.Length < 50)
                 return false;
 
-            // ✅ Check for meaningful content (not just error messages)
             var errorIndicators = new[] { "error", "lỗi", "không tìm thấy", "not found" };
             var lowerContent = content.ToLowerInvariant();
 
@@ -281,38 +248,28 @@ namespace ChatBox.API.Services.Implement
             return true;
         }
 
-        /// <summary>
-        /// ✅ ENHANCED: Determine cache duration based on content quality
-        /// </summary>
         private int DetermineCacheHoursByContentQuality(string content)
         {
             if (string.IsNullOrEmpty(content))
                 return 1;
 
-            // ✅ Base cache time
             var baseHours = 2;
 
-            // ✅ Adjust based on content length (longer content = cache longer)
             if (content.Length > 1000) baseHours += 1;
             if (content.Length > 3000) baseHours += 1;
             if (content.Length > 5000) baseHours += 2;
 
-            // ✅ Check for structured content indicators
             var structureIndicators = new[] { "điều", "khoản", "mục", "phần", "chương", "bước" };
             var lowerContent = content.ToLowerInvariant();
 
             if (structureIndicators.Any(indicator => lowerContent.Contains(indicator)))
             {
-                baseHours += 2; // Structured content is more valuable
+                baseHours += 2;
             }
 
-            // ✅ Cap at reasonable maximum
-            return Math.Min(baseHours, 8); // Max 8 hours
+            return Math.Min(baseHours, 8);
         }
 
-        /// <summary>
-        /// ✅ ENHANCED: Safe caching with error handling
-        /// </summary>
         private async Task CacheResultSafely(string cacheKey, string value, TimeSpan expiration)
         {
             try
@@ -324,7 +281,5 @@ namespace ChatBox.API.Services.Implement
                 _logger.LogWarning(ex, "💾 [CACHE] Failed to cache result for key: {CacheKey}", cacheKey);
             }
         }
-
-        #endregion
     }
 }

@@ -37,32 +37,40 @@ namespace Notification.API.Services.Implement
 
         public async Task ScanAndProcessDocumentsAsync()
         {
-            _logger.LogInformation("Starting document expiration scan");
+            var scanId = Guid.NewGuid().ToString("N")[..8];
+            _logger.LogInformation("Starting document expiration scan - ScanId: {ScanId}", scanId);
 
             try
             {
                 var config = await _configService.GetNotificationConfigAsync();
                 if (!config.QuartzEnabled)
                 {
-                    _logger.LogInformation("Document scanning is disabled");
+                    _logger.LogInformation("Document scanning is disabled - ScanId: {ScanId}", scanId);
                     return;
                 }
 
                 var warningDate = DateTime.UtcNow.AddDays(config.WarningThresholdDays);
+                _logger.LogInformation("Fetching documents expiring before {WarningDate} - ScanId: {ScanId}",
+                    warningDate, scanId);
+
                 var documents = await GetExpiringDocumentsAsync(warningDate);
 
                 if (!documents.Any())
                 {
-                    _logger.LogInformation("No documents require expiration notifications");
+                    _logger.LogInformation("No documents require expiration notifications - ScanId: {ScanId}", scanId);
                     return;
                 }
 
-                await ProcessDocumentsAsync(documents);
-                _logger.LogInformation("Document expiration scan completed successfully");
+                _logger.LogInformation("Found {DocumentCount} documents to process - ScanId: {ScanId}",
+                    documents.Count, scanId);
+
+                await ProcessDocumentsAsync(documents, scanId);
+                _logger.LogInformation("Document expiration scan completed successfully - ScanId: {ScanId}", scanId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during document expiration scan");
+                _logger.LogError(ex, "Error during document expiration scan - ScanId: {ScanId}", scanId);
+                throw;
             }
         }
 
@@ -70,7 +78,7 @@ namespace Notification.API.Services.Implement
         {
             try
             {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(ApiConstants.EMAIL_TIMEOUT_SECONDS));
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
 
                 var response = await _documentClient.GetResponse<GetExpiringDocumentsResponse>(
                     new GetExpiringDocumentsCommand { WarningDate = warningDate },
@@ -79,11 +87,17 @@ namespace Notification.API.Services.Implement
 
                 if (response.Message.Success)
                 {
-                    _logger.LogInformation("Retrieved {Count} documents for expiration check", response.Message.Documents.Count);
+                    _logger.LogInformation("Retrieved {Count} documents for expiration check",
+                        response.Message.Documents.Count);
                     return response.Message.Documents;
                 }
 
                 _logger.LogWarning("Document service returned error: {Error}", response.Message.ErrorMessage);
+                return new List<DocumentExpirationDto>();
+            }
+            catch (RequestTimeoutException)
+            {
+                _logger.LogError("Timeout getting expiring documents from Document service");
                 return new List<DocumentExpirationDto>();
             }
             catch (Exception ex)
@@ -93,76 +107,168 @@ namespace Notification.API.Services.Implement
             }
         }
 
-        private async Task ProcessDocumentsAsync(List<DocumentExpirationDto> documents)
+        private async Task ProcessDocumentsAsync(List<DocumentExpirationDto> documents, string scanId)
         {
             var processedCount = 0;
             var skippedCount = 0;
+            var errorCount = 0;
 
-            foreach (var doc in documents)
+            // ✅ Filter valid documents
+            var validDocuments = documents.Where(doc =>
+                doc.EffectiveFrom.HasValue &&
+                doc.EffectiveUntil.HasValue).ToList();
+
+            _logger.LogInformation("Found {TotalDocs} documents, {ValidDocs} have both EffectiveFrom and EffectiveUntil - ScanId: {ScanId}",
+                documents.Count, validDocuments.Count, scanId);
+
+            var expiredDocs = new List<DocumentExpirationDto>();
+            var nearExpiredDocs = new List<DocumentExpirationDto>();
+            var today = DateTime.UtcNow.Date;
+
+            // ✅ Classify documents
+            foreach (var doc in validDocuments)
+            {
+                var effectiveUntilDate = doc.EffectiveUntil!.Value.Date;
+
+                if (effectiveUntilDate <= today)
+                {
+                    expiredDocs.Add(doc);
+                }
+                else if (effectiveUntilDate <= today.AddDays(7))
+                {
+                    nearExpiredDocs.Add(doc);
+                }
+            }
+
+            _logger.LogInformation("Processing {ExpiredCount} expired and {NearExpiredCount} near-expired documents - ScanId: {ScanId}",
+                expiredDocs.Count, nearExpiredDocs.Count, scanId);
+
+            // ✅ 1. Process expired documents immediately (unchanged)
+            foreach (var doc in expiredDocs)
             {
                 try
                 {
-                    if (await IsDocumentDismissedAsync(doc))
+                    if (await HasRecentNotificationAsync(doc, NotificationType.Expired, 1))
                     {
                         skippedCount++;
                         continue;
                     }
 
-                    if (doc.EffectiveUntil.HasValue)
-                    {
-                        var today = DateTime.UtcNow.Date;
-                        var effectiveDate = doc.EffectiveUntil.Value.Date;
-
-                        if (effectiveDate <= today)
-                        {
-                            await _notificationService.ProcessExpiredDocumentNotification(doc);
-                        }
-                        else if (effectiveDate <= today.AddDays(7))
-                        {
-                            await _notificationService.ProcessNearingExpirationNotification(doc);
-                        }
-
-                        processedCount++;
-                    }
+                    await _notificationService.ProcessExpiredDocumentNotification(doc);
+                    processedCount++;
+                    _logger.LogInformation("Processed expired notification for {DocId}/{Version} - ScanId: {ScanId}",
+                        doc.DocumentId, doc.Version, scanId);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error processing document {DocId}/{Version}", doc.DocumentId, doc.Version);
+                    errorCount++;
+                    _logger.LogError(ex, "Error processing expired document {DocId}/{Version} - ScanId: {ScanId}",
+                        doc.DocumentId, doc.Version, scanId);
                 }
             }
 
-            _logger.LogInformation("Processed {Processed} documents, skipped {Skipped}", processedCount, skippedCount);
+            // ✅ 2. Process near-expired documents with weekly grouping
+            if (nearExpiredDocs.Any())
+            {
+                // ✅ SIMPLE: Check if today is Monday (weekly notification day)
+                var isMonday = DateTime.UtcNow.DayOfWeek == DayOfWeek.Monday;
+
+                if (isMonday)
+                {
+                    _logger.LogInformation("Monday detected - processing weekly grouped notifications for {Count} near-expired documents",
+                        nearExpiredDocs.Count);
+
+                    // ✅ Group by department for weekly notifications
+                    var departmentGroups = nearExpiredDocs.GroupBy(d => new { d.DepartmentId, d.DepartmentName });
+
+                    foreach (var group in departmentGroups)
+                    {
+                        try
+                        {
+                            var deptDocuments = group.ToList();
+
+                            // ✅ Check if weekly notification already sent for this department
+                            if (await HasRecentWeeklyNotificationForDepartmentAsync(group.Key.DepartmentId.ToString(), 7))
+                            {
+                                _logger.LogDebug("Weekly notification already sent for department {DeptName} in last 7 days",
+                                    group.Key.DepartmentName);
+                                skippedCount += deptDocuments.Count;
+                                continue;
+                            }
+
+                            await _notificationService.ProcessWeeklyGroupedNotificationAsync(deptDocuments, group.Key.DepartmentName);
+                            processedCount += deptDocuments.Count;
+
+                            _logger.LogInformation("Processed weekly grouped notification for department {DeptName} with {DocCount} documents - ScanId: {ScanId}",
+                                group.Key.DepartmentName, deptDocuments.Count, scanId);
+                        }
+                        catch (Exception ex)
+                        {
+                            errorCount += group.Count();
+                            _logger.LogError(ex, "Error processing weekly grouped notification for department {DeptName} - ScanId: {ScanId}",
+                                group.Key.DepartmentName, scanId);
+                        }
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("Not Monday - skipping near-expired documents (will be processed on Monday as grouped notification)");
+                    skippedCount += nearExpiredDocs.Count;
+                }
+            }
+
+            _logger.LogInformation("Scan completed - Processed: {Processed}, Skipped: {Skipped}, Errors: {Errors} - ScanId: {ScanId}",
+                processedCount, skippedCount, errorCount, scanId);
         }
 
-        private async Task<bool> IsDocumentDismissedAsync(DocumentExpirationDto doc)
+        private async Task<bool> HasRecentWeeklyNotificationForDepartmentAsync(string departmentId, int days)
         {
             try
             {
                 var logRepo = _unitOfWork.GetRepository<NotificationLog>();
+                var cutoffTime = DateTime.UtcNow.AddDays(-days);
 
-                // Kiểm tra dismissed
-                var isDismissed = await logRepo.AnyAsync(l =>
-                    l.DocumentId == doc.DocumentId &&
-                    l.DocumentVersion == doc.Version &&
-                    l.IsDismissed == true);
-
-                if (isDismissed) return true;
-
-                var last24Hours = DateTime.UtcNow.AddHours(-24);
-                var recentlySent = await logRepo.AnyAsync(l =>
-                    l.DocumentId == doc.DocumentId &&
-                    l.DocumentVersion == doc.Version &&
+                return await logRepo.AnyAsync(l =>
+                    l.DocumentId == "WEEKLY_GROUP" &&
+                    l.DocumentVersion == departmentId &&
+                    l.NotificationType == NotificationType.General &&
                     l.IsSent == true &&
-                    l.SentAt >= last24Hours);
-
-                return recentlySent;
+                    l.SentAt >= cutoffTime);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error checking dismissed status for {DocId}/{Version}", doc.DocumentId, doc.Version);
+                _logger.LogWarning(ex, "Error checking recent weekly notifications for department {DepartmentId}", departmentId);
                 return false;
+            }
+        }
+        private async Task<bool> HasRecentNotificationAsync(DocumentExpirationDto doc, NotificationType type, int hours)
+        {
+            try
+            {
+                var logRepo = _unitOfWork.GetRepository<NotificationLog>();
+                var cutoffTime = DateTime.UtcNow.AddHours(-hours);
+
+                var hasRecent = await logRepo.AnyAsync(l =>
+                    l.DocumentId == doc.DocumentId &&
+                    l.DocumentVersion == doc.Version &&
+                    l.NotificationType == type &&
+                    l.IsSent == true &&
+                    l.SentAt >= cutoffTime);
+
+                if (hasRecent)
+                {
+                    _logger.LogDebug("{NotificationType} notification already sent for {DocId}/{Version} in last {Hours}h",
+                        type, doc.DocumentId, doc.Version, hours);
+                }
+
+                return hasRecent;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error checking recent notifications for {DocId}/{Version}/{Type}",
+                    doc.DocumentId, doc.Version, type);
+                return false; // Default to false to ensure notifications are sent
             }
         }
     }
 }
-

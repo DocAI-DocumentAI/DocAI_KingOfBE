@@ -150,13 +150,18 @@ public static class DependencyService
         {
             q.UseMicrosoftDependencyInjectionJobFactory();
 
+            // ✅ FIX: Add Vietnam timezone
+            var vietnamTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+
             // NotificationScanJob
             var scanJobKey = new JobKey("NotificationScanJob");
             q.AddJob<NotificationScanJob>(opts => opts.WithIdentity(scanJobKey));
             q.AddTrigger(opts => opts
                 .ForJob(scanJobKey)
                 .WithIdentity("NotificationScanTrigger")
-                .WithCronSchedule(configuration["Quartz:ScanCronExpression"] ?? "0 0 7 * * ?")); // 7:00 AM daily
+                .WithCronSchedule(
+                    configuration["Quartz:ScanCronExpression"] ?? "0 0 7 * * ?",
+                    x => x.InTimeZone(vietnamTimeZone))); // ✅ ADDED: Vietnam timezone
 
             // CleanUpOldLogsJob
             var cleanupJobKey = new JobKey("CleanUpOldLogsJob");
@@ -164,7 +169,9 @@ public static class DependencyService
             q.AddTrigger(opts => opts
                 .ForJob(cleanupJobKey)
                 .WithIdentity("CleanUpOldLogsTrigger")
-                .WithCronSchedule(configuration["Quartz:CleanupCronExpression"] ?? "0 0 0 ? * SUN")); // Sunday midnight
+                .WithCronSchedule(
+                    configuration["Quartz:CleanupCronExpression"] ?? "0 0 2 ? * SUN", // ✅ CHANGED: 2 AM instead of midnight
+                    x => x.InTimeZone(vietnamTimeZone))); // ✅ ADDED: Vietnam timezone
         });
 
         services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);

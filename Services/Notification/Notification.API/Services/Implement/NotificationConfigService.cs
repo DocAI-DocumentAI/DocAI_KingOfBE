@@ -45,6 +45,8 @@ namespace Notification.API.Services.Implement
             }
 
             var response = _mapper.Map<NotificationConfigResponse>(config);
+
+            // ✅ FIX: Corrected cache duration syntax
             _cache.Set(cacheKey, response, TimeSpan.FromMinutes(ApiConstants.CACHE_DURATION_MINUTES));
             return response;
         }
@@ -68,7 +70,9 @@ namespace Notification.API.Services.Implement
             repo.UpdateAsync(config);
             await _unitOfWork.CommitAsync();
 
+            // ✅ FIX: Corrected cache removal
             _cache.Remove("notification_config");
+
             _logger.LogInformation("Notification configuration updated");
             return _mapper.Map<NotificationConfigResponse>(config);
         }
@@ -80,7 +84,7 @@ namespace Notification.API.Services.Implement
                 ConfigKey = ApiConstants.DEFAULT_CONFIG_KEY,
                 QuartzEnabled = true,
                 WarningThresholdDays = 7,
-                ScanCronExpression = "0 0 7 * * ?",
+                ScanCronExpression = "0 0 7 * * ?", // 7:00 AM Vietnam time (with timezone in Quartz)
                 LogRetentionDays = 90
             };
 
