@@ -215,80 +215,105 @@ namespace ChatBox.API.Services.Implement
                         ? $"[Trích từ tài liệu: {actualSourceDocumentTitle}]"
                         : "[Trích từ tài liệu nội bộ]";
 
-                    enhancedSystemPrompt = originalSystemMessage.Content + $@"
+                    // ✅ STRICT: Base system prompt FIRST, then document-specific rules
+                    enhancedSystemPrompt = $@"{originalSystemMessage.Content}
 
-🔒 BẠN LÀ CHUYÊN GIA TÀI LIỆU NỘI BỘ - TRẢ LỜI MỌI CÂU HỎI
+🔒 CHUYÊN GIA TÀI LIỆU NỘI BỘ - QUY TẮC TUYỆT ĐỐI
 === THÔNG TIN TÀI LIỆU HOÀN CHỈNH ===
 {completeDocumentInfo}
 === HẾT THÔNG TIN TÀI LIỆU ===
 
-🎯 QUY TẮC TRẢ LỜI HOÀN HẢO:
-1. **NGUỒN THÔNG TIN DUY NHẤT**
-   - Chỉ sử dụng nội dung trong “THÔNG TIN TÀI LIỆU HOÀN CHỈNH”
-   - KHÔNG dùng bất kỳ kiến thức nào bên ngoài, kể cả kiến thức thông thường
+🚨 QUY TẮC TUYỆT ĐỐI - KHÔNG ĐƯỢC VI PHẠM:
+1. **NGUỒN THÔNG TIN DUY NHẤT:**
+   - CHỈ sử dụng thông tin trong ""THÔNG TIN TÀI LIỆU HOÀN CHỈNH"" ở trên
+   - TUYỆT ĐỐI KHÔNG được dùng kiến thức chung, kiến thức bên ngoài, hay bất kỳ thông tin nào không có trong tài liệu
+   - KHÔNG được bịa đặt, suy đoán, hoặc giải thích bằng kiến thức riêng
 
-1. **SỬ DỤNG CHAT HISTORY**: Tham khảo cuộc hội thoại trước để hiểu context
-2. **REFERENCE AWARENESS**: Khi user nói ""tài liệu này"", ""quyết định này"" → dùng document đã thảo luận trước đó  
-3. **NATURAL CONVERSATION**: Trả lời như cuộc hội thoại liên tục, không lặp lại thông tin đã nói
-4. **DOCUMENT SOURCE**: Sử dụng thông tin từ tài liệu để trả lời, nhưng duy trì context awareness
+2. **XỬ LÝ TỪNG LOẠI CÂU HỏI:**
+   📊 **CÂU HỎI ĐẾM SỐ LƯỢNG:** ('có bao nhiêu', 'có mấy', 'tổng cộng')
+   - BƯỚC 1: Đọc ""THỐNG KÊ TÀI LIỆU TỔNG QUAN"" để biết con số chính xác
+   - BƯỚC 2: Kiểm tra ""CHI TIẾT TỪNG TÀI LIỆU"" để xác nhận và liệt kê
+   - BƯỚC 3: Trả lời: ""Có [SỐ CHÍNH XÁC] tài liệu [LOẠI]: 1. [Tên]..., Tổng: [SỐ] tài liệu.""
 
-2. **TRẢ LỜI MỌI LOẠI CÂU HỎI:**
-   - 📋 **Metadata**: ""Ai ký?"", ""Hiệu lực khi nào?"", ""Thuộc phòng nào?"" → Dùng phần THÔNG TIN METADATA
-   - 📄 **Nội dung**: ""Điều 5 nói gì?"", ""Quy định về X?"" → Dùng phần NỘI DUNG TÀI LIỆU  
-   - 📊 **Tóm tắt**: ""Tóm tắt tài liệu"" → Kết hợp METADATA + NỘI DUNG
-   - 🔍 **Tìm kiếm**: ""Có quy định về Y không?"" → Tìm trong NỘI DUNG
-   - 📁 **Thông tin file**: ""File bao nhiêu KB?"" → Dùng THÔNG TIN FILE
-   - Thông tin ai kí có thể nằm ở nơi nhận
+   📄 **CÂU HỎI NỘI DUNG:** ('điều 5 nói gì', 'quy định về', 'thủ tục như thế nào')
+   - BƯỚC 1: Tìm trong ""NỘI DUNG TÀI LIỆU HOÀN CHỈNH""
+   - BƯỚC 2: Nếu có Summary/Description phù hợp thì dùng
+   - BƯỚC 3: Trích dẫn chính xác, KHÔNG thêm bớt hay giải thích
+   - BƯỚC 4: Kết thúc bằng ""{citationSuffix}""
 
-. **FORMAT TRẢ LỜI BẮT BUỘC cho câu hỏi đếm:**
-   - ""Theo thống kê, có [SỐ CHÍNH XÁC] tài liệu [LOẠI] [PHẠM VI]:""
-   - ""1. [Tên tài liệu 1]""
-   - ""2. [Tên tài liệu 2]""
-   - ""...""
-   - ""Tổng cộng: [SỐ] tài liệu.""
+   📋 **CÂU HỎI METADATA:** ('ai ký', 'hiệu lực khi nào', 'thuộc phòng nào')
+   - BƯỚC 1: Tìm trong ""CHI TIẾT TỪNG TÀI LIỆU"" phần metadata
+   - BƯỚC 2: Trả lời chính xác thông tin có sẵn
+   - BƯỚC 3: Nếu không có thông tin → ""Không có thông tin về [YÊU CẦU] trong tài liệu""
 
-3. **CÁCH TRẢ LỜI CHUẨN:**
-   - Bắt đầu: ""Theo tài liệu [TÊN TÀI LIỆU]:""
-   - Nội dung: Trả lời chính xác, đầy đủ từ METADATA + NỘI DUNG
+   🔍 **CÂU HỎI TÌM KIẾM:** ('tài liệu về HR', 'quy định bảo mật')
+   - BƯỚC 1: Kiểm tra Tags → Title → Summary → Content
+   - BƯỚC 2: Liệt kê các tài liệu phù hợp với mô tả ngắn
+   - BƯỚC 3: Sắp xếp theo độ liên quan (RelevanceScore nếu có)
+
+   🔗 **CÂU HỎI SO SÁNH:** ('khác biệt giữa A và B', 'tài liệu nào mới hơn')
+   - BƯỚC 1: Lấy thông tin của từng tài liệu từ CHI TIẾT TỪNG TÀI LIỆU
+   - BƯỚC 2: So sánh dựa trên thông tin có sẵn (ngày, nội dung, metadata)
+   - BƯỚC 3: KHÔNG đưa ra nhận xét chủ quan, chỉ nêu sự khác biệt thực tế
+
+   📖 **CÂU HỎI TỔNG QUAN:** ('tóm tắt tài liệu', 'nội dung chính')
+   - BƯỚC 1: Sử dụng Summary (nếu có) làm cơ sở
+   - BƯỚC 2: Bổ sung từ Description và các điểm chính trong Content
+   - BƯỚC 3: KHÔNG thêm ý kiến hay giải thích cá nhân
+
+3. **CHAT HISTORY AWARENESS:**
+   - Tham khảo cuộc hội thoại trước để hiểu context
+   - Khi user nói ""tài liệu này"", ""quyết định trên"" → dùng tài liệu đã thảo luận
+   - Trả lời tự nhiên như cuộc hội thoại liên tục
+
+4. **CÁCH TRẢ LỜI CHUẨN:**
+   - Bắt đầu: ""Theo tài liệu [TÊN TÀI LIỆU]:"" (nếu có tên cụ thể)
+   - Nội dung: Trích dẫn/tóm tắt chính xác từ tài liệu
    - Kết thúc: ""{citationSuffix}""
 
-🔴 TUYỆT ĐỐI KHÔNG ĐƯỢC:
-- Đưa ra ""thông tin chung"" về bất kỳ chủ đề nào
-- Đề xuất tìm kiếm trên internet, liên hệ cơ quan, kiểm tra thư viện
-- Giải thích định nghĩa từ kiến thức chung
-- Đưa ra ví dụ không có trong tài liệu
-- ""Giúp đỡ"" bằng cách đưa ra thông tin ngoài tài liệu
-- Nói ""dựa trên các tài liệu đã được đề cập"" nếu thông tin không có trong tài liệu hiện tại
-- Đưa ra lời khuyên hoặc hướng dẫn chung không có trong tài liệu
+🚫 TUYỆT ĐỐI CẤM - VI PHẠM SẼ BỊ ĐÁNH GIÁ SAI:
+❌ Đưa ra thông tin KHÔNG CÓ trong ""THÔNG TIN TÀI LIỆU HOÀN CHỈNH""
+❌ Sử dụng kiến thức chung để giải thích (ví dụ: giải thích khái niệm HR, IT, pháp lý...)
+❌ Bịa đặt số liệu, ngày tháng, tên người, quy định
+❌ Đề xuất tìm kiếm internet, liên hệ cơ quan, kiểm tra nguồn khác
+❌ Nói ""dựa trên kinh nghiệm"", ""theo thông lệ"", ""thường thì""
+❌ Đưa ra lời khuyên không dựa trên tài liệu cụ thể
+❌ Giải thích thuật ngữ bằng kiến thức bên ngoài
+❌ Đếm sai số lượng tài liệu hoặc bỏ qua tài liệu
+❌ Thêm thông tin ""để đầy đủ hơn"" nếu không có trong tài liệu
 
-✅ CHỈ ĐƯỢC TRẢ LỜI:
-- Thông tin CÓ SẴN trong ""THÔNG TIN TÀI LIỆU HOÀN CHỈNH""
-- Câu từ chối chuẩn khi không có thông tin";
+✅ CHỈ ĐƯỢC PHÉP:
+✓ Thông tin CÓ SẴN 100% trong ""THÔNG TIN TÀI LIỆU HOÀN CHỈNH""
+✓ Trích dẫn chính xác từ Summary, Description, Content, Metadata
+✓ Đếm và liệt kê dựa trên ""CHI TIẾT TỪNG TÀI LIỆU""
+✓ Tham khảo chat history để hiểu context câu hỏi
+✓ Nói ""Không có thông tin về [YÊU CẦU] trong tài liệu"" khi thiếu thông tin";
                 }
                 else
                 {
-                    // ✅ UNCHANGED: Same flexible prompt for no document cases
-                    enhancedSystemPrompt = originalSystemMessage.Content + $@"
+                    // ✅ NO DOCUMENT CASE: Strict refusal mode
+                    enhancedSystemPrompt = $@"{originalSystemMessage.Content}
 
-🚨 KHÔNG TÌM THẤY TÀI LIỆU NỘI BỘ - CHỈ ĐƯỢC GIAO TIẾP CƠ BẢN
+🚨 KHÔNG CÓ TÀI LIỆU NỘI BỘ - CHẾ ĐỘ TỪ CHỐI NGHIÊM NGẶT
 
-🔒 QUY TẮC NGHIÊM NGẶT TUYỆT ĐỐI:
-- Hệ thống KHÔNG tìm thấy tài liệu nội bộ liên quan
-- BẠN PHẢI TỪ CHỐI trả lời MỌI câu hỏi không có tài liệu
-- TUYỆT ĐỐI KHÔNG được sử dụng kiến thức chung hoặc bên ngoài
-- KHÔNG được trả lời về bất kỳ chủ đề nào khác
+🔒 QUY TẮC TUYỆT ĐỐI:
+- Hệ thống KHÔNG tìm thấy tài liệu nội bộ nào liên quan đến câu hỏi
+- BẠN PHẢI TỪ CHỐI trả lời MỌI câu hỏi về nội dung, quy định, thông tin cụ thể
+- TUYỆT ĐỐI KHÔNG được sử dụng kiến thức chung hoặc kiến thức bên ngoài
+- KHÔNG được trả lời bằng cách ""giúp đỡ"" với thông tin chung
 
 🚫 CHỈ ĐƯỢC TRẢ LỜI DUY NHẤT:
-'Xin lỗi, hiện tại không có tài liệu nội bộ nào liên quan đến câu hỏi này. Tôi chỉ có thể trả lời các câu hỏi dựa trên tài liệu nội bộ của công ty. Bạn có thể liên hệ bộ phận quản lý tài liệu để được hỗ trợ thêm.'
+""Xin lỗi, tôi không tìm thấy tài liệu nội bộ nào liên quan đến câu hỏi này. Tôi chỉ có thể trả lời các câu hỏi dựa trên tài liệu nội bộ của công ty. Bạn có thể liên hệ bộ phận quản lý tài liệu để được hỗ trợ.""
 
 ⛔ TUYỆT ĐỐI KHÔNG ĐƯỢC:
-- Trả lời về trứng gà, con gà, hay bất kỳ chủ đề chung nào
-- Giải thích về triết học, khoa học, lịch sử
-- Đưa ra ý kiến cá nhân hoặc thảo luận
-- Chào hỏi dài dòng hoặc hướng dẫn chung
-- Thể hiện sự hiểu biết về bất kỳ vấn đề nào ngoài tài liệu nội bộ
+❌ Trả lời về bất kỳ chủ đề nào (kể cả câu hỏi đơn giản như ""trứng gà"", ""thời tiết"")
+❌ Giải thích khái niệm, định nghĩa từ kiến thức chung
+❌ Đưa ra ý kiến, thảo luận, phân tích
+❌ Chào hỏi dài dòng hoặc hỏi ngược lại
+❌ Đề xuất giải pháp thay thế
+❌ Thể hiện sự hiểu biết về bất kỳ vấn đề nào ngoài tài liệu nội bộ
 
-🔴 BẮT BUỘC: Chỉ trả lời đúng câu từ chối ở trên, KHÔNG THÊM BỚT GÌ KHÁC!";
+🔴 BẮT BUỘC: Chỉ trả lời đúng câu từ chối ở trên, KHÔNG THÊM BỚT!";
                 }
 
                 enhancedHistory.AddSystemMessage(enhancedSystemPrompt);
@@ -302,17 +327,21 @@ namespace ChatBox.API.Services.Implement
             return enhancedHistory;
         }
 
+        /// <summary>
+        /// ✅ ENHANCED: BuildCompleteDocumentPackage with comprehensive instructions
+        /// </summary>
         private string BuildCompleteDocumentPackage(string documentContent, List<DocumentInfo> documentSources, string currentQuestion)
         {
             var package = new StringBuilder();
             var userContext = GetUserContextFromJWT();
 
-            // ✅ 1. METADATA SECTION - THÊM SUMMARY STATISTICS
+            // ✅ 1. METADATA SECTION với detailed statistics
             if (documentSources?.Any() == true)
             {
                 package.AppendLine("📋 **THỐNG KÊ TÀI LIỆU TỔNG QUAN:**");
+                package.AppendLine("(AI PHẢI SỬ DỤNG SỐ LIỆU NÀY KHI TRẢ LỜI CÂU HỎI ĐẾM)");
 
-                // ✅ THÊM: Summary statistics cho AI
+                // ✅ DETAILED statistics for AI
                 var totalDocs = documentSources.Count;
                 var publicDocs = documentSources.Count(s => s.IsPublic);
                 var privateDocs = documentSources.Count(s => !s.IsPublic);
@@ -320,293 +349,459 @@ namespace ChatBox.API.Services.Implement
                 var myDeptPublicDocs = documentSources.Count(s => s.DepartmentName == userContext.DepartmentName && s.IsPublic);
                 var myDeptPrivateDocs = documentSources.Count(s => s.DepartmentName == userContext.DepartmentName && !s.IsPublic);
 
+                // ✅ Document type statistics
+                var docTypes = documentSources
+                    .Where(s => !string.IsNullOrEmpty(s.DocumentType) && s.DocumentType != "Không rõ")
+                    .GroupBy(s => s.DocumentType)
+                    .ToDictionary(g => g.Key, g => g.Count());
+
+                // ✅ Department statistics  
+                var deptStats = documentSources
+                    .Where(s => !string.IsNullOrEmpty(s.DepartmentName))
+                    .GroupBy(s => s.DepartmentName)
+                    .ToDictionary(g => g.Key, g => g.Count());
+
                 package.AppendLine($"📊 **Tổng số tài liệu:** {totalDocs}");
-                package.AppendLine($"🔓 **Tài liệu PUBLIC:** {publicDocs}");
-                package.AppendLine($"🔒 **Tài liệu PRIVATE:** {privateDocs}");
-                package.AppendLine($"🏢 **Tài liệu phòng ban của tôi:** {myDeptDocs}");
+                package.AppendLine($"🔓 **Tài liệu PUBLIC (công khai):** {publicDocs}");
+                package.AppendLine($"🔒 **Tài liệu PRIVATE (nội bộ):** {privateDocs}");
+                package.AppendLine($"🏢 **Tài liệu phòng ban của tôi ({userContext.DepartmentName}):** {myDeptDocs}");
                 package.AppendLine($"🔓🏢 **Tài liệu PUBLIC phòng ban của tôi:** {myDeptPublicDocs}");
                 package.AppendLine($"🔒🏢 **Tài liệu PRIVATE phòng ban của tôi:** {myDeptPrivateDocs}");
+
+                if (docTypes.Any())
+                {
+                    package.AppendLine("📋 **Thống kê theo loại tài liệu:**");
+                    foreach (var docType in docTypes.OrderByDescending(x => x.Value))
+                    {
+                        package.AppendLine($"   • {docType.Key}: {docType.Value} tài liệu");
+                    }
+                }
+
+                if (deptStats.Any())
+                {
+                    package.AppendLine("🏢 **Thống kê theo phòng ban:**");
+                    foreach (var dept in deptStats.OrderByDescending(x => x.Value))
+                    {
+                        var isMine = dept.Key == userContext.DepartmentName ? " (PHÒNG BAN CỦA TÔI)" : "";
+                        package.AppendLine($"   • {dept.Key}: {dept.Value} tài liệu{isMine}");
+                    }
+                }
+
                 package.AppendLine();
-                package.AppendLine(new string('=', 60));
+                package.AppendLine(new string('=', 70));
                 package.AppendLine();
 
                 package.AppendLine("📋 **CHI TIẾT TỪNG TÀI LIỆU:**");
+                package.AppendLine("(AI PHẢI KIỂM TRA TẤT CẢ TÀI LIỆU DƯỚI ĐÂY, KHÔNG CHỈ TÀI LIỆU ĐẦU TIÊN)");
 
-                // ✅ 2. CHI TIẾT TỪNG TÀI LIỆU với clear classification
+                // ✅ 2. CHI TIẾT TỪNG TÀI LIỆU với full information
                 for (int i = 0; i < documentSources.Count; i++)
                 {
                     var source = documentSources[i];
                     package.AppendLine($"📄 **TÀI LIỆU {i + 1}:**");
                     package.AppendLine($"   **Tên:** {source.Title ?? "Không rõ"}");
 
-                    // ✅ HIGHLIGHT visibility và department 
-                    var visibility = source.IsPublic ? "PUBLIC (Công khai)" : "PRIVATE (Nội bộ)";
-                    var isMyDept = source.DepartmentName == userContext.DepartmentName ? "✅ PHÒNG BAN CỦA TÔI" : "❌ PHÒNG BAN KHÁC";
+                    // ✅ Summary và Description ở vị trí prominent
+                    if (!string.IsNullOrWhiteSpace(source.Summary))
+                        package.AppendLine($"   📝 **Tóm tắt:** {source.Summary.Trim()}");
+
+                    if (!string.IsNullOrWhiteSpace(source.Description))
+                        package.AppendLine($"   📖 **Mô tả chi tiết:** {source.Description.Trim()}");
+
+                    if (source.Tags?.Any() == true && source.Tags.Any(tag => !string.IsNullOrWhiteSpace(tag)))
+                    {
+                        var validTags = source.Tags.Where(tag => !string.IsNullOrWhiteSpace(tag)).ToList();
+                        package.AppendLine($"   🏷️ **Từ khóa/Tags:** {string.Join(", ", validTags)}");
+                    }
+
+                    // ✅ Access and department info
+                    var visibility = source.IsPublic ? "PUBLIC (Công khai - ai cũng xem được)" : "PRIVATE (Nội bộ - hạn chế truy cập)";
+                    var isMyDept = source.DepartmentName == userContext.DepartmentName;
+                    var deptInfo = isMyDept ? "✅ PHÒNG BAN CỦA TÔI" : "❌ PHÒNG BAN KHÁC";
 
                     package.AppendLine($"   🔓 **Quyền truy cập:** {visibility}");
-                    package.AppendLine($"   🏢 **Phòng ban:** {source.DepartmentName} ({isMyDept})");
+                    package.AppendLine($"   🏢 **Phòng ban:** {source.DepartmentName} ({deptInfo})");
 
-                    // ✅ CLEAR CLASSIFICATION for AI
-                    if (source.IsPublic && source.DepartmentName == userContext.DepartmentName)
-                    {
+                    // ✅ CLASSIFICATION rõ ràng cho AI
+                    if (source.IsPublic && isMyDept)
                         package.AppendLine($"   🎯 **PHÂN LOẠI: PUBLIC + PHÒNG BAN CỦA TÔI** 🎯");
-                    }
-                    else if (!source.IsPublic && source.DepartmentName == userContext.DepartmentName)
-                    {
+                    else if (!source.IsPublic && isMyDept)
                         package.AppendLine($"   🎯 **PHÂN LOẠI: PRIVATE + PHÒNG BAN CỦA TÔI** 🎯");
-                    }
-                    else if (source.IsPublic && source.DepartmentName != userContext.DepartmentName)
-                    {
+                    else if (source.IsPublic && !isMyDept)
                         package.AppendLine($"   🎯 **PHÂN LOẠI: PUBLIC + PHÒNG BAN KHÁC** 🎯");
-                    }
                     else
-                    {
                         package.AppendLine($"   🎯 **PHÂN LOẠI: PRIVATE + PHÒNG BAN KHÁC** 🎯");
-                    }
+
+                    // ✅ Document classification
                     if (!string.IsNullOrEmpty(source.DocumentType) && source.DocumentType != "Không rõ")
                         package.AppendLine($"   📋 **Loại tài liệu:** {source.DocumentType}");
-                    // ✅ EXISTING metadata
-                    if (!string.IsNullOrEmpty(source.SignedBy) && source.SignedBy != "Không rõ")
-                        package.AppendLine($"   🔴 **Người ký:** {source.SignedBy.ToUpper()}");
-
-                    if (!string.IsNullOrEmpty(source.ApprovedBy) && source.ApprovedBy != "Không rõ")
-                        package.AppendLine($"   ✅ **Người phê duyệt:** {source.ApprovedBy}");
-                    if (source.ApprovalDate.HasValue)
-                        package.AppendLine($"   📅 **Ngày duyệt:** {source.ApprovalDate.Value:dd/MM/yyyy}");
-
-                    if (source.EffectiveFrom.HasValue)
-                        package.AppendLine($"   ⏰ **Hiệu lực từ:** {source.EffectiveFrom.Value:dd/MM/yyyy}");
-                    if (source.EffectiveUntil.HasValue)
-                        package.AppendLine($"   ⏰ **Hiệu lực đến:** {source.EffectiveUntil.Value:dd/MM/yyyy}");
+                    if (!string.IsNullOrEmpty(source.Category) && source.Category != "Không rõ")
+                        package.AppendLine($"   📂 **Danh mục:** {source.Category}");
                     if (!string.IsNullOrEmpty(source.Status))
                         package.AppendLine($"   📊 **Trạng thái:** {source.Status}");
+                    if (!string.IsNullOrEmpty(source.Priority) && source.Priority != "Không rõ")
+                        package.AppendLine($"   ⭐ **Mức độ ưu tiên:** {source.Priority}");
 
+                    // ✅ People information
+                    if (!string.IsNullOrEmpty(source.SignedBy) && source.SignedBy != "Không rõ")
+                        package.AppendLine($"   🔴 **Người ký:** {source.SignedBy.ToUpper()}");
+                    if (!string.IsNullOrEmpty(source.ApprovedBy) && source.ApprovedBy != "Không rõ")
+                        package.AppendLine($"   ✅ **Người phê duyệt:** {source.ApprovedBy}");
+                    if (!string.IsNullOrEmpty(source.ReviewerName) && source.ReviewerName != "Không rõ")
+                        package.AppendLine($"   👁️ **Người xem xét:** {source.ReviewerName}");
+                    if (!string.IsNullOrEmpty(source.CreatedBy) && source.CreatedBy != "Không rõ")
+                        package.AppendLine($"   👤 **Người tạo:** {source.CreatedBy}");
+                    if (!string.IsNullOrEmpty(source.OwnerName) && source.OwnerName != "Không rõ")
+                        package.AppendLine($"   👑 **Chủ sở hữu:** {source.OwnerName}");
+
+                    // ✅ Date information
+                    if (source.ApprovalDate.HasValue)
+                        package.AppendLine($"   📅 **Ngày phê duyệt:** {source.ApprovalDate.Value:dd/MM/yyyy}");
+                    if (source.SignedDate.HasValue)
+                        package.AppendLine($"   📅 **Ngày ký:** {source.SignedDate.Value:dd/MM/yyyy}");
+                    if (source.ReviewDate.HasValue)
+                        package.AppendLine($"   📅 **Ngày xem xét:** {source.ReviewDate.Value:dd/MM/yyyy}");
+                    if (source.EffectiveFrom.HasValue)
+                        package.AppendLine($"   ⏰ **Có hiệu lực từ:** {source.EffectiveFrom.Value:dd/MM/yyyy}");
+                    if (source.EffectiveUntil.HasValue)
+                        package.AppendLine($"   ⏰ **Hết hiệu lực:** {source.EffectiveUntil.Value:dd/MM/yyyy}");
+
+                    // ✅ File and version info
+                    if (!string.IsNullOrEmpty(source.VersionName))
+                        package.AppendLine($"   🔢 **Phiên bản:** {source.VersionName}");
+                    if (source.IsLatestVersion)
+                        package.AppendLine($"   🆕 **Phiên bản mới nhất:** Có");
                     if (source.FileSize.HasValue)
-                        package.AppendLine($"   📁 **Kích thước file:** {source.FileSize.Value / 1024.0:F1} KB");
+                        package.AppendLine($"   📁 **Kích thước:** {source.FileSize.Value / 1024.0:F1} KB");
                     if (!string.IsNullOrEmpty(source.FileType))
-                        package.AppendLine($"   📄 **Loại file:** {source.FileType}");
+                        package.AppendLine($"   📄 **Định dạng:** {source.FileType}");
+                    if (!string.IsNullOrEmpty(source.FileName))
+                        package.AppendLine($"   📎 **Tên file:** {source.FileName}");
 
-                    package.AppendLine(); // Separator between documents
+                    // ✅ Relevance score for AI
+                    if (source.RelevanceScore > 0)
+                        package.AppendLine($"   🎯 **Độ liên quan với câu hỏi:** {source.RelevanceScore:F3}/1.000 (cao = phù hợp hơn)");
+
+                    package.AppendLine(); // Separator
                 }
 
-                package.AppendLine(new string('=', 60));
+                package.AppendLine(new string('=', 70));
                 package.AppendLine();
             }
 
-            // ✅ 3. THÊM USER CONTEXT cho AI
+            // ✅ 3. USER CONTEXT
             package.AppendLine("👤 **THÔNG TIN NGƯỜI DÙNG HIỆN TẠI:**");
             package.AppendLine($"🏢 **Phòng ban của tôi:** {userContext.DepartmentName ?? "Không rõ"}");
-            package.AppendLine($"📂 **Mã phòng ban của tôi:** {userContext.DepartmentId ?? "Không rõ"}");
-            package.AppendLine($"👤 **Vai trò:** {userContext.Role ?? "Không rõ"}");
-            package.AppendLine($"👤 **Họ tên:** {userContext.FullName ?? "Không rõ"}");
+            package.AppendLine($"📂 **Mã phòng ban:** {userContext.DepartmentId ?? "Không rõ"}");
+            package.AppendLine($"👤 **Vai trò/Chức vụ:** {userContext.Role ?? "Không rõ"}");
+            package.AppendLine($"👤 **Họ tên đầy đủ:** {userContext.FullName ?? "Không rõ"}");
+            package.AppendLine($"📧 **Email:** {userContext.Email ?? "Không rõ"}");
             package.AppendLine();
 
-            // ✅ 4. DOCUMENT STRUCTURE ANALYSIS (unchanged)
-            if (!string.IsNullOrEmpty(documentContent))
-            {
-                var structureInfo = AnalyzeDocumentStructure(documentContent);
-                if (!string.IsNullOrEmpty(structureInfo))
-                {
-                    package.AppendLine("🏗️ **CẤU TRÚC TÀI LIỆU:**");
-                    package.AppendLine(structureInfo);
-                    package.AppendLine(new string('=', 60));
-                    package.AppendLine();
-                }
-            }
-
-            // ✅ 5. FULL DOCUMENT CONTENT (unchanged)
+            // ✅ 4. DOCUMENT CONTENT
             if (!string.IsNullOrEmpty(documentContent))
             {
                 package.AppendLine("📄 **NỘI DUNG TÀI LIỆU HOÀN CHỈNH:**");
+                package.AppendLine("(AI CHỈ ĐƯỢC DÙNG THÔNG TIN TRONG PHẦN NÀY ĐỂ TRẢ LỜI VỀ NỘI DUNG)");
                 var organizedContent = OrganizeContentForQuestion(documentContent, currentQuestion);
                 package.AppendLine(organizedContent);
                 package.AppendLine();
+                package.AppendLine(new string('=', 70));
+                package.AppendLine();
             }
 
-            // ✅ 6. ENHANCED INSTRUCTIONS - FORCE AI TO COUNT CORRECTLY
-            package.AppendLine("🗺️ **HƯỚNG DẪN TRẢ LỜI CHO AI:**");
-            package.AppendLine();
-            package.AppendLine("🔢 **QUY TẮC ĐẾM VÀ LIỆT KÊ:**");
-            package.AppendLine("• LUÔN LUÔN kiểm tra TẤT CẢ tài liệu trong phần 'CHI TIẾT TỪNG TÀI LIỆU'");
-            package.AppendLine("• KHÔNG ĐƯỢC chỉ nhìn vào tài liệu đầu tiên");
-            package.AppendLine("• SỬ DỤNG số liệu từ 'THỐNG KÊ TÀI LIỆU TỔNG QUAN' để trả lời chính xác");
-            package.AppendLine("• KHI ĐẾM, phải scan qua từng tài liệu và đếm những tài liệu phù hợp");
-            package.AppendLine();
-            package.AppendLine("🎯 **CÁC LOẠI CÂU HỎI:**");
-            package.AppendLine("• 'tài liệu public phòng ban của tôi' → Đếm tài liệu có 'PUBLIC + PHÒNG BAN CỦA TÔI'");
-            package.AppendLine("• 'tài liệu private phòng ban của tôi' → Đếm tài liệu có 'PRIVATE + PHÒNG BAN CỦA TÔI'");
-            package.AppendLine("• 'tài liệu public' → Đếm TẤT CẢ tài liệu có 'PUBLIC (Công khai)'");
-            package.AppendLine("• 'tài liệu private' → Đếm TẤT CẢ tài liệu có 'PRIVATE (Nội bộ)'");
-            package.AppendLine("• 'có mấy/bao nhiêu' → PHẢI đếm và trả lời số lượng chính xác");
-            package.AppendLine();
-            package.AppendLine("✅ **FORMAT TRẢ LỜI CHUẨN:**");
-            package.AppendLine("• Khi hỏi số lượng: 'Có [SỐ] tài liệu [LOẠI] trong [PHẠM VI]'");
-            package.AppendLine("• Sau đó liệt kê: '1. [Tên tài liệu 1], 2. [Tên tài liệu 2], ...'");
-            package.AppendLine("• Cuối cùng: 'Tổng cộng: [SỐ] tài liệu.'");
-            package.AppendLine();
-            package.AppendLine("⚠️ **CẤM TUYỆT ĐỐI:**");
-            package.AppendLine("- KHÔNG được đếm sai số lượng");
-            package.AppendLine("- KHÔNG được bỏ qua bất kỳ tài liệu nào");
-            package.AppendLine("- KHÔNG được chỉ nhìn vào tài liệu đầu tiên");
-            package.AppendLine("- KHÔNG được nói 'có 1 tài liệu' khi thực tế có nhiều hơn");
+            // ✅ 6. COMPREHENSIVE INSTRUCTIONS
+            package.AppendLine(BuildComprehensiveInstructions());
 
             return package.ToString();
         }
 
         /// <summary>
-        /// ✅ ANALYZE DOCUMENT STRUCTURE - Phân tích cấu trúc cho AI hiểu
+        /// ✅ NEW: Comprehensive instructions for all question types
         /// </summary>
-        private string AnalyzeDocumentStructure(string content)
+        private string BuildComprehensiveInstructions()
         {
-            if (string.IsNullOrEmpty(content)) return "";
+            var instructions = new StringBuilder();
 
-            var structure = new StringBuilder();
-            var lines = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            instructions.AppendLine("🗺️ **HƯỚNG DẪN XỬ LÝ TẤT CẢ LOẠI CÂU HỎI:**");
+            instructions.AppendLine();
 
-            // Đếm các thành phần cấu trúc
-            var chapters = lines.Count(l => Regex.IsMatch(l.Trim(), @"^(chương|chapter)\s+\d+", RegexOptions.IgnoreCase));
-            var articles = lines.Count(l => Regex.IsMatch(l.Trim(), @"^điều\s+\d+", RegexOptions.IgnoreCase));
-            var sections = lines.Count(l => Regex.IsMatch(l.Trim(), @"^(mục|khoản)\s+\d+", RegexOptions.IgnoreCase));
-            var points = lines.Count(l => Regex.IsMatch(l.Trim(), @"^[a-z]\)|^\d+\.", RegexOptions.IgnoreCase));
+            instructions.AppendLine("🔢 **A. CÂU HỎI ĐẾM SỐ LƯỢNG:**");
+            instructions.AppendLine("Từ khóa: 'có bao nhiêu', 'có mấy', 'tổng cộng', 'số lượng'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. Đọc 'THỐNG KÊ TÀI LIỆU TỔNG QUAN' để lấy số chính xác");
+            instructions.AppendLine("   2. Kiểm tra 'CHI TIẾT TỪNG TÀI LIỆU' để xác nhận");
+            instructions.AppendLine("   3. Format: 'Có [SỐ] tài liệu [LOẠI]: 1. [Tên 1], 2. [Tên 2]... Tổng: [SỐ] tài liệu.'");
+            instructions.AppendLine("⚠️ **Cấm:** Đếm sai, bỏ qua tài liệu, chỉ nhìn tài liệu đầu tiên");
+            instructions.AppendLine();
 
-            if (chapters > 0) structure.AppendLine($"📚 **Số chương:** {chapters}");
-            if (articles > 0) structure.AppendLine($"📜 **Số điều:** {articles}");
-            if (sections > 0) structure.AppendLine($"📝 **Số mục/khoản:** {sections}");
-            if (points > 0) structure.AppendLine($"🔸 **Số điểm:** {points}");
+            instructions.AppendLine("📄 **B. CÂU HỎI VỀ NỘI DUNG:**");
+            instructions.AppendLine("Từ khóa: 'điều X nói gì', 'quy định về', 'thủ tục', 'quy trình'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. Tìm trong 'NỘI DUNG TÀI LIỆU HOÀN CHỈNH'");
+            instructions.AppendLine("   2. Ưu tiên: Summary → Description → Content chi tiết");
+            instructions.AppendLine("   3. Trích dẫn chính xác, KHÔNG thêm giải thích từ kiến thức chung");
+            instructions.AppendLine("   4. Format: 'Theo tài liệu [TÊN]: [NỘI DUNG CHÍNH XÁC] [Trích từ...]'");
+            instructions.AppendLine("⚠️ **Cấm:** Giải thích bằng kiến thức bên ngoài, bịa đặt thông tin");
+            instructions.AppendLine();
 
-            // Tìm các tiêu đề chính
-            var mainHeaders = lines
-                .Where(l => l.Trim().Length > 5 &&
-                           (l.Trim().StartsWith("CHƯƠNG") ||
-                            l.Trim().StartsWith("PHẦN") ||
-                            l.Trim().StartsWith("MỤC") ||
-                            Regex.IsMatch(l.Trim(), @"^[A-Z][A-Z\s]{10,}$")))
-                .Take(10)
-                .ToList();
+            instructions.AppendLine("📋 **C. CÂU HỎI VỀ METADATA:**");
+            instructions.AppendLine("Từ khóa: 'ai ký', 'khi nào hiệu lực', 'thuộc phòng nào', 'trạng thái'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. Tìm trong 'CHI TIẾT TỪNG TÀI LIỆU' phần thông tin cụ thể");
+            instructions.AppendLine("   2. Trả lời chính xác thông tin có sẵn");
+            instructions.AppendLine("   3. Nếu không có → 'Không có thông tin về [YÊU CẦU] trong tài liệu'");
+            instructions.AppendLine("⚠️ **Cấm:** Đoán thông tin, sử dụng thông tin từ tài liệu khác");
+            instructions.AppendLine();
 
-            if (mainHeaders.Any())
-            {
-                structure.AppendLine("📋 **Các tiêu đề chính:**");
-                foreach (var header in mainHeaders)
-                {
-                    structure.AppendLine($"  • {header.Trim()}");
-                }
-            }
+            instructions.AppendLine("🔍 **D. CÂU HỎI TÌM KIẾM THEO CHỦ ĐỀ:**");
+            instructions.AppendLine("Từ khóa: 'tài liệu về HR', 'quy định bảo mật', 'hợp đồng lao động'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. Kiểm tra Tags → Title → Summary → Content");
+            instructions.AppendLine("   2. Sắp xếp theo RelevanceScore (nếu có)");
+            instructions.AppendLine("   3. Format: 'Có [SỐ] tài liệu về [CHỦ ĐỀ]: 1. [Tên] - [Summary ngắn]...'");
+            instructions.AppendLine("⚠️ **Cấm:** Đưa ra tài liệu không liên quan, bỏ qua Tags");
+            instructions.AppendLine();
 
-            return structure.ToString();
+            instructions.AppendLine("🔗 **E. CÂU HỎI SO SÁNH:**");
+            instructions.AppendLine("Từ khóa: 'khác biệt giữa', 'so sánh', 'tài liệu nào mới hơn'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. Lấy thông tin từ 'CHI TIẾT TỪNG TÀI LIỆU' của từng tài liệu được so sánh");
+            instructions.AppendLine("   2. So sánh dựa trên thông tin có sẵn (ngày, nội dung, metadata)");
+            instructions.AppendLine("   3. Format: 'So sánh [A] vs [B]: [A] có [ĐẶC ĐIỂM], [B] có [ĐẶC ĐIỂM]'");
+            instructions.AppendLine("⚠️ **Cấm:** Đưa ra nhận xét chủ quan, so sánh bằng kiến thức chung");
+            instructions.AppendLine();
+
+            instructions.AppendLine("📖 **F. CÂU HỎI TỔNG QUAN/TÓM TẮT:**");
+            instructions.AppendLine("Từ khóa: 'tóm tắt tài liệu', 'nội dung chính', 'điểm quan trọng'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. Sử dụng Summary (nếu có) làm cơ sở chính");
+            instructions.AppendLine("   2. Bổ sung từ Description và điểm chính trong Content");
+            instructions.AppendLine("   3. Format: 'Tóm tắt [TÊN]: [SUMMARY]. Chi tiết: [KEY POINTS] [Trích từ...]'");
+            instructions.AppendLine("⚠️ **Cấm:** Thêm ý kiến cá nhân, giải thích bằng kiến thức bên ngoài");
+            instructions.AppendLine();
+
+            instructions.AppendLine("🔐 **G. CÂU HỎI VỀ QUYỀN TRUY CẬP:**");
+            instructions.AppendLine("Từ khóa: 'tôi có thể xem', 'public hay private', 'phòng ban tôi có gì'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. Kiểm tra IsPublic + DepartmentName so với THÔNG TIN NGƯỜI DÙNG");
+            instructions.AppendLine("   2. Phân loại: PUBLIC+PHÒNG BAN CỦA TÔI, PRIVATE+PHÒNG BAN CỦA TÔI, etc.");
+            instructions.AppendLine("   3. Format: 'Bạn [CÓ/KHÔNG THỂ] truy cập vì [LÝ DO CỤ THỂ]'");
+            instructions.AppendLine("⚠️ **Cấm:** Đoán quyền truy cập, bỏ qua phân quyền");
+            instructions.AppendLine();
+
+            instructions.AppendLine("💡 **H. CÂU HỎI GỢI Ý/KHUYẾN NGHỊ:**");
+            instructions.AppendLine("Từ khóa: 'nên đọc tài liệu nào', 'liên quan đến vấn đề X'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. Dùng RelevanceScore + Tags + Summary để đánh giá");
+            instructions.AppendLine("   2. Ưu tiên tài liệu có điểm cao và phù hợp với user context");
+            instructions.AppendLine("   3. Format: 'Gợi ý: [TÀI LIỆU] (Độ liên quan: [SCORE]) vì [LÝ DO DỰA TRÊN TÀI LIỆU]'");
+            instructions.AppendLine("⚠️ **Cấm:** Đưa ra gợi ý không dựa trên dữ liệu có sẵn");
+            instructions.AppendLine();
+
+            instructions.AppendLine("👤 **I. CÂU HỎI TÌM THEO NGƯỜI:**");
+            instructions.AppendLine("Từ khóa: 'tài liệu do tôi tạo', 'do [TÊN] ký', 'do [TÊN] phê duyệt', 'do [TÊN] xem xét'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. **Tài liệu do tôi tạo**: So sánh CreatedBy với FullName trong THÔNG TIN NGƯỜI DÙNG");
+            instructions.AppendLine("   2. **Do [TÊN] ký**: Tìm trong SignedBy có chứa tên được hỏi");
+            instructions.AppendLine("   3. **Do [TÊN] phê duyệt**: Tìm trong ApprovedBy có chứa tên được hỏi");
+            instructions.AppendLine("   4. **Do [TÊN] xem xét**: Tìm trong ReviewerName có chứa tên được hỏi");
+            instructions.AppendLine("   5. **Do [TÊN] tạo**: Tìm trong CreatedBy có chứa tên được hỏi");
+            instructions.AppendLine("   6. Format: 'Có [SỐ] tài liệu do [TÊN/bạn] [HÀNH ĐỘNG]: 1. [Tên tài liệu]...'");
+            instructions.AppendLine("⚠️ **Cấm:** So sánh không chính xác, bỏ qua tài liệu");
+            instructions.AppendLine();
+
+            instructions.AppendLine("📅 **J. CÂU HỎI TÌM THEO THỜI GIAN:**");
+            instructions.AppendLine("Từ khóa: 'tài liệu hiệu lực năm 2024', 'ký trong tháng X', 'hết hạn khi nào'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. **Hiệu lực**: Kiểm tra EffectiveFrom và EffectiveUntil");
+            instructions.AppendLine("   2. **Ngày ký**: Kiểm tra SignedDate");
+            instructions.AppendLine("   3. **Ngày duyệt**: Kiểm tra ApprovalDate");
+            instructions.AppendLine("   4. **Ngày xem xét**: Kiểm tra ReviewDate");
+            instructions.AppendLine("   5. Format: 'Có [SỐ] tài liệu [ĐIỀU KIỆN THỜI GIAN]: 1. [Tên] - [Ngày cụ thể]...'");
+            instructions.AppendLine("⚠️ **Cấm:** Tính toán sai thời gian, đoán ngày tháng");
+            instructions.AppendLine();
+
+            instructions.AppendLine("🔧 **K. CÂU HỎI PHỨC TẠP/KẾT HỢP:**");
+            instructions.AppendLine("Ví dụ: 'Có bao nhiêu tài liệu HR public và nội dung chính là gì?'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. Chia câu hỏi thành từng phần nhỏ");
+            instructions.AppendLine("   2. Xử lý từng phần theo hướng dẫn tương ứng (A,B,C,I,J...)");
+            instructions.AppendLine("   3. Tổng hợp kết quả một cách logic");
+            instructions.AppendLine("⚠️ **Cấm:** Bỏ qua bất kỳ phần nào của câu hỏi");
+            instructions.AppendLine();
+
+            instructions.AppendLine("🤔 **L. CÂU HỎI MƠ HỒ/KHÔNG RÕ:**");
+            instructions.AppendLine("Ví dụ: 'Tài liệu này thế nào?', 'Nói về cái đó', 'Giải thích thêm'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. **Reference không rõ**: 'Bạn có thể nói rõ hơn muốn hỏi về tài liệu nào không?'");
+            instructions.AppendLine("   2. **Câu hỏi mơ hồ**: 'Xin lỗi, câu hỏi chưa rõ ràng. Bạn muốn biết thông tin gì cụ thể?'");
+            instructions.AppendLine("   3. **Context thiếu**: Tham khảo chat history để hiểu context");
+            instructions.AppendLine("   4. Format: 'Để trả lời chính xác, bạn có thể làm rõ [YÊU CẦU CỤ THỂ] không?'");
+            instructions.AppendLine("⚠️ **Cấm:** Đoán ý định, trả lời mơ hồ");
+            instructions.AppendLine();
+
+            instructions.AppendLine("🔗 **M. CÂU HỎI REFERENCE/CONTEXT:**");
+            instructions.AppendLine("Ví dụ: 'Cái này hiệu lực chưa?', 'Họ ký khi nào?', 'Document đó nói gì?'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. **Kiểm tra chat history**: Tìm tài liệu được mention gần nhất");
+            instructions.AppendLine("   2. **'Này/đó/cái này'**: Dùng tài liệu được thảo luận trong tin nhắn trước");
+            instructions.AppendLine("   3. **'Họ/người đó'**: Dùng tên người được mention trước đó");
+            instructions.AppendLine("   4. **Không tìm thấy context**: 'Bạn đang hỏi về tài liệu/người nào cụ thể?'");
+            instructions.AppendLine("   5. Format: 'Về [TÀI LIỆU ĐÃ THẢO LUẬN], [TRẢ LỜI CỤ THỂ]'");
+            instructions.AppendLine("⚠️ **Cấm:** Đoán tài liệu/người không đúng");
+            instructions.AppendLine();
+
+            instructions.AppendLine("🎯 **N. CÂU HỎI ĐÁNH GIÁ/KHUYẾN NGHỊ:**");
+            instructions.AppendLine("Ví dụ: 'Tài liệu nào quan trọng?', 'Nên làm theo cái nào?', 'Ưu tiên thế nào?'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. **Dựa trên RelevanceScore**: Tài liệu có điểm cao hơn = liên quan hơn");
+            instructions.AppendLine("   2. **Dựa trên Status**: 'Đang hiệu lực' > 'Hết hiệu lực'");
+            instructions.AppendLine("   3. **Dựa trên ngày**: Tài liệu mới hơn = update hơn (nếu cùng loại)");
+            instructions.AppendLine("   4. **Dựa trên Priority**: Nếu có thông tin Priority trong metadata");
+            instructions.AppendLine("   5. Format: 'Dựa trên [TIÊU CHÍ], gợi ý [TÀI LIỆU] vì [LÝ DO CỤ THỂ]'");
+            instructions.AppendLine("⚠️ **Cấm:** Đánh giá chủ quan, không có căn cứ");
+            instructions.AppendLine();
+
+            instructions.AppendLine("📊 **O. CÂU HỎI PHÂN TÍCH/PROCESS:**");
+            instructions.AppendLine("Ví dụ: 'Quy trình có mấy bước?', 'Bước tiếp theo?', 'Workflow như nào?'");
+            instructions.AppendLine("📝 **Quy trình bắt buộc:**");
+            instructions.AppendLine("   1. **Tìm trong content**: Đếm các bước/giai đoạn được liệt kê");
+            instructions.AppendLine("   2. **Phân tích cấu trúc**: 'Bước 1:', 'Giai đoạn 1:', 'Thứ nhất:'");
+            instructions.AppendLine("   3. **Trích dẫn chính xác**: Không tự sáng tác các bước");
+            instructions.AppendLine("   4. Format: 'Theo tài liệu, quy trình có [SỐ] bước: 1. [BƯỚC 1]...'");
+            instructions.AppendLine("⚠️ **Cấm:** Sáng tác bước không có trong tài liệu");
+            instructions.AppendLine();
+
+            instructions.AppendLine("🎯 **QUY TẮC ƯU TIÊN THÔNG TIN:**");
+            instructions.AppendLine("1. **Đếm số lượng:** THỐNG KÊ TỔNG QUAN → Verify bằng CHI TIẾT TỪNG TÀI LIỆU");
+            instructions.AppendLine("2. **Nội dung:** Summary → Description → Content → KHÔNG ĐƯỢC dùng kiến thức ngoài");
+            instructions.AppendLine("3. **Metadata:** CHI TIẾT TỪNG TÀI LIỆU → KHÔNG đoán thiếu thông tin");
+            instructions.AppendLine("4. **Tìm kiếm:** Tags → Title → Summary → Content");
+            instructions.AppendLine("5. **Quyền truy cập:** IsPublic + DepartmentName + THÔNG TIN NGƯỜI DÙNG");
+            instructions.AppendLine();
+
+            instructions.AppendLine("🚫 **DANH SÁCH CẤM TUYỆT ĐỐI:**");
+            instructions.AppendLine("❌ Sử dụng bất kỳ kiến thức nào NGOÀI 'THÔNG TIN TÀI LIỆU HOÀN CHỈNH'");
+            instructions.AppendLine("❌ Bịa đặt số liệu, tên người, ngày tháng, quy định");
+            instructions.AppendLine("❌ Giải thích khái niệm bằng kiến thức chung (HR, IT, pháp lý...)");
+            instructions.AppendLine("❌ Đề xuất tìm kiếm internet, liên hệ cơ quan, nguồn bên ngoài");
+            instructions.AppendLine("❌ Nói 'theo kinh nghiệm', 'thường thì', 'dựa trên thông lệ'");
+            instructions.AppendLine("❌ Đưa ra lời khuyên không có trong tài liệu");
+            instructions.AppendLine("❌ Đếm sai hoặc bỏ qua tài liệu khi liệt kê");
+            instructions.AppendLine("❌ Thêm thông tin 'để đầy đủ hơn' nếu không có trong tài liệu");
+            instructions.AppendLine("❌ Trả lời mơ hồ khi có thông tin rõ ràng");
+            instructions.AppendLine("❌ Sử dụng thông tin từ tài liệu này để trả lời về tài liệu khác");
+            instructions.AppendLine();
+
+            instructions.AppendLine("✅ **CHỈ ĐƯỢC PHÉP:**");
+            instructions.AppendLine("✓ Thông tin 100% có trong 'THÔNG TIN TÀI LIỆU HOÀN CHỈNH'");
+            instructions.AppendLine("✓ Trích dẫn chính xác từ Summary, Description, Content, Metadata");
+            instructions.AppendLine("✓ Đếm và liệt kê dựa trên 'CHI TIẾT TỪNG TÀI LIỆU'");
+            instructions.AppendLine("✓ Tham khảo chat history để hiểu context câu hỏi");
+            instructions.AppendLine("✓ Nói 'Không có thông tin về [YÊU CẦU] trong tài liệu' khi thiếu thông tin");
+            instructions.AppendLine("✓ Trả lời 'Xin lỗi, câu hỏi này không rõ ràng' nếu không hiểu");
+            instructions.AppendLine();
+
+            instructions.AppendLine("📝 **TEMPLATE TRẢ LỜI CHUẨN:**");
+            instructions.AppendLine();
+            instructions.AppendLine("**Đếm số lượng:**");
+            instructions.AppendLine("'Có [SỐ CHÍNH XÁC] tài liệu [LOẠI] [PHẠM VI]:");
+            instructions.AppendLine("1. [Tên tài liệu 1] - [Summary/mô tả ngắn nếu có]");
+            instructions.AppendLine("2. [Tên tài liệu 2] - [Summary/mô tả ngắn nếu có]");
+            instructions.AppendLine("Tổng cộng: [SỐ] tài liệu.'");
+            instructions.AppendLine();
+            instructions.AppendLine("**Tìm theo người:**");
+            instructions.AppendLine("'Có [SỐ] tài liệu do [TÊN/bạn] [HÀNH ĐỘNG]:");
+            instructions.AppendLine("1. [Tên tài liệu 1] - [Ngày thực hiện nếu có]");
+            instructions.AppendLine("2. [Tên tài liệu 2] - [Ngày thực hiện nếu có]");
+            instructions.AppendLine("Tổng cộng: [SỐ] tài liệu.'");
+            instructions.AppendLine();
+            instructions.AppendLine("**Câu hỏi mơ hồ:**");
+            instructions.AppendLine("'Để trả lời chính xác, bạn có thể làm rõ [YÊU CẦU CỤ THỂ] không?'");
+            instructions.AppendLine();
+            instructions.AppendLine("**Câu hỏi reference:**");
+            instructions.AppendLine("'Về [TÀI LIỆU ĐÃ THẢO LUẬN TRƯỚC ĐÓ]: [TRẢ LỜI CỤ THỂ]'");
+            instructions.AppendLine();
+            instructions.AppendLine("**Câu hỏi đánh giá:**");
+            instructions.AppendLine("'Dựa trên [TIÊU CHÍ CỤ THỂ], gợi ý [TÀI LIỆU] vì [LÝ DO TRONG TÀI LIỆU]'");
+            instructions.AppendLine();
+            instructions.AppendLine("**Câu hỏi process:**");
+            instructions.AppendLine("'Theo tài liệu, quy trình có [SỐ] bước:");
+            instructions.AppendLine("1. [BƯỚC 1 CHÍNH XÁC TỪ TÀI LIỆU]");
+            instructions.AppendLine("2. [BƯỚC 2 CHÍNH XÁC TỪ TÀI LIỆU]...'");
+            instructions.AppendLine();
+            instructions.AppendLine("**Nội dung:**");
+            instructions.AppendLine("'Theo tài liệu \"[TÊN TÀI LIỆU]\": [NỘI DUNG CHÍNH XÁC]");
+            instructions.AppendLine("Chi tiết: [TRÍCH DẪN CỤ THỂ]");
+            instructions.AppendLine("[Trích từ tài liệu: [TÊN]]'");
+            instructions.AppendLine();
+            instructions.AppendLine("**Metadata:**");
+            instructions.AppendLine("'[THÔNG TIN YÊU CẦU] của tài liệu \"[TÊN]\": [GIÁ TRỊ CHÍNH XÁC]");
+            instructions.AppendLine("Nguồn: [CHI TIẾT TỪNG TÀI LIỆU]'");
+            instructions.AppendLine();
+            instructions.AppendLine("**Không có thông tin:**");
+            instructions.AppendLine("'Không có thông tin về [YÊU CẦU CỤ THỂ] trong các tài liệu hiện có.'");
+
+            return instructions.ToString();
         }
 
         /// <summary>
-        /// ✅ ORGANIZE CONTENT FOR QUESTION - Sắp xếp nội dung theo câu hỏi
+        /// ✅ ENHANCED: System prompt building with AI configuration protection
+        /// </summary>
+        private async Task<string> GetAIConfigurationSystemPrompt(string modelName, string defaultPrompt)
+        {
+            var normalizedModelName = NormalizeModelName(modelName);
+            var aiConfig = await _unitOfWork.GetRepository<AIConfiguration>()
+                .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName && c.IsActive);
+
+            if (aiConfig?.SystemPrompt != null)
+            {
+                // ✅ AI Configuration được thêm TRƯỚC base prompt để không bị override
+                // Base prompt sẽ chứa document rules và sẽ có quyền ưu tiên cao hơn
+                return $"{aiConfig.SystemPrompt}\n\n--- Base System Configuration ---\n{defaultPrompt}";
+            }
+
+            return defaultPrompt;
+        }
+
+        /// <summary>
+        /// ✅ SIMPLE: Content organization without keyword detection
         /// </summary>
         private string OrganizeContentForQuestion(string content, string question)
         {
             if (string.IsNullOrEmpty(content)) return "";
 
             var questionLower = question?.ToLowerInvariant() ?? "";
+            var organizedContent = new StringBuilder();
 
-            // Nếu hỏi về điều cụ thể
+            // ✅ Only highlight specific article/chapter numbers - no keyword extraction
             if (Regex.IsMatch(questionLower, @"điều\s+\d+"))
             {
                 var articleMatch = Regex.Match(questionLower, @"điều\s+(\d+)");
                 if (articleMatch.Success)
                 {
                     var articleNumber = articleMatch.Groups[1].Value;
-                    var articleContent = ExtractSpecificArticle(content, articleNumber);
-                    if (!string.IsNullOrEmpty(articleContent))
-                    {
-                        return $"🎯 **ĐIỀU {articleNumber} (được hỏi cụ thể):**\n{articleContent}\n\n" +
-                               $"📄 **TOÀN BỘ NỘI DUNG THAM KHẢO:**\n{content}";
-                    }
+                    organizedContent.AppendLine($"🎯 **USER HỎI VỀ ĐIỀU {articleNumber}** - AI tìm thông tin này trong nội dung:");
+                    organizedContent.AppendLine();
                 }
             }
-
-            // Nếu hỏi về chương cụ thể  
-            if (Regex.IsMatch(questionLower, @"chương\s+\d+"))
+            else if (Regex.IsMatch(questionLower, @"chương\s+\d+"))
             {
                 var chapterMatch = Regex.Match(questionLower, @"chương\s+(\d+)");
                 if (chapterMatch.Success)
                 {
                     var chapterNumber = chapterMatch.Groups[1].Value;
-                    var chapterContent = ExtractSpecificChapter(content, chapterNumber);
-                    if (!string.IsNullOrEmpty(chapterContent))
-                    {
-                        return $"🎯 **CHƯƠNG {chapterNumber} (được hỏi cụ thể):**\n{chapterContent}\n\n" +
-                               $"📄 **TOÀN BỘ NỘI DUNG THAM KHẢO:**\n{content}";
-                    }
+                    organizedContent.AppendLine($"🎯 **USER HỎI VỀ CHƯƠNG {chapterNumber}** - AI tìm thông tin này trong nội dung:");
+                    organizedContent.AppendLine();
                 }
             }
 
-            // Mặc định trả về toàn bộ nội dung
-            return content;
-        }
+            // ✅ Always provide full content - no keyword filtering
+            organizedContent.AppendLine("📄 **NỘI DUNG ĐẦY ĐỦ CỦA TÀI LIỆU:**");
+            organizedContent.AppendLine(content);
 
-        /// <summary>
-        /// ✅ EXTRACT SPECIFIC ARTICLE - Trích xuất điều cụ thể
-        /// </summary>
-        private string ExtractSpecificArticle(string content, string articleNumber)
-        {
-            var lines = content.Split('\n');
-            var articlePattern = $@"^điều\s+{articleNumber}[:\.\s]";
-            var nextArticlePattern = @"^điều\s+\d+[:\.\s]";
-
-            var articleLines = new List<string>();
-            bool inArticle = false;
-
-            foreach (var line in lines)
-            {
-                var trimmedLine = line.Trim();
-
-                if (Regex.IsMatch(trimmedLine, articlePattern, RegexOptions.IgnoreCase))
-                {
-                    inArticle = true;
-                    articleLines.Add(line);
-                }
-                else if (inArticle && Regex.IsMatch(trimmedLine, nextArticlePattern, RegexOptions.IgnoreCase))
-                {
-                    break; // Đã đến điều tiếp theo
-                }
-                else if (inArticle)
-                {
-                    articleLines.Add(line);
-                }
-            }
-
-            return articleLines.Any() ? string.Join("\n", articleLines) : "";
-        }
-
-        /// <summary>
-        /// ✅ EXTRACT SPECIFIC CHAPTER - Trích xuất chương cụ thể  
-        /// </summary>
-        private string ExtractSpecificChapter(string content, string chapterNumber)
-        {
-            var lines = content.Split('\n');
-            var chapterPattern = $@"^chương\s+{chapterNumber}[:\.\s]";
-            var nextChapterPattern = @"^chương\s+\d+[:\.\s]";
-
-            var chapterLines = new List<string>();
-            bool inChapter = false;
-
-            foreach (var line in lines)
-            {
-                var trimmedLine = line.Trim();
-
-                if (Regex.IsMatch(trimmedLine, chapterPattern, RegexOptions.IgnoreCase))
-                {
-                    inChapter = true;
-                    chapterLines.Add(line);
-                }
-                else if (inChapter && Regex.IsMatch(trimmedLine, nextChapterPattern, RegexOptions.IgnoreCase))
-                {
-                    break;
-                }
-                else if (inChapter)
-                {
-                    chapterLines.Add(line);
-                }
-            }
-
-            return chapterLines.Any() ? string.Join("\n", chapterLines) : "";
+            return organizedContent.ToString();
         }
         private string GetActualSourceDocumentTitle(string documentContent, List<DocumentInfo> documentSources)
         {
@@ -878,20 +1073,7 @@ namespace ChatBox.API.Services.Implement
 
             return baseSystemPrompt;
         }
-
-        private async Task<string> GetAIConfigurationSystemPrompt(string modelName, string defaultPrompt)
-        {
-            var normalizedModelName = NormalizeModelName(modelName);
-            var aiConfig = await _unitOfWork.GetRepository<AIConfiguration>()
-                .SingleOrDefaultAsync(predicate: c => c.ModelName == normalizedModelName && c.IsActive);
-
-            if (aiConfig?.SystemPrompt != null)
-            {
-                return $"{defaultPrompt}\n\n--- Model Configuration ---\n{aiConfig.SystemPrompt}";
-            }
-
-            return defaultPrompt;
-        }        
+        
 
         private async Task<string> EnhanceWithUserPreferences(string basePrompt, string sessionId, string userId)
         {

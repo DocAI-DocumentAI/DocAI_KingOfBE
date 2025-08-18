@@ -76,14 +76,32 @@ namespace ChatBox.API.Services.Implement
         }
         public async Task<IAsyncEnumerable<string>> GetChatResponseStreamAsync(string modelName, ChatHistory chatHistory)
         {
-            var kernel = await GetKernelAsync(modelName, requireActive: true);
-            var config = await GetAIConfigurationAsync(modelName);
-            var chatService = kernel.GetRequiredService<IChatCompletionService>();
+            try
+            {
+                var kernel = await GetKernelAsync(modelName, requireActive: true);
+                var config = await GetAIConfigurationAsync(modelName);
+                var chatService = kernel.GetRequiredService<IChatCompletionService>();
 
-            var optimizedHistory = await OptimizeChatHistoryForModel(chatHistory, modelName);
-            var executionSettings = CreateExecutionSettings(config, optimizedHistory);
+                var optimizedHistory = await OptimizeChatHistoryForModel(chatHistory, modelName);
+                var executionSettings = CreateExecutionSettings(config, optimizedHistory);
 
-            return StreamTokensAsync(chatService, optimizedHistory, executionSettings);
+                return StreamTokensAsync(chatService, optimizedHistory, executionSettings);
+            }
+            catch (Microsoft.SemanticKernel.HttpOperationException ex) when (ex.Message.Contains("429"))
+            {
+                _logger.LogWarning("Rate limit exceeded for streaming model {ModelName}: {Error}", modelName, ex.Message);
+                throw new InvalidOperationException("Máy chủ AI đang quá tải. Vui lòng thử lại sau vài giây.");
+            }
+            catch (Microsoft.SemanticKernel.HttpOperationException ex) when (ex.Message.Contains("500") || ex.Message.Contains("502") || ex.Message.Contains("503"))
+            {
+                _logger.LogError(ex, "AI service temporary error for streaming model {ModelName}", modelName);
+                throw new InvalidOperationException("Dịch vụ AI tạm thời gặp sự cố. Vui lòng thử lại.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get streaming chat response for model {ModelName}", modelName);
+                throw new InvalidOperationException("Dịch vụ AI tạm thời gặp sự cố. Vui lòng thử lại.");
+            }
         }
         public async Task<ChatHistory> ReduceChatHistoryAsync(ChatHistory chatHistory)
         {
@@ -340,8 +358,43 @@ namespace ChatBox.API.Services.Implement
             ChatHistory chatHistory,
             OpenAIPromptExecutionSettings executionSettings)
         {
-            await foreach (var token in chatService.GetStreamingChatMessageContentsAsync(chatHistory, executionSettings))
+            IAsyncEnumerable<StreamingChatMessageContent> stream;
+
+            try
             {
+                stream = chatService.GetStreamingChatMessageContentsAsync(chatHistory, executionSettings);
+            }
+            catch (Microsoft.SemanticKernel.HttpOperationException ex) when (ex.Message.Contains("429"))
+            {
+                _logger.LogWarning("Rate limit in initial streaming setup: {Error}", ex.Message);
+                throw new InvalidOperationException("Máy chủ AI đang quá tải. Vui lòng thử lại sau vài giây.");
+            }
+            catch (System.ClientModel.ClientResultException ex) when (ex.Message.Contains("429"))
+            {
+                _logger.LogWarning("Rate limit (ClientResult) in initial streaming setup: {Error}", ex.Message);
+                throw new InvalidOperationException("Máy chủ AI đang quá tải. Vui lòng thử lại sau vài giây.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error setting up token streaming");
+                throw new InvalidOperationException("Dịch vụ AI tạm thời gặp sự cố. Vui lòng thử lại.");
+            }
+
+            // ✅ Now iterate and yield - với error handling riêng
+            await foreach (var token in SafeStreamWrapper(stream))
+            {
+                if (!string.IsNullOrEmpty(token))
+                {
+                    yield return token;
+                }
+            }
+        }
+        private async IAsyncEnumerable<string> SafeStreamWrapper(IAsyncEnumerable<StreamingChatMessageContent> stream)
+        {
+            await foreach (var token in stream)
+            {
+                // ✅ Simple approach: Let exceptions bubble up to higher level
+                // Controller sẽ catch và handle qua SSE events
                 if (!string.IsNullOrEmpty(token.Content))
                 {
                     yield return token.Content;
