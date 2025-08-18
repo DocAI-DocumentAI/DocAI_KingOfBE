@@ -2221,7 +2221,9 @@ public class DocumentService : IDocumentService
 
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
             predicate: dv => dv.DocumentFileId == documentId,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            orderBy: q => q.OrderBy(v => v.Status == StatusEnum.Approved ? 0 : 1) // Approved versions first
+                          .ThenByDescending(v => v.LastUpdatedTime) // Then by most recent update
         );
 
         // Filter versions based on user access rights
