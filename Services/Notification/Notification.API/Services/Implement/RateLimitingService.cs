@@ -10,6 +10,7 @@ namespace Notification.API.Services.Implement
         private readonly ILogger<RateLimitingService> _logger;
         private readonly int _maxEmailsPerHour;
         private readonly int _maxEmailsPerDay;
+
         private const string HOURLY_KEY = "email_count_hourly";
         private const string DAILY_KEY = "email_count_daily";
 
@@ -21,6 +22,8 @@ namespace Notification.API.Services.Implement
             _cache = cache;
             _configuration = configuration;
             _logger = logger;
+
+            // ✅ FIX: Corrected field initialization
             _maxEmailsPerHour = _configuration.GetValue<int>("Email:MaxPerHour", 100);
             _maxEmailsPerDay = _configuration.GetValue<int>("Email:MaxPerDay", 1000);
         }
@@ -32,12 +35,14 @@ namespace Notification.API.Services.Implement
 
             if (hourlyCount >= _maxEmailsPerHour)
             {
+                // ✅ FIX: Corrected logger reference
                 _logger.LogWarning("Hourly email limit reached: {Count}/{Max}", hourlyCount, _maxEmailsPerHour);
                 return false;
             }
 
             if (dailyCount >= _maxEmailsPerDay)
             {
+                // ✅ FIX: Corrected logger reference
                 _logger.LogWarning("Daily email limit reached: {Count}/{Max}", dailyCount, _maxEmailsPerDay);
                 return false;
             }
@@ -49,6 +54,7 @@ namespace Notification.API.Services.Implement
         {
             IncrementCount(HOURLY_KEY, TimeSpan.FromHours(1));
             IncrementCount(DAILY_KEY, TimeSpan.FromDays(1));
+
             _logger.LogDebug("Email sent recorded. Hourly: {Hourly}, Daily: {Daily}",
                 GetCurrentCount(HOURLY_KEY), GetCurrentCount(DAILY_KEY));
         }
@@ -57,8 +63,10 @@ namespace Notification.API.Services.Implement
         {
             var hourlyCount = GetCurrentCount(HOURLY_KEY);
             var dailyCount = GetCurrentCount(DAILY_KEY);
+
             var hourlyRemaining = Math.Max(0, _maxEmailsPerHour - hourlyCount);
             var dailyRemaining = Math.Max(0, _maxEmailsPerDay - dailyCount);
+
             return Math.Min(hourlyRemaining, dailyRemaining);
         }
 

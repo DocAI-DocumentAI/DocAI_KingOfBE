@@ -13,6 +13,7 @@ namespace Shared.Models
         public string Version { get; set; } = string.Empty;
         public Guid DepartmentId { get; set; }
         public string DepartmentName { get; set; } = string.Empty;
+        public DateTime? EffectiveFrom { get; set; }    
         public DateTime? EffectiveUntil { get; set; }
         public string Status { get; set; } = string.Empty;
         public string DocumentLink { get; set; } = string.Empty;

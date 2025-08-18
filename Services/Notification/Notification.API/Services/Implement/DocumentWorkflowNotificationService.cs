@@ -432,7 +432,6 @@ namespace Notification.API.Services.Implement
             string? comments = null)
         {
             var dismissToken = Guid.NewGuid();
-            var dismissLink = $"https://docai.asia/api/notification/dismiss-by-token?token={dismissToken}";
 
             try
             {
@@ -458,7 +457,6 @@ namespace Notification.API.Services.Implement
                     .Replace("{{SubmissionDate}}", submissionDate.ToString("dd/MM/yyyy HH:mm"))
                     .Replace("{{SubmittedDate}}", submissionDate.ToString("dd/MM/yyyy"))
                     .Replace("{{DocumentLink}}", SanitizeValue(documentLink))
-                    .Replace("{{DismissLink}}", SanitizeValue(dismissLink))
                     .Replace("{{Comments}}", SanitizeValue(comments) ?? "Không có ghi chú")
                     .Replace("{{EffectiveUntil}}", "N/A"); // Default for workflow notifications
 
@@ -476,7 +474,6 @@ namespace Notification.API.Services.Implement
                     Message = emailBody,
                     IsSent = emailSent,
                     SentAt = emailSent ? DateTime.UtcNow : null,
-                    DismissToken = dismissToken,
                     ErrorMessage = emailSent ? null : "Failed to send email notification"
                 };
 

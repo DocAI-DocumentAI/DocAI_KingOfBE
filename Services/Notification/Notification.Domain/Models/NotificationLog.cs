@@ -6,7 +6,7 @@ namespace Notification.Domain.Models;
 public class NotificationLog : BaseEntity
 {
     [Required]
-    public string DocumentId { get; set; }
+    public string DocumentId { get; set; } = string.Empty;
 
     public string? DocumentVersion { get; set; }
 
@@ -20,17 +20,15 @@ public class NotificationLog : BaseEntity
     public string? RecipientAddress { get; set; }
 
     [Required]
-    public string Subject { get; set; } = null!;
+    public string Subject { get; set; } = string.Empty;
 
     [Required]
-    public string Message { get; set; } = null!;
+    public string Message { get; set; } = string.Empty;
 
     public bool IsSent { get; set; }
+
     public DateTime? SentAt { get; set; }
+
     public string? ErrorMessage { get; set; }
-    public bool IsDismissed { get; set; } = false;
-    public DateTime? DismissedAt { get; set; }
-    public Guid? DismissedByUserId { get; set; }
-    public Guid? DismissToken { get; set; }
 
 }
