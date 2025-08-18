@@ -54,10 +54,8 @@ namespace ChatBox.API.Controllers
             {
                 var userId = GetUserId();
                 var response = await _chatService.SendMessageAsync(request, userId);
-
                 _logger.LogInformation("Message sent successfully for user {UserId}, session {SessionId}, model {ModelName}",
                     userId, response.SessionId, response.ModelUsed);
-
                 return Ok(response);
             }
             catch (ArgumentException ex)
@@ -67,7 +65,6 @@ namespace ChatBox.API.Controllers
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("thay đổi model") || ex.Message.Contains("đã bị tắt"))
             {
-                // Modern flow violations - clear error messages
                 _logger.LogWarning("Model operation not allowed: {Error}", ex.Message);
                 return BadRequest(new
                 {
@@ -76,10 +73,35 @@ namespace ChatBox.API.Controllers
                     suggestion = "Vui lòng tạo session mới để sử dụng model khác."
                 });
             }
+            // ✅ NEW: Handle AI service errors (rate limit, service unavailable)
+            catch (InvalidOperationException ex) when (ex.Message.Contains("quá tải") || ex.Message.Contains("429"))
+            {
+                _logger.LogWarning("Rate limit exceeded: {Error}", ex.Message);
+                return StatusCode(429, new
+                {
+                    error = ex.Message,
+                    code = "RATE_LIMIT_EXCEEDED",
+                    suggestion = "Vui lòng đợi 30 giây trước khi gửi tin nhắn tiếp theo."
+                });
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("tạm thời gặp sự cố") || ex.Message.Contains("service"))
+            {
+                _logger.LogError("AI service unavailable: {Error}", ex.Message);
+                return StatusCode(503, new
+                {
+                    error = ex.Message,
+                    code = "SERVICE_UNAVAILABLE",
+                    suggestion = "Dịch vụ AI tạm thời gặp sự cố. Hãy thử lại sau vài phút."
+                });
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to send message");
-                return Problem(MessageConstant.Chat.SendFailed);
+                return StatusCode(500, new
+                {
+                    error = "Đã xảy ra lỗi không mong muốn. Vui lòng thử lại.",
+                    code = "INTERNAL_SERVER_ERROR"
+                });
             }
         }
         /// <summary>
@@ -92,21 +114,24 @@ namespace ChatBox.API.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         public async Task SendMessageStreamAsync([FromBody] ChatRequest request, CancellationToken cancellationToken = default)
         {
+            var userId = string.Empty;
+            var hasStarted = false;
+
             try
             {
-                var userId = GetUserId();
-                var validation = await _chatService.ValidateMessageAsync(request.Message);
+                userId = GetUserId();
 
+                // ✅ Validate TRƯỚC KHI bắt đầu response
+                var validation = await _chatService.ValidateMessageAsync(request.Message);
                 if (!validation.Success)
                 {
                     Response.StatusCode = 400;
                     Response.ContentType = "text/event-stream";
-                    await Response.WriteAsync($"event: error\ndata: {{\"error\": \"{validation.Message}\"}}\n\n", cancellationToken);
+                    await Response.WriteAsync($"event: error\ndata: {{\"error\": \"{validation.Message}\", \"code\": \"VALIDATION_ERROR\"}}\n\n", cancellationToken);
                     return;
                 }
 
-                var responseStream = await _chatService.SendMessageStreamAsync(request, userId, cancellationToken);
-
+                // ✅ Setup response headers
                 Response.StatusCode = 200;
                 Response.ContentType = "text/event-stream; charset=utf-8";
                 Response.Headers["Cache-Control"] = "no-cache";
@@ -117,7 +142,7 @@ namespace ChatBox.API.Controllers
                 var jsonOptions = new JsonSerializerOptions
                 {
                     PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, // ✅ Key fix!
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
                     WriteIndented = false
                 };
 
@@ -126,32 +151,65 @@ namespace ChatBox.API.Controllers
 
                 await using var writer = new StreamWriter(Response.Body, Encoding.UTF8);
 
-                // ✅ REALTIME STREAMING: Flush immediately for each chunk
-                await foreach (var chunk in responseStream.WithCancellation(cancellationToken))
+                // ✅ Đánh dấu response đã bắt đầu
+                hasStarted = true;
+
+                try
                 {
-                    if (cancellationToken.IsCancellationRequested)
-                        break;
+                    // ✅ Get stream và handle errors trong stream
+                    var responseStream = await _chatService.SendMessageStreamAsync(request, userId, cancellationToken);
 
-                    if (chunk.IsComplete)
+                    await foreach (var chunk in responseStream.WithCancellation(cancellationToken))
                     {
-                        var completeData = JsonSerializer.Serialize(chunk, jsonOptions);
-                        await writer.WriteAsync($"event: complete\ndata: {completeData}\n\n");
-                        await writer.FlushAsync(cancellationToken);
-                        await Response.Body.FlushAsync(cancellationToken); // ✅ Force flush to client
-                        break;
-                    }
-                    else
-                    {
-                        var chunkData = JsonSerializer.Serialize(chunk, jsonOptions);
-                        await writer.WriteAsync($"event: message\ndata: {chunkData}\n\n");
-                        await writer.FlushAsync(cancellationToken);
-                        await Response.Body.FlushAsync(cancellationToken); // ✅ Force flush immediately
+                        if (cancellationToken.IsCancellationRequested)
+                            break;
 
-                        // ✅ Optional: Small delay to see streaming effect in Postman
+                        if (chunk.IsComplete)
+                        {
+                            var completeData = JsonSerializer.Serialize(chunk, jsonOptions);
+                            await writer.WriteAsync($"event: complete\ndata: {completeData}\n\n");
+                            await writer.FlushAsync(cancellationToken);
+                            await Response.Body.FlushAsync(cancellationToken);
+                            break;
+                        }
+                        else
+                        {
+                            var chunkData = JsonSerializer.Serialize(chunk, jsonOptions);
+                            await writer.WriteAsync($"event: message\ndata: {chunkData}\n\n");
+                            await writer.FlushAsync(cancellationToken);
+                            await Response.Body.FlushAsync(cancellationToken);
+                        }
                     }
                 }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("quá tải") || ex.Message.Contains("429"))
+                {
+                    // ✅ Send error VIA STREAM (không set StatusCode)
+                    await writer.WriteAsync($"event: error\ndata: {{\"error\": \"{EscapeJson(ex.Message)}\", \"code\": \"RATE_LIMIT_EXCEEDED\", \"suggestion\": \"Vui lòng đợi 30 giây trước khi thử lại.\"}}\n\n");
+                    await writer.FlushAsync(cancellationToken);
+                    _logger.LogWarning("Rate limit exceeded in streaming: {Error}", ex.Message);
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("tạm thời gặp sự cố") || ex.Message.Contains("service"))
+                {
+                    await writer.WriteAsync($"event: error\ndata: {{\"error\": \"{EscapeJson(ex.Message)}\", \"code\": \"SERVICE_UNAVAILABLE\", \"suggestion\": \"Hãy thử lại sau vài phút.\"}}\n\n");
+                    await writer.FlushAsync(cancellationToken);
+                    _logger.LogError("AI service unavailable in streaming: {Error}", ex.Message);
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("thay đổi model"))
+                {
+                    await writer.WriteAsync($"event: error\ndata: {{\"error\": \"{EscapeJson(ex.Message)}\", \"code\": \"MODEL_SWITCH_NOT_ALLOWED\"}}\n\n");
+                    await writer.FlushAsync(cancellationToken);
+                    _logger.LogWarning("Model switch not allowed in streaming: {Error}", ex.Message);
+                }
+                catch (Exception ex)
+                {
+                    await writer.WriteAsync($"event: error\ndata: {{\"error\": \"Đã xảy ra lỗi không mong muốn.\", \"code\": \"INTERNAL_SERVER_ERROR\"}}\n\n");
+                    await writer.FlushAsync(cancellationToken);
+                    _logger.LogError(ex, "Unexpected error in streaming");
+                }
+
                 await Response.CompleteAsync();
 
+                // ✅ Background verification
                 _ = Task.Run(async () =>
                 {
                     await Task.Delay(2000);
@@ -160,24 +218,36 @@ namespace ChatBox.API.Controllers
                         request.SessionId, saved);
                 });
             }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("thay đổi model"))
-            {
-                Response.StatusCode = 400;
-                await Response.WriteAsync($"event: error\ndata: {{\"error\": \"{ex.Message}\"}}\n\n");
-                await Response.CompleteAsync();
-            }
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Client cancelled streaming request");
-                // Client đã disconnect, không cần gửi gì thêm
+                // Client disconnect - không cần xử lý gì
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Streaming failed");
-                Response.StatusCode = 500;
-                await Response.WriteAsync($"event: error\ndata: {{\"error\": \"{MessageConstant.Chat.SendFailed}\"}}\n\n");
-                await Response.CompleteAsync();
+                _logger.LogError(ex, "Critical error in streaming endpoint");
 
+                // ✅ CHỈ set StatusCode nếu response CHƯA bắt đầu
+                if (!hasStarted)
+                {
+                    Response.StatusCode = 500;
+                    Response.ContentType = "text/event-stream";
+                    await Response.WriteAsync($"event: error\ndata: {{\"error\": \"Lỗi hệ thống nghiêm trọng.\", \"code\": \"CRITICAL_ERROR\"}}\n\n");
+                }
+                else
+                {
+                    // Response đã bắt đầu - chỉ có thể gửi error qua stream
+                    try
+                    {
+                        await using var writer = new StreamWriter(Response.Body, Encoding.UTF8);
+                        await writer.WriteAsync($"event: error\ndata: {{\"error\": \"Lỗi hệ thống nghiêm trọng.\", \"code\": \"CRITICAL_ERROR\"}}\n\n");
+                        await writer.FlushAsync();
+                    }
+                    catch
+                    {
+                        // Response body có thể đã đóng - ignore
+                    }
+                }
             }
         }
         /// <summary>
@@ -382,6 +452,18 @@ namespace ChatBox.API.Controllers
                 return Problem(MessageConstant.Chat.GetModelsFailed);
             }
         }
+        private static string EscapeJson(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return "";
+
+            return text.Replace("\"", "\\\"")
+                       .Replace("\n", "\\n")
+                       .Replace("\r", "\\r")
+                       .Replace("\t", "\\t")
+                       .Replace("\\", "\\\\");
+        }
+
     }
 }
 

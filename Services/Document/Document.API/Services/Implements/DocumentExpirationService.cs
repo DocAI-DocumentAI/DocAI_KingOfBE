@@ -43,7 +43,6 @@ namespace Document.API.Services.Implements
                 .GetListAsync(
                     predicate: dv =>
                         dv.Status == StatusEnum.Approved &&
-                        dv.IsOfficial &&
                         dv.EffectiveFrom.HasValue &&      // ✅ THÊM: Phải có EffectiveFrom
                         dv.EffectiveUntil.HasValue &&     // ✅ THÊM: Phải có EffectiveUntil
                         dv.EffectiveUntil.Value <= warningDate, // ✅ Logic cũ nhưng đã có validation
