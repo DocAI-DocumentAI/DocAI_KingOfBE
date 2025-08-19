@@ -198,7 +198,7 @@ public class AuthController : ControllerBase
     /// Lấy toàn bộ user có filter
     /// </summary>    
     [HttpGet(ApiEndPointConstant.User.Users)]
-    [CustomAuthorize(Roles = new[] { Roles.Admin })]
+    [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
     [SkipRateLimit]
     [ProducesResponseType(typeof(IPaginate<UserResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
