@@ -405,6 +405,53 @@ public class DocumentController : ControllerBase
     }
 
     /// <summary>
+    /// Enhanced semantic search with AI-powered conversational responses and relevant document sources
+    /// </summary>
+    /// <param name="request">Enhanced semantic search request with query text, scoring options, and filters</param>
+    /// <returns>AI-generated conversational answer with relevant document sources</returns>
+    [HttpGet(ApiEndPointConstant.Document.EnhancedSemanticSearch)]
+    [ProducesResponseType(typeof(ApiResponse<EnhancedSemanticSearchResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> EnhancedSemanticSearch([FromQuery] SemanticSearchRequest request)
+    {
+        try
+        {
+            // Create filter from request parameters
+            var filter = new SemanticSearchFilter
+            {
+                DocumentTypeId = request.DocumentTypeId,
+                FromDate = request.FromDate,
+                ToDate = request.ToDate,
+                EffectiveFrom = request.EffectiveFrom,
+                EffectiveUntil = request.EffectiveUntil,
+                DepartmentId = request.DepartmentId,
+                FolderId = request.FolderId,
+                IncludeSubfolders = request.IncludeSubfolders,
+                FolderPath = request.FolderPath
+            };
+
+            var result = await _documentService.EnhancedSemanticSearch(request, filter);
+
+            var message = result.HasAnswer
+                ? $"AI generated response with {result.TotalDocuments} relevant document sources"
+                : "No relevant documents found for your query";
+
+            return Ok(ApiResponse<EnhancedSemanticSearchResponse>.Success(result, message));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error performing enhanced semantic search with query: {Query}", request.Query);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Error("SEARCH_ERROR", "An error occurred while performing enhanced semantic search"));
+        }
+    }
+
+    /// <summary>
     /// Perform full-text search on document content and metadata
     /// </summary>
     /// <param name="filter">Search filter with keywords and criteria</param>

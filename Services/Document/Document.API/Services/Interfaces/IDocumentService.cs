@@ -45,6 +45,7 @@ public interface IDocumentService
     Task<List<DocumentVersionResponse>> GetDocumentVersionsAsync(string documentId);
     Task<DocumentVersionResponse> GetDocumentVersionByVersionIdAsync(string documentId, string versionId);
     Task<IPaginate<SemanticSearchResponse>> SemanticSearch(SemanticSearchRequest request, SemanticSearchFilter filter, int pageNumber, int pageSize);
+    Task<EnhancedSemanticSearchResponse> EnhancedSemanticSearch(SemanticSearchRequest request, SemanticSearchFilter filter);
     Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, int pageNumber, int pageSize);
 
     // File serving methods

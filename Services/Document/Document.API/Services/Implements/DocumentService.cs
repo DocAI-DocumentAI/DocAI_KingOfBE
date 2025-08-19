@@ -2609,6 +2609,143 @@ public class DocumentService : IDocumentService
         }
     }
 
+    public async Task<EnhancedSemanticSearchResponse> EnhancedSemanticSearch(SemanticSearchRequest request, SemanticSearchFilter filter)
+    {
+        var startTime = DateTime.UtcNow;
+        var userId = GetCurrentUserId();
+        var userDepartmentId = GetCurrentUserDepartmentId();
+        var requestId = Guid.NewGuid().ToString();
+
+        _logger.LogInformation("Starting enhanced semantic search - User: {UserId}, Department: {DepartmentId}, Query: '{Query}', RequestId: {RequestId}",
+            userId, userDepartmentId, request.Query.Substring(0, Math.Min(50, request.Query.Length)), requestId);
+
+        try
+        {
+            // Validate request parameters
+            if (string.IsNullOrWhiteSpace(request.Query))
+            {
+                throw new ArgumentException(ValidationMessageConstant.SemanticSearch.QueryRequired, nameof(request.Query));
+            }
+
+            // 1. Build the enhanced memory filter
+            var memoryFilter = BuildEnhancedMemoryFilter(filter, request);
+            _logger.LogDebug("Built memory filter with {FilterCount} conditions", GetFilterConditionCount(memoryFilter));
+
+            // 2. Apply search scope filtering
+            ApplySearchScopeFilter(memoryFilter, request.Scope, filter);
+
+            // 3. Use AskAsync for conversational AI response with relevant document sources
+            _logger.LogDebug("Executing Kernel Memory AskAsync for conversational response");
+
+            var prompt = string.Format(AiPromptConstant.SemanticSearch.ConversationalSearchPrompt, request.Query);
+
+            MemoryAnswer? answer = null;
+            using var aiCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            try
+            {
+                _logger.LogInformation("Making AI conversational search call with 2-minute timeout...");
+                answer = await _memory.AskAsync(prompt, filter: memoryFilter);
+
+                if (answer != null && answer.RelevantSources.Any() &&
+                    !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
+                        answer.Result.Contains(indicator, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _logger.LogInformation("Successfully received valid AI conversational response for query: {Query}", request.Query);
+                }
+                else
+                {
+                    _logger.LogWarning("AI conversational search returned no valid information for query: {Query}", request.Query);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("AI conversational search timed out after 2 minutes for query: {Query}", request.Query);
+                throw new ErrorException(StatusCodes.Status408RequestTimeout, ErrorCode.BADREQUEST,
+                    "AI search timed out. Please try with a simpler query.");
+            }
+
+            // 4. Process the AI response and extract relevant documents
+            var response = new EnhancedSemanticSearchResponse
+            {
+                RequestId = requestId,
+                Query = request.Query,
+                ProcessingTimeMs = (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                Metadata = new SearchMetadata
+                {
+                    MinRelevance = request.MinRelevance,
+                    MaxResults = request.MaxResults,
+                    HybridScoringEnabled = request.EnableHybridScoring,
+                    Scope = request.Scope.ToString(),
+                    DepartmentFilter = filter.DepartmentId,
+                    DocumentTypeFilter = filter.DocumentTypeId,
+                    DateRange = new DateRangeFilter
+                    {
+                        FromDate = filter.FromDate,
+                        ToDate = filter.ToDate,
+                        EffectiveFrom = filter.EffectiveFrom,
+                        EffectiveUntil = filter.EffectiveUntil
+                    }
+                }
+            };
+
+            if (answer != null && answer.RelevantSources.Any())
+            {
+                response.Answer = answer.Result;
+                response.HasAnswer = true;
+
+                // 5. Convert relevant sources to SemanticSearchResponse objects
+                var relevantDocuments = await ProcessAISourcesIntoDocuments(answer.RelevantSources, request, filter);
+                response.RelevantDocuments = relevantDocuments;
+                response.TotalDocuments = relevantDocuments.Count;
+
+                _logger.LogInformation("Enhanced semantic search completed successfully - User: {UserId}, Query: '{Query}', Answer: {HasAnswer}, Documents: {DocumentCount}, ProcessingTime: {ProcessingTime}ms",
+                    userId, request.Query.Substring(0, Math.Min(50, request.Query.Length)), response.HasAnswer, response.TotalDocuments, response.ProcessingTimeMs);
+            }
+            else
+            {
+                // No relevant documents found
+                response.Answer = string.Format(AiPromptConstant.SemanticSearch.NoResultsPrompt, request.Query);
+                response.HasAnswer = false;
+                response.TotalDocuments = 0;
+
+                _logger.LogInformation("No relevant documents found for enhanced semantic search - User: {UserId}, Query: '{Query}', ProcessingTime: {ProcessingTime}ms",
+                    userId, request.Query, response.ProcessingTimeMs);
+            }
+
+            return response;
+        }
+        catch (ArgumentException ex)
+        {
+            var processingTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogWarning(ex, "Invalid enhanced semantic search request - User: {UserId}, Query: '{Query}', Error: {Error}, ProcessingTime: {ProcessingTime}ms",
+                userId, request.Query, ex.Message, processingTime);
+
+            return new EnhancedSemanticSearchResponse
+            {
+                RequestId = requestId,
+                Query = request.Query,
+                Success = false,
+                ErrorMessage = ex.Message,
+                ProcessingTimeMs = (long)processingTime
+            };
+        }
+        catch (Exception ex)
+        {
+            var processingTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogError(ex, "Error performing enhanced semantic search - User: {UserId}, Query: '{Query}', Error: {Error}, ProcessingTime: {ProcessingTime}ms",
+                userId, request.Query, ex.Message, processingTime);
+
+            return new EnhancedSemanticSearchResponse
+            {
+                RequestId = requestId,
+                Query = request.Query,
+                Success = false,
+                ErrorMessage = "An error occurred while performing enhanced semantic search. Please try again.",
+                ProcessingTimeMs = (long)processingTime
+            };
+        }
+    }
+
     #region Semantic Search Helper Methods
 
     private MemoryFilter BuildEnhancedMemoryFilter(SemanticSearchFilter filter, SemanticSearchRequest request)
@@ -2941,6 +3078,115 @@ public class DocumentService : IDocumentService
 
         candidate.AppliedBoosts = appliedBoosts;
         return Math.Min(boostedScore, 2.0); // Cap at 2.0 to prevent extreme scores
+    }
+
+    /// <summary>
+    /// Processes AI memory sources and converts them into SemanticSearchResponse objects
+    /// </summary>
+    private async Task<List<SemanticSearchResponse>> ProcessAISourcesIntoDocuments(
+        IEnumerable<Citation> relevantSources,
+        SemanticSearchRequest request,
+        SemanticSearchFilter filter)
+    {
+        var userId = GetCurrentUserId();
+        var userDepartmentId = GetCurrentUserDepartmentId();
+
+        // Extract document IDs from citations
+        var documentIds = relevantSources
+            .SelectMany(citation => citation.Partitions)
+            .Where(partition => partition.Tags.ContainsKey(SemanticSearchConstant.MemoryTags.DocumentId))
+            .SelectMany(partition => partition.Tags[SemanticSearchConstant.MemoryTags.DocumentId])
+            .Distinct()
+            .ToList();
+
+        if (!documentIds.Any())
+        {
+            return new List<SemanticSearchResponse>();
+        }
+
+        // Build database predicate for security filtering
+        var predicate = BuildDatabasePredicate(documentIds, request, filter, userDepartmentId);
+
+        // Fetch document versions from database with security filtering
+        var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>()
+            .GetListAsync(
+                predicate: predicate,
+                include: i => i.Include(dv => dv.DocumentFile)
+                    .ThenInclude(df => df.DocumentType)
+                    .Include(dv => dv.DocumentTags)
+                    .ThenInclude(dt => dt.Tag)
+            );
+
+        if (!documentVersions.Any())
+        {
+            return new List<SemanticSearchResponse>();
+        }
+
+        // Create candidates with relevance scores from citations
+        var candidates = new List<SemanticSearchCandidate>();
+        foreach (var docVersion in documentVersions)
+        {
+            // Find the highest relevance score for this document from citations
+            var maxRelevance = relevantSources
+                .SelectMany(citation => citation.Partitions)
+                .Where(partition =>
+                    partition.Tags.ContainsKey(SemanticSearchConstant.MemoryTags.DocumentId) &&
+                    partition.Tags[SemanticSearchConstant.MemoryTags.DocumentId].Contains(docVersion.DocumentFile.Id))
+                .Max(partition => partition.Relevance);
+
+            candidates.Add(new SemanticSearchCandidate
+            {
+                DocumentVersion = docVersion,
+                SemanticRelevance = maxRelevance,
+                FinalScore = maxRelevance // Will be enhanced if hybrid scoring is enabled
+            });
+        }
+
+        // Apply hybrid scoring if enabled
+        if (request.EnableHybridScoring)
+        {
+            candidates = await ApplyHybridScoring(candidates, request, filter);
+        }
+
+        // Sort by final score and apply limits
+        var sortedCandidates = candidates
+            .OrderByDescending(c => c.FinalScore)
+            .Take(request.MaxResults)
+            .ToList();
+
+        // Convert to response objects
+        var responses = sortedCandidates.Select((candidate, index) => new SemanticSearchResponse
+        {
+            Id = candidate.DocumentVersion.DocumentFile.Id,
+            DepartmentId = candidate.DocumentVersion.DocumentFile.DepartmentId,
+            Title = candidate.DocumentVersion.Title,
+            DocumentName = candidate.DocumentVersion.FileName, // Use FileName from DocumentVersion
+            Description = candidate.DocumentVersion.Summary, // Use Summary from DocumentVersion
+            Status = candidate.DocumentVersion.Status.ToString(),
+            CreatedBy = candidate.DocumentVersion.CreatedBy,
+            CreatedTime = candidate.DocumentVersion.CreatedTime,
+            LastUpdatedby = candidate.DocumentVersion.LastUpdatedBy,
+            LastUpdatedTime = candidate.DocumentVersion.LastUpdatedTime,
+            FilePath = candidate.DocumentVersion.FilePath,
+            FileType = candidate.DocumentVersion.FileType,
+            FileSize = candidate.DocumentVersion.FileSize,
+            Version = candidate.DocumentVersion.VersionName, // Use VersionName from DocumentVersion
+            Tags = candidate.DocumentVersion.DocumentTags?.Select(dt => dt.Tag.Name).ToList() ?? new List<string>(),
+            Relevance = candidate.FinalScore,
+            DocumentTypeId = candidate.DocumentVersion.DocumentFile.DocumentTypeId ?? string.Empty,
+            IsPublic = candidate.DocumentVersion.IsPublic,
+            SignedBy = candidate.DocumentVersion.SignedBy,
+            EffectiveFrom = candidate.DocumentVersion.EffectiveFrom,
+            EffectiveUntil = candidate.DocumentVersion.EffectiveUntil,
+            Scoring = candidate.Scoring,
+            IsDepartmentBoosted = candidate.IsDepartmentMatch,
+            Rank = index + 1
+        }).ToList();
+
+        // Enrich with names
+        var enrichedResponses = await _enrichmentService.EnrichSemanticSearchResponsesAsync(responses);
+
+        return enrichedResponses;
     }
 
     #endregion

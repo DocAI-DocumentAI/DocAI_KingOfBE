@@ -159,6 +159,32 @@ Yêu cầu:
     }
 
     /// <summary>
+    /// Prompts for semantic search with AI-powered responses
+    /// </summary>
+    public static class SemanticSearch
+    {
+        /// <summary>
+        /// Enhanced prompt for semantic search that provides concise conversational AI responses with document sources
+        /// </summary>
+        public const string ConversationalSearchPrompt = @"Trả lời ngắn gọn câu hỏi dựa trên tài liệu có liên quan. Giới hạn 2-3 câu, tập trung vào thông tin chính.
+
+Yêu cầu:
+- Trả lời trực tiếp, ngắn gọn, 2-3 câu
+- Chỉ thông tin quan trọng nhất
+- Tiếng Việt chuyên nghiệp
+- Nếu không có thông tin: ""Không tìm thấy thông tin liên quan, nhưng đây là một số tài liệu bạn có thể quan tâm ""
+
+Câu hỏi: {0}
+
+Trả lời ngắn gọn:";
+
+        /// <summary>
+        /// Fallback prompt when no relevant documents are found
+        /// </summary>
+        public const string NoResultsPrompt = @"Không tìm thấy tài liệu liên quan đến: ""{0}"". Nhưng đây là một số tài liệu bạn có thể quan tâm.";
+    }
+
+    /// <summary>
     /// Configuration constants for AI prompts
     /// </summary>
     public static class Configuration
@@ -176,7 +202,7 @@ Yêu cầu:
         /// <summary>
         /// Phrases that indicate AI analysis failure
         /// </summary>
-        public static readonly string[] FailureIndicators = 
+        public static readonly string[] FailureIndicators =
         {
             "INFO NOT FOUND",
             "không tìm thấy",
