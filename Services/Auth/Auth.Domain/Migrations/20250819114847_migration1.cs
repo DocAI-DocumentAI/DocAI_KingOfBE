@@ -142,38 +142,38 @@ namespace Auth.Domain.Migrations
             migrationBuilder.InsertData(
                 table: "Departments",
                 columns: new[] { "Id", "CreateAt", "Description", "Name", "UpdateAt" },
-                values: new object[] { new Guid("d8854d21-8fae-46aa-b51b-0de060b92ee3"), new DateTime(2025, 8, 13, 17, 4, 34, 922, DateTimeKind.Utc).AddTicks(1263), "Company", "Company", new DateTime(2025, 8, 13, 17, 4, 34, 922, DateTimeKind.Utc).AddTicks(1375) });
+                values: new object[] { new Guid("d8854d21-8fae-46aa-b51b-0de060b92ee3"), new DateTime(2025, 8, 19, 11, 48, 47, 394, DateTimeKind.Utc).AddTicks(6495), "Company", "Company", new DateTime(2025, 8, 19, 11, 48, 47, 394, DateTimeKind.Utc).AddTicks(6615) });
 
             migrationBuilder.InsertData(
                 table: "Permissions",
                 columns: new[] { "Id", "CreateAt", "Description", "Name", "UpdateAt" },
-                values: new object[] { new Guid("3796cdb0-7c0a-4cc6-a757-883fe1865fb6"), new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(847), "Quyền xem mọi tài liệu trong hệ thống ", "VIEW_ANY_DOCUMENT", new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(956) });
+                values: new object[] { new Guid("3796cdb0-7c0a-4cc6-a757-883fe1865fb6"), new DateTime(2025, 8, 19, 11, 48, 47, 395, DateTimeKind.Utc).AddTicks(2502), "Quyền xem mọi tài liệu trong hệ thống ", "VIEW_ANY_DOCUMENT", new DateTime(2025, 8, 19, 11, 48, 47, 395, DateTimeKind.Utc).AddTicks(2608) });
 
             migrationBuilder.InsertData(
                 table: "Roles",
                 columns: new[] { "Id", "CreateAt", "Description", "RoleName", "UpdateAt" },
                 values: new object[,]
                 {
-                    { new Guid("4e29a870-9131-4cc2-97ca-eaa748b5f17f"), new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3523), "Employee", "Employee", new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3616) },
-                    { new Guid("8e7d55e4-67d3-4b73-9995-21b163493136"), new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3698), "Editor", "Editor", new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3699) },
-                    { new Guid("a5ddf431-aae9-4d9f-8d61-1a37776bb4bb"), new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3697), "Manager", "Manager", new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3697) },
-                    { new Guid("a996692c-1f5e-4458-8dcf-c2494a47b6d6"), new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3694), "Admin", "Admin", new DateTime(2025, 8, 13, 17, 4, 34, 923, DateTimeKind.Utc).AddTicks(3695) }
+                    { new Guid("4e29a870-9131-4cc2-97ca-eaa748b5f17f"), new DateTime(2025, 8, 19, 11, 48, 47, 395, DateTimeKind.Utc).AddTicks(5268), "Employee", "Employee", new DateTime(2025, 8, 19, 11, 48, 47, 395, DateTimeKind.Utc).AddTicks(5369) },
+                    { new Guid("8e7d55e4-67d3-4b73-9995-21b163493136"), new DateTime(2025, 8, 19, 11, 48, 47, 395, DateTimeKind.Utc).AddTicks(5460), "Editor", "Editor", new DateTime(2025, 8, 19, 11, 48, 47, 395, DateTimeKind.Utc).AddTicks(5460) },
+                    { new Guid("a5ddf431-aae9-4d9f-8d61-1a37776bb4bb"), new DateTime(2025, 8, 19, 11, 48, 47, 395, DateTimeKind.Utc).AddTicks(5458), "Manager", "Manager", new DateTime(2025, 8, 19, 11, 48, 47, 395, DateTimeKind.Utc).AddTicks(5458) },
+                    { new Guid("a996692c-1f5e-4458-8dcf-c2494a47b6d6"), new DateTime(2025, 8, 19, 11, 48, 47, 395, DateTimeKind.Utc).AddTicks(5455), "Admin", "Admin", new DateTime(2025, 8, 19, 11, 48, 47, 395, DateTimeKind.Utc).AddTicks(5456) }
                 });
 
             migrationBuilder.InsertData(
                 table: "Users",
                 columns: new[] { "Id", "Active", "CreatAt", "DepartmentId", "Email", "FullName", "GoogleId", "Password", "Phone", "RequirePasswordChange", "RoleId", "UpdateAt" },
-                values: new object[] { new Guid("13d466ed-8a2d-414d-88c0-9c7adcac2616"), true, new DateTime(2025, 8, 13, 17, 4, 34, 951, DateTimeKind.Utc).AddTicks(481), new Guid("d8854d21-8fae-46aa-b51b-0de060b92ee3"), "nguyenhuyphc@gmail.com", "Phc Admin", null, "G+1BwISNYFEccnjbnhhCXUInwXmfbaz0kcjlTFFE32HXfz0pwX5yEtOXJSuzsUiS", "0847911068", true, new Guid("a996692c-1f5e-4458-8dcf-c2494a47b6d6"), new DateTime(2025, 8, 13, 17, 4, 34, 951, DateTimeKind.Utc).AddTicks(580) });
+                values: new object[] { new Guid("13d466ed-8a2d-414d-88c0-9c7adcac2616"), true, new DateTime(2025, 8, 19, 11, 48, 47, 421, DateTimeKind.Utc).AddTicks(213), new Guid("d8854d21-8fae-46aa-b51b-0de060b92ee3"), "nguyenhuyphc@gmail.com", "Phc Admin", null, "oG9lRXLNaM5iGqbFI5HI8nc/yUHuqNsz9L0pWruCY4odChrfISxGfgRFbrFureV9", "0847911068", true, new Guid("a996692c-1f5e-4458-8dcf-c2494a47b6d6"), new DateTime(2025, 8, 19, 11, 48, 47, 421, DateTimeKind.Utc).AddTicks(362) });
 
             migrationBuilder.InsertData(
                 table: "UserPermissions",
                 columns: new[] { "Id", "PermissionId", "UserId" },
-                values: new object[] { new Guid("fe9b9d32-c0ae-4f07-8ab3-970353090901"), new Guid("3796cdb0-7c0a-4cc6-a757-883fe1865fb6"), new Guid("13d466ed-8a2d-414d-88c0-9c7adcac2616") });
+                values: new object[] { new Guid("bf658719-57e7-4c2a-9a59-34e4d47a5024"), new Guid("3796cdb0-7c0a-4cc6-a757-883fe1865fb6"), new Guid("13d466ed-8a2d-414d-88c0-9c7adcac2616") });
 
             migrationBuilder.InsertData(
                 table: "UserSettings",
                 columns: new[] { "Id", "NotificationsEnabled", "TwoFactorEnabled", "TwoFactorMethod", "UpdateAt", "UserId" },
-                values: new object[] { new Guid("ddfcbea3-56e9-4187-97f6-521ca24c2412"), true, false, "email", new DateTime(2025, 8, 13, 17, 4, 34, 951, DateTimeKind.Utc).AddTicks(5540), new Guid("13d466ed-8a2d-414d-88c0-9c7adcac2616") });
+                values: new object[] { new Guid("ddfcbea3-56e9-4187-97f6-521ca24c2412"), true, false, "email", new DateTime(2025, 8, 19, 11, 48, 47, 422, DateTimeKind.Utc).AddTicks(78), new Guid("13d466ed-8a2d-414d-88c0-9c7adcac2616") });
 
             migrationBuilder.CreateIndex(
                 name: "IX_UserPermissions_PermissionId",
