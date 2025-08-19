@@ -165,6 +165,142 @@ namespace Document.API.Services.Interfaces
         /// <param name="versionId">Document version ID</param>
         /// <returns>File access validation response with detailed access information</returns>
         Task<ApiResponse<FileAccessValidationResponse>> ValidateDocumentAccessAsync(string versionId);
+
+        // ===== NEW FOLDER MANAGEMENT METHODS =====
+
+        /// <summary>
+        /// Create a new folder in Google Drive with proper hierarchy
+        /// </summary>
+        /// <param name="folderName">Name of the folder to create</param>
+        /// <param name="parentFolderId">Parent folder ID (null for root level)</param>
+        /// <param name="description">Optional folder description</param>
+        /// <returns>Created folder ID</returns>
+        Task<string> CreateFolderAsync(string folderName, string? parentFolderId = null, string? description = null);
+
+        /// <summary>
+        /// Update folder metadata (name, description)
+        /// </summary>
+        /// <param name="folderId">Folder ID to update</param>
+        /// <param name="newName">New folder name (null to keep current)</param>
+        /// <param name="newDescription">New description (null to keep current)</param>
+        /// <returns>Success status</returns>
+        Task<bool> UpdateFolderAsync(string folderId, string? newName = null, string? newDescription = null);
+
+        /// <summary>
+        /// Move folder to a different parent
+        /// </summary>
+        /// <param name="folderId">Folder ID to move</param>
+        /// <param name="newParentFolderId">New parent folder ID (null for root)</param>
+        /// <returns>Success status</returns>
+        Task<bool> MoveFolderAsync(string folderId, string? newParentFolderId);
+
+        /// <summary>
+        /// Delete folder from Google Drive
+        /// </summary>
+        /// <param name="folderId">Folder ID to delete</param>
+        /// <param name="force">Force delete even if folder contains files</param>
+        /// <returns>Success status</returns>
+        Task<bool> DeleteFolderAsync(string folderId, bool force = false);
+
+        /// <summary>
+        /// Check if folder exists in Google Drive
+        /// </summary>
+        /// <param name="folderId">Folder ID to check</param>
+        /// <returns>True if folder exists</returns>
+        Task<bool> FolderExistsAsync(string folderId);
+
+        /// <summary>
+        /// Get folder metadata from Google Drive
+        /// </summary>
+        /// <param name="folderId">Folder ID</param>
+        /// <returns>Folder metadata</returns>
+        Task<GoogleDriveFolderMetadata> GetFolderMetadataAsync(string folderId);
+
+        /// <summary>
+        /// List contents of a folder (files and subfolders)
+        /// </summary>
+        /// <param name="folderId">Folder ID</param>
+        /// <param name="includeFiles">Include files in results</param>
+        /// <param name="includeFolders">Include subfolders in results</param>
+        /// <returns>Folder contents</returns>
+        Task<GoogleDriveFolderContents> GetFolderContentsAsync(string folderId, bool includeFiles = true, bool includeFolders = true);
+
+        /// <summary>
+        /// Upload file to specific folder by folder ID
+        /// </summary>
+        /// <param name="file">File to upload</param>
+        /// <param name="folderId">Target folder ID</param>
+        /// <returns>Upload response</returns>
+        Task<GoogleDriveUploadResponse> UploadFileToFolderAsync(IFormFile file, string folderId);
+
+        /// <summary>
+        /// Delete a folder from Google Drive
+        /// </summary>
+        /// <param name="folderId">Google Drive folder ID</param>
+        /// <returns>Task</returns>
+        Task DeleteFolderAsync(string folderId);
+
+        /// <summary>
+        /// Move file to specific folder by folder ID
+        /// </summary>
+        /// <param name="fileId">File ID to move</param>
+        /// <param name="targetFolderId">Target folder ID</param>
+        /// <returns>Success status</returns>
+        Task<bool> MoveFileToFolderAsync(string fileId, string targetFolderId);
+
+        /// <summary>
+        /// Grant folder permissions to user or domain
+        /// </summary>
+        /// <param name="folderId">Folder ID</param>
+        /// <param name="emailAddress">User email or domain</param>
+        /// <param name="role">Permission role (reader, writer, owner)</param>
+        /// <param name="type">Permission type (user, domain)</param>
+        /// <returns>Permission ID</returns>
+        Task<string> GrantFolderPermissionAsync(string folderId, string emailAddress, string role = "reader", string type = "user");
+
+        /// <summary>
+        /// Revoke folder permission
+        /// </summary>
+        /// <param name="folderId">Folder ID</param>
+        /// <param name="permissionId">Permission ID to revoke</param>
+        /// <returns>Success status</returns>
+        Task<bool> RevokeFolderPermissionAsync(string folderId, string permissionId);
+
+        /// <summary>
+        /// Get all permissions for a folder
+        /// </summary>
+        /// <param name="folderId">Folder ID</param>
+        /// <returns>List of permissions</returns>
+        Task<IList<Google.Apis.Drive.v3.Data.Permission>> GetFolderPermissionsAsync(string folderId);
+
+        /// <summary>
+        /// Search for folders by name or path
+        /// </summary>
+        /// <param name="searchQuery">Search query</param>
+        /// <param name="parentFolderId">Parent folder to search within (null for all)</param>
+        /// <returns>List of matching folders</returns>
+        Task<List<GoogleDriveFolderMetadata>> SearchFoldersAsync(string searchQuery, string? parentFolderId = null);
+
+        /// <summary>
+        /// Get folder hierarchy path from root to specified folder
+        /// </summary>
+        /// <param name="folderId">Folder ID</param>
+        /// <returns>List of folder metadata from root to target</returns>
+        Task<List<GoogleDriveFolderMetadata>> GetFolderHierarchyAsync(string folderId);
+
+        /// <summary>
+        /// Initialize hierarchical folder structure for department
+        /// </summary>
+        /// <param name="departmentId">Department ID</param>
+        /// <param name="departmentName">Department name</param>
+        /// <returns>Dictionary of folder type to folder ID mappings</returns>
+        Task<Dictionary<string, string>> InitializeDepartmentFolderHierarchyAsync(string departmentId, string departmentName);
+
+        /// <summary>
+        /// Initialize public folder hierarchy
+        /// </summary>
+        /// <returns>Dictionary of folder type to folder ID mappings</returns>
+        Task<Dictionary<string, string>> InitializePublicFolderHierarchyAsync();
     }
 
     /// <summary>
@@ -183,5 +319,35 @@ namespace Document.API.Services.Interfaces
         public string? ThumbnailLink { get; set; }
         public string? WebViewLink { get; set; }
         public string? WebContentLink { get; set; }
+    }
+
+    /// <summary>
+    /// Google Drive folder metadata
+    /// </summary>
+    public class GoogleDriveFolderMetadata
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public List<string> Parents { get; set; } = new List<string>();
+        public DateTime? CreatedTime { get; set; }
+        public DateTime? ModifiedTime { get; set; }
+        public string? WebViewLink { get; set; }
+        public bool Trashed { get; set; }
+        public int FileCount { get; set; }
+        public int FolderCount { get; set; }
+    }
+
+    /// <summary>
+    /// Google Drive folder contents
+    /// </summary>
+    public class GoogleDriveFolderContents
+    {
+        public string FolderId { get; set; } = string.Empty;
+        public string FolderName { get; set; } = string.Empty;
+        public List<GoogleDriveFileMetadata> Files { get; set; } = new List<GoogleDriveFileMetadata>();
+        public List<GoogleDriveFolderMetadata> Folders { get; set; } = new List<GoogleDriveFolderMetadata>();
+        public int TotalFiles { get; set; }
+        public int TotalFolders { get; set; }
     }
 }

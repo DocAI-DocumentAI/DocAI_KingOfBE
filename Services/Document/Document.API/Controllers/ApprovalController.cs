@@ -4,12 +4,17 @@ using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Implements;
 using Document.API.Services.Interfaces;
+using static Document.API.Services.Interfaces.IFolderAwareApprovalService; // ✅ FOLDER-AWARE: For ApprovalReviewResponse
 using Document.Infrastructure.Filter;
 using Document.Infrastructure.Paginate;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Document.API.Controllers
 {
+    /// <summary>
+    /// ✅ ENHANCED: Approval controller with complete folder-aware functionality and Kernel Memory integration
+    /// Handles document approval workflows with folder management, versioning, replacement, and semantic search indexing
+    /// </summary>
     [Route(ApiEndPointConstant.ApiEndpoint)]
     [ApiController]
     public class ApprovalController : ControllerBase
@@ -33,16 +38,20 @@ namespace Document.API.Controllers
             return Ok(ApiResponse<object>.Success(null, "Document submited successfully", 200));
         }
 
+        /// <summary>
+        /// ✅ FOLDER-AWARE: Review document (approve/reject) with folder-aware logic and complete Kernel Memory integration
+        /// </summary>
         [HttpPost(ApiEndPointConstant.Approval.ApproveOrReject)]
         [CustomAuthorize(Roles = new[] { Roles.Manager })]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<ApprovalReviewResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> ApproveOrRejectDocument([FromRoute(Name = "id")] string documentId, [FromBody] ReviewDocumentRequest request)
         {
-            await _approvalService.ReviewDocument(documentId, request);
-            return Ok(ApiResponse<object>.Success(null, "Document approved successfully", 200));
+            var result = await _approvalService.ReviewDocument(documentId, request);
+            return Ok(ApiResponse<ApprovalReviewResponse>.Success(result,
+                $"Document {result.Decision.ToLower()} successfully"));
         }
 
         /// <summary>

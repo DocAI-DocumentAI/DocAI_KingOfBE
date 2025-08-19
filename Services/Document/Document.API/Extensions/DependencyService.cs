@@ -55,8 +55,14 @@ public static class DependencyService
             x.AddConsumer<SetupUserGoogleDrivePermissionsConsumer>();
             x.AddConsumer<InitializeBulkGoogleDrivePermissionsConsumer>();
 
+            // Database folder permission setup consumers
+            x.AddConsumer<SetupUserFolderPermissionsConsumer>();
+
             // Add request client for name lookup
             x.AddRequestClient<NameLookupRequest>(new Uri("queue:name-lookup-queue"));
+
+            // Add request client for user email lookup
+            x.AddRequestClient<UserEmailRequest>(new Uri("queue:user-email-queue"));
 
             // Add request clients for permission-related Auth service communication
             x.AddRequestClient<DepartmentEmployeeRequest>(new Uri("queue:department-employee-queue"));
@@ -131,6 +137,13 @@ public static class DependencyService
                     e.UseInMemoryOutbox();
                 });
 
+                cfg.ReceiveEndpoint("folder-permissions-setup-queue", e =>
+                {
+                    e.ConfigureConsumer<SetupUserFolderPermissionsConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                    e.UseInMemoryOutbox();
+                });
+
                 cfg.ConfigureEndpoints(context);
 
             });
@@ -148,6 +161,7 @@ public static class DependencyService
         services.AddHttpClient<IGoogleDriveOAuthService, GoogleDriveOAuthService>();
         services.AddScoped<IFileConversionService, FileConversionService>();
         services.AddScoped<INameLookupService, NameLookupService>();
+        services.AddScoped<IUserEmailLookupService, UserEmailLookupService>();
         services.AddScoped<IDocumentEnrichmentService, DocumentEnrichmentService>();
         services.AddScoped<AiResponseHelper>();
         services.AddMemoryCache();
@@ -164,6 +178,14 @@ public static class DependencyService
         services.AddScoped<IApprovalService, ApprovalService>();
         services.AddScoped<ITagService, TagService>();
         services.AddScoped<IDocumentTypeService, DocumentTypeService>();
+        services.AddScoped<IFolderService, FolderService>();
+        services.AddScoped<IFolderPermissionService, FolderPermissionService>();
+        services.AddScoped<IFolderPermissionEnrichmentService, FolderPermissionEnrichmentService>();
+        services.AddScoped<IFolderDocumentService, FolderDocumentService>();
+        services.AddScoped<IFolderAwareApprovalService, FolderAwareApprovalService>();
+        services.AddScoped<IPermissionSyncService, PermissionSyncService>();
+        // ✅ NEW: Simple department-based permission service
+        services.AddScoped<ISimpleDepartmentPermissionService, SimpleDepartmentPermissionService>();
         services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 
         services.AddScoped<IDocumentRAGService, DocumentRAGService>();

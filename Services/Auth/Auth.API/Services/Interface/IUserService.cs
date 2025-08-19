@@ -29,6 +29,7 @@ public interface IUserService
     public Task<IPaginate<UserResponse>> GetAllUsersAsync(int page, int size, UserFilter? filter, string? sortBy, bool isAsc);
     public Task<bool> LogoutAsync();
     public Task<Dictionary<string, string>> GetUserNamesByIdsAsync(List<string> userIds);
+    public Task<IPaginate<UserResponse>> GetDepartmentUsersAsync(int page, int size, string? keyword, string? sortBy, bool isAsc);
 
     // Permission-related methods for Document service
     public Task<List<string>> GetDepartmentEmployeeEmailsAsync(string departmentId);

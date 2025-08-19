@@ -22,6 +22,17 @@ namespace Shared.Commands
     }
 
     /// <summary>
+    /// Command to setup database folder permissions for a new user
+    /// </summary>
+    public class SetupUserFolderPermissionsCommand
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string UserEmail { get; set; } = string.Empty;
+        public string DepartmentId { get; set; } = string.Empty;
+        public string UserRole { get; set; } = string.Empty;
+    }
+
+    /// <summary>
     /// Command to perform initial bulk Google Drive permission setup for all existing departments and users
     /// </summary>
     public class InitializeBulkGoogleDrivePermissionsCommand

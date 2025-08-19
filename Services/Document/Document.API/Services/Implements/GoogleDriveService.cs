@@ -49,20 +49,30 @@ namespace Document.API.Services.Implements
             _httpContextAccessor = httpContextAccessor;
             _folderCache = new Dictionary<string, string>();
 
-            _logger.LogInformation("Google Drive service initialized for personal Gmail accounts");
+            _logger.LogInformation("Google Drive service initialized with NEW FOLDER ARCHITECTURE - departments contain _draft subfolders");
+        }
+
+        /// <summary>
+        /// Clear folder cache to ensure new folder structure is used
+        /// </summary>
+        public void ClearFolderCache()
+        {
+            _folderCache.Clear();
+            _logger.LogInformation("Folder cache cleared - will use new folder architecture");
         }
 
         public async Task<GoogleDriveUploadResponse> UploadFileAsync(IFormFile file, string folder, string departmentId = null, bool isPublic = false)
         {
             try
             {
-                _logger.LogInformation("Uploading file '{FileName}' to Google Drive folder '{Folder}'", file.FileName, folder);
+                _logger.LogInformation("🔄 NEW ARCHITECTURE: Uploading file '{FileName}' to folder '{Folder}' for department '{DepartmentId}'",
+                    file.FileName, folder, departmentId);
 
                 // Use company account for all uploads
                 using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
 
-                // Get target folder ID
-                var folderId = await GetOrCreateFolderAsync(folder, departmentId, isPublic, driveService);
+                // ✅ NEW ARCHITECTURE: Get folder ID from database instead of creating directly
+                var folderId = await GetFolderIdFromDatabaseAsync(folder, departmentId, isPublic);
 
                 // Calculate MD5 hash
                 var md5Hash = await CalculateMd5HashAsync(file);
@@ -149,8 +159,8 @@ namespace Document.API.Services.Implements
                 var file = await ExecuteWithRetryAsync(async () => await fileRequest.ExecuteAsync());
                 var previousParents = file.Parents != null ? string.Join(",", file.Parents) : "";
 
-                // Get destination folder ID
-                var destinationFolderId = await GetOrCreateFolderAsync(destinationFolder, departmentId, isPublic, driveService);
+                // ✅ NEW ARCHITECTURE: Get destination folder ID from database
+                var destinationFolderId = await GetFolderIdFromDatabaseAsync(destinationFolder, departmentId, isPublic);
 
                 _logger.LogInformation("Moving file '{FileId}' from parents '{PreviousParents}' to folder '{DestinationFolderId}'",
                     fileId, previousParents, destinationFolderId);
@@ -279,14 +289,15 @@ namespace Document.API.Services.Implements
                 // Create root company folder if not exists
                 var rootFolderId = await GetOrCreateRootFolderAsync(driveService);
 
-                // Create main workflow folders
-                var folders = new[] { "drafts", "pending", "approved", "archived" };
+                // Create only drafts folder for temporary document storage
+                // Documents move directly to functional folders when approved
+                var folders = new[] { FolderConstant.SystemFolders.Draft };
                 foreach (var folder in folders)
                 {
                     await GetOrCreateFolderAsync(folder, null, false, driveService);
                 }
 
-                _logger.LogInformation("Company folder structure initialized successfully");
+                _logger.LogInformation("Company folder structure initialized successfully (direct-to-target workflow)");
             }
             catch (Exception ex)
             {
@@ -454,29 +465,166 @@ namespace Document.API.Services.Implements
             var rootFolderId = await GetOrCreateRootFolderAsync(driveService);
             var parentFolderId = rootFolderId;
 
-            // For approved and archived folders, create department-specific subfolders
-            if ((folderName == "approved" || folderName == "archived") && !isPublic && !string.IsNullOrEmpty(departmentId))
+            // ✅ NEW FOLDER ARCHITECTURE: Handle system folders (_draft) and functional folders differently
+            if (folderName.StartsWith("_"))
             {
-                // First create/get the main folder (approved/archived)
-                var mainFolderId = await GetOrCreateSubfolderAsync(folderName, parentFolderId, driveService);
+                // System folders like _draft should be created within department folders
+                if (!isPublic && !string.IsNullOrEmpty(departmentId))
+                {
+                    // Get department name from database for proper folder structure
+                    var departmentName = await GetDepartmentNameFromIdAsync(departmentId);
 
-                // Then create/get the department subfolder
-                parentFolderId = await GetOrCreateSubfolderAsync(departmentId, mainFolderId, driveService);
-            }
-            else if ((folderName == "approved" || folderName == "archived") && isPublic)
-            {
-                // For public documents, create public subfolder
-                var mainFolderId = await GetOrCreateSubfolderAsync(folderName, parentFolderId, driveService);
-                parentFolderId = await GetOrCreateSubfolderAsync("public", mainFolderId, driveService);
+                    // Create: Root -> DepartmentName -> _draft
+                    var deptFolderId = await GetOrCreateSubfolderAsync(departmentName, parentFolderId, driveService);
+                    parentFolderId = await GetOrCreateSubfolderAsync(folderName, deptFolderId, driveService);
+                }
+                else if (isPublic)
+                {
+                    // Create: Root -> Public -> _draft
+                    var publicFolderId = await GetOrCreateSubfolderAsync("Public", parentFolderId, driveService);
+                    parentFolderId = await GetOrCreateSubfolderAsync(folderName, publicFolderId, driveService);
+                }
+                else
+                {
+                    // Fallback: Root -> _draft
+                    parentFolderId = await GetOrCreateSubfolderAsync(folderName, parentFolderId, driveService);
+                }
             }
             else
             {
-                // For drafts and pending, use main folder directly
-                parentFolderId = await GetOrCreateSubfolderAsync(folderName, parentFolderId, driveService);
+                // Functional folders: should be created by FolderService, not here
+                // This is for legacy compatibility only
+                _logger.LogWarning("Creating functional folder '{FolderName}' via GoogleDriveService - should use FolderService instead", folderName);
+
+                if (!isPublic && !string.IsNullOrEmpty(departmentId))
+                {
+                    var departmentName = await GetDepartmentNameFromIdAsync(departmentId);
+                    var deptFolderId = await GetOrCreateSubfolderAsync(departmentName, parentFolderId, driveService);
+                    parentFolderId = await GetOrCreateSubfolderAsync(folderName, deptFolderId, driveService);
+                }
+                else if (isPublic)
+                {
+                    var publicFolderId = await GetOrCreateSubfolderAsync("Public", parentFolderId, driveService);
+                    parentFolderId = await GetOrCreateSubfolderAsync(folderName, publicFolderId, driveService);
+                }
+                else
+                {
+                    parentFolderId = await GetOrCreateSubfolderAsync(folderName, parentFolderId, driveService);
+                }
             }
 
             _folderCache[cacheKey] = parentFolderId;
             return parentFolderId;
+        }
+
+        /// <summary>
+        /// ✅ NEW ARCHITECTURE: Get Google Drive folder ID from database folder structure
+        /// </summary>
+        private async Task<string> GetFolderIdFromDatabaseAsync(string folderName, string? departmentId, bool isPublic)
+        {
+            try
+            {
+                _logger.LogInformation("🔍 Getting folder ID from database for folder '{FolderName}', department '{DepartmentId}', public: {IsPublic}",
+                    folderName, departmentId, isPublic);
+
+                Folder? targetFolder = null;
+
+                if (folderName.StartsWith("_"))
+                {
+                    // System folder (like _draft)
+                    if (isPublic)
+                    {
+                        // Public system folder
+                        targetFolder = await _unitOfWork.GetRepository<Folder>()
+                            .SingleOrDefaultAsync(predicate: f =>
+                                f.Name == folderName &&
+                                f.IsSystemFolder &&
+                                f.IsPublic &&
+                                !f.IsDeleted);
+                    }
+                    else if (!string.IsNullOrEmpty(departmentId))
+                    {
+                        // Department system folder
+                        targetFolder = await _unitOfWork.GetRepository<Folder>()
+                            .SingleOrDefaultAsync(predicate: f =>
+                                f.Name == folderName &&
+                                f.IsSystemFolder &&
+                                f.DepartmentId == departmentId &&
+                                !f.IsDeleted);
+                    }
+                }
+                else
+                {
+                    // Functional folder - should be created via FolderService
+                    _logger.LogWarning("⚠️ Functional folder '{FolderName}' should be created via FolderService, not GoogleDriveService", folderName);
+
+                    if (isPublic)
+                    {
+                        targetFolder = await _unitOfWork.GetRepository<Folder>()
+                            .SingleOrDefaultAsync(predicate: f =>
+                                f.Name == folderName &&
+                                f.IsPublic &&
+                                !f.IsDeleted);
+                    }
+                    else if (!string.IsNullOrEmpty(departmentId))
+                    {
+                        targetFolder = await _unitOfWork.GetRepository<Folder>()
+                            .SingleOrDefaultAsync(predicate: f =>
+                                f.Name == folderName &&
+                                f.DepartmentId == departmentId &&
+                                !f.IsDeleted);
+                    }
+                }
+
+                if (targetFolder?.GoogleDriveFolderId != null)
+                {
+                    _logger.LogInformation("✅ Found folder in database: {FolderName} -> {GoogleDriveFolderId}",
+                        targetFolder.Name, targetFolder.GoogleDriveFolderId);
+                    return targetFolder.GoogleDriveFolderId;
+                }
+
+                // Fallback: create folder if not found (only for system folders)
+                if (folderName.StartsWith("_"))
+                {
+                    _logger.LogWarning("🔧 System folder '{FolderName}' not found in database, creating via legacy method", folderName);
+                    using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+                    return await GetOrCreateFolderAsync(folderName, departmentId, isPublic, driveService);
+                }
+
+                throw new InvalidOperationException($"Folder '{folderName}' not found in database. Functional folders must be created via FolderService first.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Error getting folder ID from database for '{FolderName}'", folderName);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Get department name from department ID for proper folder structure
+        /// </summary>
+        private async Task<string> GetDepartmentNameFromIdAsync(string departmentId)
+        {
+            try
+            {
+                // Try to get department name from existing folder structure
+                var departmentFolder = await _unitOfWork.GetRepository<Folder>()
+                    .SingleOrDefaultAsync(predicate: f => f.DepartmentId == departmentId && f.ParentFolderId == null && !f.IsDeleted);
+
+                if (departmentFolder != null)
+                {
+                    return departmentFolder.Name;
+                }
+
+                // Fallback: use department ID if no folder found
+                _logger.LogWarning("Department folder not found for ID {DepartmentId}, using ID as folder name", departmentId);
+                return $"Department-{departmentId}";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting department name for ID {DepartmentId}", departmentId);
+                return $"Department-{departmentId}";
+            }
         }
 
         private async Task<string> GetOrCreateSubfolderAsync(string folderName, string parentFolderId, DriveService driveService)
@@ -1106,7 +1254,709 @@ namespace Document.API.Services.Implements
 
         #endregion
 
+        #region Folder Management Methods
 
+        public async Task<string> CreateFolderAsync(string folderName, string? parentFolderId = null, string? description = null)
+        {
+            try
+            {
+                _logger.LogInformation(FolderMessageConstant.GoogleDriveSync.SyncStarted, $"Create folder '{folderName}'");
+
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                // Validate parent folder exists if specified
+                if (!string.IsNullOrEmpty(parentFolderId))
+                {
+                    var parentExists = await FolderExistsAsync(parentFolderId);
+                    if (!parentExists)
+                    {
+                        var message = string.Format(FolderMessageConstant.Validation.InvalidParentFolder, parentFolderId);
+                        _logger.LogError(message);
+                        throw new ArgumentException(message);
+                    }
+                }
+
+                var folderMetadata = new File
+                {
+                    Name = folderName,
+                    MimeType = "application/vnd.google-apps.folder",
+                    Description = description
+                };
+
+                if (!string.IsNullOrEmpty(parentFolderId))
+                {
+                    folderMetadata.Parents = new List<string> { parentFolderId };
+                }
+
+                var createRequest = driveService.Files.Create(folderMetadata);
+                createRequest.Fields = "id,name,parents,createdTime";
+
+                var createdFolder = await ExecuteWithRetryAsync(async () => await createRequest.ExecuteAsync());
+
+                var successMessage = string.Format(FolderMessageConstant.GoogleDriveSync.FolderCreatedInGoogleDrive, folderName, createdFolder.Id);
+                _logger.LogInformation(successMessage);
+
+                return createdFolder.Id;
+            }
+            catch (GoogleApiException gex) when (gex.HttpStatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                var message = string.Format(FolderMessageConstant.GoogleDriveSync.GoogleDrivePermissionDenied, folderName);
+                _logger.LogError(gex, message);
+                throw new UnauthorizedAccessException(message, gex);
+            }
+            catch (GoogleApiException gex) when (gex.HttpStatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                _logger.LogWarning(gex, FolderMessageConstant.GoogleDriveSync.GoogleDriveRateLimitExceeded);
+                throw new InvalidOperationException(FolderMessageConstant.GoogleDriveSync.GoogleDriveRateLimitExceeded, gex);
+            }
+            catch (GoogleApiException gex) when (gex.HttpStatusCode == System.Net.HttpStatusCode.InsufficientStorage)
+            {
+                var message = string.Format(FolderMessageConstant.GoogleDriveSync.GoogleDriveQuotaExceeded, folderName);
+                _logger.LogError(gex, message);
+                throw new InvalidOperationException(message, gex);
+            }
+            catch (ArgumentException)
+            {
+                // Re-throw validation errors as-is
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var message = string.Format(FolderMessageConstant.GoogleDriveSync.SyncFailed, folderName, ex.Message);
+                _logger.LogError(ex, message);
+                throw new InvalidOperationException(message, ex);
+            }
+        }
+
+        public async Task<bool> UpdateFolderAsync(string folderId, string? newName = null, string? newDescription = null)
+        {
+            try
+            {
+                _logger.LogInformation("Updating folder '{FolderId}' with name '{NewName}'", folderId, newName);
+
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                var updateMetadata = new File();
+                bool hasUpdates = false;
+
+                if (!string.IsNullOrEmpty(newName))
+                {
+                    updateMetadata.Name = newName;
+                    hasUpdates = true;
+                }
+
+                if (newDescription != null) // Allow empty string to clear description
+                {
+                    updateMetadata.Description = newDescription;
+                    hasUpdates = true;
+                }
+
+                if (!hasUpdates)
+                {
+                    _logger.LogWarning("No updates provided for folder '{FolderId}'", folderId);
+                    return true;
+                }
+
+                var updateRequest = driveService.Files.Update(updateMetadata, folderId);
+                updateRequest.Fields = "id,name,description,modifiedTime";
+
+                await ExecuteWithRetryAsync(async () => await updateRequest.ExecuteAsync());
+
+                _logger.LogInformation("Successfully updated folder '{FolderId}'", folderId);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating folder '{FolderId}'", folderId);
+                return false;
+            }
+        }
+
+        public async Task<bool> MoveFolderAsync(string folderId, string? newParentFolderId)
+        {
+            try
+            {
+                _logger.LogInformation("Moving folder '{FolderId}' to parent '{NewParentId}'", folderId, newParentFolderId);
+
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                // Get current folder to find existing parents
+                var getRequest = driveService.Files.Get(folderId);
+                getRequest.Fields = "parents";
+                var currentFolder = await ExecuteWithRetryAsync(async () => await getRequest.ExecuteAsync());
+
+                var updateMetadata = new File();
+                var updateRequest = driveService.Files.Update(updateMetadata, folderId);
+
+                // Remove from current parents
+                if (currentFolder.Parents != null && currentFolder.Parents.Count > 0)
+                {
+                    updateRequest.RemoveParents = string.Join(",", currentFolder.Parents);
+                }
+
+                // Add to new parent
+                if (!string.IsNullOrEmpty(newParentFolderId))
+                {
+                    updateRequest.AddParents = newParentFolderId;
+                }
+
+                updateRequest.Fields = "id,parents";
+
+                await ExecuteWithRetryAsync(async () => await updateRequest.ExecuteAsync());
+
+                _logger.LogInformation("Successfully moved folder '{FolderId}' to parent '{NewParentId}'", folderId, newParentFolderId);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error moving folder '{FolderId}' to parent '{NewParentId}'", folderId, newParentFolderId);
+                return false;
+            }
+        }
+
+        public async Task<bool> DeleteFolderAsync(string folderId, bool force = false)
+        {
+            try
+            {
+                _logger.LogInformation("Deleting folder '{FolderId}' with force={Force}", folderId, force);
+
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                if (!force)
+                {
+                    // Check if folder is empty
+                    var contents = await GetFolderContentsAsync(folderId, true, true);
+                    if (contents.TotalFiles > 0 || contents.TotalFolders > 0)
+                    {
+                        _logger.LogWarning("Cannot delete non-empty folder '{FolderId}' without force flag", folderId);
+                        return false;
+                    }
+                }
+
+                var deleteRequest = driveService.Files.Delete(folderId);
+                await ExecuteWithRetryAsync(async () => await deleteRequest.ExecuteAsync());
+
+                _logger.LogInformation("Successfully deleted folder '{FolderId}'", folderId);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting folder '{FolderId}'", folderId);
+                return false;
+            }
+        }
+
+        public async Task<bool> FolderExistsAsync(string folderId)
+        {
+            try
+            {
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                var getRequest = driveService.Files.Get(folderId);
+                getRequest.Fields = "id,trashed";
+
+                var folder = await ExecuteWithRetryAsync(async () => await getRequest.ExecuteAsync());
+                return folder != null && folder.Trashed != true;
+            }
+            catch (GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking if folder '{FolderId}' exists", folderId);
+                return false;
+            }
+        }
+
+        public async Task<GoogleDriveFolderMetadata> GetFolderMetadataAsync(string folderId)
+        {
+            try
+            {
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                var getRequest = driveService.Files.Get(folderId);
+                getRequest.Fields = "id,name,description,parents,createdTime,modifiedTime,webViewLink,trashed";
+
+                var folder = await ExecuteWithRetryAsync(async () => await getRequest.ExecuteAsync());
+
+                // Count files and folders
+                var contentsRequest = driveService.Files.List();
+                contentsRequest.Q = $"'{folderId}' in parents and trashed=false";
+                contentsRequest.Fields = "files(id,mimeType)";
+                var contents = await ExecuteWithRetryAsync(async () => await contentsRequest.ExecuteAsync());
+
+                var fileCount = contents.Files?.Count(f => f.MimeType != "application/vnd.google-apps.folder") ?? 0;
+                var folderCount = contents.Files?.Count(f => f.MimeType == "application/vnd.google-apps.folder") ?? 0;
+
+                return new GoogleDriveFolderMetadata
+                {
+                    Id = folder.Id,
+                    Name = folder.Name,
+                    Description = folder.Description,
+                    Parents = folder.Parents?.ToList() ?? new List<string>(),
+                    CreatedTime = folder.CreatedTime,
+                    ModifiedTime = folder.ModifiedTime,
+                    WebViewLink = folder.WebViewLink,
+                    Trashed = folder.Trashed ?? false,
+                    FileCount = fileCount,
+                    FolderCount = folderCount
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting folder metadata for '{FolderId}'", folderId);
+                throw;
+            }
+        }
+
+        public async Task<GoogleDriveFolderContents> GetFolderContentsAsync(string folderId, bool includeFiles = true, bool includeFolders = true)
+        {
+            try
+            {
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                // Get folder name
+                var folderRequest = driveService.Files.Get(folderId);
+                folderRequest.Fields = "name";
+                var folder = await ExecuteWithRetryAsync(async () => await folderRequest.ExecuteAsync());
+
+                var result = new GoogleDriveFolderContents
+                {
+                    FolderId = folderId,
+                    FolderName = folder.Name
+                };
+
+                // Build query based on what to include
+                var queryParts = new List<string> { $"'{folderId}' in parents", "trashed=false" };
+
+                if (includeFiles && includeFolders)
+                {
+                    // Include both - no additional filter needed
+                }
+                else if (includeFiles)
+                {
+                    queryParts.Add("mimeType != 'application/vnd.google-apps.folder'");
+                }
+                else if (includeFolders)
+                {
+                    queryParts.Add("mimeType = 'application/vnd.google-apps.folder'");
+                }
+                else
+                {
+                    // Include nothing - return empty result
+                    return result;
+                }
+
+                var listRequest = driveService.Files.List();
+                listRequest.Q = string.Join(" and ", queryParts);
+                listRequest.Fields = "files(id,name,mimeType,size,createdTime,modifiedTime,webViewLink,webContentLink,thumbnailLink)";
+                listRequest.PageSize = 1000; // Get up to 1000 items
+
+                var contents = await ExecuteWithRetryAsync(async () => await listRequest.ExecuteAsync());
+
+                if (contents.Files != null)
+                {
+                    foreach (var file in contents.Files)
+                    {
+                        if (file.MimeType == "application/vnd.google-apps.folder")
+                        {
+                            result.Folders.Add(new GoogleDriveFolderMetadata
+                            {
+                                Id = file.Id,
+                                Name = file.Name,
+                                CreatedTime = file.CreatedTime,
+                                ModifiedTime = file.ModifiedTime,
+                                WebViewLink = file.WebViewLink
+                            });
+                        }
+                        else
+                        {
+                            result.Files.Add(new GoogleDriveFileMetadata
+                            {
+                                Id = file.Id,
+                                Name = file.Name,
+                                MimeType = file.MimeType,
+                                Size = file.Size,
+                                CreatedTime = file.CreatedTime,
+                                ModifiedTime = file.ModifiedTime,
+                                WebViewLink = file.WebViewLink,
+                                WebContentLink = file.WebContentLink,
+                                ThumbnailLink = file.ThumbnailLink
+                            });
+                        }
+                    }
+                }
+
+                result.TotalFiles = result.Files.Count;
+                result.TotalFolders = result.Folders.Count;
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting folder contents for '{FolderId}'", folderId);
+                throw;
+            }
+        }
+
+        public async Task<GoogleDriveUploadResponse> UploadFileToFolderAsync(IFormFile file, string folderId)
+        {
+            try
+            {
+                _logger.LogInformation("Uploading file '{FileName}' to folder '{FolderId}'", file.FileName, folderId);
+
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                // Calculate MD5 hash
+                var md5Hash = await CalculateMd5HashAsync(file);
+
+                var fileMetadata = new File
+                {
+                    Name = file.FileName,
+                    Parents = new List<string> { folderId }
+                };
+
+                using var stream = file.OpenReadStream();
+                var uploadRequest = driveService.Files.Create(fileMetadata, stream, file.ContentType);
+                uploadRequest.Fields = "id,name,size,mimeType,createdTime,webViewLink,webContentLink";
+
+                var uploadedFile = await ExecuteWithRetryAsync(async () =>
+                {
+                    var progress = await uploadRequest.UploadAsync();
+                    if (progress.Status == Google.Apis.Upload.UploadStatus.Failed)
+                    {
+                        throw new Exception($"Upload failed: {progress.Exception?.Message}");
+                    }
+                    return uploadRequest.ResponseBody;
+                });
+
+                return new GoogleDriveUploadResponse
+                {
+                    FileId = uploadedFile.Id,
+                    FileName = uploadedFile.Name,
+                    FileSize = uploadedFile.Size ?? file.Length,
+                    ContentType = uploadedFile.MimeType,
+                    Md5Hash = md5Hash,
+                    FolderId = folderId,
+                    DownloadUrl = uploadedFile.WebContentLink,
+                    UploadedAt = DateTime.UtcNow
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error uploading file '{FileName}' to folder '{FolderId}'", file.FileName, folderId);
+                throw;
+            }
+        }
+
+        public async Task<bool> MoveFileToFolderAsync(string fileId, string targetFolderId)
+        {
+            try
+            {
+                _logger.LogInformation("Moving file '{FileId}' to folder '{FolderId}'", fileId, targetFolderId);
+
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                // Get current file to find existing parents
+                var getRequest = driveService.Files.Get(fileId);
+                getRequest.Fields = "parents";
+                var currentFile = await ExecuteWithRetryAsync(async () => await getRequest.ExecuteAsync());
+
+                var updateMetadata = new File();
+                var updateRequest = driveService.Files.Update(updateMetadata, fileId);
+
+                // Remove from current parents
+                if (currentFile.Parents != null && currentFile.Parents.Count > 0)
+                {
+                    updateRequest.RemoveParents = string.Join(",", currentFile.Parents);
+                }
+
+                // Add to new parent
+                updateRequest.AddParents = targetFolderId;
+                updateRequest.Fields = "id,parents";
+
+                await ExecuteWithRetryAsync(async () => await updateRequest.ExecuteAsync());
+
+                _logger.LogInformation("Successfully moved file '{FileId}' to folder '{FolderId}'", fileId, targetFolderId);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error moving file '{FileId}' to folder '{FolderId}'", fileId, targetFolderId);
+                return false;
+            }
+        }
+
+        public async Task<string> GrantFolderPermissionAsync(string folderId, string emailAddress, string role = "reader", string type = "user")
+        {
+            try
+            {
+                _logger.LogInformation("Granting {Role} permission to folder '{FolderId}' for {Type} '{Email}'", role, folderId, type, emailAddress);
+
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                var permission = new Permission
+                {
+                    Type = type,
+                    Role = role,
+                    EmailAddress = emailAddress
+                };
+
+                var createRequest = driveService.Permissions.Create(permission, folderId);
+                createRequest.Fields = "id";
+
+                var createdPermission = await ExecuteWithRetryAsync(async () => await createRequest.ExecuteAsync());
+
+                _logger.LogInformation("Successfully granted permission '{PermissionId}' to folder '{FolderId}'", createdPermission.Id, folderId);
+                return createdPermission.Id;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error granting permission to folder '{FolderId}' for '{Email}'", folderId, emailAddress);
+                throw;
+            }
+        }
+
+        public async Task<bool> RevokeFolderPermissionAsync(string folderId, string permissionId)
+        {
+            try
+            {
+                _logger.LogInformation("Revoking permission '{PermissionId}' from folder '{FolderId}'", permissionId, folderId);
+
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                var deleteRequest = driveService.Permissions.Delete(folderId, permissionId);
+                await ExecuteWithRetryAsync(async () => await deleteRequest.ExecuteAsync());
+
+                _logger.LogInformation("Successfully revoked permission '{PermissionId}' from folder '{FolderId}'", permissionId, folderId);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error revoking permission '{PermissionId}' from folder '{FolderId}'", permissionId, folderId);
+                return false;
+            }
+        }
+
+        public async Task<IList<Permission>> GetFolderPermissionsAsync(string folderId)
+        {
+            try
+            {
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                var listRequest = driveService.Permissions.List(folderId);
+                listRequest.Fields = "permissions(id,type,role,emailAddress,displayName)";
+
+                var permissions = await ExecuteWithRetryAsync(async () => await listRequest.ExecuteAsync());
+                return permissions.Permissions ?? new List<Permission>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting permissions for folder '{FolderId}'", folderId);
+                throw;
+            }
+        }
+
+        public async Task<List<GoogleDriveFolderMetadata>> SearchFoldersAsync(string searchQuery, string? parentFolderId = null)
+        {
+            try
+            {
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                var queryParts = new List<string>
+                {
+                    "mimeType = 'application/vnd.google-apps.folder'",
+                    "trashed = false",
+                    $"name contains '{searchQuery}'"
+                };
+
+                if (!string.IsNullOrEmpty(parentFolderId))
+                {
+                    queryParts.Add($"'{parentFolderId}' in parents");
+                }
+
+                var listRequest = driveService.Files.List();
+                listRequest.Q = string.Join(" and ", queryParts);
+                listRequest.Fields = "files(id,name,description,parents,createdTime,modifiedTime,webViewLink)";
+                listRequest.PageSize = 100;
+
+                var searchResults = await ExecuteWithRetryAsync(async () => await listRequest.ExecuteAsync());
+
+                var folders = new List<GoogleDriveFolderMetadata>();
+                if (searchResults.Files != null)
+                {
+                    foreach (var folder in searchResults.Files)
+                    {
+                        folders.Add(new GoogleDriveFolderMetadata
+                        {
+                            Id = folder.Id,
+                            Name = folder.Name,
+                            Description = folder.Description,
+                            Parents = folder.Parents?.ToList() ?? new List<string>(),
+                            CreatedTime = folder.CreatedTime,
+                            ModifiedTime = folder.ModifiedTime,
+                            WebViewLink = folder.WebViewLink
+                        });
+                    }
+                }
+
+                return folders;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching folders with query '{SearchQuery}'", searchQuery);
+                throw;
+            }
+        }
+
+        public async Task<List<GoogleDriveFolderMetadata>> GetFolderHierarchyAsync(string folderId)
+        {
+            try
+            {
+                var hierarchy = new List<GoogleDriveFolderMetadata>();
+                var currentFolderId = folderId;
+
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                while (!string.IsNullOrEmpty(currentFolderId))
+                {
+                    var getRequest = driveService.Files.Get(currentFolderId);
+                    getRequest.Fields = "id,name,description,parents,createdTime,modifiedTime,webViewLink";
+
+                    var folder = await ExecuteWithRetryAsync(async () => await getRequest.ExecuteAsync());
+
+                    hierarchy.Insert(0, new GoogleDriveFolderMetadata
+                    {
+                        Id = folder.Id,
+                        Name = folder.Name,
+                        Description = folder.Description,
+                        Parents = folder.Parents?.ToList() ?? new List<string>(),
+                        CreatedTime = folder.CreatedTime,
+                        ModifiedTime = folder.ModifiedTime,
+                        WebViewLink = folder.WebViewLink
+                    });
+
+                    // Move to parent folder
+                    currentFolderId = folder.Parents?.FirstOrDefault();
+
+                    // Stop if we reach the root or company folder
+                    if (currentFolderId == _config.CompanyRootFolderId ||
+                        string.IsNullOrEmpty(currentFolderId))
+                    {
+                        break;
+                    }
+                }
+
+                return hierarchy;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting folder hierarchy for '{FolderId}'", folderId);
+                throw;
+            }
+        }
+
+        public async Task<Dictionary<string, string>> InitializeDepartmentFolderHierarchyAsync(string departmentId, string departmentName)
+        {
+            try
+            {
+                _logger.LogInformation("Initializing folder hierarchy for department '{DepartmentId}' ({DepartmentName})", departmentId, departmentName);
+
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                var folderMappings = new Dictionary<string, string>();
+
+                // Get or create root company folder
+                var rootFolderId = await GetOrCreateRootFolderAsync(driveService);
+
+                // Get or create Departments folder
+                var departmentsFolderId = await GetOrCreateSubfolderAsync("Departments", rootFolderId, driveService);
+
+                // Create department folder
+                var departmentFolderId = await GetOrCreateSubfolderAsync(departmentName, departmentsFolderId, driveService);
+                folderMappings["Department"] = departmentFolderId;
+
+                // Create only draft folder for temporary document storage
+                // Approved documents go directly to functional folders within the department
+                var systemFolders = new[] { FolderConstant.SystemFolders.Draft };
+                foreach (var systemFolder in systemFolders)
+                {
+                    var systemFolderId = await GetOrCreateSubfolderAsync(systemFolder, departmentFolderId, driveService);
+                    folderMappings[systemFolder] = systemFolderId;
+                }
+
+                // No functional folders created automatically
+                // Managers can create custom folders as needed using the folder management APIs
+
+                _logger.LogInformation("Successfully initialized folder hierarchy for department '{DepartmentId}'", departmentId);
+                return folderMappings;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initializing folder hierarchy for department '{DepartmentId}'", departmentId);
+                throw;
+            }
+        }
+
+        public async Task<Dictionary<string, string>> InitializePublicFolderHierarchyAsync()
+        {
+            try
+            {
+                _logger.LogInformation("Initializing public folder hierarchy");
+
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
+
+                var folderMappings = new Dictionary<string, string>();
+
+                // Get or create root company folder
+                var rootFolderId = await GetOrCreateRootFolderAsync(driveService);
+
+                // Create Public folder
+                var publicFolderId = await GetOrCreateSubfolderAsync("Public", rootFolderId, driveService);
+                folderMappings["Public"] = publicFolderId;
+
+                // Create only draft folder for temporary document storage
+                // Approved documents go directly to functional folders within public
+                var systemFolders = new[] { FolderConstant.SystemFolders.Draft };
+                foreach (var systemFolder in systemFolders)
+                {
+                    var systemFolderId = await GetOrCreateSubfolderAsync(systemFolder, publicFolderId, driveService);
+                    folderMappings[systemFolder] = systemFolderId;
+                }
+
+                // No functional folders created automatically
+                // Admins can create custom public folders as needed using the folder management APIs
+
+                _logger.LogInformation("Successfully initialized public folder hierarchy");
+                return folderMappings;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initializing public folder hierarchy");
+                throw;
+            }
+        }
+
+        #endregion
+
+        #region Sync and Verification Methods
+
+        /// <summary>
+        /// Delete folder from Google Drive (overload for backward compatibility)
+        /// </summary>
+        /// <param name="folderId">Folder ID to delete</param>
+        public async Task DeleteFolderAsync(string folderId)
+        {
+            // Delegate to the main method with force=true for backward compatibility
+            var result = await DeleteFolderAsync(folderId, force: true);
+            if (!result)
+            {
+                throw new InvalidOperationException($"Failed to delete folder {folderId}");
+            }
+        }
+
+        #endregion
 
         public void Dispose()
         {

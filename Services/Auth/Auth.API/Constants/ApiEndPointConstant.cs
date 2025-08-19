@@ -29,6 +29,7 @@ public class ApiEndPointConstant
         public const string AdminUpdateUser = "admin/users";
         public const string UpdateSettings = "settings";
         public const string GetUserById = "user/{userId}";
+        public const string GetDepartmentUsers = "department-users";
         public const string ResetPassword = "reset-password";
         public const string ValidateOtp = "check-Otp";
         public const string ForgotPassword = "forgot-password";

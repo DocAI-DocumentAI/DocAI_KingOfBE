@@ -23,54 +23,6 @@ namespace Document.Domain.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Document.Domain.Entities.GoogleOAuthToken", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("AccessToken")
-                        .IsRequired()
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RefreshToken")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("Scope")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("TokenType")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UserEmail")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TokenType")
-                        .IsUnique();
-
-                    b.ToTable("GoogleOAuthTokens");
-                });
-
             modelBuilder.Entity("Document.Domain.Model.Bookmark", b =>
                 {
                     b.Property<string>("Id")
@@ -189,6 +141,9 @@ namespace Document.Domain.Migrations
 
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -358,6 +313,9 @@ namespace Document.Domain.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("FolderId")
+                        .HasColumnType("text");
+
                     b.Property<string>("GoogleDriveFileId")
                         .HasColumnType("text");
 
@@ -405,7 +363,248 @@ namespace Document.Domain.Migrations
 
                     b.HasIndex("DocumentFileId");
 
+                    b.HasIndex("FolderId");
+
                     b.ToTable("DocumentVersions");
+                });
+
+            modelBuilder.Entity("Document.Domain.Models.Folder", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeletedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("DeletedTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DepartmentId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("DocumentCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("FolderType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FullPath")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("GoogleDriveFolderId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsPublic")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsSystemFolder")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LastUpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastUpdatedTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Level")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ParentFolderId")
+                        .HasColumnType("text");
+
+                    b.Property<int>("SubFolderCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DepartmentId")
+                        .HasDatabaseName("IX_Folders_DepartmentId");
+
+                    b.HasIndex("FullPath")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Folders_FullPath");
+
+                    b.HasIndex("GoogleDriveFolderId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Folders_GoogleDriveId");
+
+                    b.HasIndex("IsDeleted")
+                        .HasDatabaseName("IX_Folders_IsDeleted");
+
+                    b.HasIndex("IsPublic")
+                        .HasDatabaseName("IX_Folders_IsPublic");
+
+                    b.HasIndex("IsSystemFolder")
+                        .HasDatabaseName("IX_Folders_IsSystemFolder");
+
+                    b.HasIndex("ParentFolderId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Folders_ParentId_Name");
+
+                    b.ToTable("Folders", (string)null);
+                });
+
+            modelBuilder.Entity("Document.Domain.Models.FolderPermission", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeletedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("DeletedTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DepartmentId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FolderId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDenied")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsInherited")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LastUpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastUpdatedTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ParentPermissionId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("PermissionType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DepartmentId")
+                        .HasDatabaseName("IX_FolderPermissions_DepartmentId");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("IX_FolderPermissions_ExpiresAt");
+
+                    b.HasIndex("FolderId")
+                        .HasDatabaseName("IX_FolderPermissions_FolderId");
+
+                    b.HasIndex("IsActive")
+                        .HasDatabaseName("IX_FolderPermissions_IsActive");
+
+                    b.HasIndex("IsInherited")
+                        .HasDatabaseName("IX_FolderPermissions_IsInherited");
+
+                    b.HasIndex("ParentPermissionId");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_FolderPermissions_UserId");
+
+                    b.HasIndex("FolderId", "UserId", "DepartmentId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_FolderPermissions_Folder_User_Department");
+
+                    b.ToTable("FolderPermissions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_FolderPermissions_NotBothUserAndDepartment", "NOT (\"UserId\" IS NOT NULL AND \"DepartmentId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_FolderPermissions_UserOrDepartment", "\"UserId\" IS NOT NULL OR \"DepartmentId\" IS NOT NULL");
+                        });
+                });
+
+            modelBuilder.Entity("Document.Domain.Models.GoogleOAuthToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AccessToken")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RefreshToken")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("Scope")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("TokenType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserEmail")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenType")
+                        .IsUnique();
+
+                    b.ToTable("GoogleOAuthTokens");
                 });
 
             modelBuilder.Entity("Document.Domain.Models.Tag", b =>
@@ -483,7 +682,7 @@ namespace Document.Domain.Migrations
             modelBuilder.Entity("Document.Domain.Models.ApprovalLog", b =>
                 {
                     b.HasOne("Document.Domain.Models.DocumentVersion", "DocumentVersion")
-                        .WithMany()
+                        .WithMany("ApprovalLogs")
                         .HasForeignKey("DocumentVersionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -522,9 +721,44 @@ namespace Document.Domain.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Document.Domain.Models.Folder", "Folder")
+                        .WithMany("Documents")
+                        .HasForeignKey("FolderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("ApprovalClaim");
 
                     b.Navigation("DocumentFile");
+
+                    b.Navigation("Folder");
+                });
+
+            modelBuilder.Entity("Document.Domain.Models.Folder", b =>
+                {
+                    b.HasOne("Document.Domain.Models.Folder", "ParentFolder")
+                        .WithMany("SubFolders")
+                        .HasForeignKey("ParentFolderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ParentFolder");
+                });
+
+            modelBuilder.Entity("Document.Domain.Models.FolderPermission", b =>
+                {
+                    b.HasOne("Document.Domain.Models.Folder", "Folder")
+                        .WithMany("FolderPermissions")
+                        .HasForeignKey("FolderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Document.Domain.Models.FolderPermission", "ParentPermission")
+                        .WithMany("ChildPermissions")
+                        .HasForeignKey("ParentPermissionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Folder");
+
+                    b.Navigation("ParentPermission");
                 });
 
             modelBuilder.Entity("Document.Domain.Model.DocumentFile", b =>
@@ -539,7 +773,23 @@ namespace Document.Domain.Migrations
 
             modelBuilder.Entity("Document.Domain.Models.DocumentVersion", b =>
                 {
+                    b.Navigation("ApprovalLogs");
+
                     b.Navigation("DocumentTags");
+                });
+
+            modelBuilder.Entity("Document.Domain.Models.Folder", b =>
+                {
+                    b.Navigation("Documents");
+
+                    b.Navigation("FolderPermissions");
+
+                    b.Navigation("SubFolders");
+                });
+
+            modelBuilder.Entity("Document.Domain.Models.FolderPermission", b =>
+                {
+                    b.Navigation("ChildPermissions");
                 });
 
             modelBuilder.Entity("Document.Domain.Models.Tag", b =>

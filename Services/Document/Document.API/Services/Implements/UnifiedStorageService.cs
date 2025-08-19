@@ -90,6 +90,43 @@ namespace Document.API.Services.Implements
             }
         }
 
+        public async Task<StorageUploadResponse> UploadFileToFolderAsync(IFormFile file, string folderId)
+        {
+            try
+            {
+                _logger.LogInformation("Uploading file '{FileName}' to folder ID '{FolderId}'", file.FileName, folderId);
+
+                // Migration complete - using Google Drive only
+                if (!await IsGoogleDriveAvailableAsync())
+                {
+                    throw new InvalidOperationException("Google Drive is not available. Please check authentication and configuration.");
+                }
+
+                var googleResponse = await _googleDriveService.UploadFileToFolderAsync(file, folderId);
+
+                return new StorageUploadResponse
+                {
+                    FileIdentifier = googleResponse.FileId,
+                    Md5Hash = googleResponse.Md5Hash,
+                    FileName = googleResponse.FileName,
+                    FileSize = googleResponse.FileSize,
+                    ContentType = googleResponse.ContentType,
+                    StorageProvider = "GoogleDrive",
+                    UploadedAt = googleResponse.UploadedAt,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        ["FolderId"] = googleResponse.FolderId,
+                        ["DownloadUrl"] = googleResponse.DownloadUrl
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error uploading file '{FileName}' to folder ID '{FolderId}'", file.FileName, folderId);
+                throw;
+            }
+        }
+
         public async Task DeleteFileAsync(string fileIdentifier, string folder = null)
         {
             try
@@ -140,6 +177,27 @@ namespace Document.API.Services.Implements
             {
                 _logger.LogError(ex, "Error moving file '{FileIdentifier}' from '{SourceFolder}' to '{DestinationFolder}'",
                     fileIdentifier, sourceFolder, destinationFolder);
+                throw;
+            }
+        }
+
+        public async Task<bool> MoveFileToFolderAsync(string fileIdentifier, string targetFolderId)
+        {
+            try
+            {
+                _logger.LogInformation("Moving file '{FileIdentifier}' to folder ID '{FolderId}'", fileIdentifier, targetFolderId);
+
+                // Migration complete - using Google Drive only
+                if (!await IsGoogleDriveAvailableAsync())
+                {
+                    throw new InvalidOperationException("Google Drive is not available. Please check authentication and configuration.");
+                }
+
+                return await _googleDriveService.MoveFileToFolderAsync(fileIdentifier, targetFolderId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error moving file '{FileIdentifier}' to folder ID '{FolderId}'", fileIdentifier, targetFolderId);
                 throw;
             }
         }

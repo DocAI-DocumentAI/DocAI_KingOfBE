@@ -8,8 +8,10 @@ namespace Document.Domain.Enums
 {
     public enum ApprovalAction
     {
-        Approve,
-        Reject,
-        Submit,
+        Submitted,
+        Approved,
+        Rejected,
+        Claimed,
+        Unclaimed
     }
 }

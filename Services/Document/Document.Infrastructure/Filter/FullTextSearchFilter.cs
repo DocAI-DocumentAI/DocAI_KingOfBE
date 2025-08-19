@@ -15,6 +15,21 @@ public class FullTextSearchFilter : IFilter<DocumentVersion>
     public string? SignedBy { get; set; }
     public string? DocumentTypeId { get; set; }
 
+    /// <summary>
+    /// Filter by specific folder ID
+    /// </summary>
+    public string? FolderId { get; set; }
+
+    /// <summary>
+    /// Include documents from subfolders
+    /// </summary>
+    public bool IncludeSubfolders { get; set; } = false;
+
+    /// <summary>
+    /// Filter by folder path (supports partial matching)
+    /// </summary>
+    public string? FolderPath { get; set; }
+
     public Expression<Func<DocumentVersion, bool>> ToExpression()
     {
         return documentVersion =>
@@ -28,6 +43,12 @@ public class FullTextSearchFilter : IFilter<DocumentVersion>
             (string.IsNullOrEmpty(DepartmentId) || documentVersion.DocumentFile.DepartmentId == DepartmentId) &&
             (!IsPublic.HasValue || documentVersion.IsPublic == IsPublic) &&
             (string.IsNullOrEmpty(SignedBy) || documentVersion.SignedBy.ToLower().Contains(SignedBy.ToLower())) &&
-            (string.IsNullOrEmpty(DocumentTypeId) || documentVersion.DocumentFile.DocumentTypeId == DocumentTypeId);
+            (string.IsNullOrEmpty(DocumentTypeId) || documentVersion.DocumentFile.DocumentTypeId == DocumentTypeId) &&
+            // Folder-based filtering
+            (string.IsNullOrEmpty(FolderId) || documentVersion.FolderId == FolderId ||
+             (IncludeSubfolders && documentVersion.Folder != null && documentVersion.Folder.FullPath.StartsWith(
+                 documentVersion.Folder.FullPath + "/"))) &&
+            (string.IsNullOrEmpty(FolderPath) || (documentVersion.Folder != null &&
+             documentVersion.Folder.FullPath.ToLower().Contains(FolderPath.ToLower())));
     }
 }

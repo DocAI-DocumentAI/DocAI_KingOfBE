@@ -39,8 +39,9 @@ public class DocumentService : IDocumentService
     private readonly IDocumentPermissionManager _permissionManager;
     private readonly ITokenUsageLogger _tokenUsageLogger;
     private readonly IRedisService _redisService;
+    private readonly IFolderService _folderService;
 
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService, IDocumentPermissionManager permissionManager, ITokenUsageLogger tokenUsageLogger, IRedisService redisService)
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService, IDocumentPermissionManager permissionManager, ITokenUsageLogger tokenUsageLogger, IRedisService redisService, IFolderService folderService)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
@@ -54,6 +55,7 @@ public class DocumentService : IDocumentService
         _permissionManager = permissionManager;
         _tokenUsageLogger = tokenUsageLogger;
         _redisService = redisService;
+        _folderService = folderService;
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
         var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
@@ -269,10 +271,41 @@ public class DocumentService : IDocumentService
         // 4. Upload the file to storage and get the MD5 hash.
         StorageUploadResponse? uploadResponse = null;
         string? fileHash = null;
+        string? targetFolderId = null;
 
         try
         {
-            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, departmentId, request.IsPublic);
+            // ✅ NEW FOLDER DESIGN: Always upload to drafts folder initially
+            // Documents start in drafts and move to functional folders when approved
+
+            // Upload to drafts folder using legacy storage service (for Google Drive integration)
+            uploadResponse = await _storageService.UploadFileAsync(request.File, FolderConstant.SystemFolders.Draft, departmentId, request.IsPublic);
+
+            // Get the drafts system folder ID for database assignment
+            targetFolderId = await GetSystemFolderIdAsync(departmentId, request.IsPublic, FolderType.Draft);
+
+            if (string.IsNullOrEmpty(targetFolderId))
+            {
+                throw new InvalidOperationException("Could not find or create drafts folder for document upload");
+            }
+
+            // ✅ FIXED: Validate target folder exists but don't check permissions yet
+            // Permissions will be validated during approval when the document actually moves
+            if (!string.IsNullOrEmpty(request.FolderId))
+            {
+                // Just validate that the target folder exists
+                var targetFolder = await _unitOfWork.GetRepository<Folder>()
+                    .SingleOrDefaultAsync(predicate: f => f.Id == request.FolderId && !f.IsDeleted);
+
+                if (targetFolder == null)
+                {
+                    throw new KeyNotFoundException($"Target folder {request.FolderId} not found. Use GET /api/folders/accessible?permissionType=Edit to get available folders.");
+                }
+
+                _logger.LogInformation("Document will move to folder {FolderName} when approved (permissions will be validated during approval)", targetFolder.Name);
+                // Note: Permissions will be validated during approval workflow when document actually moves
+            }
+
             fileHash = uploadResponse.Md5Hash;
             _logger.LogInformation("File uploaded successfully with ID {FileId} for draft creation", uploadResponse.FileIdentifier);
 
@@ -285,7 +318,7 @@ public class DocumentService : IDocumentService
             if (existingFile != null)
             {
                 _logger.LogWarning("Duplicate file detected with hash {FileHash}, deleting uploaded file {FileId}", fileHash, uploadResponse.FileIdentifier);
-                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier); // No folder needed for Google Drive
                 switch (existingFile.Status)
                 {
                     case StatusEnum.Pending:
@@ -320,7 +353,7 @@ public class DocumentService : IDocumentService
             if (existingApprovedOrArchived != null)
             {
                 _logger.LogWarning("Duplicate approved/archived file detected with hash {FileHash}, deleting uploaded file {FileId}", fileHash, uploadResponse.FileIdentifier);
-                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, FolderConstant.SystemFolders.Draft);
                 throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
                     string.Format(MessageConstant.FileAlreadyExists, existingApprovedOrArchived.Title, existingApprovedOrArchived.VersionName, existingApprovedOrArchived.Status));
             }
@@ -331,7 +364,7 @@ public class DocumentService : IDocumentService
             _logger.LogError(ex, "Error during file validation, cleaning up uploaded file {FileId}", uploadResponse.FileIdentifier);
             try
             {
-                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, FolderConstant.SystemFolders.Draft);
             }
             catch (Exception cleanupEx)
             {
@@ -379,6 +412,19 @@ public class DocumentService : IDocumentService
 
         version.FileName = request.File.FileName;
 
+        // ✅ NEW FOLDER DESIGN: Always assign to drafts folder initially
+        // Documents start in drafts and move to functional folders when approved
+        version.FolderId = targetFolderId; // This is the drafts folder ID
+
+        // Store target functional folder for approval workflow (if specified)
+        if (!string.IsNullOrEmpty(request.FolderId))
+        {
+            // TODO: Consider adding a TargetFolderId field to DocumentVersion for approval workflow
+            // For now, this will be handled during the approval process
+            _logger.LogInformation("Document {Title} created in drafts, target folder {FolderId} for approval",
+                request.Title, request.FolderId);
+        }
+
         await ProcessTagsAsync(version, request.Tags, userId);
 
         // 6. Link entities using the correct navigation property name
@@ -390,6 +436,9 @@ public class DocumentService : IDocumentService
             await _unitOfWork.GetRepository<DocumentFile>().InsertAsync(documentFile);
             await _unitOfWork.CommitAsync();
             _logger.LogInformation("Successfully saved document {DocumentId} to database", documentFile.Id);
+
+            // ✅ FIXED: Update folder document count after adding document
+            await UpdateFolderDocumentCountAsync(targetFolderId);
 
             if (documentToReplace != null)
             {
@@ -410,7 +459,7 @@ public class DocumentService : IDocumentService
             {
                 try
                 {
-                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, FolderConstant.SystemFolders.Draft);
                     _logger.LogInformation("Successfully rolled back uploaded file {FileId}", uploadResponse.FileIdentifier);
                 }
                 catch (Exception rollbackEx)
@@ -536,7 +585,7 @@ public class DocumentService : IDocumentService
             {
                 // Upload the new file to storage BEFORE starting the database transaction.
                 _logger.LogInformation("Uploading new file to storage before database transaction begins.");
-                uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, versionToUpdate.DocumentFile.DepartmentId, request.IsPublic);
+                uploadResponse = await _storageService.UploadFileAsync(request.File, FolderConstant.SystemFolders.Draft, versionToUpdate.DocumentFile.DepartmentId, request.IsPublic);
                 fileHash = uploadResponse.Md5Hash;
                 _logger.LogInformation("New file uploaded with ID {FileId} and hash {FileHash}", uploadResponse.FileIdentifier, fileHash);
             }
@@ -563,14 +612,14 @@ public class DocumentService : IDocumentService
             if (documentToUpdate.OwnerId != userId)
             {
                 // If we uploaded a file, we must now delete it since the operation is failing.
-                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier); // No folder needed
                 throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToEdit);
             }
 
             // Status must be Draft or Rejected.
             if (versionToUpdate.Status != StatusEnum.Draft && versionToUpdate.Status != StatusEnum.Rejected)
             {
-                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier); // No folder needed
                 throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, string.Format(MessageConstant.CannotEditWithStatus, versionToUpdate.Status));
             }
 
@@ -581,7 +630,7 @@ public class DocumentService : IDocumentService
                     .SingleOrDefaultAsync(predicate: d => d.Title == request.Title && d.Id != documentToUpdate.Id);
                 if (existingDocument != null)
                 {
-                    if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                    if (uploadResponse != null) await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier); // No folder needed
                     throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentTitleExists);
                 }
             }
@@ -595,7 +644,7 @@ public class DocumentService : IDocumentService
                 {
                     // If a duplicate is found, delete the file that was just uploaded.
                     _logger.LogWarning("Duplicate file detected with hash {FileHash}, deleting uploaded file {FileId}", fileHash, uploadResponse.FileIdentifier);
-                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier); // No folder needed
                     throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT,
                         string.Format(MessageConstant.FileAlreadyExists, existingFile.DocumentFile.Title, existingFile.VersionName, existingFile.Status));
                 }
@@ -610,7 +659,7 @@ public class DocumentService : IDocumentService
                 oldFileIdToDelete = versionToUpdate.GoogleDriveFileId;
 
                 // Update version properties for the new file.
-                versionToUpdate.FilePath = $"{StorageFolderConstant.Drafts}/{uploadResponse.FileName}";
+                versionToUpdate.FilePath = uploadResponse.FileIdentifier; // Store Google Drive file ID directly
                 versionToUpdate.FileName = uploadResponse.FileName;
                 versionToUpdate.FileType = Path.GetExtension(request.File.FileName);
                 versionToUpdate.FileSize = request.File.Length;
@@ -648,7 +697,7 @@ public class DocumentService : IDocumentService
                 _logger.LogInformation("Document {VersionId} was rejected and is being updated, removing rejection approval logs", versionId);
 
                 var rejectionLogs = await _unitOfWork.GetRepository<ApprovalLog>()
-                    .GetListAsync(predicate: log => log.DocumentVersionId == versionId && log.Action == ApprovalAction.Reject);
+                    .GetListAsync(predicate: log => log.DocumentVersionId == versionId && log.Action == ApprovalAction.Rejected);
 
                 if (rejectionLogs.Any())
                 {
@@ -678,7 +727,7 @@ public class DocumentService : IDocumentService
                 _logger.LogInformation("Database commit successful. Deleting old file {OldFileId} from storage.", oldFileIdToDelete);
                 try
                 {
-                    await _storageService.DeleteFileAsync(oldFileIdToDelete, StorageFolderConstant.Drafts);
+                    await _storageService.DeleteFileAsync(oldFileIdToDelete); // No folder needed
                     _logger.LogInformation("Successfully deleted old file {OldFileId} from storage", oldFileIdToDelete);
                 }
                 catch (Exception ex)
@@ -754,7 +803,7 @@ public class DocumentService : IDocumentService
             if (uploadResponse != null)
             {
                 _logger.LogInformation("Rolling back storage upload for {FileIdentifier} due to concurrency conflict.", uploadResponse.FileIdentifier);
-                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier); // No folder needed
             }
 
             // Throw a specific, user-friendly error.
@@ -1384,7 +1433,7 @@ public class DocumentService : IDocumentService
         // 3. Delete the physical file from Google Drive.
         _logger.LogInformation("Deleting file from Google Drive: {FileName}", versionToDelete.FileName);
         var fileId = versionToDelete.GoogleDriveFileId ?? versionToDelete.FilePath;
-        await _storageService.DeleteFileAsync(fileId, StorageFolderConstant.Drafts);
+        await _storageService.DeleteFileAsync(fileId); // No folder needed
         _logger.LogInformation("Deleted file from Google Drive with ID: {FileId}", fileId);
 
         // 4. Delete the DocumentFile record from the database.
@@ -1500,19 +1549,15 @@ public class DocumentService : IDocumentService
             {
                 try
                 {
-                    // Determine folder based on version status
+                    // ✅ NEW FOLDER DESIGN: Delete files directly by ID (no folder needed)
+                    // Google Drive files are deleted by file ID, folder location is irrelevant
                     var version = documentToDelete.DocumentVersions.FirstOrDefault(v =>
                         (v.GoogleDriveFileId ?? v.FilePath) == fileId);
-                    var folder = version?.Status switch
-                    {
-                        StatusEnum.Draft => StorageFolderConstant.Drafts,
-                        StatusEnum.Pending => StorageFolderConstant.Pending,
-                        StatusEnum.Approved => StorageFolderConstant.Approved,
-                        StatusEnum.Archived => StorageFolderConstant.Approved, // Archived files stay in approved folder
-                        _ => StorageFolderConstant.Approved
-                    };
 
-                    await _storageService.DeleteFileAsync(fileId, folder);
+                    _logger.LogInformation("Deleting file {FileId} for document version {VersionId} with status {Status}",
+                        fileId, version?.Id, version?.Status);
+
+                    await _storageService.DeleteFileAsync(fileId); // No folder parameter needed for Google Drive
                     _logger.LogInformation("Deleted file {FileId} from storage", fileId);
                 }
                 catch (Exception ex)
@@ -1649,14 +1694,12 @@ public class DocumentService : IDocumentService
             {
                 try
                 {
-                    var folder = versionToDelete.Status switch
-                    {
-                        StatusEnum.Approved => StorageFolderConstant.Approved,
-                        StatusEnum.Archived => StorageFolderConstant.Approved,
-                        _ => StorageFolderConstant.Approved
-                    };
+                    // ✅ NEW FOLDER DESIGN: Delete files directly by ID (no folder needed)
+                    // Google Drive files are deleted by file ID, folder location is irrelevant
+                    _logger.LogInformation("Deleting file {FileId} for version {VersionId} with status {Status}",
+                        fileId, versionToDelete.Id, versionToDelete.Status);
 
-                    await _storageService.DeleteFileAsync(fileId, folder);
+                    await _storageService.DeleteFileAsync(fileId); // No folder parameter needed for Google Drive
                     _logger.LogInformation("Deleted file {FileId} from storage", fileId);
                 }
                 catch (Exception ex)
@@ -2178,7 +2221,9 @@ public class DocumentService : IDocumentService
 
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
             predicate: dv => dv.DocumentFileId == documentId,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            orderBy: q => q.OrderBy(v => v.Status == StatusEnum.Approved ? 0 : 1) // Approved versions first
+                          .ThenByDescending(v => v.LastUpdatedTime) // Then by most recent update
         );
 
         // Filter versions based on user access rights
@@ -2245,7 +2290,7 @@ public class DocumentService : IDocumentService
         try
         {
             _logger.LogInformation("Creating new version for document {DocumentId} by user {UserId}", documentId, userId);
-            uploadResponse = await _storageService.UploadFileAsync(request.File, StorageFolderConstant.Drafts, documentToUpdate.DepartmentId, request.IsPublic);
+            uploadResponse = await _storageService.UploadFileAsync(request.File, FolderConstant.SystemFolders.Draft, documentToUpdate.DepartmentId, request.IsPublic);
             var fileHash = uploadResponse.Md5Hash;
             _logger.LogInformation("File uploaded successfully with ID {FileId} for new version creation", uploadResponse.FileIdentifier);
 
@@ -2256,7 +2301,7 @@ public class DocumentService : IDocumentService
             if (existingFile != null)
             {
                 _logger.LogWarning("Duplicate file detected with hash {FileHash}, deleting uploaded file {FileId}", fileHash, uploadResponse.FileIdentifier);
-                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier); // No folder needed
                 throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
             }
 
@@ -2303,7 +2348,7 @@ public class DocumentService : IDocumentService
                 {
                     try
                     {
-                        await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                        await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier); // No folder needed
                         _logger.LogInformation("Successfully rolled back uploaded file {FileId}", uploadResponse.FileIdentifier);
                     }
                     catch (Exception rollbackEx)
@@ -2343,7 +2388,7 @@ public class DocumentService : IDocumentService
                 try
                 {
                     _logger.LogInformation("Rolling back storage upload for {FileIdentifier} due to concurrency conflict.", uploadResponse.FileIdentifier);
-                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier); // No folder needed
                 }
                 catch (Exception deleteEx)
                 {
@@ -2361,7 +2406,7 @@ public class DocumentService : IDocumentService
                 try
                 {
                     _logger.LogInformation("Rolling back storage upload for {FileIdentifier} due to error.", uploadResponse.FileIdentifier);
-                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier, StorageFolderConstant.Drafts);
+                    await _storageService.DeleteFileAsync(uploadResponse.FileIdentifier); // No folder needed
                 }
                 catch (Exception deleteEx)
                 {
@@ -3049,7 +3094,7 @@ public class DocumentService : IDocumentService
 
         // Get the latest approval log for review details
         var latestApprovalLog = version.ApprovalLogs?
-            .Where(log => log.Action == ApprovalAction.Approve || log.Action == ApprovalAction.Reject)
+            .Where(log => log.Action == ApprovalAction.Approved || log.Action == ApprovalAction.Rejected)
             .OrderByDescending(log => log.CreatedTime)
             .FirstOrDefault();
 
@@ -3083,5 +3128,73 @@ public class DocumentService : IDocumentService
     {
         var enrichedList = await EnrichEditorApprovalHistoryResponsesAsync(new List<EditorApprovalHistoryResponse> { response });
         return enrichedList.First();
+    }
+
+    /// <summary>
+    /// Get the system folder ID for a specific folder type and department
+    /// </summary>
+    /// <param name="departmentId">Department ID (null for public folders)</param>
+    /// <param name="isPublic">Whether the folder is public</param>
+    /// <param name="folderType">Type of system folder</param>
+    /// <returns>Folder ID or null if not found</returns>
+    private async Task<string?> GetSystemFolderIdAsync(string? departmentId, bool isPublic, FolderType folderType)
+    {
+        try
+        {
+            var folder = await _unitOfWork.GetRepository<Folder>()
+                .SingleOrDefaultAsync(
+                    predicate: f => f.IsSystemFolder &&
+                                   f.FolderType == folderType &&
+                                   f.IsPublic == isPublic &&
+                                   (isPublic ? string.IsNullOrEmpty(f.DepartmentId) : f.DepartmentId == departmentId) &&
+                                   !f.IsDeleted
+                );
+
+            return folder?.Id;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting system folder ID for type {FolderType}, department {DepartmentId}, public {IsPublic}",
+                folderType, departmentId, isPublic);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// ✅ FIXED: Update folder document count to keep cache in sync
+    /// </summary>
+    private async Task UpdateFolderDocumentCountAsync(string folderId)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(folderId))
+            {
+                return;
+            }
+
+            // Get actual document count
+            var actualCount = await _unitOfWork.GetRepository<DocumentVersion>()
+                .CountAsync(predicate: dv => dv.FolderId == folderId && dv.DeletedTime == null);
+
+            // Update folder's cached count
+            var folder = await _unitOfWork.GetRepository<Folder>()
+                .SingleOrDefaultAsync(predicate: f => f.Id == folderId && !f.IsDeleted);
+
+            if (folder != null && folder.DocumentCount != actualCount)
+            {
+                folder.DocumentCount = actualCount;
+                folder.LastUpdatedTime = DateTime.UtcNow;
+                await _unitOfWork.GetRepository<Folder>().UpdateAsync(folder);
+                await _unitOfWork.CommitAsync();
+
+                _logger.LogDebug("Updated folder '{FolderName}' document count from {OldCount} to {NewCount}",
+                    folder.Name, folder.DocumentCount, actualCount);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating folder document count for folder {FolderId}", folderId);
+            // Don't throw - this is a cache update, not critical for main operation
+        }
     }
 }
