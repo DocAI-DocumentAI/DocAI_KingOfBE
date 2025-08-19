@@ -401,7 +401,7 @@ namespace Document.API.Services.Implements
                     // BR-037 sets IsReplaced at submission to block concurrent replacements,
                     // but at approval time we must still archive its latest approved version.
                     replacedDocument = await _unitOfWork.GetRepository<DocumentFile>()
-                        .SingleOrDefaultAsync(
+                        .SingleOrDefaultWithTrackingAsync(
                             predicate: df => df.Id == documentFile.ReplacementId,
                             include: i => i.Include(df => df.DocumentVersions.Where(v => v.Status == StatusEnum.Approved))
                                           .ThenInclude(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
@@ -413,42 +413,70 @@ namespace Document.API.Services.Implements
                     // ========================================
                     // SCENARIO 3: DOCUMENT REPLACEMENT HANDLING
                     // ========================================
-                    // If this document replaces another document, archive the replaced document
+                    // If this document replaces another document, handle the replacement logic
                     if (replacedDocument != null)
                     {
                         var replacedApprovedVersion = replacedDocument.DocumentVersions.FirstOrDefault(v => v.Status == StatusEnum.Approved);
                         if (replacedApprovedVersion != null)
                         {
-                            // ✅ NEW FOLDER DESIGN: Archive replaced document in-place (no folder movement)
-                            // Documents are archived by status change, not by moving to archive folders
-                            var replacedFileId = replacedApprovedVersion.GoogleDriveFileId ?? replacedApprovedVersion.FilePath;
-                            _logger.LogInformation("Archiving replaced document {FileId} in-place (no folder movement required)", replacedFileId);
-                            // No file movement needed - document stays in its functional folder but status changes to archived
+                            // ✅ NEW LOGIC: Check if replaced document still has valid effective date
+                            bool shouldArchiveReplacedDocument = true;
 
-                            // Remove replaced document from Kernel Memory instead of archiving its embeddings
-                            var replacedVersionKmId = replacedApprovedVersion.Id.ToString();
-                            try
+                            if (replacedApprovedVersion.EffectiveUntil.HasValue)
                             {
-                                await _memory.DeleteDocumentAsync(replacedVersionKmId).WaitAsync(TimeSpan.FromSeconds(10));
-                                _logger.LogInformation("Removed replaced version {VersionId} from Kernel Memory.", replacedVersionKmId);
-                            }
-                            catch (TimeoutException)
-                            {
-                                _logger.LogWarning("Timeout removing replaced version {VersionId} from Kernel Memory", replacedVersionKmId);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, "Failed to remove replaced version {VersionId} from Kernel Memory", replacedVersionKmId);
+                                var currentDate = DateTime.UtcNow.Date;
+                                var effectiveUntilDate = replacedApprovedVersion.EffectiveUntil.Value.Date;
+
+                                if (currentDate <= effectiveUntilDate)
+                                {
+                                    // Document still has valid effective date, just mark as replaced but don't archive
+                                    shouldArchiveReplacedDocument = false;
+                                    _logger.LogInformation("Replaced document {ReplacedDocumentId} still has valid effective date until {EffectiveUntil}, marking as replaced only",
+                                        replacedDocument.Id, effectiveUntilDate);
+                                }
                             }
 
-                            // Update database - mark replaced document as archived
-                            replacedApprovedVersion.Status = StatusEnum.Archived;
-                            replacedApprovedVersion.IsOfficial = false;
+                            if (shouldArchiveReplacedDocument)
+                            {
+                                // ✅ ARCHIVE LOGIC: Archive replaced document in-place (no folder movement)
+                                // Documents are archived by status change, not by moving to archive folders
+                                var replacedFileId = replacedApprovedVersion.GoogleDriveFileId ?? replacedApprovedVersion.FilePath;
+                                _logger.LogInformation("Archiving replaced document {FileId} in-place (no folder movement required)", replacedFileId);
+                                // No file movement needed - document stays in its functional folder but status changes to archived
+
+                                // Remove replaced document from Kernel Memory instead of archiving its embeddings
+                                var replacedVersionKmId = replacedApprovedVersion.Id.ToString();
+                                try
+                                {
+                                    await _memory.DeleteDocumentAsync(replacedVersionKmId).WaitAsync(TimeSpan.FromSeconds(10));
+                                    _logger.LogInformation("Removed replaced version {VersionId} from Kernel Memory.", replacedVersionKmId);
+                                }
+                                catch (TimeoutException)
+                                {
+                                    _logger.LogWarning("Timeout removing replaced version {VersionId} from Kernel Memory", replacedVersionKmId);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogWarning(ex, "Failed to remove replaced version {VersionId} from Kernel Memory", replacedVersionKmId);
+                                }
+
+                                // Update database - mark replaced document as archived
+                                replacedApprovedVersion.Status = StatusEnum.Archived;
+                                replacedApprovedVersion.IsOfficial = false;
+                                await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(replacedApprovedVersion);
+
+                                _logger.LogInformation("Archived replaced document {ReplacedDocumentId} and removed from Kernel Memory.", replacedDocument.Id);
+                            }
+                            else
+                            {
+                                // ✅ REPLACEMENT ONLY: Document still effective, just mark as replaced
+                                _logger.LogInformation("Replaced document {ReplacedDocumentId} still effective until {EffectiveUntil}, keeping active status",
+                                    replacedDocument.Id, replacedApprovedVersion.EffectiveUntil);
+                            }
+
+                            // ✅ ALWAYS UPDATE: Mark the DocumentFile as replaced regardless of archiving
                             replacedDocument.IsReplaced = true;
-                            await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(replacedApprovedVersion);
                             await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(replacedDocument);
-
-                            _logger.LogInformation("Archived replaced document {ReplacedDocumentId} and updated its AI tags.", replacedDocument.Id);
                         }
                     }
 

@@ -24,6 +24,7 @@ public class ApiEndPointConstant
         public const string AnalyzeDocument = ApiEndpoint + "/analyze-document"; // Remains the same
         public const string RegenerateSummary = ApiEndpoint + "/regenerate-summary"; // New endpoint for enhanced summary regeneration during document creation
         public const string SemanticSearch = ApiEndpoint + "/semantic-search"; // Remains the same
+        public const string EnhancedSemanticSearch = ApiEndpoint + "/enhanced-semantic-search"; // AI-powered conversational search
         public const string FullTextSearch = ApiEndpoint + "/full-text-search";
         public const string GetDrafts = ApiEndpoint + "/drafts";
         public const string GetDraftById = ApiEndpoint + "/drafts/{id}";
