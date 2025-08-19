@@ -35,9 +35,9 @@ namespace ChatBox.API.Services.Implement
             _httpContextAccessor = httpContextAccessor;
         }
 
-        public async Task<ChatBoxDocumentResponse?> SearchDocumentsWithRAGAsync(string query, string userId, int maxResults = 5, string? documentId = null)
+        public async Task<ChatBoxDocumentResponse?> SearchDocumentsWithRAGAsync(string query, string userId, int maxResults = 15, string? documentId = null)
         {
-            maxResults = Math.Min(Math.Max(maxResults, 1), 10);
+            maxResults = Math.Min(Math.Max(maxResults, 1), 15);
             var userContext = GetUserContextFromJWT();
 
             var cacheKey = $"doc_raw_v3_{query.GetHashCode():X}_{userId}_{userContext.Role}_{userContext.DepartmentId}_{maxResults}_{documentId ?? "any"}";
@@ -57,7 +57,7 @@ namespace ChatBox.API.Services.Implement
                 _logger.LogWarning(ex, "💾 [CACHE] Cache read failed, proceeding with fresh search");
             }
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
 
             try
             {
@@ -85,7 +85,7 @@ namespace ChatBox.API.Services.Implement
                     request.FullName, request.Role, request.DepartmentName, request.MaxResults,
                     query.Length > 50 ? query.Substring(0, 50) + "..." : query);
 
-                var timeout = TimeSpan.FromSeconds(25);
+                var timeout = TimeSpan.FromSeconds(55);
                 var response = await _requestClient.GetResponse<ChatBoxDocumentResponse>(
                     request,
                     timeout: timeout,
