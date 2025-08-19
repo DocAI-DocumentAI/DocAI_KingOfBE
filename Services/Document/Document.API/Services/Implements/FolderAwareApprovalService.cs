@@ -226,24 +226,52 @@ namespace Document.API.Services.Implements
                     // ========================================
                     // SCENARIO 3: DOCUMENT REPLACEMENT HANDLING - FOLLOW APPROVAL SERVICE EXACTLY
                     // ========================================
-                    // If this document replaces another document, archive the replaced document
+                    // If this document replaces another document, handle the replacement logic
                     if (replacedDocument != null)
                     {
                         var replacedApprovedVersion = replacedDocument.DocumentVersions.FirstOrDefault(v => v.Status == StatusEnum.Approved);
                         if (replacedApprovedVersion != null)
                         {
-                            // Archive replaced document in-place (no folder movement)
-                            var replacedFileId = replacedApprovedVersion.GoogleDriveFileId ?? replacedApprovedVersion.FilePath;
-                            _logger.LogInformation("Archiving replaced document {FileId} in-place (no folder movement required)", replacedFileId);
+                            // ✅ NEW LOGIC: Check if replaced document still has valid effective date
+                            bool shouldArchiveReplacedDocument = true;
 
-                            // Update database - mark replaced document as archived
-                            replacedApprovedVersion.Status = StatusEnum.Archived;
-                            replacedApprovedVersion.IsOfficial = false;
+                            if (replacedApprovedVersion.EffectiveUntil.HasValue)
+                            {
+                                var currentDate = DateTime.UtcNow.Date;
+                                var effectiveUntilDate = replacedApprovedVersion.EffectiveUntil.Value.Date;
+
+                                if (currentDate <= effectiveUntilDate)
+                                {
+                                    // Document still has valid effective date, just mark as replaced but don't archive
+                                    shouldArchiveReplacedDocument = false;
+                                    _logger.LogInformation("Replaced document {ReplacedDocumentId} still has valid effective date until {EffectiveUntil}, marking as replaced only",
+                                        replacedDocument.Id, effectiveUntilDate);
+                                }
+                            }
+
+                            if (shouldArchiveReplacedDocument)
+                            {
+                                // ✅ ARCHIVE LOGIC: Archive replaced document in-place (no folder movement)
+                                var replacedFileId = replacedApprovedVersion.GoogleDriveFileId ?? replacedApprovedVersion.FilePath;
+                                _logger.LogInformation("Archiving replaced document {FileId} in-place (no folder movement required)", replacedFileId);
+
+                                // Update database - mark replaced document as archived
+                                replacedApprovedVersion.Status = StatusEnum.Archived;
+                                replacedApprovedVersion.IsOfficial = false;
+                                await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(replacedApprovedVersion);
+
+                                _logger.LogInformation("Archived replaced document {ReplacedDocumentId}.", replacedDocument.Id);
+                            }
+                            else
+                            {
+                                // ✅ REPLACEMENT ONLY: Document still effective, just mark as replaced
+                                _logger.LogInformation("Replaced document {ReplacedDocumentId} still effective until {EffectiveUntil}, keeping active status",
+                                    replacedDocument.Id, replacedApprovedVersion.EffectiveUntil);
+                            }
+
+                            // ✅ ALWAYS UPDATE: Mark the DocumentFile as replaced regardless of archiving
                             replacedDocument.IsReplaced = true;
-                            await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(replacedApprovedVersion);
                             await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(replacedDocument);
-
-                            _logger.LogInformation("Archived replaced document {ReplacedDocumentId} and updated its AI tags.", replacedDocument.Id);
                         }
                     }
 
