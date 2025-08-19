@@ -55,6 +55,9 @@ public static class DependencyService
             x.AddConsumer<SetupUserGoogleDrivePermissionsConsumer>();
             x.AddConsumer<InitializeBulkGoogleDrivePermissionsConsumer>();
 
+            // Database folder permission setup consumers
+            x.AddConsumer<SetupUserFolderPermissionsConsumer>();
+
             // Add request client for name lookup
             x.AddRequestClient<NameLookupRequest>(new Uri("queue:name-lookup-queue"));
 
@@ -131,6 +134,13 @@ public static class DependencyService
                 {
                     e.ConfigureConsumer<InitializeBulkGoogleDrivePermissionsConsumer>(context);
                     e.UseMessageRetry(r => r.Interval(2, TimeSpan.FromSeconds(30)));
+                    e.UseInMemoryOutbox();
+                });
+
+                cfg.ReceiveEndpoint("folder-permissions-setup-queue", e =>
+                {
+                    e.ConfigureConsumer<SetupUserFolderPermissionsConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
                     e.UseInMemoryOutbox();
                 });
 

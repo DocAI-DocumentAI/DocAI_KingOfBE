@@ -135,7 +135,7 @@ namespace Document.API.Controllers
                 var userId = JwtTokenHelper.GetUserId(_httpContextAccessor);
                 var userDepartmentId = JwtTokenHelper.GetDepartmentIdOrNull(_httpContextAccessor);
 
-                _logger.LogInformation("User {UserId} requested department permission sync for {DepartmentId} (includePublic: {IncludePublic})", 
+                _logger.LogInformation("User {UserId} requested department permission sync for {DepartmentId} (includePublic: {IncludePublic})",
                     userId, departmentId, includePublic);
 
                 var result = await _permissionSyncService.SyncDepartmentPermissionsAsync(departmentId, includePublic);
@@ -145,6 +145,32 @@ namespace Document.API.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error syncing department permissions for {DepartmentId}", departmentId);
+                return StatusCode(500, new { message = FolderMessageConstant.System.UnexpectedError, details = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Synchronize permissions for all public folders
+        /// </summary>
+        /// <param name="forceSync">Force synchronization even if already in sync</param>
+        /// <returns>Bulk permission sync result</returns>
+        [HttpPost("sync-public-permissions")]
+        public async Task<ActionResult<BulkPermissionSyncResult>> SyncPublicFoldersAsync([FromQuery] bool forceSync = false)
+        {
+            try
+            {
+                var userId = JwtTokenHelper.GetUserId(_httpContextAccessor);
+
+                _logger.LogInformation("User {UserId} requested public folder permission sync (forceSync: {ForceSync})",
+                    userId, forceSync);
+
+                var result = await _permissionSyncService.SyncPublicFoldersAsync(forceSync);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error syncing public folder permissions");
                 return StatusCode(500, new { message = FolderMessageConstant.System.UnexpectedError, details = ex.Message });
             }
         }

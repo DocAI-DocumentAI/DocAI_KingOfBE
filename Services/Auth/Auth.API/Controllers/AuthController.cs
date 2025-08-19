@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Reflection.Metadata.Ecma335;
+using System.Security.Authentication;
 using System.Threading.Tasks;
 using Auth.API.Attributes;
 using Auth.API.Constants;
@@ -468,7 +469,49 @@ public class AuthController : ControllerBase
         var response = await _userService.GetUserByIdAminAsync(userId);
         return Ok(response);
     }
-    
+
+    /// <summary>
+    /// Lấy danh sách user trong phòng ban của manager (lấy departmentId từ token)
+    /// </summary>
+    /// <param name="page">Số trang (mặc định: 1)</param>
+    /// <param name="size">Kích thước trang (mặc định: 30)</param>
+    /// <param name="keyword">Từ khóa tìm kiếm trong tên và email</param>
+    /// <param name="sortBy">Trường sắp xếp</param>
+    /// <param name="isAsc">Sắp xếp tăng dần (true) hoặc giảm dần (false)</param>
+    [HttpGet(ApiEndPointConstant.User.GetDepartmentUsers)]
+    [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
+    [SkipRateLimit]
+    [ProducesResponseType(typeof(IPaginate<UserResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDepartmentUsersAsync(int page = 1, int size = 30, string? keyword = null, string? sortBy = null, bool isAsc = true)
+    {
+        try
+        {
+            var response = await _userService.GetDepartmentUsersAsync(page, size, keyword, sortBy, isAsc);
+            return Ok(response);
+        }
+        catch (AuthenticationException ex)
+        {
+            return Unauthorized(ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(ex.Message);
+        }
+        catch (BadHttpRequestException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting department users");
+            return StatusCode(StatusCodes.Status500InternalServerError, "Internal server error occurred");
+        }
+    }
+
     /// <summary>
     /// Reset mật khẩu cho user bằng email
     /// </summary>

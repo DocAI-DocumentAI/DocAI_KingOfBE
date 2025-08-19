@@ -8,6 +8,7 @@ public class UserFilter : IFilter<User>
     public string? Email { get; set; }
     public string? FullName { get; set; }
     public string? Phone { get; set; }
+    public string? Keyword { get; set; } // Search across name and email
     public Guid? RoleId { get; set; }
     public Guid? DepartmentId { get; set; }
     public DateTime? CreatedFrom { get; set; }
@@ -24,6 +25,9 @@ public class UserFilter : IFilter<User>
             (string.IsNullOrEmpty(Email) || user.Email.Contains(Email)) &&
             (string.IsNullOrEmpty(FullName) || user.FullName.Contains(FullName)) &&
             (string.IsNullOrEmpty(Phone) || user.Phone.Contains(Phone)) &&
+            (string.IsNullOrEmpty(Keyword) ||
+             user.FullName.ToLower().Contains(Keyword.ToLower()) ||
+             user.Email.ToLower().Contains(Keyword.ToLower())) &&
             (!RoleId.HasValue || user.RoleId == RoleId) &&
             (!DepartmentId.HasValue || user.DepartmentId == DepartmentId) &&
             (!createdFromUtc.HasValue || user.CreatAt >= createdFromUtc.Value) &&

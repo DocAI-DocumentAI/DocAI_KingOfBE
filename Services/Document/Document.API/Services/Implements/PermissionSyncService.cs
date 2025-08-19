@@ -8,6 +8,8 @@ using Document.Infrastructure.Repository.Interfaces;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
+using MassTransit;
+using Shared.DTOs;
 
 namespace Document.API.Services.Implements
 {
@@ -21,19 +23,25 @@ namespace Document.API.Services.Implements
         private readonly IGoogleDriveService _googleDriveService;
         private readonly IFolderPermissionService _folderPermissionService;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IRequestClient<UserEmailRequest> _userEmailClient;
+        private readonly IRedisService _redisService;
 
         public PermissionSyncService(
             ILogger<PermissionSyncService> logger,
             IUnitOfWork unitOfWork,
             IGoogleDriveService googleDriveService,
             IFolderPermissionService folderPermissionService,
-            IHttpContextAccessor httpContextAccessor)
+            IHttpContextAccessor httpContextAccessor,
+            IRequestClient<UserEmailRequest> userEmailClient,
+            IRedisService redisService)
         {
             _logger = logger;
             _unitOfWork = unitOfWork;
             _googleDriveService = googleDriveService;
             _folderPermissionService = folderPermissionService;
             _httpContextAccessor = httpContextAccessor;
+            _userEmailClient = userEmailClient;
+            _redisService = redisService;
         }
 
         public async Task<PermissionSyncResult> SyncFolderPermissionsAsync(string folderId, bool forceSync = false)
@@ -83,6 +91,8 @@ namespace Document.API.Services.Implements
                 var syncCount = 0;
                 var failCount = 0;
 
+                _logger.LogInformation("Found {Count} database permissions to sync for folder {FolderId}", dbPermissions.Count, folderId);
+
                 foreach (var dbPermission in dbPermissions)
                 {
                     try
@@ -96,7 +106,24 @@ namespace Document.API.Services.Implements
                                 var googleRole = MapPermissionTypeToGoogleRole(dbPermission.PermissionType);
                                 await _googleDriveService.GrantUserAccessAsync(folder.GoogleDriveFolderId, userEmail, folder.DepartmentId ?? "", folder.IsPublic, googleRole);
                                 syncCount++;
+                                _logger.LogDebug("Successfully synced {PermissionType} permission for user {UserId} ({UserEmail}) on folder {FolderId}",
+                                    dbPermission.PermissionType, dbPermission.UserId, userEmail, folderId);
                             }
+                            else
+                            {
+                                failCount++;
+                                var errorMsg = $"Could not resolve email for user {dbPermission.UserId}";
+                                result.Errors.Add(errorMsg);
+                                _logger.LogWarning("Failed to sync permission for user {UserId} on folder {FolderId}: Could not resolve user email",
+                                    dbPermission.UserId, folderId);
+                            }
+                        }
+                        else
+                        {
+                            failCount++;
+                            var errorMsg = $"Database permission has empty UserId";
+                            result.Errors.Add(errorMsg);
+                            _logger.LogWarning("Found database permission with empty UserId for folder {FolderId}", folderId);
                         }
                     }
                     catch (Exception ex)
@@ -181,6 +208,71 @@ namespace Document.API.Services.Implements
                 result.Message = string.Format(FolderMessageConstant.System.UnexpectedError, ex.Message);
                 result.Errors.Add(ex.Message);
                 _logger.LogError(ex, "Error in bulk permission sync for department {DepartmentId}", departmentId);
+                return result;
+            }
+            finally
+            {
+                result.Duration = stopwatch.Elapsed;
+            }
+        }
+
+        /// <summary>
+        /// Sync permissions for all public folders
+        /// </summary>
+        /// <param name="forceSync">Force synchronization even if already in sync</param>
+        /// <returns>Bulk permission sync result</returns>
+        public async Task<BulkPermissionSyncResult> SyncPublicFoldersAsync(bool forceSync = false)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            var result = new BulkPermissionSyncResult { DepartmentId = "PUBLIC" };
+
+            try
+            {
+                _logger.LogInformation("Starting sync for all public folders (forceSync: {ForceSync})", forceSync);
+
+                // Get all public folders
+                var publicFolders = await _unitOfWork.GetRepository<Folder>()
+                    .GetListAsync(predicate: f => f.IsPublic && !f.IsDeleted);
+
+                _logger.LogInformation("Found {Count} public folders to sync", publicFolders.Count);
+
+                result.FoldersProcessed = publicFolders.Count;
+
+                foreach (var folder in publicFolders)
+                {
+                    _logger.LogDebug("Syncing public folder {FolderId} ({FolderName})", folder.Id, folder.Name);
+
+                    var folderResult = await SyncFolderPermissionsAsync(folder.Id, forceSync);
+                    result.FolderResults.Add(folderResult);
+
+                    if (folderResult.Success)
+                    {
+                        result.FoldersSuccessful++;
+                        result.TotalPermissionsSynced += folderResult.PermissionsSynced;
+                    }
+                    else
+                    {
+                        result.FoldersFailed++;
+                        result.Errors.AddRange(folderResult.Errors);
+                    }
+                }
+
+                result.Success = result.FoldersFailed == 0;
+                result.Message = result.Success
+                    ? $"Successfully synced permissions for {result.FoldersSuccessful} public folders"
+                    : $"Synced {result.FoldersSuccessful} public folders successfully, {result.FoldersFailed} failed";
+
+                _logger.LogInformation("Public folder sync completed: {SuccessCount}/{TotalCount} successful, {TotalPermissions} permissions synced",
+                    result.FoldersSuccessful, result.FoldersProcessed, result.TotalPermissionsSynced);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Message = $"Error syncing public folders: {ex.Message}";
+                result.Errors.Add(ex.Message);
+                _logger.LogError(ex, "Error syncing public folder permissions");
                 return result;
             }
             finally
@@ -278,18 +370,55 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                // This would typically call the Auth service to get user email
-                // For now, we'll extract from JWT if available
+                // Check if this is the current user from JWT
                 var currentUserEmail = JwtTokenHelper.GetUserEmailOrNull(_httpContextAccessor);
                 var currentUserId = JwtTokenHelper.GetUserIdOrNull(_httpContextAccessor);
-                
-                if (currentUserId == userId)
+
+                if (currentUserId == userId && !string.IsNullOrEmpty(currentUserEmail))
                 {
+                    // Cache the current user's email for future use
+                    await _redisService.SetUserEmailAsync(userId, currentUserEmail, TimeSpan.FromHours(24));
                     return currentUserEmail;
                 }
 
-                // TODO: Implement call to Auth service to get user email by ID
-                _logger.LogWarning("Cannot resolve email for user {UserId} - Auth service integration needed", userId);
+                // Try to get from cache first
+                var cachedEmail = await _redisService.GetUserEmailAsync(userId);
+                if (!string.IsNullOrEmpty(cachedEmail))
+                {
+                    _logger.LogDebug("Retrieved user email from cache for {UserId}: {Email}", userId, cachedEmail);
+                    return cachedEmail;
+                }
+
+                // If not in cache, request from Auth service via RabbitMQ
+                _logger.LogInformation("User email not in cache, requesting from Auth service for {UserId}", userId);
+
+                var request = new UserEmailRequest
+                {
+                    UserId = userId,
+                    RequestId = Guid.NewGuid().ToString()
+                };
+
+                var response = await _userEmailClient.GetResponse<UserEmailResponse>(request, timeout: TimeSpan.FromSeconds(30));
+
+                if (response.Message.Success && !string.IsNullOrEmpty(response.Message.Email))
+                {
+                    var email = response.Message.Email;
+
+                    // Cache the result for 24 hours (user emails change rarely)
+                    await _redisService.SetUserEmailAsync(userId, email, TimeSpan.FromHours(24));
+
+                    _logger.LogInformation("Retrieved email for user {UserId}: {Email}", userId, email);
+                    return email;
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to get user email from Auth service for user {UserId}: {ErrorMessage}", userId, response.Message.ErrorMessage);
+                    return null;
+                }
+            }
+            catch (RequestTimeoutException)
+            {
+                _logger.LogWarning("Timeout getting user email for user {UserId}", userId);
                 return null;
             }
             catch (Exception ex)

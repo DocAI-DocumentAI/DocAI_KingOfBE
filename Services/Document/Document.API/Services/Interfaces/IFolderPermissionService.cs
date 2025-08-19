@@ -126,6 +126,15 @@ namespace Document.API.Services.Interfaces
         /// <param name="resolutionStrategy">How to resolve the conflict</param>
         /// <returns>Resolution result</returns>
         Task<PermissionConflictResolutionResult> ResolvePermissionConflictAsync(string conflictId, ConflictResolutionStrategy resolutionStrategy);
+
+        /// <summary>
+        /// Automatically grant folder permissions to a new user for public and department folders
+        /// </summary>
+        /// <param name="userId">User ID</param>
+        /// <param name="userDepartmentId">User's department ID</param>
+        /// <param name="userRole">User's role (for determining permission level)</param>
+        /// <returns>Number of permissions created</returns>
+        Task<int> GrantDefaultFolderPermissionsToNewUserAsync(string userId, string userDepartmentId, string userRole);
     }
 
     /// <summary>

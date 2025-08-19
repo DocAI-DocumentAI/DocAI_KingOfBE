@@ -1,5 +1,6 @@
 using Document.API.Services.Interfaces;
 using MassTransit;
+using Microsoft.Extensions.Logging;
 using Shared.Commands;
 
 namespace Document.API.Consumers
@@ -185,6 +186,50 @@ namespace Document.API.Consumers
 
                 await context.RespondAsync(errorResponse);
                 throw; // Re-throw to trigger retry mechanism
+            }
+        }
+    }
+
+    /// <summary>
+    /// Consumer for setting up database folder permissions for new users
+    /// </summary>
+    public class SetupUserFolderPermissionsConsumer : IConsumer<SetupUserFolderPermissionsCommand>
+    {
+        private readonly IFolderPermissionService _folderPermissionService;
+        private readonly ILogger<SetupUserFolderPermissionsConsumer> _logger;
+
+        public SetupUserFolderPermissionsConsumer(
+            IFolderPermissionService folderPermissionService,
+            ILogger<SetupUserFolderPermissionsConsumer> logger)
+        {
+            _folderPermissionService = folderPermissionService;
+            _logger = logger;
+        }
+
+        public async Task Consume(ConsumeContext<SetupUserFolderPermissionsCommand> context)
+        {
+            var command = context.Message;
+
+            try
+            {
+                _logger.LogInformation("Processing database folder permission setup for user {UserId} ({UserEmail}) in department {DepartmentId} with role {UserRole}",
+                    command.UserId, command.UserEmail, command.DepartmentId, command.UserRole);
+
+                var permissionsCreated = await _folderPermissionService.GrantDefaultFolderPermissionsToNewUserAsync(
+                    command.UserId,
+                    command.DepartmentId,
+                    command.UserRole);
+
+                _logger.LogInformation("Successfully setup {Count} database folder permissions for user {UserId}",
+                    permissionsCreated, command.UserId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to setup database folder permissions for user {UserId} ({UserEmail})",
+                    command.UserId, command.UserEmail);
+
+                // Don't throw - this is a background process and shouldn't fail user creation
+                // The user can still access folders through the default permission logic
             }
         }
     }

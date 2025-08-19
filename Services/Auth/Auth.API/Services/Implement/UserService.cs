@@ -243,7 +243,7 @@ public class UserService : BaseService<UserService>, IUserService
             // Setup Google Drive permissions for the new user
             try
             {
-                var command = new SetupUserGoogleDrivePermissionsCommand
+                var googleDriveCommand = new SetupUserGoogleDrivePermissionsCommand
                 {
                     UserId = user.Id.ToString(),
                     UserEmail = user.Email,
@@ -251,12 +251,31 @@ public class UserService : BaseService<UserService>, IUserService
                     DepartmentName = $"Department {user.DepartmentId}"
                 };
 
-                await _publishEndpoint.Publish(command);
+                await _publishEndpoint.Publish(googleDriveCommand);
                 _logger.LogInformation("Published Google Drive permission setup command for user {UserEmail}", user.Email);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to publish Google Drive permission setup command for user {UserId}. User created successfully but permissions setup may be delayed.", user.Id);
+            }
+
+            // Setup database folder permissions for the new user
+            try
+            {
+                var folderPermissionCommand = new SetupUserFolderPermissionsCommand
+                {
+                    UserId = user.Id.ToString(),
+                    UserEmail = user.Email,
+                    DepartmentId = user.DepartmentId.ToString(),
+                    UserRole = user.Role?.RoleName ?? "Member"
+                };
+
+                await _publishEndpoint.Publish(folderPermissionCommand);
+                _logger.LogInformation("Published folder permission setup command for user {UserEmail}", user.Email);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to publish folder permission setup command for user {UserId}. User created successfully but permissions setup may be delayed.", user.Id);
             }
 
             return response;
@@ -1422,6 +1441,44 @@ public class UserService : BaseService<UserService>, IUserService
             await _unitOfWork.CommitAsync();
 
             _logger.LogInformation("Created new user from Google OAuth: {Email}", googleResult.Email);
+
+            // Setup Google Drive permissions for the new Google OAuth user
+            try
+            {
+                var googleDriveCommand = new SetupUserGoogleDrivePermissionsCommand
+                {
+                    UserId = user.Id.ToString(),
+                    UserEmail = user.Email,
+                    DepartmentId = user.DepartmentId.ToString(),
+                    DepartmentName = defaultDepartment?.Name ?? "General"
+                };
+
+                await _publishEndpoint.Publish(googleDriveCommand);
+                _logger.LogInformation("Published Google Drive permission setup command for Google OAuth user {UserEmail}", user.Email);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to publish Google Drive permission setup command for Google OAuth user {UserId}. User created successfully but permissions setup may be delayed.", user.Id);
+            }
+
+            // Setup database folder permissions for the new Google OAuth user
+            try
+            {
+                var folderPermissionCommand = new SetupUserFolderPermissionsCommand
+                {
+                    UserId = user.Id.ToString(),
+                    UserEmail = user.Email,
+                    DepartmentId = user.DepartmentId.ToString(),
+                    UserRole = defaultRole?.RoleName ?? "Member"
+                };
+
+                await _publishEndpoint.Publish(folderPermissionCommand);
+                _logger.LogInformation("Published folder permission setup command for Google OAuth user {UserEmail}", user.Email);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to publish folder permission setup command for Google OAuth user {UserId}. User created successfully but permissions setup may be delayed.", user.Id);
+            }
         }
 
         return user;
@@ -1957,6 +2014,50 @@ public class UserService : BaseService<UserService>, IUserService
             _logger.LogError($"Lỗi khi kiểm tra OTP: {ex.Message}");
             throw new BadHttpRequestException("Không thể xác thực OTP. Vui lòng thử lại sau");
         }
+    }
+
+    public async Task<IPaginate<UserResponse>> GetDepartmentUsersAsync(int page, int size, string? keyword, string? sortBy, bool isAsc)
+    {
+        // Get department ID from JWT token
+        var departmentId = GetDepartmentIdFromJwt();
+
+        if (string.IsNullOrEmpty(departmentId) || !Guid.TryParse(departmentId, out var deptGuid))
+        {
+            throw new BadHttpRequestException(MessageConstant.Department.DepartmentNotFound);
+        }
+
+        // Create filter for department users with optional keyword search
+        var filter = new UserFilter
+        {
+            DepartmentId = deptGuid,
+            Keyword = keyword
+        };
+
+        // Get users in the same department
+        var users = await GetAllUsersAsync(page, size, filter, sortBy, isAsc);
+
+        return users;
+    }
+
+    private string GetDepartmentIdFromJwt()
+    {
+        var httpContext = _httpContextAccessor.HttpContext;
+        var user = httpContext?.User;
+
+        if (user == null || !user.Identity.IsAuthenticated)
+        {
+            throw new AuthenticationException("User is not authenticated.");
+        }
+
+        // Try both claim names for backward compatibility
+        var departmentIdClaim = user.FindFirst("departmentId")?.Value ?? user.FindFirst("departmentID")?.Value;
+
+        if (string.IsNullOrEmpty(departmentIdClaim))
+        {
+            throw new UnauthorizedAccessException("Department ID not found in JWT token");
+        }
+
+        return departmentIdClaim;
     }
 
 }

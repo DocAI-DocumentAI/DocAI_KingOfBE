@@ -25,6 +25,13 @@ namespace Document.API.Services.Interfaces
         Task<BulkPermissionSyncResult> SyncDepartmentPermissionsAsync(string departmentId, bool includePublic = true);
 
         /// <summary>
+        /// Synchronize permissions for all public folders
+        /// </summary>
+        /// <param name="forceSync">Force synchronization even if already in sync</param>
+        /// <returns>Bulk synchronization result</returns>
+        Task<BulkPermissionSyncResult> SyncPublicFoldersAsync(bool forceSync = false);
+
+        /// <summary>
         /// Verify permission consistency between database and Google Drive
         /// </summary>
         /// <param name="folderId">Database folder ID</param>

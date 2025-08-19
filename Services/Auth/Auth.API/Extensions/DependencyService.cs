@@ -204,6 +204,13 @@ public static class DependencyService
                     e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
                     e.UseInMemoryOutbox();
                 });
+
+                cfg.ReceiveEndpoint("get-all-departments-queue", e =>
+                {
+                    e.ConfigureConsumer<GetAllDepartmentsConsumer>(context);
+                    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(10)));
+                    e.UseInMemoryOutbox();
+                });
             });
         });
         return services;

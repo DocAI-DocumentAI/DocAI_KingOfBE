@@ -1006,5 +1006,83 @@ namespace Document.API.Services.Implements
         }
 
         #endregion
+
+        /// <summary>
+        /// Automatically grant folder permissions to a new user for public and department folders
+        /// </summary>
+        /// <param name="userId">User ID</param>
+        /// <param name="userDepartmentId">User's department ID</param>
+        /// <param name="userRole">User's role (for determining permission level)</param>
+        /// <returns>Number of permissions created</returns>
+        public async Task<int> GrantDefaultFolderPermissionsToNewUserAsync(string userId, string userDepartmentId, string userRole)
+        {
+            try
+            {
+                _logger.LogInformation("Granting default folder permissions to new user {UserId} in department {DepartmentId} with role {Role}",
+                    userId, userDepartmentId, userRole);
+
+                var permissionsCreated = 0;
+
+                // 1. Grant permissions to all public folders
+                var publicFolders = await _unitOfWork.GetRepository<Folder>()
+                    .GetListAsync(predicate: f => f.IsPublic && !f.IsDeleted);
+
+                foreach (var folder in publicFolders)
+                {
+                    var permission = new FolderPermission
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        FolderId = folder.Id,
+                        UserId = userId,
+                        DepartmentId = null, // User-specific permission
+                        PermissionType = FolderConstant.DefaultPermissions.PublicFolderPermission,
+                        IsActive = true,
+                        CreatedBy = "System",
+                        CreatedTime = DateTime.UtcNow
+                    };
+
+                    await _unitOfWork.GetRepository<FolderPermission>().InsertAsync(permission);
+                    permissionsCreated++;
+                }
+
+                // 2. Grant permissions to department folders
+                var departmentFolders = await _unitOfWork.GetRepository<Folder>()
+                    .GetListAsync(predicate: f => f.DepartmentId == userDepartmentId && !f.IsDeleted && !f.IsPublic);
+
+                var departmentPermissionType = userRole == Roles.Manager
+                    ? FolderConstant.DefaultPermissions.DepartmentManagerPermission
+                    : FolderConstant.DefaultPermissions.DepartmentMemberPermission;
+
+                foreach (var folder in departmentFolders)
+                {
+                    var permission = new FolderPermission
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        FolderId = folder.Id,
+                        UserId = userId,
+                        DepartmentId = null, // User-specific permission
+                        PermissionType = departmentPermissionType,
+                        IsActive = true,
+                        CreatedBy = "System",
+                        CreatedTime = DateTime.UtcNow
+                    };
+
+                    await _unitOfWork.GetRepository<FolderPermission>().InsertAsync(permission);
+                    permissionsCreated++;
+                }
+
+                await _unitOfWork.CommitAsync();
+
+                _logger.LogInformation("Successfully granted {Count} default folder permissions to user {UserId}",
+                    permissionsCreated, userId);
+
+                return permissionsCreated;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error granting default folder permissions to user {UserId}", userId);
+                throw;
+            }
+        }
     }
 }
