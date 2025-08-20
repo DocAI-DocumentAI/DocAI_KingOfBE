@@ -184,6 +184,9 @@ namespace ChatBox.Domain.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<bool>("ApplyToNewChats")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("ChatbotCharacteristics")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");

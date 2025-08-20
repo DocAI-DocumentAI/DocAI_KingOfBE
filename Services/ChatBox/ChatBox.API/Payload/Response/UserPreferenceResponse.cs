@@ -7,6 +7,7 @@
         public string UserName { get; set; } = string.Empty;
         public List<string> ChatbotCharacteristics { get; set; } = new();
         public string AdditionalInfo { get; set; } = string.Empty;
+        public bool ApplyToNewChats { get; set; } = false;
         public bool HasAnyPreferences { get; set; }
 
         public List<CharacteristicOption> AvailableCharacteristics { get; set; } = new();

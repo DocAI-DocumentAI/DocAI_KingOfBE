@@ -238,9 +238,6 @@ namespace Notification.Domain.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
-                    b.Property<bool>("IsRead")
-                        .HasColumnType("boolean");
-
                     b.Property<bool>("IsSent")
                         .HasColumnType("boolean");
 
@@ -254,9 +251,6 @@ namespace Notification.Domain.Migrations
 
                     b.Property<int>("NotificationType")
                         .HasColumnType("integer");
-
-                    b.Property<DateTime?>("ReadAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("RecipientAddress")
                         .HasMaxLength(255)

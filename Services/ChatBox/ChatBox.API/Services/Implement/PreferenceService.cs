@@ -94,7 +94,7 @@ namespace ChatBox.API.Services.Implement
         /// </summary>
         public async Task<UserPreferenceResponse> UpdateUserChatPreferencesAsync(string userId, UpdatePreferenceRequest request)
         {
-            if (request.ChatbotCharacteristics != null && request.ChatbotCharacteristics.Any())
+            if (request.ChatbotCharacteristics?.Any() == true)
             {
                 var invalidCharacteristics = request.ChatbotCharacteristics
                     .Where(c => !ChatbotCharacteristics.IsValidCharacteristic(c))
@@ -121,21 +121,17 @@ namespace ChatBox.API.Services.Implement
 
             if (existingPreference != null)
             {
-                // ✅ SAME: UserName logic OK
+                // Update existing user default
                 if (request.UserName != null)
                     existingPreference.UserName = string.IsNullOrEmpty(request.UserName) ? null : request.UserName;
 
-                // ✅ FIXED: ChatbotCharacteristics logic
                 if (request.ChatbotCharacteristics != null)
                 {
-                    // Nếu array empty → set null để clear
-                    // Nếu array có items → serialize
                     existingPreference.ChatbotCharacteristics = request.ChatbotCharacteristics.Any()
                         ? JsonSerializer.Serialize(request.ChatbotCharacteristics)
-                        : null; // ✅ FIX: null thay vì "[]"
+                        : null;
                 }
 
-                // ✅ SAME: AdditionalInfo logic OK  
                 if (request.AdditionalInfo != null)
                     existingPreference.AdditionalInfo = string.IsNullOrEmpty(request.AdditionalInfo) ? null : request.AdditionalInfo;
 
@@ -146,37 +142,29 @@ namespace ChatBox.API.Services.Implement
             }
             else
             {
-                // ✅ IMPROVED: Create logic - only create if has meaningful data
-                if (HasMeaningfulData(request))
+                // Create new user default
+                var newPreference = new UserPreference
                 {
-                    var newPreference = new UserPreference
-                    {
-                        UserId = userId,
-                        SessionId = null,
-                        UserName = string.IsNullOrEmpty(request.UserName) ? null : request.UserName,
-                        ChatbotCharacteristics = request.ChatbotCharacteristics?.Any() == true
-                            ? JsonSerializer.Serialize(request.ChatbotCharacteristics)
-                            : null, // ✅ FIX: null thay vì "[]"
-                        AdditionalInfo = string.IsNullOrEmpty(request.AdditionalInfo) ? null : request.AdditionalInfo,
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow,
-                        CreatedBy = userId,
-                        UpdatedBy = userId
-                    };
+                    UserId = userId,
+                    SessionId = null, // ✅ User Default
+                    UserName = string.IsNullOrEmpty(request.UserName) ? null : request.UserName,
+                    ChatbotCharacteristics = request.ChatbotCharacteristics?.Any() == true
+                        ? JsonSerializer.Serialize(request.ChatbotCharacteristics)
+                        : null,
+                    AdditionalInfo = string.IsNullOrEmpty(request.AdditionalInfo) ? null : request.AdditionalInfo,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    CreatedBy = userId,
+                    UpdatedBy = userId
+                };
 
-                    await _unitOfWork.GetRepository<UserPreference>().InsertAsync(newPreference);
-                }
+                await _unitOfWork.GetRepository<UserPreference>().InsertAsync(newPreference);
             }
 
             await _unitOfWork.CommitAsync();
             return await GetUserChatPreferencesAsync(userId);
         }
-        private bool HasMeaningfulData(UpdatePreferenceRequest request)
-        {
-            return !string.IsNullOrEmpty(request.UserName) ||
-                   (request.ChatbotCharacteristics?.Any() == true) ||
-                   !string.IsNullOrEmpty(request.AdditionalInfo);
-        }
+
         /// <summary>
         /// Lấy tùy chọn cho session (Effective Preferences)
         /// </summary>
@@ -190,7 +178,7 @@ namespace ChatBox.API.Services.Implement
         /// </summary>
         public async Task<UserPreferenceResponse> UpdateSessionPreferencesAsync(string sessionId, string userId, UpdatePreferenceRequest request)
         {
-            if (request.ChatbotCharacteristics != null && request.ChatbotCharacteristics.Any())
+            if (request.ChatbotCharacteristics?.Any() == true)
             {
                 var invalidCharacteristics = request.ChatbotCharacteristics
                     .Where(c => !ChatbotCharacteristics.IsValidCharacteristic(c))
@@ -217,16 +205,15 @@ namespace ChatBox.API.Services.Implement
 
             if (existingPreference != null)
             {
-                // ✅ SAME: Update existing session override
+                // Update existing session override
                 if (request.UserName != null)
                     existingPreference.UserName = string.IsNullOrEmpty(request.UserName) ? null : request.UserName;
 
-                // ✅ FIXED: Same fix for ChatbotCharacteristics
                 if (request.ChatbotCharacteristics != null)
                 {
                     existingPreference.ChatbotCharacteristics = request.ChatbotCharacteristics.Any()
                         ? JsonSerializer.Serialize(request.ChatbotCharacteristics)
-                        : null; // ✅ FIX: null thay vì "[]"
+                        : null;
                 }
 
                 if (request.AdditionalInfo != null)
@@ -239,26 +226,23 @@ namespace ChatBox.API.Services.Implement
             }
             else
             {
-                // ✅ IMPROVED: Only create if has meaningful data
-                if (HasMeaningfulData(request))
+                // Create new session override
+                var newPreference = new UserPreference
                 {
-                    var newPreference = new UserPreference
-                    {
-                        UserId = userId,
-                        SessionId = sessionId,
-                        UserName = string.IsNullOrEmpty(request.UserName) ? null : request.UserName,
-                        ChatbotCharacteristics = request.ChatbotCharacteristics?.Any() == true
-                            ? JsonSerializer.Serialize(request.ChatbotCharacteristics)
-                            : null, // ✅ FIX: null thay vì "[]"
-                        AdditionalInfo = string.IsNullOrEmpty(request.AdditionalInfo) ? null : request.AdditionalInfo,
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow,
-                        CreatedBy = userId,
-                        UpdatedBy = userId
-                    };
+                    UserId = userId,
+                    SessionId = sessionId, // ✅ Session Override
+                    UserName = string.IsNullOrEmpty(request.UserName) ? null : request.UserName,
+                    ChatbotCharacteristics = request.ChatbotCharacteristics?.Any() == true
+                        ? JsonSerializer.Serialize(request.ChatbotCharacteristics)
+                        : null,
+                    AdditionalInfo = string.IsNullOrEmpty(request.AdditionalInfo) ? null : request.AdditionalInfo,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    CreatedBy = userId,
+                    UpdatedBy = userId
+                };
 
-                    await _unitOfWork.GetRepository<UserPreference>().InsertAsync(newPreference);
-                }
+                await _unitOfWork.GetRepository<UserPreference>().InsertAsync(newPreference);
             }
 
             await _unitOfWork.CommitAsync();
