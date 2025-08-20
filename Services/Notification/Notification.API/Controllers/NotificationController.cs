@@ -44,12 +44,6 @@ public class NotificationController : ControllerBase
         _logger = logger;
     }
 
-    private string GetUserId()
-    {
-        return User.FindFirst("userId")?.Value ??
-               throw new UnauthorizedAccessException("User ID not found in token");
-    }
-
     private string GetCurrentUserEmail()
     {
         return User.FindFirst(ClaimTypes.Email)?.Value ??
@@ -366,88 +360,7 @@ public class NotificationController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// [ADMIN ONLY] Gửi test notification (for testing SignalR)
-    /// </summary>
-    [HttpPost(ApiEndpointConstant.Notification.SendTestNotification)]
-    [CustomAuthorize(Roles = new[] { Roles.Admin })]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> SendTestNotificationAsync([FromBody] TestNotificationRequest request)
-    {
-        try
-        {
-            var adminUserId = GetCurrentUserGuid();
-
-            // Gửi đến target user hoặc chính admin
-            var targetUserId = request.TargetUserId ?? adminUserId;
-
-            await _hubContext.Clients.User(targetUserId.ToString()).SendAsync("ReceiveNotification", new
-            {
-                Type = "Test",
-                Subject = request.Subject ?? "Test Notification",
-                Message = request.Message ?? "This is a test notification from admin",
-                Timestamp = DateTime.UtcNow,
-                DocumentId = Guid.NewGuid(),
-                IsTest = true,
-                SentBy = adminUserId
-            });
-
-            _logger.LogInformation("Test notification sent by admin {AdminId} to user {TargetId}",
-                adminUserId, targetUserId);
-
-            return Ok(new
-            {
-                success = true,
-                message = "Test notification sent successfully",
-                data = new { targetUserId, sentBy = adminUserId }
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending test notification");
-            return Problem("Failed to send test notification");
-        }
-    }
-
-    /// <summary>
-    /// Gửi general notification tới user cụ thể (integrated với existing service)
-    /// </summary>
-    [HttpPost(ApiEndpointConstant.Notification.SendGeneral)]
-    [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> SendGeneralNotificationAsync([FromBody] GeneralNotificationRequest request)
-    {
-        try
-        {
-            var senderId = GetUserId();
-
-            // Sử dụng existing service
-            await _notificationService.SendGeneralNotificationAsync(
-                request.TemplateName,
-                request.RecipientEmail,
-                request.RecipientName);
-
-            _logger.LogInformation("General notification sent by {SenderId} to {RecipientEmail}",
-                senderId, request.RecipientEmail);
-
-            return Ok(new
-            {
-                success = true,
-                message = "General notification sent successfully",
-                data = new { recipientEmail = request.RecipientEmail, templateName = request.TemplateName }
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending general notification");
-            return Problem("Failed to send general notification");
-        }
-    }
+   
 }
 
 #region Request Models

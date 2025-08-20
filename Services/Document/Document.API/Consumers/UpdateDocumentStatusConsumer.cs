@@ -174,10 +174,10 @@ namespace Document.API.Consumers
                     { SemanticSearchConstant.MemoryTags.SubmittedBy, document.SubmittedBy ?? document.CreatedBy },
                     { SemanticSearchConstant.MemoryTags.LastSubmitted, document.LastSubmitted?.ToString("o") },
 
-                    // ✅ THÊM metadata cho archived document
-                    { "archivedDate", vietnamTime.ToString("yyyy-MM-dd") }, // Ngày archived theo Vietnam time
-                    { "archivedBy", "system_expiration" }, // Lý do archived
-                    { "archivedReason", "document_expired" }, // Chi tiết lý do
+                    //// ✅ THÊM metadata cho archived document
+                    //{ "archivedDate", vietnamTime.ToString("yyyy-MM-dd") }, // Ngày archived theo Vietnam time
+                    //{ "archivedBy", "system_expiration" }, // Lý do archived
+                    //{ "archivedReason", "document_expired" }, // Chi tiết lý do
 
                     // ========================================
                     // DOCUMENT CORE METADATA - GIỮ NGUYÊN
