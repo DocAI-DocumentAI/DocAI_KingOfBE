@@ -184,11 +184,7 @@ namespace ChatBox.API.Services.Implement
 
                 if (config.IsActive)
                 {
-                    var otherActiveConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
-                        .GetListAsync(predicate: c => c.IsActive && c.Id != id);
-
-                    if (!otherActiveConfigs.Any())
-                        throw new InvalidOperationException(MessageConstant.Admin.CannotDeleteActiveConfig);
+                    throw new InvalidOperationException("Không thể xóa model đang active. Vui lòng tắt model trước khi xóa.");
                 }
 
                 // ✅ LUÔN LUÔN auto migrate - bỏ parameter autoMigrate

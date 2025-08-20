@@ -131,7 +131,9 @@ public class NotificationService : INotificationService
         if (!effectiveUntil.HasValue)
             return "N/A";
 
-        var days = (effectiveUntil.Value.Date - DateTime.UtcNow.Date).Days;
+        // ✅ Sử dụng ngày Việt Nam để tính toán
+        var vietnamDate = VietnamTimeHelper.GetVietnamDate();
+        var days = (effectiveUntil.Value.Date - vietnamDate).Days;
 
         if (days < 0)
             return $"Đã hết hạn {Math.Abs(days)} ngày";
@@ -271,12 +273,16 @@ public class NotificationService : INotificationService
     {
         try
         {
-            _logger.LogInformation("Sending {Type} notification to {Email} for document {DocId}/{Version}",
-                type, user.Email, document.DocumentId, document.Version);
+            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
+            _logger.LogInformation("Sending {Type} notification to {Email} for document {DocId}/{Version} at Vietnam time {VietnamTime}",
+                type, user.Email, document.DocumentId, document.Version, vietnamTime);
 
             // ✅ SIMPLIFIED: Check duplicate only in last hour for same recipient
             var logRepo = _unitOfWork.GetRepository<NotificationLog>();
-            var lastHour = DateTime.UtcNow.AddHours(-1);
+
+            var checkPeriod = type == NotificationType.Expired
+                ? DateTime.UtcNow.AddHours(-24)
+                : DateTime.UtcNow.AddHours(-24);
 
             var alreadySent = await logRepo.AnyAsync(l =>
                 l.DocumentId == document.DocumentId &&
@@ -284,7 +290,7 @@ public class NotificationService : INotificationService
                 l.NotificationType == type &&
                 l.RecipientAddress == user.Email &&
                 l.IsSent == true &&
-                l.SentAt >= lastHour);
+                l.SentAt >= checkPeriod);
 
             if (alreadySent)
             {
@@ -302,6 +308,10 @@ public class NotificationService : INotificationService
                 return;
             }
 
+            // ✅ Sử dụng VietnamTimeHelper cho expiration status
+            var expirationStatus = type == NotificationType.Expired ? "đã hết hạn" : "sắp hết hạn";
+            var daysUntilExpiration = GetDaysUntilExpiration(document.EffectiveUntil);
+
             var emailBody = template.BodyHtml
                 .Replace("{{RecipientEmail}}", user.Email ?? "")
                 .Replace("{{RecipientName}}", user.Name ?? "")
@@ -312,8 +322,9 @@ public class NotificationService : INotificationService
                 .Replace("{{EffectiveUntil}}", document.EffectiveUntil?.ToString("dd/MM/yyyy") ?? "N/A")
                 .Replace("{{DocumentLink}}", documentLink)
                 .Replace("{{DepartmentName}}", document.DepartmentName ?? "Unknown Department")
-                .Replace("{{ExpirationStatus}}", type == NotificationType.Expired ? "đã hết hạn" : "sắp hết hạn")
-                .Replace("{{DaysUntilExpiration}}", GetDaysUntilExpiration(document.EffectiveUntil));
+                .Replace("{{ExpirationStatus}}", expirationStatus)
+                .Replace("{{DaysUntilExpiration}}", daysUntilExpiration)
+                .Replace("{{VietnamTime}}", vietnamTime.ToString("dd/MM/yyyy HH:mm")); // ✅ Thêm Vietnam time
 
             var subject = type == NotificationType.Expired
                 ? $"[{document.DepartmentName}] Tài liệu '{document.Title}' đã hết hạn"
@@ -332,7 +343,7 @@ public class NotificationService : INotificationService
                 Subject = subject,
                 Message = emailBody,
                 IsSent = emailSent,
-                SentAt = emailSent ? DateTime.UtcNow : null,
+                SentAt = emailSent ? vietnamTime : null,
                 ErrorMessage = emailSent ? null : "Failed to send email notification"
             };
 
@@ -340,8 +351,8 @@ public class NotificationService : INotificationService
 
             if (emailSent)
             {
-                _logger.LogInformation("Successfully sent {Type} notification to {Email} for document {DocId}/{Version}",
-                    type, user.Email, document.DocumentId, document.Version);
+                _logger.LogInformation("Successfully sent {Type} notification to {Email} for document {DocId}/{Version} at Vietnam time {VietnamTime}",
+                    type, user.Email, document.DocumentId, document.Version, vietnamTime);
             }
             else
             {
@@ -369,6 +380,11 @@ public class NotificationService : INotificationService
                 return;
             }
 
+            // ✅ Log timezone information
+            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
+            _logger.LogInformation("Updating document {DocId}/{Version} status to Archived at Vietnam time: {VietnamTime}",
+                document.DocumentId, document.Version, vietnamTime);
+
             var updateClient = _serviceProvider.GetService<IRequestClient<UpdateDocumentStatusCommand>>();
             if (updateClient == null)
             {
@@ -379,36 +395,109 @@ public class NotificationService : INotificationService
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
             var response = await updateClient.GetResponse<UpdateDocumentStatusResponse>(
-                new UpdateDocumentStatusCommand
-                {
-                    DocumentId = document.DocumentId,
-                    Version = document.Version,
-                    NewStatus = "Archived", // ✅ Update to Archived instead of Expired
-                    RequestId = Guid.NewGuid()
-                },
-                timeout.Token
-            );
+        new UpdateDocumentStatusCommand
+        {
+            DocumentId = document.DocumentId,
+            Version = document.Version,
+            NewStatus = "Archived",
+            UpdateKernelMemory = true,    
+            VietnamTime = vietnamTime,  
+            UpdatedBy = "system_expiration", 
+            RequestId = Guid.NewGuid()
+        },
+        timeout.Token
+    );
 
             if (response?.Message?.Success == true)
             {
-                _logger.LogInformation("Successfully updated document {DocId}/{Version} status to Archived",
-                    document.DocumentId, document.Version);
+                _logger.LogInformation("Successfully updated document {DocId}/{Version} from {OldStatus} to {NewStatus} at Vietnam time {VietnamTime}. Kernel Memory updated: {KMUpdated}",
+                    document.DocumentId, document.Version, response.Message.OldStatus, response.Message.NewStatus, vietnamTime, response.Message.KernelMemoryUpdated);
+
+                // ✅ ADD: Lưu log cho việc archive document
+                var archiveLog = new NotificationLog
+                {
+                    DocumentId = document.DocumentId,
+                    DocumentVersion = document.Version,
+                    NotificationType = NotificationType.General,
+                    RecipientType = RecipientType.SystemAlert, // System event
+                    RecipientAddress = "system",
+                    Subject = $"Document Archived: {document.Title}",
+                    Message = $"Document '{document.Title}' (Version: {document.Version}) has been automatically archived due to expiration. Previous status: {response.Message.OldStatus}, New status: {response.Message.NewStatus}. Kernel Memory updated: {response.Message.KernelMemoryUpdated}",
+                    IsSent = true,
+                    SentAt = vietnamTime, // ✅ Vietnam time
+                    ErrorMessage = null
+                };
+
+                await _logService.CreateLogAsync(archiveLog);
             }
             else
             {
                 _logger.LogError("Failed to update document status for {DocId}/{Version}: {Error}",
                     document.DocumentId, document.Version, response?.Message?.ErrorMessage ?? "Unknown error");
+
+                // ✅ ADD: Lưu log cho việc archive thất bại
+                var failureLog = new NotificationLog
+                {
+                    DocumentId = document.DocumentId,
+                    DocumentVersion = document.Version,
+                    NotificationType = NotificationType.General,
+                    RecipientType = RecipientType.SystemAlert,
+                    RecipientAddress = "system",
+                    Subject = $"Document Archive Failed: {document.Title}",
+                    Message = $"Failed to archive document '{document.Title}' (Version: {document.Version}). Error: {response?.Message?.ErrorMessage ?? "Unknown error"}",
+                    IsSent = false,
+                    SentAt = vietnamTime,
+                    ErrorMessage = response?.Message?.ErrorMessage ?? "Unknown error"
+                };
+
+                await _logService.CreateLogAsync(failureLog);
             }
         }
         catch (RequestTimeoutException)
         {
+            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
             _logger.LogError("Timeout updating document status for {DocId}/{Version}",
                 document.DocumentId, document.Version);
+
+            // ✅ ADD: Log timeout
+            var timeoutLog = new NotificationLog
+            {
+                DocumentId = document.DocumentId,
+                DocumentVersion = document.Version,
+                NotificationType = NotificationType.General,
+                RecipientType = RecipientType.SystemAlert,
+                RecipientAddress = "system",
+                Subject = $"Document Archive Timeout: {document.Title}",
+                Message = $"Timeout while trying to archive document '{document.Title}' (Version: {document.Version})",
+                IsSent = false,
+                SentAt = vietnamTime,
+                ErrorMessage = "Request timeout"
+            };
+
+            await _logService.CreateLogAsync(timeoutLog);
         }
         catch (Exception ex)
         {
+            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
             _logger.LogError(ex, "Error updating document status for {DocId}/{Version}",
                 document.DocumentId, document.Version);
+
+            // ✅ ADD: Log exception
+            var exceptionLog = new NotificationLog
+            {
+                DocumentId = document.DocumentId,
+                DocumentVersion = document.Version,
+                NotificationType = NotificationType.General,
+                RecipientType = RecipientType.SystemAlert,
+                RecipientAddress = "system",
+                Subject = $"Document Archive Error: {document.Title}",
+                Message = $"Error while trying to archive document '{document.Title}' (Version: {document.Version}). Exception: {ex.Message}",
+                IsSent = false,
+                SentAt = vietnamTime,
+                ErrorMessage = ex.Message
+            };
+
+            await _logService.CreateLogAsync(exceptionLog);
         }
     }
     public async Task ProcessWeeklyGroupedNotificationAsync(List<DocumentExpirationDto> documents, string departmentName)
@@ -493,6 +582,8 @@ public class NotificationService : INotificationService
     {
         try
         {
+            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime(); // ✅ ADD: Vietnam time
+
             // ✅ Check for recent weekly notification to avoid duplicates
             var logRepo = _unitOfWork.GetRepository<NotificationLog>();
             var last7Days = DateTime.UtcNow.AddDays(-7);
@@ -541,7 +632,7 @@ public class NotificationService : INotificationService
                 Subject = subject,
                 Message = emailBody,
                 IsSent = emailSent,
-                SentAt = emailSent ? DateTime.UtcNow : null,
+                SentAt = emailSent ? vietnamTime : null,
                 ErrorMessage = emailSent ? null : "Failed to send weekly grouped notification"
             };
 
@@ -571,33 +662,34 @@ public class NotificationService : INotificationService
     private string CreateDocumentsListHtml(List<DocumentExpirationDto> documents)
     {
         var html = "<ul style='line-height: 1.6;'>";
+        var vietnamDate = VietnamTimeHelper.GetVietnamDate(); // ✅ FIX: Dùng Vietnam date
+
         foreach (var doc in documents.OrderBy(d => d.EffectiveUntil))
         {
             var daysLeft = doc.EffectiveUntil.HasValue
-                ? (doc.EffectiveUntil.Value.Date - DateTime.UtcNow.Date).Days
+                ? (doc.EffectiveUntil.Value.Date - vietnamDate).Days  // ✅ FIX: Vietnam date
                 : 0;
 
             var statusColor = daysLeft <= 3 ? "color: #d9534f;" : "color: #f0ad4e;";
 
-            // ✅ Generate document link
             var documentLink = !string.IsNullOrEmpty(doc.DocumentLink)
                 ? doc.DocumentLink
                 : $"https://docai.asia/document/{doc.DocumentId}";
 
             html += $@"
-            <li style='margin-bottom: 15px; padding: 12px; border-left: 3px solid #f0ad4e; background-color: #fefefe; border-radius: 4px;'>
-                <div style='margin-bottom: 6px;'>
-                    <strong style='{statusColor}'>{SanitizeValue(doc.Title)}</strong>
-                    <a href='{documentLink}' style='margin-left: 10px; color: #007bff; text-decoration: none; font-size: 12px;'>
-                        🔗 Xem tài liệu
-                    </a>
-                </div>
-                <div style='font-size: 13px; color: #6c757d;'>
-                    Phiên bản: {SanitizeValue(doc.Version)} | 
-                    Hết hạn: {doc.EffectiveUntil?.ToString("dd/MM/yyyy")} 
-                    <span style='{statusColor}; font-weight: bold;'>({daysLeft} ngày nữa)</span>
-                </div>
-            </li>";
+        <li style='margin-bottom: 15px; padding: 12px; border-left: 3px solid #f0ad4e; background-color: #fefefe; border-radius: 4px;'>
+            <div style='margin-bottom: 6px;'>
+                <strong style='{statusColor}'>{SanitizeValue(doc.Title)}</strong>
+                <a href='{documentLink}' style='margin-left: 10px; color: #007bff; text-decoration: none; font-size: 12px;'>
+                    🔗 Xem tài liệu
+                </a>
+            </div>
+            <div style='font-size: 13px; color: #6c757d;'>
+                Phiên bản: {SanitizeValue(doc.Version)} | 
+                Hết hạn: {doc.EffectiveUntil?.ToString("dd/MM/yyyy")} 
+                <span style='{statusColor}; font-weight: bold;'>({daysLeft} ngày nữa)</span>
+            </div>
+        </li>";
         }
         html += "</ul>";
         return html;
@@ -605,8 +697,8 @@ public class NotificationService : INotificationService
 
     private string GetCurrentWeekRange()
     {
-        var today = DateTime.UtcNow.Date;
-        var startOfWeek = today.AddDays(-(int)today.DayOfWeek + 1); // Monday
+        var vietnamToday = VietnamTimeHelper.GetVietnamDate(); // ✅ FIX: Dùng Vietnam date
+        var startOfWeek = vietnamToday.AddDays(-(int)vietnamToday.DayOfWeek + 1); // Monday
         var endOfWeek = startOfWeek.AddDays(6); // Sunday
 
         return $"{startOfWeek:dd/MM/yyyy} - {endOfWeek:dd/MM/yyyy}";
