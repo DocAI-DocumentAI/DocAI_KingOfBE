@@ -27,7 +27,7 @@ namespace ChatBox.API.Services.Implement
         private readonly IPreferenceService _preferenceService;
         private readonly IManualDocumentSearchService _manualDocumentSearchService;
         private readonly ILogger<ChatService> _logger;
-        private readonly IHttpContextAccessor _httpContextAccessor; 
+        private readonly IHttpContextAccessor _httpContextAccessor;
         public ChatService(
             IUnitOfWork<ChatBoxDbContext> unitOfWork,
             IMapper mapper,
@@ -169,29 +169,153 @@ namespace ChatBox.API.Services.Implement
         /// </summary>
         private async Task<string> GenerateAIResponse(ChatSession session, string userMessage, string documentContent, List<DocumentInfo> documentSources, bool hasDocumentContext)
         {
-            var cleanChatHistory = await BuildCleanChatHistoryAsync(session.Id);
-            cleanChatHistory.AddUserMessage(userMessage);
+            var message = userMessage.ToLowerInvariant().Trim();
+            if (System.Text.RegularExpressions.Regex.IsMatch(message, @"^(tôi là ai|who am i|ai tôi|tôi là gì)"))
+            {
+                try
+                {
+                    var preferences = await _preferenceService.GetEffectivePreferencesAsync(session.Id, session.UserId);
+                    var userContext = GetUserContextFromJWT();
+
+                    var displayName = !string.IsNullOrEmpty(preferences.UserName)
+                        ? preferences.UserName
+                        : userContext.FullName ?? "User";
+
+                    var response = new StringBuilder();
+                    response.AppendLine($"Chào {displayName}!");
+                    response.AppendLine();
+                    response.AppendLine("**Thông tin về bạn:**");
+                    response.AppendLine($"• **Tên hiển thị:** {displayName}");
+                    response.AppendLine($"• **Họ và tên:** {userContext.FullName ?? "Không rõ"}");
+                    response.AppendLine($"• **Phòng ban:** {userContext.DepartmentName ?? "Không rõ"}");
+                    response.AppendLine($"• **Vai trò:** {userContext.Role ?? "Không rõ"}");
+
+                    if (preferences.HasAnyPreferences && preferences.ChatbotCharacteristics.Any())
+                    {
+                        response.AppendLine($"• **Phong cách trò chuyện:** {string.Join(", ", preferences.ChatbotCharacteristics.Take(3))}");
+                    }
+
+                    return response.ToString();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to get user identity");
+                    return "Xin lỗi, tôi gặp sự cố khi lấy thông tin của bạn.";
+                }
+            }
+
+            // ✅ NEW: Try resolve document references from context
+            var resolvedMessage = await TryResolveDocumentReference(userMessage, session.Id);
+            if (resolvedMessage != null)
+            {
+                _logger.LogInformation("✅ [CONTEXT-RESOLVED] Using resolved message for AI processing");
+                userMessage = resolvedMessage; // Use resolved message instead
+            }
+            else if (IsVagueDocumentQuestion(userMessage))
+            {
+                // Only ask for clarification if cannot resolve from context
+                return "Bạn đang đề cập đến tài liệu nào cụ thể? Vui lòng cho biết tên tài liệu để tôi có thể hỗ trợ chính xác.";
+            }
+
+            // ✅ ENHANCED: Build context-aware chat history
+            var contextAwareChatHistory = await BuildContextAwareChatHistory(session.Id);
+            contextAwareChatHistory.AddUserMessage(userMessage);
 
             var aiChatHistory = hasDocumentContext
-                ? CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage, documentSources)
-                : cleanChatHistory;
+                ? CreateEnhancedChatHistoryForAI(contextAwareChatHistory, documentContent, userMessage, documentSources)
+                : contextAwareChatHistory;
 
             LogDocumentContextUsage(hasDocumentContext);
 
             return await _semanticKernelService.GetChatResponseAsync(session.ModelName, aiChatHistory);
         }
+        private async Task<ChatHistory> BuildContextAwareChatHistory(string sessionId)
+        {
+            var messages = await GetSessionMessages(sessionId);
+            var chatHistory = new ChatHistory();
 
+            // ✅ Build base system prompt with user preferences
+            var session = await GetSessionByIdOnly(sessionId);
+            var baseSystemPrompt = await BuildBaseSystemPromptAsync(sessionId);
+
+            // ✅ Extract document references from conversation
+            var docReferences = ExtractDocumentReferencesFromHistory(messages.ToList());
+
+            // ✅ Enhance system prompt with context memory
+            var enhancedSystemPrompt = baseSystemPrompt;
+
+            if (docReferences.Any())
+            {
+                var contextInfo = new StringBuilder();
+                contextInfo.AppendLine();
+                contextInfo.AppendLine("🧠 **CONVERSATION MEMORY - DOCUMENT REFERENCES:**");
+                contextInfo.AppendLine("(AI phải sử dụng thông tin này để hiểu references trong câu hỏi)");
+                contextInfo.AppendLine();
+
+                foreach (var kvp in docReferences.Take(10)) // Limit to avoid token overflow
+                {
+                    contextInfo.AppendLine($"📄 **Số {kvp.Key}:** {kvp.Value}");
+                }
+
+                contextInfo.AppendLine();
+                contextInfo.AppendLine("**REFERENCE RESOLUTION RULES:**");
+                contextInfo.AppendLine("- Khi user nói 'số X', AI biết đó là document name tương ứng");
+                contextInfo.AppendLine("- Khi user hỏi 'bạn nhớ số 3 từ khi nào', AI giải thích context");
+                contextInfo.AppendLine("- Luôn sử dụng tên tài liệu chính xác thay vì số");
+
+                enhancedSystemPrompt += contextInfo.ToString();
+
+                _logger.LogInformation("🧠 [MEMORY] Injected {Count} document references into context", docReferences.Count);
+            }
+
+            chatHistory.AddSystemMessage(enhancedSystemPrompt);
+
+            // Add recent messages
+            var recentMessages = messages.TakeLast(ChatConstants.MaxHistoryMessages).ToList();
+            AddMessagesToHistory(chatHistory, recentMessages);
+
+            return await EnsureTokenLimitCompliance(chatHistory, sessionId, enhancedSystemPrompt, messages);
+        }
+        private bool IsVagueDocumentQuestion(string userMessage)
+        {
+            var message = userMessage.ToLowerInvariant().Trim();
+
+            // Only consider vague if has number reference but no other context clues
+            var hasNumberReference = System.Text.RegularExpressions.Regex.IsMatch(message,
+                @"(?:tài liệu|document)\s+(?:số|number)\s+\d+");
+
+            if (!hasNumberReference) return false;
+
+            // Not vague if user is clearly asking for a list
+            var hasListingContext = System.Text.RegularExpressions.Regex.IsMatch(message,
+                @"(?:có bao nhiêu|liệt kê|danh sách|tất cả|count|list)");
+
+            return !hasListingContext;
+        }
         /// <summary>
         /// ✅ UPDATED: Generate streaming AI response with raw content
         /// </summary>
+
         private async Task<IAsyncEnumerable<string>> GenerateAIResponseStream(ChatSession session, string userMessage, string documentContent, List<DocumentInfo> documentSources)
         {
-            var cleanChatHistory = await BuildCleanChatHistoryAsync(session.Id);
-            cleanChatHistory.AddUserMessage(userMessage);
-            var aiChatHistory = CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage, documentSources);
+            _logger.LogInformation("🔵 [STREAM-START] Processing streaming request for session {SessionId}", session.Id);
 
+            // ✅ STEP 1: Try resolve document references from conversation context
+            var resolvedMessage = await TryResolveDocumentReference(userMessage, session.Id);
 
-            return await _semanticKernelService.GetChatResponseStreamAsync(session.ModelName, aiChatHistory);
+            // ✅ STEP 2: Build context-aware chat history (includes user preferences + conversation memory)
+            var contextAwareChatHistory = await BuildContextAwareChatHistory(session.Id);
+            contextAwareChatHistory.AddUserMessage(userMessage);
+
+            var aiChatHistory = CreateEnhancedChatHistoryForAI(
+                contextAwareChatHistory,
+                documentContent,
+                userMessage,
+                documentSources);
+
+            LogDocumentContextUsage(documentSources?.Any() == true);
+            var streamResponse = await _semanticKernelService.GetChatResponseStreamAsync(session.ModelName, aiChatHistory);
+            return streamResponse;
         }
 
         /// <summary>
@@ -1476,7 +1600,7 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
 
             return baseSystemPrompt;
         }
-        
+
 
         private async Task<string> EnhanceWithUserPreferences(string basePrompt, string sessionId, string userId)
         {
@@ -1594,7 +1718,7 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
             await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(userMessage);
             await _unitOfWork.GetRepository<ChatMessage>().InsertAsync(aiMessage);
 
-             UpdateSessionWithTitleGeneration(session, userId, isFirstMessage, firstUserMessage);
+            UpdateSessionWithTitleGeneration(session, userId, isFirstMessage, firstUserMessage);
 
             _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
             await _unitOfWork.CommitAsync();
@@ -2105,24 +2229,77 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
         #endregion
 
         #region Streaming Operations (Unchanged)
-private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
-    IAsyncEnumerable<string> stream,
-    ChatSession session,
-    string userId,
-    string userMessageContent,
-    bool isFirstMessage,
-    List<DocumentInfo> documentSources,
-    bool hasDocumentContext,
-    [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
+            IAsyncEnumerable<string> stream,
+            ChatSession session,
+            string userId,
+            string userMessageContent,
+            bool isFirstMessage,
+            List<DocumentInfo> documentSources,
+            bool hasDocumentContext,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            _logger.LogInformation("🔵 [STREAM-START] Session: {SessionId}, User: {UserId}, IsFirstMessage: {IsFirst}",
-                session.Id, userId, isFirstMessage);
+            var message = userMessageContent.ToLowerInvariant().Trim();
+            if (System.Text.RegularExpressions.Regex.IsMatch(message, @"^(tôi là ai|who am i|ai tôi)"))
+            {
+                var preferences = await _preferenceService.GetEffectivePreferencesAsync(session.Id, userId);
+                var userContext = GetUserContextFromJWT();
+                var displayName = !string.IsNullOrEmpty(preferences.UserName) ? preferences.UserName : userContext.FullName ?? "User";
+
+                var identityResponse = $"Chào {displayName}!\n\n**Thông tin về bạn:**\n• **Tên hiển thị:** {displayName}\n• **Phòng ban:** {userContext.DepartmentName ?? "Không rõ"}";
+
+                yield return new ChatStreamResponse
+                {
+                    SessionId = session.Id,
+                    Message = identityResponse,
+                    MessageChunk = identityResponse,
+                    Role = MessageRole.Assistant,
+                    Timestamp = DateTime.UtcNow,
+                    ModelUsed = session.ModelName,
+                    DocumentSources = null,
+                    HasDocumentContext = false,
+                    IsComplete = true
+                };
+
+                await SaveStreamingChatData(identityResponse, session.Id, userId, userMessageContent, isFirstMessage, session.ModelName, documentSources);
+                yield break;
+            }
+
+            // ✅ Try resolve context before processing stream
+            var resolvedMessage = await TryResolveDocumentReference(userMessageContent, session.Id);
+            if (resolvedMessage != null)
+            {
+                _logger.LogInformation("🎯 [STREAM-RESOLVED] Using context-resolved message");
+                // Continue with resolved message - let normal streaming handle it
+            }
+            else if (IsVagueDocumentQuestion(userMessageContent))
+            {
+                var clarification = "Bạn đang đề cập đến tài liệu nào cụ thể? Vui lòng cho biết tên tài liệu để tôi có thể hỗ trợ chính xác.";
+
+                yield return new ChatStreamResponse
+                {
+                    SessionId = session.Id,
+                    Message = clarification,
+                    MessageChunk = clarification,
+                    Role = MessageRole.Assistant,
+                    Timestamp = DateTime.UtcNow,
+                    ModelUsed = session.ModelName,
+                    DocumentSources = documentSources?.Take(5).ToList(),
+                    HasDocumentContext = hasDocumentContext,
+                    IsComplete = true
+                };
+
+                await SaveStreamingChatData(clarification, session.Id, userId, userMessageContent, isFirstMessage, session.ModelName, documentSources);
+                yield break;
+            }
+
+            // ✅ Continue with normal streaming (existing logic)
+            _logger.LogInformation("🔵 [STREAM-START] Session: {SessionId}, Context-aware: {HasContext}",
+                session.Id, resolvedMessage != null);
 
             var fullResponse = new StringBuilder();
             var timestamp = DateTime.UtcNow;
-            var tokenCount = 0;
 
-            // Stream tokens
             await foreach (var token in stream.WithCancellation(cancellationToken))
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -2131,10 +2308,8 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
                     yield break;
                 }
 
-                if (string.IsNullOrEmpty(token))
-                    continue;
+                if (string.IsNullOrEmpty(token)) continue;
 
-                tokenCount++;
                 fullResponse.Append(token);
                 var currentFullMessage = fullResponse.ToString();
 
@@ -2152,10 +2327,7 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
                 };
             }
 
-            _logger.LogInformation("🔵 [STREAM-COMPLETE] Session: {SessionId}, Tokens: {TokenCount}, ResponseLength: {Length}",
-                session.Id, tokenCount, fullResponse.Length);
-
-            // Prepare final response data TRƯỚC
+            // Final response and save
             var finalContent = fullResponse.ToString();
             var finalTokenCount = _tokenCountService.CountTokens(finalContent, session.ModelName);
 
@@ -2164,60 +2336,27 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
                 DocumentId = doc.DocumentId,
                 Title = doc.Title,
                 RelevanceScore = doc.RelevanceScore,
-                Summary = "",  // ❌ Reset thành empty
                 VersionId = doc.VersionId,
                 VersionName = doc.VersionName,
-                DepartmentId = doc.DepartmentId,  
-                DepartmentName = doc.DepartmentName,  
+                DepartmentName = doc.DepartmentName,
                 ApprovedBy = doc.ApprovedBy,
                 CreatedBy = doc.CreatedBy,
                 SignedBy = doc.SignedBy,
-                OwnerName = doc.OwnerName,        
-                Description = null,  
-                Tags = null,  
                 EffectiveFrom = doc.EffectiveFrom,
                 EffectiveUntil = doc.EffectiveUntil,
                 ApprovalDate = doc.ApprovalDate,
                 ReviewerName = doc.ReviewerName,
             }).ToList();
 
-            // ✅ FIX 1: Save TRƯỚC KHI yield return cuối cùng
-            _logger.LogInformation("🟢 [SAVE-BEFORE-FINAL] Starting save for session: {SessionId}", session.Id);
-
-            // Option A: Save đồng bộ (đơn giản, an toàn)
             try
             {
-                await SaveStreamingChatData(finalContent, session.Id, userId, userMessageContent,
-                    isFirstMessage, session.ModelName, documentSources);
-                _logger.LogInformation("✅ [SAVE-SUCCESS] Data saved for session: {SessionId}", session.Id);
+                await SaveStreamingChatData(finalContent, session.Id, userId, userMessageContent, isFirstMessage, session.ModelName, documentSources);
+                _logger.LogInformation("✅ [SAVE-SUCCESS] Context-aware data saved for session: {SessionId}", session.Id);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "🔴 [SAVE-ERROR] Failed to save for session {SessionId}", session.Id);
-                // Vẫn tiếp tục return response cho user
             }
-
-            // Option B: Nếu muốn dùng Task.Run, phải chờ nó start
-            // var saveTask = Task.Run(async () =>
-            // {
-            //     _logger.LogInformation("🟢 [SAVE-TASK-START] Session: {SessionId}", session.Id);
-            //     try
-            //     {
-            //         await SaveStreamingChatData(finalContent, session.Id, userId, userMessageContent,
-            //             isFirstMessage, session.ModelName, documentSources);
-            //         _logger.LogInformation("✅ [SAVE-TASK-SUCCESS] Session: {SessionId}", session.Id);
-            //     }
-            //     catch (Exception ex)
-            //     {
-            //         _logger.LogError(ex, "🔴 [SAVE-TASK-ERROR] Session {SessionId}", session.Id);
-            //     }
-            // });
-            // 
-            // // Chờ task start (không chờ complete)
-            // await Task.Delay(10); // Đảm bảo task đã start
-
-            // NOW yield final response
-            _logger.LogInformation("🔵 [STREAM-FINAL-SENDING] Sending final response for session: {SessionId}", session.Id);
 
             yield return new ChatStreamResponse
             {
@@ -2232,8 +2371,123 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
                 IsComplete = true,
                 TotalTokenCount = finalTokenCount
             };
+        }
+        private Dictionary<string, string> ExtractDocumentReferencesFromHistory(List<ChatMessage> messages)
+        {
+            var references = new Dictionary<string, string>();
 
-            _logger.LogInformation("🔵 [STREAM-METHOD-END] Session: {SessionId}", session.Id);
+            // Look at recent AI responses for numbered documents
+            var recentAiMessages = messages
+                .Where(m => m.Role == MessageRole.Assistant)
+                .TakeLast(5) // Check last 5 AI responses
+                .ToList();
+
+            foreach (var message in recentAiMessages)
+            {
+                // Pattern 1: "1. Document Name" 
+                var listPattern = @"(\d+)\.\s*([^\n\r]{15,100})";
+                var listMatches = System.Text.RegularExpressions.Regex.Matches(message.Content, listPattern);
+
+                foreach (System.Text.RegularExpressions.Match match in listMatches)
+                {
+                    var number = match.Groups[1].Value;
+                    var docName = match.Groups[2].Value.Trim()
+                        .Replace("- ", "")
+                        .Replace("–", "")
+                        .Replace("*", "")
+                        .Trim();
+
+                    // Only store if looks like a real document name
+                    if (docName.Length > 15 && docName.Length < 100 && !references.ContainsKey(number))
+                    {
+                        references[number] = docName;
+                        _logger.LogInformation("📝 [CONTEXT] Learned: số {Number} = {DocName}", number, docName.Substring(0, Math.Min(50, docName.Length)));
+                    }
+                }
+
+                // Pattern 2: "Tài liệu 1: Document Name"
+                var prefixPattern = @"(?:Tài liệu|Document)\s+(\d+):\s*([^\n\r]{15,100})";
+                var prefixMatches = System.Text.RegularExpressions.Regex.Matches(message.Content, prefixPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                foreach (System.Text.RegularExpressions.Match match in prefixMatches)
+                {
+                    var number = match.Groups[1].Value;
+                    var docName = match.Groups[2].Value.Trim();
+
+                    if (docName.Length > 15 && !references.ContainsKey(number))
+                    {
+                        references[number] = docName;
+                        _logger.LogInformation("📝 [CONTEXT] Learned: số {Number} = {DocName}", number, docName.Substring(0, Math.Min(50, docName.Length)));
+                    }
+                }
+            }
+
+            return references;
+        }
+
+        // ✅ FIX 2: Try resolve "số X" from context before asking clarification
+        private async Task<string> TryResolveDocumentReference(string userMessage, string sessionId)
+        {
+            var message = userMessage.ToLowerInvariant();
+
+            // Check if user is referencing "số X" or "number X"
+            var numberMatch = System.Text.RegularExpressions.Regex.Match(message, @"(?:số|number)\s*(\d+)");
+            if (!numberMatch.Success) return null;
+
+            var requestedNumber = numberMatch.Groups[1].Value;
+
+            // Get conversation history and extract references
+            var messages = await GetSessionMessages(sessionId);
+            var docReferences = ExtractDocumentReferencesFromHistory(messages.ToList());
+
+            // Try to resolve the reference
+            if (docReferences.ContainsKey(requestedNumber))
+            {
+                var resolvedDocName = docReferences[requestedNumber];
+                _logger.LogInformation("🎯 [RESOLVE] số {Number} → {DocName}", requestedNumber, resolvedDocName);
+
+                // Replace "số X" với actual document name trong user message
+                var resolvedMessage = System.Text.RegularExpressions.Regex.Replace(
+                    userMessage,
+                    @"(?:tài liệu\s+)?(?:số|number)\s*" + requestedNumber,
+                    $"tài liệu \"{resolvedDocName}\"",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                _logger.LogInformation("🔄 [TRANSFORM] '{Original}' → '{Resolved}'", userMessage, resolvedMessage);
+
+                return resolvedMessage; // Return resolved message for further processing
+            }
+
+            _logger.LogWarning("❓ [UNRESOLVED] Cannot resolve 'số {Number}' from context", requestedNumber);
+            return null; // Cannot resolve - will need clarification
+        }
+        private bool ShouldNumberDocuments(string currentQuestion, List<DocumentInfo> documentSources)
+        {
+            var question = currentQuestion.ToLowerInvariant();
+
+            // Number documents when user explicitly asks for lists/counts
+            var listingKeywords = new[]
+            {
+                "Có những",
+        "có bao nhiêu",
+        "liệt kê",
+        "danh sách",
+        "tất cả tài liệu",
+        "các tài liệu",
+        "show me all",
+        "list all",
+        "count"
+    };
+
+            var hasListingIntent = listingKeywords.Any(keyword => question.Contains(keyword));
+            var hasMultipleDocuments = documentSources?.Count > 1;
+
+            var shouldNumber = hasListingIntent && hasMultipleDocuments;
+
+            _logger.LogInformation("📋 [NUMBERING] Question: '{Question}' → ShouldNumber: {ShouldNumber}",
+                currentQuestion, shouldNumber);
+
+            return shouldNumber;
         }
 
         private async Task SaveStreamingChatData(string fullResponse, string sessionId, string userId, string userMessageContent, bool isFirstMessage, string modelName, List<DocumentInfo> documentSources = null)
@@ -2314,10 +2568,10 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
                 DocumentId = doc.DocumentId,
                 VersionName = doc.VersionName,
                 Title = doc.Title,
-                SignedBy = doc.SignedBy, 
+                SignedBy = doc.SignedBy,
                 CreateBy = doc.CreatedBy,
                 ReviewName = doc.ReviewerName,
-                ApprovedBy =doc.ApprovedBy,
+                ApprovedBy = doc.ApprovedBy,
                 DepartmentName = doc.DepartmentName,
                 EffectiveFrom = doc.EffectiveFrom,
                 EffectiveUntil = doc.EffectiveUntil,
@@ -2419,7 +2673,7 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
                 UserId = userId,
                 ModelName = modelName,
                 CreatedBy = userId,
-                DocumentId = null, 
+                DocumentId = null,
                 UpdatedBy = userId,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
@@ -2523,7 +2777,7 @@ private async IAsyncEnumerable<ChatStreamResponse> WrapStreamWithChatResponse(
                  .GetListAsync(
                      predicate: s => s.UserId == userId &&
                                    s.IsActive &&
-                                   string.IsNullOrWhiteSpace(s.DocumentId), 
+                                   string.IsNullOrWhiteSpace(s.DocumentId),
                      orderBy: q => q.OrderByDescending(s => s.LastActiveAt),
                      include: query => query.Include(s => s.Messages));
 
