@@ -19,10 +19,24 @@ public static class ApiEndpointConstant
 
     public static class Notification
     {
+        // ✅ Existing endpoints
         public const string GetLogs = "logs";
         public const string Dismiss = "dismiss/{logId:guid}";
         public const string DismissByToken = "dismiss-by-token";
-        public const string GetAllSystemLogs = "admin/all-logs"; 
+        public const string GetAllSystemLogs = "admin/all-logs";
+
+        public const string GetMyNotifications = "my-notifications";
+        public const string GetUnread = "my-notifications/unread";
+        public const string GetUnreadCount = "unread-count";
+        public const string MarkAsRead = "{id:guid}/mark-read";
+        public const string MarkAllAsRead = "mark-all-read";
+
+        public const string TestConnection = "test-connection";
+        public const string SendTestNotification = "admin/test-notification";
+        public const string SendGeneral = "admin/send-general";
+
+        public const string GetReadNotifications = "my-notifications/read";
+        public const string MarkAsUnread = "{id:guid}/mark-unread";
 
     }
 

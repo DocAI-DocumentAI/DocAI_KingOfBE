@@ -1,5 +1,6 @@
 ﻿using AutoMapper;
 using Document.API.Services.Interfaces;
+using Document.API.Utils;
 using Document.Domain.Enums;
 using Document.Domain.Models;
 using Document.Infrastructure.Repository.Interfaces;
@@ -36,22 +37,26 @@ namespace Document.API.Services.Implements
 
         public async Task<List<DocumentExpirationDto>> GetExpiringDocumentsAsync(DateTime warningDate)
         {
-            _logger.LogInformation("Getting documents for expiration check before {WarningDate}", warningDate);
+            // ✅ Sử dụng ngày Việt Nam để so sánh thay vì warningDate
+            var vietnamDate = VietnamTimeHelper.GetVietnamDate();
 
-            // ✅ FIX: Chỉ lấy documents có cả EffectiveFrom và EffectiveUntil
+            _logger.LogInformation("Getting documents for expiration check. Warning date: {WarningDate}, Vietnam date: {VietnamDate}",
+                warningDate, vietnamDate);
+
+            // ✅ FIX: Chỉ lấy documents có cả EffectiveFrom và EffectiveUntil, và so sánh với Vietnam date
             var expiringDocuments = await _unitOfWork.GetRepository<DocumentVersion>()
                 .GetListAsync(
                     predicate: dv =>
                         dv.Status == StatusEnum.Approved &&
                         dv.EffectiveFrom.HasValue &&      // ✅ THÊM: Phải có EffectiveFrom
                         dv.EffectiveUntil.HasValue &&     // ✅ THÊM: Phải có EffectiveUntil
-                        dv.EffectiveUntil.Value <= warningDate, // ✅ Logic cũ nhưng đã có validation
+                        dv.EffectiveUntil.Value.Date <= vietnamDate, // ✅ So sánh với Vietnam date
                     include: i => i.Include(dv => dv.DocumentFile)
                                    .ThenInclude(df => df.DocumentType)
                 );
 
-            _logger.LogInformation("Found {Count} documents with both EffectiveFrom and EffectiveUntil that need expiration check",
-                expiringDocuments.Count);
+            _logger.LogInformation("Found {Count} documents with both EffectiveFrom and EffectiveUntil that expired by Vietnam date {VietnamDate}",
+                expiringDocuments.Count, vietnamDate);
 
             var result = new List<DocumentExpirationDto>();
 
@@ -72,6 +77,11 @@ namespace Document.API.Services.Implements
                 var departmentId = Guid.TryParse(doc.DocumentFile.DepartmentId, out var deptId) ? deptId : Guid.Empty;
                 var departmentName = departmentNames.TryGetValue(departmentId, out var name) ? name : "Unknown Department";
 
+                // ✅ Log thông tin timezone cho mỗi document
+                var daysFromToday = VietnamTimeHelper.DaysFromToday(doc.EffectiveUntil.Value);
+                _logger.LogDebug("Document {DocId} expires on {ExpiryDate}, {Days} days from Vietnam today",
+                    doc.DocumentFile.Id, doc.EffectiveUntil.Value.ToString("yyyy-MM-dd"), daysFromToday);
+
                 result.Add(new DocumentExpirationDto
                 {
                     DocumentId = doc.DocumentFile.Id,
@@ -87,8 +97,9 @@ namespace Document.API.Services.Implements
                     CreatedBy = doc.DocumentFile.CreatedBy
                 });
             }
-            return result;
 
+            _logger.LogInformation("Returning {Count} expired documents based on Vietnam timezone", result.Count);
+            return result;
         }
         private async Task<Dictionary<Guid, string>> GetDepartmentNamesAsync(List<Guid> departmentIds)
         {
@@ -132,8 +143,9 @@ namespace Document.API.Services.Implements
         // ... rest of the methods stay the same
         public async Task<bool> UpdateDocumentStatusAsync(string documentId, string version, string newStatus)
         {
-            _logger.LogInformation("Updating document {DocumentId} version {Version} to status {NewStatus}",
-                documentId, version, newStatus);
+            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
+            _logger.LogInformation("Updating document {DocumentId} version {Version} to status {NewStatus} at Vietnam time {VietnamTime}",
+                documentId, version, newStatus, vietnamTime);
 
             try
             {
@@ -152,15 +164,17 @@ namespace Document.API.Services.Implements
 
                 if (Enum.TryParse<StatusEnum>(newStatus, out var status))
                 {
+                    // ✅ Log trạng thái cũ và mới
+                    var oldStatus = document.Status;
                     document.Status = status;
-                    document.LastUpdatedTime = DateTime.UtcNow;
+                    document.LastUpdatedTime = DateTime.UtcNow; // Vẫn lưu UTC trong DB
                     document.LastUpdatedBy = "system_notification";
 
-                     _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(document);
+                    _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(document);
                     await _unitOfWork.CommitAsync();
 
-                    _logger.LogInformation("Successfully updated document {DocumentId} to status {NewStatus}",
-                        documentId, newStatus);
+                    _logger.LogInformation("Successfully updated document {DocumentId} from {OldStatus} to {NewStatus} at Vietnam time {VietnamTime}",
+                        documentId, oldStatus, newStatus, vietnamTime);
                     return true;
                 }
                 else
@@ -171,7 +185,8 @@ namespace Document.API.Services.Implements
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating document status for {DocumentId}", documentId);
+                _logger.LogError(ex, "Error updating document status for {DocumentId} at Vietnam time {VietnamTime}",
+                    documentId, vietnamTime);
                 return false;
             }
         }

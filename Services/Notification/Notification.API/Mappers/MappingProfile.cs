@@ -16,7 +16,9 @@ namespace Notification.API.Mappers
             CreateMap<NotificationConfigRequest, NotificationConfig>();
             CreateMap<NotificationConfig, NotificationConfigResponse>();
 
-            CreateMap<NotificationLog, NotificationResponse>();
+            CreateMap<NotificationLog, NotificationResponse>()
+         .ForMember(dest => dest.IsRead, opt => opt.MapFrom(src => src.IsRead))     
+         .ForMember(dest => dest.ReadAt, opt => opt.MapFrom(src => src.ReadAt));
         }
 
     }

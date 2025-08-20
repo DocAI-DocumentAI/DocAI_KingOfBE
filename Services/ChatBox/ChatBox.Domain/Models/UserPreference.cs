@@ -25,8 +25,6 @@ namespace ChatBox.Domain.Models
         [MaxLength(2000)]
         public string? AdditionalInfo { get; set; } 
 
-        public bool ApplyToNewChats { get; set; } = false;
-
         public virtual ChatSession Session { get; set; }
 
     }

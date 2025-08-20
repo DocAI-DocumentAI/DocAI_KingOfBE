@@ -62,7 +62,7 @@ public static class DependencyService
 
         return services;
     }
-    public static IServiceCollection AddAutoMapper(this IServiceCollection services)
+    public static IServiceCollection AddAutoMapper1(this IServiceCollection services)
     {
         services.AddAutoMapper(typeof(MappingProfile));
         return services;
@@ -80,6 +80,7 @@ public static class DependencyService
         services.AddScoped<IAuthorizationService, AuthorizationService>();
         services.AddScoped<INotificationSchedulerService, NotificationSchedulerService>();
         services.AddScoped<IRateLimitingService, RateLimitingService>();
+        services.AddScoped<INotificationReadService, NotificationReadService>();
 
         // Enhanced services with user preferences
         services.AddScoped<IUserPreferencesService, UserPreferencesService>();

@@ -211,8 +211,11 @@ namespace ChatBox.API.Services.Implement
                     // ✅ BUILD COMPLETE DOCUMENT PACKAGE với metadata
                     var completeDocumentInfo = BuildCompleteDocumentPackage(documentContent, documentSources, currentQuestion);
                     var actualSourceDocumentTitle = GetActualSourceDocumentTitle(documentContent, documentSources);
+                    var versionInfo = documentSources?.FirstOrDefault()?.VersionId;
+                    var versionSuffix = !string.IsNullOrEmpty(versionInfo) ? $" - Version: {versionInfo}" : "";
+
                     var citationSuffix = !string.IsNullOrEmpty(actualSourceDocumentTitle)
-                        ? $"[Trích từ tài liệu: {actualSourceDocumentTitle}]"
+                        ? $"[Trích từ tài liệu: {actualSourceDocumentTitle}{versionSuffix}]"
                         : "[Trích từ tài liệu nội bộ]";
 
                     // ✅ STRICT: Base system prompt FIRST, then document-specific rules
@@ -1479,9 +1482,13 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
         {
             try
             {
+                // ✅ SAME CALL: Chỉ method implementation thay đổi, call không đổi
                 var preferences = await _preferenceService.GetEffectivePreferencesAsync(sessionId, userId);
+                // ✅ FIXED: GetEffectivePreferencesAsync giờ có logic đúng (Session Override > User Default)
+
                 var enhancedPrompt = basePrompt;
 
+                // ✅ SAME: Các helper methods này KHÔNG ĐỔI
                 enhancedPrompt = AddUserNameToPrompt(enhancedPrompt, preferences.UserName);
                 enhancedPrompt = AddCharacteristicsToPrompt(enhancedPrompt, preferences.ChatbotCharacteristics);
                 enhancedPrompt = AddAdditionalInfoToPrompt(enhancedPrompt, preferences.AdditionalInfo);
@@ -1491,7 +1498,7 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to enhance prompt with user preferences for user {UserId}, session {SessionId}. Using base prompt.", userId, sessionId);
-                return basePrompt;
+                return basePrompt; // ✅ SAME: Fallback logic không đổi
             }
         }
 

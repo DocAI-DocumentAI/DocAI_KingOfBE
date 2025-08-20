@@ -562,7 +562,7 @@ namespace Document.API.Services.Implements
             var citationsByDoc = citations
                 .GroupBy(c => GetDocumentIdFromCitation(c))
                 .OrderByDescending(g => g.Max(c => c.Partitions.Max(p => p.Relevance)))
-                .Take(5)
+                .Take(15)
                 .ToList();
 
             foreach (var docGroup in citationsByDoc)

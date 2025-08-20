@@ -21,9 +21,8 @@ namespace Notification.API.Services.Implement
 
         public async Task<bool> SendEmailAsync(string recipient, string subject, string body)
         {
-            if (!await CanSendEmailAsync())
+            if (!CanSendEmailAsync())
             {
-                _logger.LogWarning("Email rate limit exceeded for {Recipient}", recipient);
                 return false;
             }
 
@@ -71,7 +70,7 @@ namespace Notification.API.Services.Implement
             return Math.Min(hourlyRemaining, dailyRemaining);
         }
 
-        private async Task<bool> CanSendEmailAsync()
+        private bool CanSendEmailAsync()
         {
             var maxHourly = _configuration.GetValue<int>("Email:MaxPerHour", 100);
             var maxDaily = _configuration.GetValue<int>("Email:MaxPerDay", 1000);

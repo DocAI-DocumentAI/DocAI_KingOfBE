@@ -126,15 +126,19 @@ namespace Notification.API.Services.Implement
             var today = DateTime.UtcNow.Date;
 
             // ✅ Classify documents
+            var config = await _configService.GetNotificationConfigAsync();
+            var warningThreshold = config.WarningThresholdDays;
+
             foreach (var doc in validDocuments)
             {
                 var effectiveUntilDate = doc.EffectiveUntil!.Value.Date;
+                var daysUntilExpiry = (effectiveUntilDate - today).Days;
 
-                if (effectiveUntilDate <= today)
+                if (daysUntilExpiry < 0)
                 {
                     expiredDocs.Add(doc);
                 }
-                else if (effectiveUntilDate <= today.AddDays(7))
+                else if (daysUntilExpiry <= warningThreshold)
                 {
                     nearExpiredDocs.Add(doc);
                 }

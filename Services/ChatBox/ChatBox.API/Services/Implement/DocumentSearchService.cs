@@ -159,7 +159,7 @@ namespace ChatBox.API.Services.Implement
 
             try
             {
-                var result = await SearchDocumentsWithRAGAsync(query, userId, 5, documentId);
+                var result = await SearchDocumentsWithRAGAsync(query, userId, 15, documentId);
 
                 if (result?.Success == true && !string.IsNullOrEmpty(result.RawContent))
                 {
@@ -186,7 +186,7 @@ namespace ChatBox.API.Services.Implement
 
             try
             {
-                var result = await SearchDocumentsWithRAGAsync(query, userId, 5, documentId);
+                var result = await SearchDocumentsWithRAGAsync(query, userId, 15, documentId);
 
                 if (result?.Success == true && !string.IsNullOrEmpty(result.RawContent))
                 {
@@ -375,7 +375,7 @@ namespace ChatBox.API.Services.Implement
         public async Task<ChatBoxDocumentResponse?> SearchOfficialDocumentsAsync(string query, string userId)
         {
             _logger.LogInformation("📋 [LEGACY] SearchOfficialDocumentsAsync called, redirecting to enhanced search");
-            return await SearchDocumentsWithRAGAsync(query, userId, 5);
+            return await SearchDocumentsWithRAGAsync(query, userId, 15);
         }
 
         public async Task<string> GetRAGAnswerAsync(string query, string userId)
@@ -401,7 +401,7 @@ namespace ChatBox.API.Services.Implement
                     response.AppendLine();
                     response.AppendLine("📚 **Nguồn tài liệu:**");
 
-                    for (int i = 0; i < Math.Min(sources.Count, 5); i++)
+                    for (int i = 0; i < Math.Min(sources.Count, 15); i++)
                     {
                         var source = sources[i];
                         response.AppendLine($"• {source.Title} v{source.VersionName}");

@@ -29,6 +29,9 @@ public class NotificationLog : BaseEntity
 
     public DateTime? SentAt { get; set; }
 
+    public bool IsRead { get; set; } = false;
+    public DateTime? ReadAt { get; set; }
+
     public string? ErrorMessage { get; set; }
 
 }

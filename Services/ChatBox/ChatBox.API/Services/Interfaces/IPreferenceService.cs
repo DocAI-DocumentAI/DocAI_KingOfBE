@@ -17,5 +17,8 @@ namespace ChatBox.API.Services.Interfaces
         Task<UserPreferenceResponse> GetEffectivePreferencesAsync(string sessionId, string userId);
 
         Task<List<PreferenceResponse>> GetSessionPreferencesAsync(string sessionId);
+
+        Task<PreferenceStatusResponse> GetPreferenceStatusAsync(string sessionId, string userId);
+
     }
 }

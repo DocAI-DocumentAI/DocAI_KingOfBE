@@ -11,6 +11,7 @@ using NSwag.Generation.Processors.Security;
 using Serilog;
 using Serilog.Templates;
 using Serilog.Templates.Themes;
+using Microsoft.AspNetCore.Http.Connections;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -34,11 +35,49 @@ try
 
     builder.Services.AddCors(options =>
     {
-        options.AddPolicy(CorConstant.PolicyName,
-            policy => policy
-                .AllowAnyOrigin() // You had .WithOrigins("*") which is invalid. Use AllowAnyOrigin() instead.
-                .AllowAnyHeader()
-                .AllowAnyMethod());
+        // ✅ Default policy for general use
+        options.AddPolicy(CorConstant.PolicyName, policy =>
+        {
+            if (builder.Environment.IsDevelopment())
+            {
+                policy
+                    .SetIsOriginAllowed(_ => true) // Allow any origin in development
+                    .AllowAnyMethod()
+                    .AllowAnyHeader()
+                    .AllowCredentials();
+            }
+            else
+            {
+                policy
+                    .WithOrigins(
+                        "https://docai.asia",
+                        "https://www.docai.asia",
+                        "https://app.docai.asia"
+                    )
+                    .AllowAnyMethod()
+                    .AllowAnyHeader()
+                    .AllowCredentials()
+                    .WithExposedHeaders("Content-Disposition");
+            }
+        });
+
+        // ✅ API-only policy (no credentials needed)
+        options.AddPolicy("ApiPolicy", policy =>
+        {
+            if (builder.Environment.IsDevelopment())
+            {
+                policy.AllowAnyOrigin();
+            }
+            else
+            {
+                policy.WithOrigins(
+                    "https://docai.asia",
+                    "https://www.docai.asia",
+                    "https://app.docai.asia"
+                );
+            }
+            policy.AllowAnyMethod().AllowAnyHeader();
+        });
     });
 
     builder.Services.AddOpenApi();
@@ -46,18 +85,22 @@ try
     builder.Services.AddRedis(builder.Configuration);
     builder.Services.AddUnitOfWork();
     builder.Services.AddServices(builder.Configuration);
-    builder.Services.AddAutoMapper();
     builder.Services.AddJwtAuthentication(builder.Configuration);
     builder.Services.AddQuartzJobs(builder.Configuration);
     builder.Services.AddMassTransit(builder.Configuration);
 
-    builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+    builder.Services.AddAutoMapper1();
 
     builder.Services.AddAuthorization();
 
     builder.Services.AddControllers();
-    builder.Services.AddSignalR();
-    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddSignalR(options =>
+    {
+        options.HandshakeTimeout = TimeSpan.FromSeconds(30);
+        options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+        options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
+        options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+    }); builder.Services.AddHttpContextAccessor();
     builder.Services.AddEndpointsApiExplorer();
 
     builder.Services.Configure<HostOptions>(hostOptions =>
@@ -96,13 +139,18 @@ try
     app.UseSerilogRequestLogging();
     app.UseCors(CorConstant.PolicyName);
     app.UseMiddleware<ExceptionHandlingMiddleware>();
-    app.UseMiddleware<RateLimitingMiddleware>();
+    //app.UseMiddleware<RateLimitingMiddleware>();
     app.UseAuthentication();
     app.UseAuthorization();
-    app.MapControllers();
+    app.MapControllers().RequireCors("ApiPolicy");
+    app.MapHub<NotificationHub>("/notificationHub", options =>
+    {
+        options.Transports = HttpTransportType.WebSockets | HttpTransportType.LongPolling;
+        options.ApplicationMaxBufferSize = 64 * 1024;
+        options.TransportMaxBufferSize = 64 * 1024;
+    }).RequireCors(CorConstant.PolicyName); // Use main policy that supports credentials
 
-    app.MapHub<NotificationHub>("/notificationHub");
-
+    app.Run();
 
     app.Run();
 
