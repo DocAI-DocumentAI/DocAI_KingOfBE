@@ -175,14 +175,13 @@ namespace ChatBox.API.Services.Implement
                 if (config == null)
                     return false;
 
-                // Check if it's the last configuration
+                // Kiểm tra cơ bản
                 var totalConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
                     .GetListAsync();
 
                 if (totalConfigs.Count <= 1)
                     throw new InvalidOperationException(MessageConstant.Admin.CannotDeleteLastConfig);
 
-                // Check if active and prevent deletion if it's the only active one
                 if (config.IsActive)
                 {
                     var otherActiveConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
@@ -192,11 +191,48 @@ namespace ChatBox.API.Services.Implement
                         throw new InvalidOperationException(MessageConstant.Admin.CannotDeleteActiveConfig);
                 }
 
-                // Check if model is in use
-                var isInUse = await IsConfigurationInUseAsync(config.ModelName);
-                if (isInUse)
-                    throw new InvalidOperationException(string.Format(MessageConstant.Admin.ModelInUse, config.ModelName));
+                // ✅ LUÔN LUÔN auto migrate - bỏ parameter autoMigrate
+                var activeSessions = await _unitOfWork.GetRepository<ChatSession>()
+                    .GetListAsync(predicate: s => s.ModelName == config.ModelName && s.IsActive);
 
+                if (activeSessions.Any())
+                {
+                    // Tìm model thay thế tốt nhất
+                    var replacementModel = await FindBestReplacementModel(config.Id);
+
+                    if (replacementModel != null)
+                    {
+                        _logger.LogInformation("Auto-migrating {Count} sessions from {OldModel} to {NewModel}",
+                            activeSessions.Count, config.ModelName, replacementModel.ModelName);
+
+                        // Migrate tất cả sessions
+                        foreach (var session in activeSessions)
+                        {
+                            session.ModelName = replacementModel.ModelName;
+                            session.UpdatedAt = DateTime.UtcNow;
+                            session.UpdatedBy = "system";
+
+                            _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
+                        }
+
+                        _logger.LogInformation("Auto-migrated {Count} sessions successfully", activeSessions.Count);
+                    }
+                    else
+                    {
+                        // ✅ FALLBACK: Nếu không có replacement, deactivate sessions thay vì error
+                        _logger.LogWarning("No replacement model found, deactivating {Count} sessions", activeSessions.Count);
+
+                        foreach (var session in activeSessions)
+                        {
+                            session.IsActive = false;
+                            session.UpdatedAt = DateTime.UtcNow;
+                            session.UpdatedBy = "system";
+                            _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
+                        }
+                    }
+                }
+
+                // Proceed với deletion
                 _unitOfWork.GetRepository<AIConfiguration>().DeleteAsync(config);
                 await _unitOfWork.CommitAsync();
 
@@ -211,6 +247,27 @@ namespace ChatBox.API.Services.Implement
                 _logger.LogError(ex, "Failed to delete AI configuration: {ConfigId}", id);
                 throw;
             }
+        }
+        private async Task<AIConfiguration> FindBestReplacementModel(string excludeConfigId)
+        {
+            var activeConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
+                .GetListAsync(predicate: c => c.IsActive && c.Id != excludeConfigId);
+
+            if (!activeConfigs.Any())
+                return null;
+
+            // Priority 1: Default model
+            var defaultModel = activeConfigs.FirstOrDefault(c => c.IsDefault);
+            if (defaultModel != null)
+                return defaultModel;
+
+            // Priority 2: Free model
+            var freeModel = activeConfigs.FirstOrDefault(c => c.IsFree);
+            if (freeModel != null)
+                return freeModel;
+
+            // Priority 3: First available
+            return activeConfigs.First();
         }
         public async Task<ModelActivationResponse> TestAndActivateModelByIdAsync(string configId, string userId)
         {
@@ -289,7 +346,7 @@ namespace ChatBox.API.Services.Implement
                     .SingleOrDefaultAsync(predicate: c => c.Id == configId);
 
                 if (targetConfig == null || !targetConfig.IsActive)
-                    return (false, string.Format(MessageConstant.Admin.ConfigNotFound));
+                    return (false, "Model không tồn tại hoặc đã bị tắt");
 
                 // Safety: Don't allow deactivating last active model
                 var otherActiveConfigs = await _unitOfWork.GetRepository<AIConfiguration>()
@@ -297,6 +354,47 @@ namespace ChatBox.API.Services.Implement
 
                 if (!otherActiveConfigs.Any())
                     throw new InvalidOperationException("Không thể tắt model cuối cùng. Hệ thống cần ít nhất 1 model active.");
+
+                // ✅ NEW: Migrate sessions trước khi deactivate
+                var activeSessions = await _unitOfWork.GetRepository<ChatSession>()
+                    .GetListAsync(predicate: s => s.ModelName == targetConfig.ModelName && s.IsActive);
+
+                if (activeSessions.Any())
+                {
+                    // Tìm model thay thế tốt nhất (từ models còn active)
+                    var replacementModel = await FindBestReplacementModel(targetConfig.Id);
+
+                    if (replacementModel != null)
+                    {
+                        _logger.LogInformation("Migrating {Count} sessions from deactivated model {OldModel} to {NewModel}",
+                            activeSessions.Count, targetConfig.ModelName, replacementModel.ModelName);
+
+                        // Migrate tất cả sessions
+                        foreach (var session in activeSessions)
+                        {
+                            session.ModelName = replacementModel.ModelName;
+                            session.UpdatedAt = DateTime.UtcNow;
+                            session.UpdatedBy = userId;
+
+                            _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
+                        }
+
+                        _logger.LogInformation("Migrated {Count} sessions successfully", activeSessions.Count);
+                    }
+                    else
+                    {
+                        // ✅ FALLBACK: Nếu không có replacement, deactivate sessions
+                        _logger.LogWarning("No replacement model found, deactivating {Count} sessions", activeSessions.Count);
+
+                        foreach (var session in activeSessions)
+                        {
+                            session.IsActive = false;
+                            session.UpdatedAt = DateTime.UtcNow;
+                            session.UpdatedBy = userId;
+                            _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
+                        }
+                    }
+                }
 
                 // If this is default model, set another active model as default
                 if (targetConfig.IsDefault && otherActiveConfigs.Any())
@@ -310,6 +408,7 @@ namespace ChatBox.API.Services.Implement
                     _logger.LogInformation("Model {ModelName} set as new default", newDefault.ModelName);
                 }
 
+                // ✅ Deactivate model
                 targetConfig.IsActive = false;
                 targetConfig.IsDefault = false;
                 targetConfig.UpdatedAt = DateTime.UtcNow;
@@ -320,10 +419,14 @@ namespace ChatBox.API.Services.Implement
 
                 await ClearAllModelCaches(targetConfig.ModelName);
 
-                _logger.LogInformation("Model {ModelName} (ID: {ConfigId}) deactivated by {UserId}",
+                _logger.LogInformation("Model {ModelName} (ID: {ConfigId}) deactivated with session migration by {UserId}",
                     targetConfig.ModelName, configId, userId);
 
-                return (true, $"Model '{targetConfig.DisplayName}' đã được tắt");
+                var sessionInfo = activeSessions.Any()
+                    ? $" và đã migrate {activeSessions.Count} sessions"
+                    : "";
+
+                return (true, $"Model '{targetConfig.DisplayName}' đã được tắt{sessionInfo}");
             }
             catch (Exception ex)
             {

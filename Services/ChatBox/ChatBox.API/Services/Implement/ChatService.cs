@@ -1272,9 +1272,39 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
         private async Task ValidateSessionModelConsistency(ChatSession session, string requestedModelName)
         {
             if (!string.IsNullOrEmpty(requestedModelName) &&
-                !string.IsNullOrEmpty(session.Id) &&
-                session.ModelName != requestedModelName)
+         !string.IsNullOrEmpty(session.Id) &&
+         session.ModelName != requestedModelName)
             {
+                // ✅ NEW: Check if requested model still exists
+                var requestedModelExists = await IsModelActiveAsync(requestedModelName);
+
+                if (!requestedModelExists)
+                {
+                    // Model đã bị xóa → ignore request, dùng session model hiện tại
+                    _logger.LogInformation("Client requested deleted model {RequestedModel}, using session model {SessionModel}",
+                        requestedModelName, session.ModelName);
+                    return; // Allow to continue
+                }
+
+                // ✅ NEW: Check if session model still exists  
+                var sessionModelExists = await IsModelActiveAsync(session.ModelName);
+
+                if (!sessionModelExists)
+                {
+                    // Session model bị xóa → update sang requested model
+                    _logger.LogInformation("Session model {SessionModel} deleted, updating to {RequestedModel}",
+                        session.ModelName, requestedModelName);
+
+                    session.ModelName = requestedModelName;
+                    session.UpdatedAt = DateTime.UtcNow;
+                    session.UpdatedBy = "system";
+
+                    _unitOfWork.GetRepository<ChatSession>().UpdateAsync(session);
+                    await _unitOfWork.CommitAsync();
+                    return;
+                }
+
+                // Cả 2 models đều tồn tại → không cho đổi model
                 throw new InvalidOperationException(
                     $"Không thể thay đổi model trong session đã có conversation. " +
                     $"Session hiện tại sử dụng {session.ModelName}. " +

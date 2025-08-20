@@ -226,16 +226,15 @@ namespace ChatBox.API.Controllers
                 return Problem(MessageConstant.Admin.UpdateFailed);
             }
         }
+
         /// <summary>
-        /// Xóa cấu hình AI - không được xóa model đang active hoặc đang dùng
+        /// Xóa cấu hình AI - tự động migrate sessions
         /// </summary>
         [HttpDelete(ApiEndPointConstant.Admin.DeleteConfiguration)]
         [CustomAuthorize(Roles = new[] { Roles.Admin })]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         public async Task<IActionResult> DeleteAIConfigurationAsync(string configId)
         {
             try
@@ -243,22 +242,21 @@ namespace ChatBox.API.Controllers
                 var result = await _adminService.DeleteAIConfigurationAsync(configId);
 
                 if (!result)
-                {
-                    return NotFound(MessageConstant.Admin.ConfigNotFound);
-                }
+                    return NotFound(new { error = "Model không tồn tại" });
 
-                _logger.LogInformation("AI configuration deleted: {ConfigId}", configId);
-                return Ok(MessageConstant.Admin.ConfigDeleted);
+                _logger.LogInformation("AI configuration deleted with auto-migration: {ConfigId}", configId);
+
+                return Ok(new { message = "Model đã được xóa thành công" });
             }
             catch (InvalidOperationException ex)
             {
                 _logger.LogWarning("Cannot delete configuration {ConfigId}: {Error}", configId, ex.Message);
-                return BadRequest(ex.Message);
+                return BadRequest(new { error = ex.Message });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to delete AI configuration {ConfigId}", configId);
-                return Problem(MessageConstant.Admin.DeleteFailed);
+                return Problem("Failed to delete configuration");
             }
         }
         /// <summary>
