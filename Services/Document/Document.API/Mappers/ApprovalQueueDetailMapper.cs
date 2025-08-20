@@ -59,7 +59,12 @@ namespace Document.API.Mappers
                 .ForMember(dest => dest.LastUpdatedByName, opt => opt.Ignore())
                 .ForMember(dest => dest.SubmittedByName, opt => opt.Ignore())
                 .ForMember(dest => dest.ClaimedByName, opt => opt.Ignore())
-                .ForMember(dest => dest.ReviewedByName, opt => opt.Ignore());
+                .ForMember(dest => dest.ReviewedByName, opt => opt.Ignore())
+                // Folder information
+                .ForMember(dest => dest.FolderId, opt => opt.MapFrom(src => src.FolderId))
+                .ForMember(dest => dest.TargetFolderId, opt => opt.MapFrom(src => src.TargetFolderId))
+                .ForMember(dest => dest.FolderName, opt => opt.MapFrom(src => src.Folder != null ? src.Folder.Name : null))
+                .ForMember(dest => dest.TargetFolderName, opt => opt.MapFrom(src => src.TargetFolder != null ? src.TargetFolder.Name : null));
         }
     }
 }

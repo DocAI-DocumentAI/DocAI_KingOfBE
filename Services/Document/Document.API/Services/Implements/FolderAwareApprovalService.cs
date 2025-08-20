@@ -62,7 +62,7 @@ namespace Document.API.Services.Implements
                     .SingleOrDefaultAsync(
                         predicate: v => v.Id == versionId,
                         include: i => i.Include(v => v.DocumentFile)
-                                      .Include(v => v.Folder)
+                                      .Include(v => v.Folder!)
                     );
 
                 if (version == null)
@@ -171,9 +171,9 @@ namespace Document.API.Services.Implements
             var versionToReview = await _unitOfWork.GetRepository<DocumentVersion>()
             .SingleOrDefaultAsync(
                 predicate: v => v.Id == versionId,
-                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType!)
                               .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
-                              .Include(v => v.Folder)
+                              .Include(v => v.Folder!)
             ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
 
             var documentFile = versionToReview.DocumentFile;
@@ -464,7 +464,7 @@ namespace Document.API.Services.Implements
                     {
                         var subfolders = await GetAllSubfoldersAsync(folderId);
                         var folderIds = subfolders.Select(f => f.Id).Concat(new[] { folderId }).ToList();
-                        predicate = CombinePredicates(predicate, dv => folderIds.Contains(dv.FolderId));
+                        predicate = CombinePredicates(predicate, dv => dv.FolderId != null && folderIds.Contains(dv.FolderId));
                     }
                     else
                     {
@@ -480,6 +480,7 @@ namespace Document.API.Services.Implements
                         predicate: predicate,
                         include: i => i.Include(dv => dv.DocumentFile)
                                       .Include(dv => dv.Folder)
+                                      .Include(dv => dv.TargetFolder)
                                       .Include(dv => dv.DocumentTags).ThenInclude(dt => dt.Tag),
                         orderBy: q => q.OrderBy(dv => dv.LastSubmitted), // Oldest submissions first for fairness
                         page: page,
@@ -570,7 +571,8 @@ namespace Document.API.Services.Implements
                         filter: null!,
                         predicate: predicate,
                         include: i => i.Include(al => al.DocumentVersion)
-                                      .Include(al => al.DocumentVersion.Folder),
+                                      .Include(al => al.DocumentVersion.Folder!)
+                                      .Include(al => al.DocumentVersion.TargetFolder!),
                         orderBy: q => q.OrderByDescending(al => al.CreatedTime), // Most recent first
                         page: page,
                         size: pageSize
@@ -600,7 +602,9 @@ namespace Document.API.Services.Implements
                     ActionBy = al.CreatedBy,
                     ActionAt = al.CreatedTime,
                     DocumentFolder = al.DocumentVersion.Folder != null ? MapToFolderSummary(al.DocumentVersion.Folder) : null,
-                    NewStatus = al.DocumentVersion.Status.ToString()
+                    NewStatus = al.DocumentVersion.Status.ToString(),
+                    TargetFolderId = al.DocumentVersion.TargetFolderId,
+                    TargetFolderName = al.DocumentVersion.TargetFolder != null ? al.DocumentVersion.TargetFolder.Name : null
                 }).ToList();
 
                 return response;
@@ -622,7 +626,7 @@ namespace Document.API.Services.Implements
                     .SingleOrDefaultAsync(
                         predicate: dv => dv.Id == documentVersionId,
                         include: i => i.Include(dv => dv.DocumentFile)
-                                      .Include(dv => dv.Folder)
+                                      .Include(dv => dv.Folder!)
                     );
 
                 if (documentVersion == null)
@@ -900,7 +904,7 @@ namespace Document.API.Services.Implements
                 {
                     var subfolders = await GetAllSubfoldersAsync(folderId);
                     var folderIds = subfolders.Select(f => f.Id).Concat(new[] { folderId }).ToList();
-                    pendingPredicate = CombinePredicates(pendingPredicate, dv => folderIds.Contains(dv.FolderId));
+                    pendingPredicate = CombinePredicates(pendingPredicate, dv => dv.FolderId != null && folderIds.Contains(dv.FolderId));
                 }
                 else
                 {
@@ -992,7 +996,7 @@ namespace Document.API.Services.Implements
                 {
                     var subfolders = await GetAllSubfoldersAsync(folderId);
                     var folderIds = subfolders.Select(f => f.Id).Concat(new[] { folderId }).ToList();
-                    predicate = CombinePredicates(predicate, dv => folderIds.Contains(dv.FolderId));
+                    predicate = CombinePredicates(predicate, dv => dv.FolderId != null && folderIds.Contains(dv.FolderId));
                 }
                 else
                 {
@@ -1004,6 +1008,7 @@ namespace Document.API.Services.Implements
                         predicate: predicate,
                         include: i => i.Include(dv => dv.DocumentFile)
                                       .Include(dv => dv.Folder)
+                                      .Include(dv => dv.TargetFolder)
                                       .Include(dv => dv.DocumentTags).ThenInclude(dt => dt.Tag),
                         orderBy: q => q.OrderBy(dv => dv.LastSubmitted)
                     );
@@ -1145,6 +1150,20 @@ namespace Document.API.Services.Implements
                 if (document.Folder != null)
                 {
                     approvalInfo.ContainingFolder = MapToFolderSummary(document.Folder);
+                    approvalInfo.FolderId = document.Folder.Id;
+                    approvalInfo.FolderName = document.Folder.Name;
+                }
+
+                // Set target folder information
+                if (document.TargetFolder != null)
+                {
+                    approvalInfo.TargetFolderId = document.TargetFolder.Id;
+                    approvalInfo.TargetFolderName = document.TargetFolder.Name;
+                }
+                else if (!string.IsNullOrEmpty(document.TargetFolderId))
+                {
+                    // If TargetFolder navigation property is not loaded, just set the ID
+                    approvalInfo.TargetFolderId = document.TargetFolderId;
                 }
 
                 // Calculate days since submission
@@ -1389,7 +1408,11 @@ namespace Document.API.Services.Implements
                     DaysSinceSubmission = ai.DaysSinceSubmission,
                     IsApproachingExpiration = ai.IsApproachingExpiration,
                     ResubmissionCount = ai.ResubmissionCount,
-                    PreviousRejectionReason = ai.PreviousRejectionReason
+                    PreviousRejectionReason = ai.PreviousRejectionReason,
+                    FolderId = ai.FolderId,
+                    TargetFolderId = ai.TargetFolderId,
+                    FolderName = ai.FolderName,
+                    TargetFolderName = ai.TargetFolderName
                 }).ToList();
 
                 // Enrich with names

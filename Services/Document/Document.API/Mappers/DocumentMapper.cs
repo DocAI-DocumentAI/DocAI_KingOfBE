@@ -57,7 +57,12 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil))
             .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic))
             .ForMember(dest => dest.IsOfficial, opt => opt.MapFrom(src => src.IsOfficial))
-            .ForMember(dest => dest.TotalDownloads, opt => opt.MapFrom(src => src.TotalDownloads));
+            .ForMember(dest => dest.TotalDownloads, opt => opt.MapFrom(src => src.TotalDownloads))
+            // Folder information
+            .ForMember(dest => dest.FolderId, opt => opt.MapFrom(src => src.FolderId))
+            .ForMember(dest => dest.TargetFolderId, opt => opt.MapFrom(src => src.TargetFolderId))
+            .ForMember(dest => dest.FolderName, opt => opt.MapFrom(src => src.Folder != null ? src.Folder.Name : null))
+            .ForMember(dest => dest.TargetFolderName, opt => opt.MapFrom(src => src.TargetFolder != null ? src.TargetFolder.Name : null));
 
         CreateMap<DocumentVersion, PendingDocumentResponse>()
             .ForMember(dest => dest.DocumentFileId, opt => opt.MapFrom(src => src.DocumentFile.Id))
@@ -95,7 +100,12 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.SubmittedByName, opt => opt.Ignore())
             .ForMember(dest => dest.DepartmentName, opt => opt.Ignore())
             .ForMember(dest => dest.OwnerName, opt => opt.Ignore())
-            .ForMember(dest => dest.ReviewedByName, opt => opt.Ignore());
+            .ForMember(dest => dest.ReviewedByName, opt => opt.Ignore())
+            // Folder information
+            .ForMember(dest => dest.FolderId, opt => opt.MapFrom(src => src.FolderId))
+            .ForMember(dest => dest.TargetFolderId, opt => opt.MapFrom(src => src.TargetFolderId))
+            .ForMember(dest => dest.FolderName, opt => opt.MapFrom(src => src.Folder != null ? src.Folder.Name : null))
+            .ForMember(dest => dest.TargetFolderName, opt => opt.MapFrom(src => src.TargetFolder != null ? src.TargetFolder.Name : null));
 
         CreateMap<DocumentVersion, DocumentResponse>()
             .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src.DocumentFile.Id.ToString()))
@@ -145,12 +155,17 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.SubmittedBy))
             .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentFile != null ? src.DocumentFile.DocumentTypeId : null))
             .ForMember(dest => dest.DocumentTypeName, opt => opt.MapFrom(src => src.DocumentFile != null && src.DocumentFile.DocumentType != null ? src.DocumentFile.DocumentType.Name : null))
-            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic));
+            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic))
+            .ForMember(dest => dest.FolderId, opt => opt.MapFrom(src => src.FolderId))
+            .ForMember(dest => dest.TargetFolderId, opt => opt.MapFrom(src => src.TargetFolderId))
+            .ForMember(dest => dest.FolderName, opt => opt.MapFrom(src => src.Folder != null ? src.Folder.Name : null))
+            .ForMember(dest => dest.TargetFolderName, opt => opt.MapFrom(src => src.TargetFolder != null ? src.TargetFolder.Name : null));
 
         CreateMap<UpdateDocumentDraftRequest, DocumentFile>()
             .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => !string.IsNullOrEmpty(src.DocumentTypeId) ? src.DocumentTypeId : null));
         CreateMap<UpdateDocumentDraftRequest, DocumentVersion>()
-            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic));
+            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic))
+            .ForMember(dest => dest.TargetFolderId, opt => opt.MapFrom(src => src.FolderId));
 
         CreateMap<DocumentVersion, SemanticSearchResponse>()
             .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src.DocumentFile.Id.ToString()))

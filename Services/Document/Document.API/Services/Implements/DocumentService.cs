@@ -419,9 +419,8 @@ public class DocumentService : IDocumentService
         // Store target functional folder for approval workflow (if specified)
         if (!string.IsNullOrEmpty(request.FolderId))
         {
-            // TODO: Consider adding a TargetFolderId field to DocumentVersion for approval workflow
-            // For now, this will be handled during the approval process
-            _logger.LogInformation("Document {Title} created in drafts, target folder {FolderId} for approval",
+            version.TargetFolderId = request.FolderId;
+            _logger.LogInformation("Document {Title} created in drafts, target folder {FolderId} stored for approval",
                 request.Title, request.FolderId);
         }
 
@@ -1761,7 +1760,10 @@ public class DocumentService : IDocumentService
             filter: null,
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                          .Include(v => v.Folder)
+                          .Include(v => v.TargetFolder),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -1879,10 +1881,12 @@ public class DocumentService : IDocumentService
             filter: filter,
             predicate: accessControlPredicate,
             include: i => i.Include(v => v.DocumentFile)
-                          .ThenInclude(df => df.DocumentType)
+                          .ThenInclude(df => df.DocumentType!)
                           .Include(v => v.DocumentTags)
                           .ThenInclude(dt => dt.Tag)
-                          .Include(v => v.ApprovalLogs),
+                          .Include(v => v.ApprovalLogs)
+                          .Include(v => v.Folder!)
+                          .Include(v => v.TargetFolder!),
             orderBy: q => q.OrderByDescending(v => v.LastUpdatedTime),
             page: pageNumber,
             size: pageSize
@@ -1913,10 +1917,12 @@ public class DocumentService : IDocumentService
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId &&
                            (v.Status == StatusEnum.Approved || v.Status == StatusEnum.Rejected || v.Status == StatusEnum.Archived),
             include: i => i.Include(v => v.DocumentFile)
-                          .ThenInclude(df => df.DocumentType)
+                          .ThenInclude(df => df.DocumentType!)
                           .Include(v => v.DocumentTags)
                           .ThenInclude(dt => dt.Tag)
                           .Include(v => v.ApprovalLogs)
+                          .Include(v => v.Folder!)
+                          .Include(v => v.TargetFolder!)
         );
 
         if (document == null)
