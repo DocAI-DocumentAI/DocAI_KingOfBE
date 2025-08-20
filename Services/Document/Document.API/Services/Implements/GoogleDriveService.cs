@@ -19,6 +19,7 @@ using Microsoft.Extensions.Logging;
 using System.Security.Claims;
 using static Document.API.Services.Interfaces.IGoogleDriveService;
 using File = Google.Apis.Drive.v3.Data.File;
+using Shared.Exceptions;
 
 namespace Document.API.Services.Implements
 {
@@ -94,7 +95,8 @@ namespace Document.API.Services.Implements
 
                 if (uploadedFile.Status != Google.Apis.Upload.UploadStatus.Completed)
                 {
-                    throw new InvalidOperationException($"File upload failed: {uploadedFile.Exception?.Message}");
+                    throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR,
+                        string.Format(FolderMessageConstant.GoogleDriveSync.FileUploadFailed, uploadedFile.Exception?.Message));
                 }
 
                 var fileResult = request.ResponseBody;
@@ -591,7 +593,8 @@ namespace Document.API.Services.Implements
                     return await GetOrCreateFolderAsync(folderName, departmentId, isPublic, driveService);
                 }
 
-                throw new InvalidOperationException($"Folder '{folderName}' not found in database. Functional folders must be created via FolderService first.");
+                throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                    string.Format(FolderMessageConstant.GoogleDriveSync.FolderNotFoundInDatabase, folderName));
             }
             catch (Exception ex)
             {
@@ -1302,18 +1305,19 @@ namespace Document.API.Services.Implements
             {
                 var message = string.Format(FolderMessageConstant.GoogleDriveSync.GoogleDrivePermissionDenied, folderName);
                 _logger.LogError(gex, message);
-                throw new UnauthorizedAccessException(message, gex);
+                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, message);
             }
             catch (GoogleApiException gex) when (gex.HttpStatusCode == System.Net.HttpStatusCode.TooManyRequests)
             {
                 _logger.LogWarning(gex, FolderMessageConstant.GoogleDriveSync.GoogleDriveRateLimitExceeded);
-                throw new InvalidOperationException(FolderMessageConstant.GoogleDriveSync.GoogleDriveRateLimitExceeded, gex);
+                throw new ErrorException(StatusCodes.Status429TooManyRequests, ErrorCode.BADREQUEST,
+                    FolderMessageConstant.GoogleDriveSync.GoogleDriveRateLimitExceeded);
             }
             catch (GoogleApiException gex) when (gex.HttpStatusCode == System.Net.HttpStatusCode.InsufficientStorage)
             {
                 var message = string.Format(FolderMessageConstant.GoogleDriveSync.GoogleDriveQuotaExceeded, folderName);
                 _logger.LogError(gex, message);
-                throw new InvalidOperationException(message, gex);
+                throw new ErrorException(StatusCodes.Status507InsufficientStorage, ErrorCode.INTERNAL_SERVER_ERROR, message);
             }
             catch (ArgumentException)
             {
@@ -1324,7 +1328,7 @@ namespace Document.API.Services.Implements
             {
                 var message = string.Format(FolderMessageConstant.GoogleDriveSync.SyncFailed, folderName, ex.Message);
                 _logger.LogError(ex, message);
-                throw new InvalidOperationException(message, ex);
+                throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR, message);
             }
         }
 
@@ -1952,7 +1956,8 @@ namespace Document.API.Services.Implements
             var result = await DeleteFolderAsync(folderId, force: true);
             if (!result)
             {
-                throw new InvalidOperationException($"Failed to delete folder {folderId}");
+                throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR,
+                    string.Format(FolderMessageConstant.GoogleDriveSync.FailedToDeleteFolder, folderId));
             }
         }
 

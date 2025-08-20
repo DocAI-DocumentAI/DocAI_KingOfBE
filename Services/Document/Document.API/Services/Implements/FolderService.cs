@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Security.Claims;
 using System.Diagnostics;
+using Shared.Exceptions;
 
 namespace Document.API.Services.Implements
 {
@@ -52,7 +53,8 @@ namespace Document.API.Services.Implements
                 // Check if user has access to this department
                 if (departmentId != userDepartmentId && !await IsUserAdminOrManagerAsync(userId))
                 {
-                    throw new UnauthorizedAccessException("Access denied to department folders");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        FolderMessageConstant.Permissions.AccessDeniedToDepartmentFolders);
                 }
 
                 // Get root folders for the department
@@ -78,7 +80,8 @@ namespace Document.API.Services.Implements
                 var rootFolder = rootFolders.FirstOrDefault();
                 if (rootFolder == null)
                 {
-                    throw new KeyNotFoundException($"No folders found for department {departmentId}");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        string.Format(FolderMessageConstant.System.NoFoldersFoundForDepartment, departmentId));
                 }
 
                 var folderNode = await BuildFolderNodeAsync(rootFolder, userId, userDepartmentId, includeSystemFolders, maxDepth, 0);
@@ -131,7 +134,8 @@ namespace Document.API.Services.Implements
                 var rootFolder = rootFolders.FirstOrDefault();
                 if (rootFolder == null)
                 {
-                    throw new KeyNotFoundException("No public folders found");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        FolderMessageConstant.System.NoPublicFoldersFound);
                 }
 
                 var folderNode = await BuildFolderNodeAsync(rootFolder, userId, userDepartmentId, includeSystemFolders, maxDepth, 0);
@@ -172,13 +176,15 @@ namespace Document.API.Services.Implements
 
                 if (folder == null)
                 {
-                    throw new KeyNotFoundException($"Folder with ID {folderId} not found");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        string.Format(FolderMessageConstant.System.FolderNotFound, folderId));
                 }
 
                 // Check access permission
                 if (!await HasFolderPermissionAsync(folderId, userId, userDepartmentId, PermissionType.View))
                 {
-                    throw new UnauthorizedAccessException("Access denied to this folder");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        string.Format(FolderMessageConstant.Permissions.CannotAccessFolder, folderId));
                 }
 
                 var userPermission = await GetUserEffectivePermissionAsync(folderId, userId, userDepartmentId);
@@ -245,7 +251,8 @@ namespace Document.API.Services.Implements
 
                 if (folder == null)
                 {
-                    throw new KeyNotFoundException($"Folder with path {fullPath} not found");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        string.Format(FolderMessageConstant.System.FolderNotFound, fullPath));
                 }
 
                 return await GetFolderByIdAsync(folder.Id);
@@ -292,12 +299,14 @@ namespace Document.API.Services.Implements
                 {
                     if (!await HasFolderPermissionAsync(request.ParentFolderId, userId, userDepartmentId, PermissionType.Edit))
                     {
-                        throw new UnauthorizedAccessException("Access denied to create folders in this location");
+                        throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                            FolderMessageConstant.Permissions.CannotCreateInFolder);
                     }
                 }
                 else if (!request.IsPublic && targetDepartmentId != userDepartmentId && !await IsUserAdminOrManagerAsync(userId))
                 {
-                    throw new UnauthorizedAccessException("Access denied to create root folders in other departments");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        FolderMessageConstant.Permissions.AccessDeniedToCreateRootFolders);
                 }
 
                 // Get parent folder info for path building
@@ -424,7 +433,8 @@ namespace Document.API.Services.Implements
                 // Check permission
                 if (!await HasFolderPermissionAsync(folderId, userId, userDepartmentId, PermissionType.Edit))
                 {
-                    throw new UnauthorizedAccessException("Access denied to update this folder");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        FolderMessageConstant.Permissions.AccessDeniedToUpdateFolder);
                 }
 
                 var folder = await _unitOfWork.GetRepository<Folder>()
@@ -432,12 +442,14 @@ namespace Document.API.Services.Implements
 
                 if (folder == null)
                 {
-                    throw new KeyNotFoundException($"Folder with ID {folderId} not found");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        string.Format(FolderMessageConstant.System.FolderNotFound, folderId));
                 }
 
                 if (folder.IsSystemFolder)
                 {
-                    throw new InvalidOperationException("System folders cannot be modified");
+                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,
+                        string.Format(FolderMessageConstant.Permissions.CannotModifySystemFolder, folder.Name));
                 }
 
                 bool hasChanges = false;
@@ -507,7 +519,8 @@ namespace Document.API.Services.Implements
                 // Check permission on source folder
                 if (!await HasFolderPermissionAsync(folderId, userId, userDepartmentId, PermissionType.Manage))
                 {
-                    throw new UnauthorizedAccessException("Access denied to move this folder");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        string.Format(FolderMessageConstant.Permissions.CannotMoveFolder, folderId));
                 }
 
                 var folder = await _unitOfWork.GetRepository<Folder>()
@@ -518,12 +531,14 @@ namespace Document.API.Services.Implements
 
                 if (folder == null)
                 {
-                    throw new KeyNotFoundException($"Folder with ID {folderId} not found");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        string.Format(FolderMessageConstant.System.FolderNotFound, folderId));
                 }
 
                 if (folder.IsSystemFolder)
                 {
-                    throw new InvalidOperationException("System folders cannot be moved");
+                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST,
+                        string.Format(FolderMessageConstant.Permissions.CannotModifySystemFolder, folder.Name));
                 }
 
                 // Check permission on target parent folder
@@ -531,7 +546,8 @@ namespace Document.API.Services.Implements
                 {
                     if (!await HasFolderPermissionAsync(request.NewParentFolderId, userId, userDepartmentId, PermissionType.Edit))
                     {
-                        throw new UnauthorizedAccessException("Access denied to move folder to this location");
+                        throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                            FolderMessageConstant.Permissions.AccessDeniedToMoveToLocation);
                     }
 
                     // Check for circular reference
@@ -566,7 +582,8 @@ namespace Document.API.Services.Implements
                 var googleDriveSuccess = await _googleDriveService.MoveFolderAsync(folder.GoogleDriveFolderId, newParentFolder?.GoogleDriveFolderId);
                 if (!googleDriveSuccess)
                 {
-                    throw new InvalidOperationException("Failed to move folder in Google Drive");
+                    throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR,
+                        FolderMessageConstant.System.FailedToMoveInGoogleDrive);
                 }
 
                 // Update folder counts
@@ -629,7 +646,7 @@ namespace Document.API.Services.Implements
                 {
                     var message = string.Format(FolderMessageConstant.System.FolderNotFound, folderId);
                     _logger.LogWarning(message);
-                    throw new KeyNotFoundException(message);
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, message);
                 }
 
                 // Check permission
@@ -637,14 +654,14 @@ namespace Document.API.Services.Implements
                 {
                     var message = string.Format(FolderMessageConstant.Permissions.CannotDeleteFolder, folder.Name);
                     _logger.LogWarning("User {UserId} attempted to delete folder {FolderId} without permission", userId, folderId);
-                    throw new UnauthorizedAccessException(message);
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, message);
                 }
 
                 if (folder.IsSystemFolder)
                 {
                     var message = string.Format(FolderMessageConstant.Permissions.CannotDeleteSystemFolder, folder.Name);
                     _logger.LogWarning("Attempted to delete system folder {FolderId} ({FolderName})", folderId, folder.Name);
-                    throw new InvalidOperationException(message);
+                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, message);
                 }
 
                 // Check if folder can be deleted
@@ -675,7 +692,7 @@ namespace Document.API.Services.Implements
 
                     _logger.LogWarning("Cannot delete folder {FolderId}: contains {DocumentCount} documents and {SubfolderCount} subfolders",
                         folderId, documentCount, subfolderCount);
-                    throw new InvalidOperationException(message);
+                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, message);
                 }
 
                 // Soft delete
@@ -859,7 +876,8 @@ namespace Document.API.Services.Implements
                 // Check if user can manage permissions
                 if (!await HasFolderPermissionAsync(folderId, userId, userDepartmentId, PermissionType.Manage))
                 {
-                    throw new UnauthorizedAccessException("Access denied to manage folder permissions");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        FolderMessageConstant.Permissions.AccessDeniedToManagePermissions);
                 }
 
                 // Validate request
@@ -946,7 +964,8 @@ namespace Document.API.Services.Implements
                 // Check if user can manage permissions
                 if (!await HasFolderPermissionAsync(folderId, userId, userDepartmentId, PermissionType.Manage))
                 {
-                    throw new UnauthorizedAccessException("Access denied to manage folder permissions");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        FolderMessageConstant.Permissions.AccessDeniedToManagePermissions);
                 }
 
                 var permission = await _unitOfWork.GetRepository<FolderPermission>()
@@ -954,7 +973,8 @@ namespace Document.API.Services.Implements
 
                 if (permission == null)
                 {
-                    throw new KeyNotFoundException($"Permission with ID {permissionId} not found");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        string.Format(FolderMessageConstant.System.PermissionNotFound, permissionId));
                 }
 
                 // Soft delete permission
@@ -1508,7 +1528,8 @@ namespace Document.API.Services.Implements
 
                 if (targetFolder == null)
                 {
-                    throw new KeyNotFoundException($"Target folder not found");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        FolderMessageConstant.System.TargetFolderNotFound);
                 }
 
                 // Check if target folder is within user's department or public
@@ -1518,7 +1539,7 @@ namespace Document.API.Services.Implements
                     var targetDepartmentName = await GetDepartmentNameAsync(targetFolder.DepartmentId);
                     var userDepartmentName = await GetDepartmentNameAsync(userDepartmentId);
 
-                    throw new UnauthorizedAccessException(
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
                         $"Access denied: Cannot {operation} outside your department. " +
                         $"Target folder belongs to '{targetDepartmentName}' but you belong to '{userDepartmentName}'. " +
                         $"Managers can only operate within their own department folders.");
@@ -1530,7 +1551,8 @@ namespace Document.API.Services.Implements
             catch (Exception ex) when (!(ex is UnauthorizedAccessException || ex is KeyNotFoundException))
             {
                 _logger.LogError(ex, "Error validating department boundary for user {UserId}", userId);
-                throw new InvalidOperationException("Error validating department access", ex);
+                throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR,
+                    FolderMessageConstant.System.ErrorValidatingDepartmentAccess);
             }
         }
 

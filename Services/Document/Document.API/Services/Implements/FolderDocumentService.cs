@@ -12,6 +12,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Linq.Expressions;
+using Document.API.Constants;
+using Shared.Exceptions;
 
 namespace Document.API.Services.Implements
 {
@@ -61,7 +63,8 @@ namespace Document.API.Services.Implements
                     var folderPermission = await _folderPermissionService.GetEffectivePermissionAsync(request.FolderId, userId, userDepartmentId ?? string.Empty);
                     if (folderPermission == null || !folderPermission.Value.Includes(PermissionType.View))
                     {
-                        throw new UnauthorizedAccessException("Access denied to this folder");
+                        throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                            FolderMessageConstant.Permissions.AccessDeniedToFolder);
                     }
 
                     var folderDetail = await _folderService.GetFolderByIdAsync(request.FolderId);
@@ -177,7 +180,8 @@ namespace Document.API.Services.Implements
                 var folderPermission = await _folderPermissionService.GetEffectivePermissionAsync(request.FolderId, userId, userDepartmentId ?? string.Empty);
                 if (folderPermission == null || !folderPermission.Value.Includes(PermissionType.View))
                 {
-                    throw new UnauthorizedAccessException("Access denied to search in this folder");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        FolderMessageConstant.Permissions.AccessDeniedToSearchInFolder);
                 }
 
                 // Get search folder information
@@ -465,7 +469,8 @@ namespace Document.API.Services.Implements
 
                 if (documentVersion == null)
                 {
-                    throw new KeyNotFoundException($"Document version {documentVersionId} not found");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        string.Format(FolderMessageConstant.System.DocumentVersionNotFound, documentVersionId));
                 }
 
                 // ✅ Check SOURCE folder permission (if document is in a folder)
@@ -476,7 +481,8 @@ namespace Document.API.Services.Implements
 
                     if (sourcePermission == null || !sourcePermission.Value.Includes(PermissionType.Edit))
                     {
-                        throw new UnauthorizedAccessException("Access denied to move document from source folder");
+                        throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                            FolderMessageConstant.Permissions.AccessDeniedToMoveFromSourceFolder);
                     }
                 }
 
@@ -486,7 +492,8 @@ namespace Document.API.Services.Implements
 
                 if (targetPermission == null || !targetPermission.Value.Includes(PermissionType.Edit))
                 {
-                    throw new UnauthorizedAccessException("Access denied to move document to target folder");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        FolderMessageConstant.Permissions.AccessDeniedToMoveToTargetFolder);
                 }
 
                 // ✅ Move file in Google Drive if it exists
@@ -554,7 +561,8 @@ namespace Document.API.Services.Implements
                 // Check target folder permissions
                 if (!await _folderPermissionService.GetEffectivePermissionAsync(targetFolderId, userId, userDepartmentId ?? string.Empty).ContinueWith(t => t.Result?.Includes(PermissionType.Edit) == true))
                 {
-                    throw new UnauthorizedAccessException("Access denied to upload documents to target folder");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        FolderMessageConstant.Permissions.AccessDeniedToUploadToTargetFolder);
                 }
 
                 var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>()
@@ -1214,7 +1222,8 @@ namespace Document.API.Services.Implements
 
                 if (targetFolder == null)
                 {
-                    throw new KeyNotFoundException($"Target folder not found");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        FolderMessageConstant.System.TargetFolderNotFound);
                 }
 
                 // Check if target folder is within user's department or public
@@ -1224,10 +1233,9 @@ namespace Document.API.Services.Implements
                     var targetDepartmentName = await GetDepartmentNameAsync(targetFolder.DepartmentId);
                     var userDepartmentName = await GetDepartmentNameAsync(userDepartmentId);
 
-                    throw new UnauthorizedAccessException(
-                        $"Access denied: Cannot move documents outside your department. " +
-                        $"Target folder belongs to '{targetDepartmentName}' but you belong to '{userDepartmentName}'. " +
-                        $"Managers can only move documents within their own department folders.");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        string.Format(FolderMessageConstant.System.AccessDeniedCannotMoveDocumentsOutsideDepartment,
+                            targetDepartmentName, userDepartmentName));
                 }
 
                 _logger.LogInformation("Department boundary validation passed for user {UserId} to move document to folder {FolderId}",
@@ -1236,7 +1244,8 @@ namespace Document.API.Services.Implements
             catch (Exception ex) when (!(ex is UnauthorizedAccessException || ex is KeyNotFoundException))
             {
                 _logger.LogError(ex, "Error validating department boundary for document move by user {UserId}", userId);
-                throw new InvalidOperationException("Error validating department access for document move", ex);
+                throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR,
+                    FolderMessageConstant.System.ErrorValidatingDepartmentAccessForDocumentMove);
             }
         }
 

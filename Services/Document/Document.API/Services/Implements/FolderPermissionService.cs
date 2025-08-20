@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Document.API.Attributes;
 using System.Linq.Expressions; // ✅ ADDED: For Expression<Func<T, bool>>
+using Shared.Exceptions;
 
 namespace Document.API.Services.Implements
 {
@@ -95,7 +96,8 @@ namespace Document.API.Services.Implements
 
                 if (folder == null)
                 {
-                    throw new KeyNotFoundException($"Folder with ID {folderId} not found");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        string.Format(FolderMessageConstant.System.FolderNotFound, folderId));
                 }
 
                 var breakdown = new FolderPermissionBreakdownResponse
