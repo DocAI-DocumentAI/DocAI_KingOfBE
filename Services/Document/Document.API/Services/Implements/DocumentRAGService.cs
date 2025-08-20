@@ -39,7 +39,7 @@ namespace Document.API.Services.Implements
             _enrichmentService = enrichmentService;
 
             _enableDebugLogging = _configuration.GetValue<bool>("RAG:EnableDebugLogging", true);
-            _maxSearchResults = _configuration.GetValue<int>("RAG:MaxSearchResults", 10);
+            _maxSearchResults = _configuration.GetValue<int>("RAG:MaxSearchResults", 15);
             _baseMinRelevanceScore = _configuration.GetValue<double>("RAG:BaseMinRelevanceScore", 0.001);
         }
 
@@ -111,7 +111,7 @@ namespace Document.API.Services.Implements
                 Query = query,
                 UserId = userId,
                 Role = "ADMIN",
-                MaxResults = 5,
+                MaxResults = 15,
                 MinRelevanceScore = 0.001
             };
 
@@ -126,7 +126,7 @@ namespace Document.API.Services.Implements
                 Query = query,
                 UserId = userId,
                 Role = "ADMIN",
-                MaxResults = 5,
+                MaxResults = 15,
                 MinRelevanceScore = 0.001
             };
 
@@ -585,7 +585,7 @@ namespace Document.API.Services.Implements
                     .SelectMany(c => c.Partitions)
                     .Where(p => !string.IsNullOrWhiteSpace(p.Text))
                     .OrderByDescending(p => p.Relevance)
-                    .Take(5)
+                    .Take(15)
                     .ToList();
 
                 foreach (var partition in bestPartitions)
