@@ -31,6 +31,7 @@ namespace Document.Domain.Context
         public DbSet<GoogleOAuthToken> GoogleOAuthTokens { get; set; }
         public DbSet<Folder> Folders { get; set; }
         public DbSet<FolderPermission> FolderPermissions { get; set; }
+        public DbSet<AIConfiguration> AIConfigurations { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -66,6 +67,11 @@ namespace Document.Domain.Context
             modelBuilder.Entity<GoogleOAuthToken>()
                 .HasIndex(t => t.TokenType)
                 .IsUnique(); // Ensure only one token per type (company or user)
+
+            // Configure AIConfiguration
+            modelBuilder.Entity<AIConfiguration>()
+                .HasIndex(ai => ai.IsDefault)
+                .HasDatabaseName("IX_AIConfigurations_IsDefault");
 
             // Note: Folder and FolderPermission configurations are now handled by configuration classes
 

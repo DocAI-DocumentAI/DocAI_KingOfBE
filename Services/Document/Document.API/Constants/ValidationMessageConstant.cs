@@ -12,7 +12,7 @@ public class ValidationMessageConstant
         // Version name validation
         public const string VersionNameRequired = "Tên phiên bản không được để trống";
         public const string VersionNameMaxLength = "Tên phiên bản không được vượt quá {0} ký tự";
-        public const string VersionNameInvalidCharacters = "Tên phiên bản chỉ được chứa chữ cái, số, khoảng trắng, dấu chấm và gạch ngang";
+        public const string VersionNameInvalidCharacters = "Tên phiên bản chỉ được chứa chữ cái, số, khoảng trắng, dấu chấm, gạch ngang, dấu gạch chéo và dấu ngoặc đơn";
 
         // Summary validation
         public const string SummaryMaxLength = "Tóm tắt không được vượt quá {0} ký tự";
@@ -266,7 +266,7 @@ public static class ValidationConstants
     // Common regex patterns
     public const string VietnameseTextRegex = @"^[a-zA-ZÀ-ỹ0-9\s\.\-_,;:!?\(\)\[\]""''/]+$";
     public const string DocumentTypeNameRegex = @"^[a-zA-ZÀ-ỹ0-9\s\-_]+$";
-    public const string VersionNameRegex = @"^[a-zA-ZÀ-ỹ0-9\s\.\-_/]+$";
+    public const string VersionNameRegex = @"^[a-zA-ZÀ-ỹ0-9\s\.\-_/\(\):]+$";
     public const string TagRegex = @"^[a-zA-ZÀ-ỹ0-9\s\-]+$";
     public const string VietnameseNameRegex = @"^[a-zA-ZÀ-ỹ\s]+$";
 }

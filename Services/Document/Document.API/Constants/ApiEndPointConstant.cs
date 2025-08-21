@@ -203,4 +203,16 @@ public class ApiEndPointConstant
         public const string VerifyPermissions = ApiEndpoint + "/folder-sync/verify-permissions/{folderId}";
         public const string SyncPermissions = ApiEndpoint + "/folder-sync/sync-permissions/{folderId}";
     }
+
+    public static class AIConfiguration
+    {
+        public const string GetAll = ApiEndpoint + "/ai-configurations";
+        public const string GetDefault = ApiEndpoint + "/ai-configurations/default";
+        public const string GetById = ApiEndpoint + "/ai-configurations/{id}";
+        public const string Create = ApiEndpoint + "/ai-configurations";
+        public const string Update = ApiEndpoint + "/ai-configurations/{id}";
+        public const string Delete = ApiEndpoint + "/ai-configurations/{id}";
+        public const string SetDefault = ApiEndpoint + "/ai-configurations/{id}/set-default";
+        public const string Initialize = ApiEndpoint + "/ai-configurations/initialize";
+    }
 }

@@ -15,7 +15,7 @@ namespace Document.API.Services.Implements
 {
     public class DocumentRAGService : BaseService<DocumentRAGService>, IDocumentRAGService
     {
-        private readonly IKernelMemory _memory;
+        private readonly IKernelMemoryConfigurationService _kernelMemoryConfigService;
         private readonly INameLookupService _nameLookupService;
         private readonly IDocumentEnrichmentService _enrichmentService;
 
@@ -24,7 +24,7 @@ namespace Document.API.Services.Implements
         private readonly double _baseMinRelevanceScore;
 
         public DocumentRAGService(
-            IKernelMemory memory,
+            IKernelMemoryConfigurationService kernelMemoryConfigService,
             IUnitOfWork unitOfWork,
             ILogger<DocumentRAGService> logger,
             IConfiguration configuration,
@@ -34,7 +34,7 @@ namespace Document.API.Services.Implements
             IHttpContextAccessor httpContextAccessor)
             : base(unitOfWork, logger, mapper, httpContextAccessor, configuration)
         {
-            _memory = memory;
+            _kernelMemoryConfigService = kernelMemoryConfigService;
             _nameLookupService = nameLookupService;
             _enrichmentService = enrichmentService;
 
@@ -47,6 +47,9 @@ namespace Document.API.Services.Implements
         {
             var requestId = request.RequestId ?? Guid.NewGuid().ToString();
             var startTime = DateTime.UtcNow;
+
+            // Get configured Kernel Memory instance
+            var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
 
             try
             {
@@ -168,6 +171,9 @@ namespace Document.API.Services.Implements
             _logger.LogInformation("🔎 [GENERAL-{RequestId}] QueryType: {Type}, Limit: {Limit}, MinRelevance: {MinRel}",
                 requestId, queryType, limit, minRelevance);
 
+            // Get configured Kernel Memory instance
+            var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
+
             var citations = new List<Citation>();
 
             try
@@ -180,7 +186,7 @@ namespace Document.API.Services.Implements
                         .ByTag("status", "approved")
                         .ByTag("departmentId", request.DepartmentId);
 
-                    var deptResult = await _memory.SearchAsync(
+                    var deptResult = await memory.SearchAsync(
                         request.Query,
                         limit: limit,
                         filter: departmentFilter,
@@ -198,7 +204,7 @@ namespace Document.API.Services.Implements
                         .ByTag("status", "approved")
                         .ByTag("isPublic", "True");
 
-                    var publicResult = await _memory.SearchAsync(
+                    var publicResult = await memory.SearchAsync(
                         request.Query,
                         limit: limit - citations.Count,
                         filter: publicFilter,
@@ -221,7 +227,7 @@ namespace Document.API.Services.Implements
                         .ByTag("status", "approved")
                         .ByTag("ownerId", request.UserId);
 
-                    var ownerResult = await _memory.SearchAsync(
+                    var ownerResult = await memory.SearchAsync(
                         request.Query,
                         limit: limit - citations.Count,
                         filter: ownerFilter,
@@ -254,9 +260,12 @@ namespace Document.API.Services.Implements
 
             var citations = new List<Citation>();
 
+            // Get configured Kernel Memory instance
+            var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
+
             try
             {
-                var primaryResult = await _memory.SearchAsync(
+                var primaryResult = await memory.SearchAsync(
                     string.IsNullOrEmpty(request.Query) ? "*" : request.Query,
                     limit: 300,
                     filter: new MemoryFilter()
@@ -297,7 +306,7 @@ namespace Document.API.Services.Implements
                 {
                     _logger.LogDebug("🔍 [SPECIFIC-{RequestId}] Trying alternative field: {Field}", requestId, field);
 
-                    var altResult = await _memory.SearchAsync(
+                    var altResult = await memory.SearchAsync(
                         string.IsNullOrEmpty(request.Query) ? "*" : request.Query,
                         limit: 300,
                         filter: new MemoryFilter()

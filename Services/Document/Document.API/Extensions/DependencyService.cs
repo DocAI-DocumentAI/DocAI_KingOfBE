@@ -191,6 +191,8 @@ public static class DependencyService
         services.AddScoped<IDocumentRAGService, DocumentRAGService>();
         services.AddScoped<IDocumentNotificationService, DocumentNotificationService>();
         services.AddScoped<IDocumentExpirationService, DocumentExpirationService>();
+        services.AddScoped<IAIConfigurationService, AIConfigurationService>();
+        services.AddScoped<IKernelMemoryConfigurationService, KernelMemoryConfigurationService>();
 
 
         return services;
@@ -263,56 +265,53 @@ public static class DependencyService
 
     public static IServiceCollection AddKernelMemory(this IServiceCollection services, IConfiguration configuration)
     {
-        var config = new SemanticKernelConfig();
-
-        var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
-        var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
-        var connectionString = configuration.GetConnectionString("DefaultConnection");
-
-        var openRouterTextGenerationConfig = new OpenAIConfig
+        // Register a factory that creates IKernelMemory instances using database configuration
+        services.AddSingleton<IKernelMemory>(serviceProvider =>
         {
-            TextModel = openRouterConfig.Model,
-            APIKey = openRouterConfig.APIKey,
-            Endpoint = openRouterConfig.Endpoint,
-            TextModelMaxTokenTotal = openRouterConfig.MaxTokens
-        };
+            // Create a fallback instance for initial startup (before database is available)
+            var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
+            var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
+            var connectionString = configuration.GetConnectionString("DefaultConnection");
 
-        var openAITextEmbeddingConfig = new OpenAIConfig
-        {
-            EmbeddingModel = openAIConfig.EmbeddingModel,
-            Endpoint = "https://gpt1.shupremium.com/v1",
-            APIKey = openAIConfig.APIKey
-        };
-
-        var postgresConfig = new PostgresConfig
-        {
-            ConnectionString = connectionString
-        };
-
-        KernelMemoryBuilderBuildOptions kmbOptions = new()
-        {
-            AllowMixingVolatileAndPersistentData = true
-        };
-
-
-        var memory = new KernelMemoryBuilder()
-            .WithPostgresMemoryDb(postgresConfig)
-            .WithOpenAITextGeneration(openRouterTextGenerationConfig, new CL100KTokenizer())
-            .WithOpenAITextEmbeddingGeneration(openAITextEmbeddingConfig, new CL100KTokenizer())
-            // .WithCustomTextPartitioningOptions(new TextPartitioningOptions
-            // {
-            //     MaxTokensPerParagraph = 100, // recommended for text-embedding-3 family
-            //     OverlappingTokens = 200       // good balance of recall vs. cost
-            // })
-            .WithSearchClientConfig(new()
+            var openRouterTextGenerationConfig = new OpenAIConfig
             {
-                EmptyAnswer = "No results found. Please try again.",
-                AnswerTokens = 4000,
-                MaxMatchesCount = 30,
-            })
-            .Build<MemoryServerless>(kmbOptions);
+                TextModel = openRouterConfig?.Model ?? "openai/gpt-oss-120b",
+                APIKey = openRouterConfig?.APIKey ?? "",
+                Endpoint = openRouterConfig?.Endpoint ?? "https://openrouter.ai/api/v1",
+                TextModelMaxTokenTotal = 8192
+            };
 
-        services.AddSingleton<IKernelMemory>(memory);
+            var openAITextEmbeddingConfig = new OpenAIConfig
+            {
+                EmbeddingModel = openAIConfig?.EmbeddingModel ?? "text-embedding-3-small",
+                Endpoint = "https://gpt1.shupremium.com/v1",
+                APIKey = openAIConfig?.APIKey ?? ""
+            };
+
+            var postgresConfig = new PostgresConfig
+            {
+                ConnectionString = connectionString ?? ""
+            };
+
+            KernelMemoryBuilderBuildOptions kmbOptions = new()
+            {
+                AllowMixingVolatileAndPersistentData = true
+            };
+
+            var memory = new KernelMemoryBuilder()
+                .WithPostgresMemoryDb(postgresConfig)
+                .WithOpenAITextGeneration(openRouterTextGenerationConfig, new CL100KTokenizer())
+                .WithOpenAITextEmbeddingGeneration(openAITextEmbeddingConfig, new CL100KTokenizer())
+                .WithSearchClientConfig(new()
+                {
+                    EmptyAnswer = "No results found. Please try again.",
+                    AnswerTokens = openRouterConfig?.MaxTokens ?? 2000,
+                    MaxMatchesCount = 30,
+                })
+                .Build<MemoryServerless>(kmbOptions);
+
+            return memory;
+        });
 
         return services;
     }
