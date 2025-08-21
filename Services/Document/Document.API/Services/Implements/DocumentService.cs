@@ -31,7 +31,7 @@ public class DocumentService : IDocumentService
     private readonly IMapper _mapper;
     private readonly ILogger<DocumentService> _logger;
     private readonly IStorageService _storageService;
-    private readonly IKernelMemory _memory;
+    private readonly IKernelMemoryConfigurationService _kernelMemoryConfigService;
     private readonly IConfiguration _configuration;
     private readonly IDocumentEnrichmentService _enrichmentService;
     private readonly IHttpContextAccessor _httpContextAccessor;
@@ -40,13 +40,14 @@ public class DocumentService : IDocumentService
     private readonly ITokenUsageLogger _tokenUsageLogger;
     private readonly IRedisService _redisService;
     private readonly IFolderService _folderService;
+    private readonly IAIConfigurationService _aiConfigurationService;
 
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemory memory, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService, IDocumentPermissionManager permissionManager, ITokenUsageLogger tokenUsageLogger, IRedisService redisService, IFolderService folderService)
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemoryConfigurationService kernelMemoryConfigService, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService, IDocumentPermissionManager permissionManager, ITokenUsageLogger tokenUsageLogger, IRedisService redisService, IFolderService folderService, IAIConfigurationService aiConfigurationService)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
         _logger = logger;
-        _memory = memory;
+        _kernelMemoryConfigService = kernelMemoryConfigService;
         _storageService = storageService;
         _configuration = configuration;
         _enrichmentService = enrichmentService;
@@ -56,23 +57,24 @@ public class DocumentService : IDocumentService
         _tokenUsageLogger = tokenUsageLogger;
         _redisService = redisService;
         _folderService = folderService;
+        _aiConfigurationService = aiConfigurationService;
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
         var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
 
-        _logger.LogInformation("Kernel Memory is configured with:");
-        _logger.LogInformation("- Text Generation Model: {Model}", openRouterConfig?.Model);
+        _logger.LogInformation("Kernel Memory will be configured dynamically using database AI configuration");
+        _logger.LogInformation("- Fallback Text Generation Model: {Model}", openRouterConfig?.Model);
         _logger.LogInformation("- Text Embedding Model (OpenAI): {EmbeddingModel}", openAIConfig?.EmbeddingModel);
         //_logger.LogInformation("- OpenRouter API Key: {Key}", openRouterConfig?.APIKey?.Length >= 4 ? openRouterConfig.APIKey[^4..] : "Invalid or too short");
         //_logger.LogInformation("- OpenAI API Key: {Key}", openAIConfig?.APIKey?.Length >= 4 ? openAIConfig.APIKey[^4..] : "Invalid or too short");
 
-        if (_memory != null)
+        if (_kernelMemoryConfigService != null)
         {
-            _logger.LogInformation("Kernel Memory service is initialized and available.");
+            _logger.LogInformation("Kernel Memory configuration service is initialized and available.");
         }
         else
         {
-            _logger.LogWarning("Kernel Memory service is NOT initialized.");
+            _logger.LogWarning("Kernel Memory configuration service is NOT initialized.");
         }
         
         // Log enrichment service status
@@ -801,6 +803,9 @@ public class DocumentService : IDocumentService
         var userId = GetCurrentUserId();
         var userDepartmentId = GetCurrentUserDepartmentId();
 
+        // Get configured Kernel Memory instance
+        var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
+
         _logger.LogInformation("Starting AI analysis for file: {FileName} by user {UserId}",
             file.FileName, userId);
 
@@ -858,11 +863,19 @@ public class DocumentService : IDocumentService
                 await file.CopyToAsync(fs);
             });
 
-            var promptTask = Task.Run(() =>
+            var promptTask = Task.Run(async () =>
             {
-                var prompt = AiPromptConstant.DocumentAnalysis.MetadataExtractionPrompt;
-                var tokens = _tokenUsageLogger.EstimateTokenCount(prompt);
-                return new { Prompt = prompt, RequestTokens = tokens };
+                // Get AI configuration from database
+                var aiConfig = await _aiConfigurationService.GetDefaultConfigurationAsync();
+
+                // Use system prompt from database if available, otherwise fallback to constant
+                var systemPrompt = aiConfig?.SystemPrompt ?? AiPromptConstant.DocumentAnalysis.MetadataExtractionPrompt;
+                var tokens = _tokenUsageLogger.EstimateTokenCount(systemPrompt);
+
+                _logger.LogInformation("Using AI configuration - Model: {ModelName}, MaxTokens: {MaxTokens}, HasSystemPrompt: {HasSystemPrompt}",
+                    aiConfig?.ModelName ?? "default", aiConfig?.MaxToken ?? 2000, !string.IsNullOrEmpty(aiConfig?.SystemPrompt));
+
+                return new { Prompt = systemPrompt, RequestTokens = tokens, Config = aiConfig };
             });
 
             // Wait for file copy to complete
@@ -874,7 +887,7 @@ public class DocumentService : IDocumentService
             try
             {
                 _logger.LogInformation("Importing document to Kernel Memory for analysis...");
-                await _memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
+                await memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
             }
             catch (OperationCanceledException)
             {
@@ -891,7 +904,7 @@ public class DocumentService : IDocumentService
             try
             {
                 _logger.LogInformation("Making AI analysis call with 2-minute timeout...");
-                answer = await _memory.AskAsync(promptInfo.Prompt, filter: filter);
+                answer = await memory.AskAsync(promptInfo.Prompt, filter: filter);
 
                 if (answer != null && answer.RelevantSources.Any() &&
                     !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
@@ -1044,7 +1057,7 @@ public class DocumentService : IDocumentService
                 {
                     try
                     {
-                        await _memory.DeleteDocumentAsync(tempDocId);
+                        await memory.DeleteDocumentAsync(tempDocId);
                         _logger.LogDebug("Deleted temporary document from memory: {TempDocId}", tempDocId);
                     }
                     catch (Exception ex)
@@ -1139,6 +1152,9 @@ public class DocumentService : IDocumentService
 
         _logger.LogInformation("Starting enhanced summary regeneration for file: {FileName} by user {UserId}", file.FileName, userId);
 
+        // Get configured Kernel Memory instance
+        var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
+
         var response = new RegenerateSummaryResponse
         {
             Success = false,
@@ -1176,7 +1192,7 @@ public class DocumentService : IDocumentService
             try
             {
                 _logger.LogInformation("Importing document to Kernel Memory for summary regeneration...");
-                await _memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
+                await memory.ImportDocumentAsync(tempFilePath, documentId: tempDocId);
             }
             catch (OperationCanceledException)
             {
@@ -1193,7 +1209,7 @@ public class DocumentService : IDocumentService
             try
             {
                 _logger.LogInformation("Making AI summary generation call with 2-minute timeout...");
-                answer = await _memory.AskAsync(promptInfo.Prompt, filter: filter);
+                answer = await memory.AskAsync(promptInfo.Prompt, filter: filter);
 
                 if (answer != null && answer.RelevantSources.Any() &&
                     !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
@@ -1343,7 +1359,7 @@ public class DocumentService : IDocumentService
                 {
                     try
                     {
-                        await _memory.DeleteDocumentAsync(tempDocId);
+                        await memory.DeleteDocumentAsync(tempDocId);
                         _logger.LogDebug("Deleted temporary document from memory: {TempDocId}", tempDocId);
                     }
                     catch (Exception ex)
@@ -1436,6 +1452,9 @@ public class DocumentService : IDocumentService
         var userId = GetCurrentUserId();
         var userDepartmentId = GetCurrentUserDepartmentId();
         var userRole = GetRoleFromJwt();
+
+        // Get configured Kernel Memory instance
+        var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
 
         _logger.LogInformation("Attempting to delete approved document {DocumentId} by user {UserId} with role {UserRole}",
             documentId, userId, userRole);
@@ -1557,7 +1576,7 @@ public class DocumentService : IDocumentService
             {
                 try
                 {
-                    await _memory.DeleteDocumentAsync(versionId).WaitAsync(TimeSpan.FromSeconds(10));
+                    await memory.DeleteDocumentAsync(versionId).WaitAsync(TimeSpan.FromSeconds(10));
                     _logger.LogInformation("Deleted version {VersionId} from Kernel Memory", versionId);
                 }
                 catch (TimeoutException)
@@ -1604,6 +1623,9 @@ public class DocumentService : IDocumentService
 
         _logger.LogInformation("Attempting to delete document version {VersionId} from document {DocumentId} by user {UserId} with role {UserRole}",
             versionId, documentId, userId, userRole);
+
+        // Get configured Kernel Memory instance
+        var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
 
         // Business Rule: Only Admins can delete approved/archived document versions
         if (userRole != Roles.Admin)
@@ -1697,7 +1719,7 @@ public class DocumentService : IDocumentService
         {
             try
             {
-                await _memory.DeleteDocumentAsync(versionId).WaitAsync(TimeSpan.FromSeconds(10));
+                await memory.DeleteDocumentAsync(versionId).WaitAsync(TimeSpan.FromSeconds(10));
                 _logger.LogInformation("Deleted version {VersionId} from Kernel Memory", versionId);
             }
             catch (TimeoutException)
@@ -2508,6 +2530,9 @@ public class DocumentService : IDocumentService
         _logger.LogInformation("Starting semantic search - User: {UserId}, Department: {DepartmentId}, Query: '{Query}', HybridScoring: {HybridScoring}, Scope: {Scope}",
             userId, userDepartmentId, request.Query.Substring(0, Math.Min(50, request.Query.Length)), request.EnableHybridScoring, request.Scope);
 
+        // Get configured Kernel Memory instance
+        var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
+
         try
         {
             // Validate request parameters
@@ -2527,7 +2552,7 @@ public class DocumentService : IDocumentService
             _logger.LogDebug("Executing Kernel Memory search with limit: {Limit}, minRelevance: {MinRelevance}",
                 request.MaxResults, request.MinRelevance);
 
-            var searchResult = await _memory.SearchAsync(
+            var searchResult = await memory.SearchAsync(
                 request.Query,
                 limit: request.MaxResults,
                 filter: memoryFilter,
@@ -2631,6 +2656,9 @@ public class DocumentService : IDocumentService
         _logger.LogInformation("Starting enhanced semantic search - User: {UserId}, Department: {DepartmentId}, Query: '{Query}', RequestId: {RequestId}",
             userId, userDepartmentId, request.Query.Substring(0, Math.Min(50, request.Query.Length)), requestId);
 
+        // Get configured Kernel Memory instance
+        var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
+
         try
         {
             // Validate request parameters
@@ -2656,7 +2684,7 @@ public class DocumentService : IDocumentService
             try
             {
                 _logger.LogInformation("Making AI conversational search call with 2-minute timeout...");
-                answer = await _memory.AskAsync(prompt, filter: memoryFilter);
+                answer = await memory.AskAsync(prompt, filter: memoryFilter);
 
                 if (answer != null && answer.RelevantSources.Any() &&
                     !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
@@ -3108,7 +3136,9 @@ public class DocumentService : IDocumentService
             .SelectMany(citation => citation.Partitions)
             .Where(partition => partition.Tags.ContainsKey(SemanticSearchConstant.MemoryTags.DocumentId))
             .SelectMany(partition => partition.Tags[SemanticSearchConstant.MemoryTags.DocumentId])
+            .Where(id => !string.IsNullOrEmpty(id))
             .Distinct()
+            .Cast<string>()
             .ToList();
 
         if (!documentIds.Any())

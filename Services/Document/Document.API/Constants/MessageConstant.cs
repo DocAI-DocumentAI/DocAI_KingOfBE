@@ -68,4 +68,18 @@ public class MessageConstant
     public const string UnauthorizedToKeepClaimAlive = "You are not authorized to keep this claim alive.";
     public const string InvalidStatusForApprovalQueue = "Invalid status for approval queue list. Only 'Pending' 'Rejected' documents can be accepted.";
     public const string GoogleDriveNotConfigured = "Google Drive is not configured";
+
+    // AI Configuration messages
+    public const string AIConfigurationNotFound = "AI configuration not found.";
+    public const string AIConfigurationModelNameExists = "AI configuration with this model name already exists.";
+    public const string AIConfigurationModelNameRequired = "Model name is required.";
+    public const string AIConfigurationModelIdRequired = "Model ID is required.";
+    public const string AIConfigurationMaxTokenInvalid = "Max token must be between 1 and 32000.";
+    public const string AIConfigurationSystemPromptTooLong = "System prompt must not exceed 10000 characters.";
+    public const string AIConfigurationCreatedSuccessfully = "AI configuration created successfully.";
+    public const string AIConfigurationUpdatedSuccessfully = "AI configuration updated successfully.";
+    public const string AIConfigurationDeletedSuccessfully = "AI configuration deleted successfully.";
+    public const string AIConfigurationSetAsDefaultSuccessfully = "AI configuration set as default successfully.";
+    public const string AIConfigurationDefaultInitialized = "Default AI configuration initialized successfully.";
+    public const string AIConfigurationDefaultAlreadyExists = "Default AI configuration already exists.";
 }

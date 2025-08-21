@@ -120,7 +120,7 @@ Yêu cầu:
 
 <h3>Điểm Chính</h3>
 <ul>
-<li>Xác định và liệt kê 3-5 điểm quan trọng nhất từ tài liệu</li>
+<li>Xác định và liệt kê các điểm quan trọng nhất từ tài liệu</li>
 <li>Tập trung vào khái niệm cốt lõi, mục tiêu chính và phát hiện chủ yếu</li>
 <li>Làm rõ phạm vi và đối tượng áp dụng của tài liệu</li>
 </ul>
@@ -166,7 +166,7 @@ Yêu cầu:
         /// <summary>
         /// Enhanced prompt for semantic search that provides concise conversational AI responses with document sources
         /// </summary>
-        public const string ConversationalSearchPrompt = @"Trả lời ngắn gọn câu hỏi dựa trên tài liệu có liên quan. Giới hạn 2-3 câu, tập trung vào thông tin chính.
+        public const string ConversationalSearchPrompt = @"Trả lời ngắn gọn câu hỏi dựa trên tài liệu có liên quan (chỉ trong nội dung của tài liệu, cấm thêm thông tin bên ngoài). Giới hạn 2-3 câu, tập trung vào thông tin chính.
 
 Yêu cầu:
 - Trả lời trực tiếp, ngắn gọn, 2-3 câu
