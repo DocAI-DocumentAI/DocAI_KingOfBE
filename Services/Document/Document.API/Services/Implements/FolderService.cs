@@ -362,25 +362,96 @@ namespace Document.API.Services.Implements
                 await _unitOfWork.GetRepository<Folder>().InsertAsync(folder);
                 createdFolder = folder;
 
-                // Step 3: Set initial permissions
+                // Step 3: Handle permissions (inheritance + initial permissions)
+                bool permissionsSet = false;
+
+                // ✅ IMPROVED: Inherit permissions from parent folder if requested and parent exists
+                if (request.InheritParentPermissions && parentFolder != null)
+                {
+                    _logger.LogInformation("Inheriting permissions from parent folder {ParentId} for new subfolder {FolderId}. " +
+                        "Parent folder: {ParentName}, New folder: {FolderName}",
+                        parentFolder.Id, folder.Id, parentFolder.Name, folder.Name);
+
+                    var inheritedCount = await InheritPermissionsFromParentAsync(folder.Id, parentFolder.Id);
+                    _logger.LogInformation("Successfully inherited {Count} permissions from parent folder {ParentId} to folder {FolderId}",
+                        inheritedCount, parentFolder.Id, folder.Id);
+                    permissionsSet = true;
+                }
+                else if (request.InheritParentPermissions && parentFolder == null)
+                {
+                    _logger.LogWarning("Cannot inherit permissions: parent folder not found for folder {FolderId}. " +
+                        "Creating folder without inherited permissions.", folder.Id);
+                }
+                else
+                {
+                    _logger.LogInformation("Permission inheritance disabled for folder {FolderId}. " +
+                        "Only initial permissions will be set.", folder.Id);
+                }
+
+                // Set additional initial permissions if provided
                 if (request.InitialPermissions?.Any() == true)
                 {
+                    _logger.LogInformation("Setting {Count} initial permissions for folder {FolderId}",
+                        request.InitialPermissions.Count, folder.Id);
+
+                    int initialPermissionsSet = 0;
                     foreach (var permission in request.InitialPermissions)
                     {
-                        var folderPermission = new FolderPermission
+                        // Validate permission data
+                        if (string.IsNullOrEmpty(permission.UserId) && string.IsNullOrEmpty(permission.DepartmentId))
                         {
-                            FolderId = folder.Id,
-                            UserId = permission.UserId,
-                            DepartmentId = permission.DepartmentId,
-                            PermissionType = permission.PermissionType,
-                            ExpiresAt = permission.ExpiresAt,
-                            IsActive = true,
-                            CreatedBy = userId,
-                            CreatedTime = DateTime.UtcNow
-                        };
+                            _logger.LogWarning("Skipping invalid permission: both UserId and DepartmentId are null");
+                            continue;
+                        }
 
-                        await _unitOfWork.GetRepository<FolderPermission>().InsertAsync(folderPermission);
+                        // Check if this permission already exists (from inheritance or previous initial permissions)
+                        var existingPermission = await _unitOfWork.GetRepository<FolderPermission>()
+                            .SingleOrDefaultAsync(predicate: fp =>
+                                fp.FolderId == folder.Id &&
+                                fp.UserId == permission.UserId &&
+                                fp.DepartmentId == permission.DepartmentId &&
+                                fp.IsActive);
+
+                        if (existingPermission == null)
+                        {
+                            var folderPermission = new FolderPermission
+                            {
+                                FolderId = folder.Id,
+                                UserId = permission.UserId,
+                                DepartmentId = permission.DepartmentId,
+                                PermissionType = permission.PermissionType,
+                                ExpiresAt = permission.ExpiresAt,
+                                IsActive = true,
+                                IsInherited = false, // Initial permissions are not inherited
+                                CreatedBy = userId,
+                                CreatedTime = DateTime.UtcNow
+                            };
+
+                            await _unitOfWork.GetRepository<FolderPermission>().InsertAsync(folderPermission);
+                            initialPermissionsSet++;
+
+                            _logger.LogDebug("Added initial permission: {PermissionType} for {UserOrDept}",
+                                permission.PermissionType,
+                                permission.UserId ?? $"Dept:{permission.DepartmentId}");
+                        }
+                        else
+                        {
+                            _logger.LogDebug("Initial permission already exists (possibly inherited): {PermissionType} for {UserOrDept}",
+                                permission.PermissionType,
+                                permission.UserId ?? $"Dept:{permission.DepartmentId}");
+                        }
                     }
+
+                    _logger.LogInformation("Successfully set {Count} new initial permissions for folder {FolderId}",
+                        initialPermissionsSet, folder.Id);
+                    permissionsSet = true;
+                }
+
+                // Log if no permissions were set (might be intentional for system folders)
+                if (!permissionsSet && parentFolder != null)
+                {
+                    _logger.LogWarning("No permissions set for subfolder {FolderId} - inheritance disabled and no initial permissions provided",
+                        folder.Id);
                 }
 
                 // Step 4: Update parent folder counts
@@ -609,7 +680,9 @@ namespace Document.API.Services.Implements
                 // Handle permissions
                 if (!request.PreservePermissions && newParentFolder != null)
                 {
-                    await InheritPermissionsFromParentAsync(folderId, request.NewParentFolderId);
+                    var inheritedCount = await InheritPermissionsFromParentAsync(folderId, request.NewParentFolderId);
+                    _logger.LogInformation("Inherited {Count} permissions from new parent folder {ParentId} after move",
+                        inheritedCount, request.NewParentFolderId);
                 }
 
                 await _unitOfWork.CommitAsync();
@@ -1630,30 +1703,59 @@ namespace Document.API.Services.Implements
             return descendant.FullPath.StartsWith(ancestor.FullPath + "/");
         }
 
-        private async Task InheritPermissionsFromParentAsync(string folderId, string parentFolderId)
+        private async Task<int> InheritPermissionsFromParentAsync(string folderId, string parentFolderId)
         {
             var parentPermissions = await _unitOfWork.GetRepository<FolderPermission>()
                 .GetListAsync(predicate: fp => fp.FolderId == parentFolderId && fp.IsActive);
 
+            _logger.LogDebug("Found {Count} active permissions in parent folder {ParentId} to inherit",
+                parentPermissions.Count, parentFolderId);
+
+            int inheritedCount = 0;
             foreach (var parentPermission in parentPermissions)
             {
-                var inheritedPermission = new FolderPermission
-                {
-                    FolderId = folderId,
-                    UserId = parentPermission.UserId,
-                    DepartmentId = parentPermission.DepartmentId,
-                    PermissionType = parentPermission.PermissionType,
-                    IsInherited = true,
-                    ParentPermissionId = parentPermission.Id,
-                    IsDenied = parentPermission.IsDenied,
-                    ExpiresAt = parentPermission.ExpiresAt,
-                    IsActive = true,
-                    CreatedBy = "System",
-                    CreatedTime = DateTime.UtcNow
-                };
+                // Check if this permission already exists to avoid duplicates
+                var existingPermission = await _unitOfWork.GetRepository<FolderPermission>()
+                    .SingleOrDefaultAsync(predicate: fp =>
+                        fp.FolderId == folderId &&
+                        fp.UserId == parentPermission.UserId &&
+                        fp.DepartmentId == parentPermission.DepartmentId &&
+                        fp.IsActive);
 
-                await _unitOfWork.GetRepository<FolderPermission>().InsertAsync(inheritedPermission);
+                if (existingPermission == null)
+                {
+                    var inheritedPermission = new FolderPermission
+                    {
+                        FolderId = folderId,
+                        UserId = parentPermission.UserId,
+                        DepartmentId = parentPermission.DepartmentId,
+                        PermissionType = parentPermission.PermissionType,
+                        IsInherited = true,
+                        ParentPermissionId = parentPermission.Id,
+                        IsDenied = parentPermission.IsDenied,
+                        ExpiresAt = parentPermission.ExpiresAt,
+                        IsActive = true,
+                        CreatedBy = "System",
+                        CreatedTime = DateTime.UtcNow
+                    };
+
+                    await _unitOfWork.GetRepository<FolderPermission>().InsertAsync(inheritedPermission);
+                    inheritedCount++;
+
+                    _logger.LogDebug("Inherited permission: {PermissionType} for {UserOrDept} from parent {ParentId}",
+                        parentPermission.PermissionType,
+                        parentPermission.UserId ?? $"Dept:{parentPermission.DepartmentId}",
+                        parentFolderId);
+                }
+                else
+                {
+                    _logger.LogDebug("Skipped duplicate permission: {PermissionType} for {UserOrDept} already exists",
+                        parentPermission.PermissionType,
+                        parentPermission.UserId ?? $"Dept:{parentPermission.DepartmentId}");
+                }
             }
+
+            return inheritedCount;
         }
 
         private async Task ApplyPermissionToSubfoldersAsync(string folderId, SetFolderPermissionRequest request, string userId)

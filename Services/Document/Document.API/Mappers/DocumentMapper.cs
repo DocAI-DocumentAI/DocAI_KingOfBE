@@ -161,9 +161,37 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.FolderName, opt => opt.MapFrom(src => src.Folder != null ? src.Folder.Name : null))
             .ForMember(dest => dest.TargetFolderName, opt => opt.MapFrom(src => src.TargetFolder != null ? src.TargetFolder.Name : null));
 
+        // Create Draft Request mappings
+        CreateMap<CreateDraftRequest, DocumentFile>()
+            .ForMember(dest => dest.Title, opt => opt.MapFrom(src => src.Title))
+            .ForMember(dest => dest.Description, opt => opt.MapFrom(src => src.Description))
+            .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentTypeId));
+
+        CreateMap<CreateDraftRequest, DocumentVersion>()
+            .ForMember(dest => dest.Title, opt => opt.MapFrom(src => src.Title))
+            .ForMember(dest => dest.VersionName, opt => opt.MapFrom(src => src.VersionName))
+            .ForMember(dest => dest.Summary, opt => opt.MapFrom(src => src.Summary))
+            .ForMember(dest => dest.SignedBy, opt => opt.MapFrom(src => src.SignedBy))
+            .ForMember(dest => dest.EffectiveFrom, opt => opt.MapFrom(src => src.EffectiveFrom))
+            .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil))
+            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic))
+            .ForMember(dest => dest.TargetFolderId, opt => opt.MapFrom(src => src.FolderId));
+
+        // Update Draft Request mappings
         CreateMap<UpdateDocumentDraftRequest, DocumentFile>()
             .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => !string.IsNullOrEmpty(src.DocumentTypeId) ? src.DocumentTypeId : null));
         CreateMap<UpdateDocumentDraftRequest, DocumentVersion>()
+            .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic))
+            .ForMember(dest => dest.TargetFolderId, opt => opt.MapFrom(src => src.FolderId));
+
+        // Create New Version Draft Request mappings
+        CreateMap<CreateNewVersionDraftRequest, DocumentVersion>()
+            .ForMember(dest => dest.Title, opt => opt.MapFrom(src => src.Title))
+            .ForMember(dest => dest.VersionName, opt => opt.MapFrom(src => src.VersionName))
+            .ForMember(dest => dest.Summary, opt => opt.MapFrom(src => src.Summary))
+            .ForMember(dest => dest.SignedBy, opt => opt.MapFrom(src => src.SignedBy))
+            .ForMember(dest => dest.EffectiveFrom, opt => opt.MapFrom(src => src.EffectiveFrom))
+            .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil))
             .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.IsPublic))
             .ForMember(dest => dest.TargetFolderId, opt => opt.MapFrom(src => src.FolderId));
 

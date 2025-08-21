@@ -374,54 +374,38 @@ public class DocumentService : IDocumentService
         }
 
         //6. save the generel infomation of the file into the DocumentFile table
-        var documentFile = new DocumentFile
-        {
-            Title = request.Title,
-            Description = request.Description,
-            DepartmentId = departmentId,
-            OwnerId = userId,
-            CreatedBy = userId,
-            ReplacementId = request.ReplacementDocumentId,
-            // Do not set IsReplaced on the NEW document; it applies to the document being replaced.
-            IsReplaced = false,
-            DocumentTypeId = request.DocumentTypeId
-        };
+        var documentFile = _mapper.Map<DocumentFile>(request);
+        documentFile.DepartmentId = departmentId;
+        documentFile.OwnerId = userId;
+        documentFile.CreatedBy = userId;
+        documentFile.ReplacementId = request.ReplacementDocumentId;
+        // Do not set IsReplaced on the NEW document; it applies to the document being replaced.
+        documentFile.IsReplaced = false;
 
-        var version = new DocumentVersion
-        {
-            DocumentFileId = documentFile.Id,
-            DocumentFile = documentFile,
-            Title = request.Title,
-            VersionName = request.VersionName,
-            Status = StatusEnum.Draft, // Use the Enum for status
-            IsOfficial = false, // New drafts are not official
-            IsPublic = request.IsPublic, // Set public/private status from request
-            Summary = request.Summary, // Placeholder for summary
-            FileName = request.File.FileName,
-            FileType = Path.GetExtension(request.File.FileName),
-            FileSize = request.File.Length,
-            FilePath = uploadResponse.FileIdentifier, // Google Drive file ID for new uploads
-            FileHash = fileHash,
-            SignedBy = request.SignedBy,
-            EffectiveFrom = request.EffectiveFrom,
-            EffectiveUntil = request.EffectiveUntil,
-            CreatedBy = userId,
-            LastSubmitted = DateTime.UtcNow,
-            SubmittedBy = userId,
-        };
-
+        var version = _mapper.Map<DocumentVersion>(request);
+        version.DocumentFileId = documentFile.Id;
+        version.DocumentFile = documentFile;
+        version.Status = StatusEnum.Draft; // Use the Enum for status
+        version.IsOfficial = false; // New drafts are not official
         version.FileName = request.File.FileName;
+        version.FileType = Path.GetExtension(request.File.FileName);
+        version.FileSize = request.File.Length;
+        version.FilePath = uploadResponse.FileIdentifier; // Google Drive file ID for new uploads
+        version.FileHash = fileHash;
+        version.CreatedBy = userId;
+        version.LastSubmitted = DateTime.UtcNow;
+        version.SubmittedBy = userId;
 
         // ✅ NEW FOLDER DESIGN: Always assign to drafts folder initially
         // Documents start in drafts and move to functional folders when approved
         version.FolderId = targetFolderId; // This is the drafts folder ID
+        version.TargetFolderId = request.FolderId;
 
-        // Store target functional folder for approval workflow (if specified)
-        if (!string.IsNullOrEmpty(request.FolderId))
+        // TargetFolderId is now automatically mapped from request.FolderId by AutoMapper
+        if (!string.IsNullOrEmpty(version.TargetFolderId))
         {
-            version.TargetFolderId = request.FolderId;
             _logger.LogInformation("Document {Title} created in drafts, target folder {FolderId} stored for approval",
-                request.Title, request.FolderId);
+                request.Title, version.TargetFolderId);
         }
 
         await ProcessTagsAsync(version, request.Tags, userId);
@@ -2200,7 +2184,10 @@ public class DocumentService : IDocumentService
 
         var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: dv => dv.DocumentFileId == documentId && dv.Id == versionId,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                          .Include(v => v.Folder)
+                          .Include(v => v.TargetFolder)
         );
 
         if (documentVersion == null)
@@ -2227,7 +2214,10 @@ public class DocumentService : IDocumentService
 
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
             predicate: dv => dv.DocumentFileId == documentId,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                          .Include(v => v.Folder)
+                          .Include(v => v.TargetFolder),
             orderBy: q => q.OrderBy(v => v.Status == StatusEnum.Approved ? 0 : 1) // Approved versions first
                           .ThenByDescending(v => v.LastUpdatedTime) // Then by most recent update
         );
@@ -2311,6 +2301,13 @@ public class DocumentService : IDocumentService
                 throw new ErrorException(StatusCodes.Status409Conflict, ErrorCode.CONFLICT, $"This file already exists in the system as '{existingFile.DocumentFile.Title}' (Version: {existingFile.VersionName}, Status: {existingFile.Status}).");
             }
 
+            // ✅ NEW FOLDER DESIGN: Get drafts folder for initial placement
+            var draftsFolderId = await GetSystemFolderIdAsync(documentToUpdate.DepartmentId, request.IsPublic, FolderType.Draft);
+            if (string.IsNullOrEmpty(draftsFolderId))
+            {
+                throw new InvalidOperationException("Could not find or create drafts folder for new version upload");
+            }
+
             // Create new version - inherit departmentId and replacementId from existing DocumentFile
             // Note: DepartmentId and ReplacementId are automatically inherited from the DocumentFile
             var newVersion = new DocumentVersion
@@ -2333,9 +2330,18 @@ public class DocumentService : IDocumentService
                 CreatedBy = userId,
                 LastSubmitted = DateTime.UtcNow,
                 SubmittedBy = userId,
+
+                // ✅ NEW FOLDER DESIGN: Set folder assignments
+                FolderId = draftsFolderId, // Always start in drafts folder
+                TargetFolderId = request.FolderId, // Target folder for approval workflow
             };
 
-            await ProcessTagsAsync(newVersion, request.Tags, userId);
+            // ✅ Log folder assignments for debugging
+            _logger.LogInformation("Created new version for document {DocumentId}: " +
+                "FolderId (drafts) = {FolderId}, TargetFolderId = {TargetFolderId}",
+                documentToUpdate.Id, draftsFolderId, request.FolderId);
+
+            await ProcessTagsAsync(newVersion, request.Tags ?? new List<string>(), userId);
 
             // Insert the new version directly instead of updating the DocumentFile
             // This avoids concurrency issues with the DocumentFile entity

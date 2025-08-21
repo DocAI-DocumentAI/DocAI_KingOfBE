@@ -48,5 +48,25 @@ namespace Document.API.Payload.Response
         /// Effective date until which the document is valid
         /// </summary>
         public DateTime? EffectiveUntil { get; set; }
+
+        /// <summary>
+        /// Current folder ID where the document version is located
+        /// </summary>
+        public string? FolderId { get; set; }
+
+        /// <summary>
+        /// Current folder name where the document version is located
+        /// </summary>
+        public string? FolderName { get; set; }
+
+        /// <summary>
+        /// Target folder ID where the document should be moved when approved
+        /// </summary>
+        public string? TargetFolderId { get; set; }
+
+        /// <summary>
+        /// Target folder name where the document should be moved when approved
+        /// </summary>
+        public string? TargetFolderName { get; set; }
     }
 }

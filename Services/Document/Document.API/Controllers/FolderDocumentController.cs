@@ -331,5 +331,41 @@ namespace Document.API.Controllers
                     ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while retrieving document folder path"));
             }
         }
+
+        /// <summary>
+        /// Get detailed information for a document within folder context
+        /// </summary>
+        /// <param name="documentVersionId">Document version ID</param>
+        /// <returns>Detailed document information with folder context, permissions, and navigation</returns>
+        [HttpGet(ApiEndPointConstant.FolderDocument.GetDocumentDetail)]
+        [CustomAuthorize]
+        [ProducesResponseType(typeof(ApiResponse<FolderDocumentDetailResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetDocumentDetail([FromRoute] string documentVersionId)
+        {
+            try
+            {
+                var result = await _folderDocumentService.GetDocumentDetailAsync(documentVersionId);
+
+                return Ok(ApiResponse<FolderDocumentDetailResponse>.Success(result,
+                    "Document details retrieved successfully"));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse<object>.Error("DOCUMENT_NOT_FOUND", ex.Message));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Forbid(ApiResponse<object>.Error("ACCESS_DENIED", ex.Message).ToString());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving document detail for {DocumentVersionId}", documentVersionId);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while retrieving document details"));
+            }
+        }
     }
 }
