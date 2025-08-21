@@ -39,7 +39,16 @@ namespace Document.API.Payload.Request.Folder
         public bool IsPublic { get; set; } = false;
 
         /// <summary>
+        /// Whether to inherit permissions from parent folder (default: true for subfolders)
+        /// If false, only InitialPermissions will be set
+        /// When true and parent folder exists, all parent permissions are automatically inherited
+        /// </summary>
+        public bool InheritParentPermissions { get; set; } = true;
+
+        /// <summary>
         /// Initial permissions to set on the folder
+        /// If InheritParentPermissions is true, these will be added to inherited permissions
+        /// If InheritParentPermissions is false, only these permissions will be set
         /// </summary>
         public List<InitialFolderPermission>? InitialPermissions { get; set; }
     }

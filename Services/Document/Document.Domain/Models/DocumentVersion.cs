@@ -42,6 +42,12 @@ namespace Document.Domain.Models
         /// </summary>
         public string? FolderId { get; set; }
 
+        /// <summary>
+        /// Target folder where the document should be moved when approved
+        /// Used during the approval workflow to determine final destination
+        /// </summary>
+        public string? TargetFolderId { get; set; }
+
         // Navigation Properties
         public DocumentFile DocumentFile { get; set; }
 
@@ -50,6 +56,12 @@ namespace Document.Domain.Models
         /// </summary>
         [ForeignKey(nameof(FolderId))]
         public virtual Folder? Folder { get; set; }
+
+        /// <summary>
+        /// Target folder for approval workflow
+        /// </summary>
+        [ForeignKey(nameof(TargetFolderId))]
+        public virtual Folder? TargetFolder { get; set; }
 
         public virtual ICollection<DocumentTag> DocumentTags { get; set; }
         public virtual ApprovalClaim? ApprovalClaim { get; set; }

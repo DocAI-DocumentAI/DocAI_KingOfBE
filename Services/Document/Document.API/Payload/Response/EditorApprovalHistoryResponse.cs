@@ -154,5 +154,25 @@ namespace Document.API.Payload.Response
         /// Download count for the document
         /// </summary>
         public int? TotalDownloads { get; set; }
+
+        /// <summary>
+        /// Current folder ID where the document is located
+        /// </summary>
+        public string? FolderId { get; set; }
+
+        /// <summary>
+        /// Target folder ID where the document was moved when approved
+        /// </summary>
+        public string? TargetFolderId { get; set; }
+
+        /// <summary>
+        /// Current folder name where the document is located
+        /// </summary>
+        public string? FolderName { get; set; }
+
+        /// <summary>
+        /// Target folder name where the document was moved when approved
+        /// </summary>
+        public string? TargetFolderName { get; set; }
     }
 }

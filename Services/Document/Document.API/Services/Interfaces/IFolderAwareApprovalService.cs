@@ -458,6 +458,26 @@ namespace Document.API.Services.Interfaces
         public FolderSummaryResponse? ContainingFolder { get; set; }
 
         /// <summary>
+        /// Current folder ID where the document is located
+        /// </summary>
+        public string? FolderId { get; set; }
+
+        /// <summary>
+        /// Target folder ID where the document will be moved when approved
+        /// </summary>
+        public string? TargetFolderId { get; set; }
+
+        /// <summary>
+        /// Current folder name where the document is located
+        /// </summary>
+        public string? FolderName { get; set; }
+
+        /// <summary>
+        /// Target folder name where the document will be moved when approved
+        /// </summary>
+        public string? TargetFolderName { get; set; }
+
+        /// <summary>
         /// Approval deadline (legacy field)
         /// </summary>
         public DateTime? ApprovalDeadline { get; set; }
@@ -635,6 +655,16 @@ namespace Document.API.Services.Interfaces
         /// New status
         /// </summary>
         public string NewStatus { get; set; }
+
+        /// <summary>
+        /// Target folder ID where the document was moved when approved
+        /// </summary>
+        public string? TargetFolderId { get; set; }
+
+        /// <summary>
+        /// Target folder name where the document was moved when approved
+        /// </summary>
+        public string? TargetFolderName { get; set; }
     }
 
     /// <summary>

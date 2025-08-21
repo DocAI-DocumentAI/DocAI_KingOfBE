@@ -52,6 +52,16 @@ namespace Document.API.Constants
             public const string PermissionRevokedSuccessfully = "Permission revoked from '{0}' on folder '{1}' successfully";
             public const string PermissionInheritedFromParent = "Permission inherited from parent folder '{0}'";
             public const string PermissionConflictDetected = "Permission conflict detected: {0}";
+            public const string AccessDeniedToDepartmentFolders = "Access denied to department folders";
+            public const string AccessDeniedToUpdateFolder = "Access denied to update this folder";
+            public const string AccessDeniedToMoveToLocation = "Access denied to move folder to this location";
+            public const string AccessDeniedToManagePermissions = "Access denied to manage folder permissions";
+            public const string AccessDeniedToCreateRootFolders = "Access denied to create root folders in other departments";
+            public const string AccessDeniedToFolder = "Access denied to this folder";
+            public const string AccessDeniedToSearchInFolder = "Access denied to search in this folder";
+            public const string AccessDeniedToMoveFromSourceFolder = "Access denied to move document from source folder";
+            public const string AccessDeniedToMoveToTargetFolder = "Access denied to move document to target folder";
+            public const string AccessDeniedToUploadToTargetFolder = "Access denied to upload documents to target folder";
         }
 
         #endregion
@@ -88,6 +98,9 @@ namespace Document.API.Constants
             public const string GoogleDriveQuotaExceeded = "Google Drive storage quota exceeded. Cannot create folder '{0}'";
             public const string GoogleDrivePermissionDenied = "Google Drive permission denied for operation on folder '{0}'";
             public const string GoogleDriveRateLimitExceeded = "Google Drive rate limit exceeded. Operation will be retried automatically";
+            public const string FileUploadFailed = "File upload failed: {0}";
+            public const string FolderNotFoundInDatabase = "Folder '{0}' not found in database. Functional folders must be created via FolderService first.";
+            public const string FailedToDeleteFolder = "Failed to delete folder {0}";
         }
 
         #endregion
@@ -141,6 +154,15 @@ namespace Document.API.Constants
             public const string UnexpectedError = "An unexpected error occurred during folder operation: {0}";
             public const string ServiceUnavailable = "Folder service is temporarily unavailable. Please try again later";
             public const string MaintenanceMode = "Folder operations are temporarily disabled for maintenance";
+            public const string NoFoldersFoundForDepartment = "No folders found for department {0}";
+            public const string NoPublicFoldersFound = "No public folders found";
+            public const string TargetFolderNotFound = "Target folder not found";
+            public const string PermissionNotFound = "Permission with ID {0} not found";
+            public const string ErrorValidatingDepartmentAccess = "Error validating department access";
+            public const string FailedToMoveInGoogleDrive = "Failed to move folder in Google Drive";
+            public const string ErrorValidatingDepartmentAccessForDocumentMove = "Error validating department access for document move";
+            public const string DocumentVersionNotFound = "Document version {0} not found";
+            public const string AccessDeniedCannotMoveDocumentsOutsideDepartment = "Access denied: Cannot move documents outside your department. Target folder belongs to '{0}' but you belong to '{1}'. Managers can only move documents within their own department folders.";
         }
 
         #endregion

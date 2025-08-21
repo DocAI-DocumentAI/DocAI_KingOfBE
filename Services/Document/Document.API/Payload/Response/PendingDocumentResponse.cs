@@ -126,5 +126,25 @@ namespace Document.API.Payload.Response
         /// Previous rejection reason if this is a resubmission
         /// </summary>
         public string? PreviousRejectionReason { get; set; }
+
+        /// <summary>
+        /// Current folder ID where the document is located
+        /// </summary>
+        public string? FolderId { get; set; }
+
+        /// <summary>
+        /// Target folder ID where the document will be moved when approved
+        /// </summary>
+        public string? TargetFolderId { get; set; }
+
+        /// <summary>
+        /// Current folder name where the document is located
+        /// </summary>
+        public string? FolderName { get; set; }
+
+        /// <summary>
+        /// Target folder name where the document will be moved when approved
+        /// </summary>
+        public string? TargetFolderName { get; set; }
     }
 }
