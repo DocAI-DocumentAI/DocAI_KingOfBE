@@ -15,11 +15,10 @@
         public const double ContextWarningThreshold = 0.8;
 
         // History management
-        public const int MaxHistoryMessages = 10;
-        public const int MinHistoryMessages = 4;
-        public const int ContextValidationMessageCount = 10;
-        public const int MaxChatHistoryCount = 20;
-        public const int RecentMessagesCount = 10;
+        public const int MaxHistoryMessages = 20;      // 10 → 20 (tăng ít)
+        public const int MinHistoryMessages = 6;       // 4 → 6 (tăng ít)
+        public const int MaxChatHistoryCount = 50;     // 20 → 50 (tăng ít) 
+        public const int RecentMessagesCount = 15;     // 10 → 15 (tăng ít)
 
         // Mistral specific
         public const int MistralMaxHistoryCount = 7;

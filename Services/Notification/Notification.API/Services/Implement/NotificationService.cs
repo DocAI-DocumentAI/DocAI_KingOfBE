@@ -281,7 +281,7 @@ public class NotificationService : INotificationService
 
             // ✅ STEP 1: First check for duplicates to avoid unnecessary processing
             var checkPeriod = type == NotificationType.Expired
-                ? DateTime.UtcNow.AddDays(-1)  // 30 days for expired (only once per document)
+                ? DateTime.UtcNow.AddDays(-1)  // 1 days for expired (only once per document)
                 : DateTime.UtcNow.AddDays(-7);  // 7 days for near-expiration
 
             var existingNotification = await logRepo.AnyAsync(l =>
