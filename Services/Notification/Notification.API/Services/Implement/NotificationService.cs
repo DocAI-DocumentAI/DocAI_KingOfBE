@@ -274,17 +274,17 @@ public class NotificationService : INotificationService
         try
         {
             var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
-            _logger.LogInformation("Sending {Type} notification to {Email} for document {DocId}/{Version} at Vietnam time {VietnamTime}",
-                type, user.Email, document.DocumentId, document.Version, vietnamTime);
+            _logger.LogInformation("Attempting to send {Type} notification to {Email} for document {DocId}/{Version}",
+                type, user.Email, document.DocumentId, document.Version);
 
-            // ✅ SIMPLIFIED: Check duplicate only in last hour for same recipient
             var logRepo = _unitOfWork.GetRepository<NotificationLog>();
 
+            // ✅ STEP 1: First check for duplicates to avoid unnecessary processing
             var checkPeriod = type == NotificationType.Expired
-                ? DateTime.UtcNow.AddHours(-24)
-                : DateTime.UtcNow.AddHours(-24);
+                ? DateTime.UtcNow.AddDays(-1)  // 1 days for expired (only once per document)
+                : DateTime.UtcNow.AddDays(-7);  // 7 days for near-expiration
 
-            var alreadySent = await logRepo.AnyAsync(l =>
+            var existingNotification = await logRepo.AnyAsync(l =>
                 l.DocumentId == document.DocumentId &&
                 l.DocumentVersion == document.Version &&
                 l.NotificationType == type &&
@@ -292,23 +292,79 @@ public class NotificationService : INotificationService
                 l.IsSent == true &&
                 l.SentAt >= checkPeriod);
 
-            if (alreadySent)
+            if (existingNotification)
             {
-                _logger.LogDebug("Notification already sent to {Email} for document {DocId}/{Version} in last hour",
-                    user.Email, document.DocumentId, document.Version);
+                _logger.LogDebug("🚫 Duplicate notification skipped for {Email} - already sent {Type} for {DocId}/{Version}",
+                    user.Email, type, document.DocumentId, document.Version);
                 return;
             }
 
-            var documentLink = $"https://docai.asia/document/{document.DocumentId}";
+            // ✅ STEP 2: Create unique processing record to claim this notification
+            var uniqueKey = $"{document.DocumentId}_{document.Version}_{type}_{user.Email}_{DateTime.UtcNow:yyyyMMddHHmmss}";
+            var processingId = Guid.NewGuid();
 
+            var processingLog = new NotificationLog
+            {
+                Id = processingId,
+                DocumentId = document.DocumentId,
+                DocumentVersion = document.Version,
+                NotificationType = type,
+                RecipientType = RecipientType.Email,
+                RecipientAddress = user.Email,
+                Subject = "PROCESSING...",
+                Message = uniqueKey, // Temporary unique identifier
+                IsSent = false,
+                SentAt = null,
+                CreateAt = vietnamTime,
+                ErrorMessage = "Processing in progress..."
+            };
+
+            // ✅ STEP 3: Atomic insert to claim this notification
+            try
+            {
+                await logRepo.InsertAsync(processingLog);
+                await _unitOfWork.CommitAsync();
+                _logger.LogDebug("🔒 Claimed notification processing for {Email} - ProcessingId: {ProcessingId}",
+                    user.Email, processingId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("⚠️ Failed to claim notification processing for {Email} - likely duplicate: {Error}",
+                    user.Email, ex.Message);
+                return;
+            }
+
+            // ✅ STEP 4: Double-check for duplicates after claiming (race condition protection)
+            var duplicateAfterClaim = await logRepo.AnyAsync(l =>
+                l.DocumentId == document.DocumentId &&
+                l.DocumentVersion == document.Version &&
+                l.NotificationType == type &&
+                l.RecipientAddress == user.Email &&
+                l.IsSent == true &&
+                l.SentAt >= checkPeriod &&
+                l.Id != processingId); // Exclude our processing record
+
+            if (duplicateAfterClaim)
+            {
+                _logger.LogWarning("🚫 Duplicate found after claiming - cleaning up processing record for {Email}", user.Email);
+                logRepo.DeleteAsync(processingLog);
+                await _unitOfWork.CommitAsync();
+                return;
+            }
+
+            // ✅ STEP 5: Get email template
             var template = await _emailTemplateService.GetEmailTemplateByNameAsync(templateName);
             if (template == null)
             {
-                _logger.LogWarning("Template '{TemplateName}' not found", templateName);
+                _logger.LogError("❌ Template '{TemplateName}' not found", templateName);
+                processingLog.ErrorMessage = $"Template '{templateName}' not found";
+                logRepo.UpdateAsync(processingLog);
+                await _unitOfWork.CommitAsync();
                 return;
             }
 
-            // ✅ Sử dụng VietnamTimeHelper cho expiration status
+            // ✅ STEP 6: Prepare email content
+            var documentLink = $"https://docai.asia/document/{document.DocumentId}";
             var expirationStatus = type == NotificationType.Expired ? "đã hết hạn" : "sắp hết hạn";
             var daysUntilExpiration = GetDaysUntilExpiration(document.EffectiveUntil);
 
@@ -324,49 +380,76 @@ public class NotificationService : INotificationService
                 .Replace("{{DepartmentName}}", document.DepartmentName ?? "Unknown Department")
                 .Replace("{{ExpirationStatus}}", expirationStatus)
                 .Replace("{{DaysUntilExpiration}}", daysUntilExpiration)
-                .Replace("{{VietnamTime}}", vietnamTime.ToString("dd/MM/yyyy HH:mm")); // ✅ Thêm Vietnam time
+                .Replace("{{VietnamTime}}", vietnamTime.ToString("dd/MM/yyyy HH:mm"));
 
             var subject = type == NotificationType.Expired
                 ? $"[{document.DepartmentName}] Tài liệu '{document.Title}' đã hết hạn"
                 : $"[{document.DepartmentName}] Tài liệu '{document.Title}' sắp hết hạn";
 
+            // ✅ STEP 7: Send email
+            _logger.LogDebug("📧 Sending email to {Email} with subject: {Subject}", user.Email, subject);
             var emailSent = await _emailService.SendEmailAsync(user.Email, subject, emailBody);
 
-            // ✅ SIMPLIFIED: Log without dismiss fields
-            var log = new NotificationLog
-            {
-                DocumentId = document.DocumentId,
-                DocumentVersion = document.Version,
-                NotificationType = type,
-                RecipientType = RecipientType.Email,
-                RecipientAddress = user.Email,
-                Subject = subject,
-                Message = emailBody,
-                IsSent = emailSent,
-                SentAt = emailSent ? vietnamTime : null,
-                ErrorMessage = emailSent ? null : "Failed to send email notification"
-            };
+            // ✅ STEP 8: Update processing record with final result
+            processingLog.Subject = subject;
+            processingLog.Message = emailBody;
+            processingLog.IsSent = emailSent;
+            processingLog.SentAt = emailSent ? vietnamTime : null;
+            processingLog.ErrorMessage = emailSent ? null : "Failed to send email notification";
 
-            await _logService.CreateLogAsync(log);
+            logRepo.UpdateAsync(processingLog);
+            await _unitOfWork.CommitAsync();
 
             if (emailSent)
             {
-                _logger.LogInformation("Successfully sent {Type} notification to {Email} for document {DocId}/{Version} at Vietnam time {VietnamTime}",
-                    type, user.Email, document.DocumentId, document.Version, vietnamTime);
+                _logger.LogInformation("✅ Successfully sent {Type} notification to {Email} for document {DocId}/{Version} - ProcessingId: {ProcessingId}",
+                    type, user.Email, document.DocumentId, document.Version, processingId);
+
+                // ✅ STEP 9: Send SignalR notification
+                try
+                {
+                    await SendSignalRNotificationAsync(user, type, subject, document);
+                    _logger.LogDebug("📡 SignalR notification sent to {UserId}", user.UserId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "⚠️ Failed to send SignalR notification to {UserId}", user.UserId);
+                    // Don't fail the whole operation for SignalR issues
+                }
             }
             else
             {
-                _logger.LogError("Failed to send {Type} notification to {Email} for document {DocId}/{Version}",
-                    type, user.Email, document.DocumentId, document.Version);
+                _logger.LogError("❌ Failed to send {Type} notification to {Email} for document {DocId}/{Version} - ProcessingId: {ProcessingId}",
+                    type, user.Email, document.DocumentId, document.Version, processingId);
             }
-
-            // Send SignalR notification
-            await SendSignalRNotificationAsync(user, type, subject, document);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error sending notification to {Email} for document {DocId}/{Version}",
+            _logger.LogError(ex, "💥 Unexpected error sending notification to {Email} for document {DocId}/{Version}",
                 user.Email, document.DocumentId, document.Version);
+
+            // Try to clean up any processing record if it exists
+            try
+            {
+                var logRepo = _unitOfWork.GetRepository<NotificationLog>();
+                var processingRecords = await logRepo.GetListAsync(predicate: l =>
+                    l.DocumentId == document.DocumentId &&
+                    l.DocumentVersion == document.Version &&
+                    l.NotificationType == type &&
+                    l.RecipientAddress == user.Email &&
+                    l.IsSent == false &&
+                    l.Subject == "PROCESSING...");
+
+                foreach (var record in processingRecords)
+                {
+                    logRepo.DeleteAsync(record);
+                }
+                await _unitOfWork.CommitAsync();
+            }
+            catch (Exception cleanupEx)
+            {
+                _logger.LogWarning(cleanupEx, "⚠️ Failed to cleanup processing records for {Email}", user.Email);
+            }
         }
     }
 
