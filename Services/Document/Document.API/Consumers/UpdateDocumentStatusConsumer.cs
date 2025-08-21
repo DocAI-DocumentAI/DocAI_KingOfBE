@@ -145,7 +145,6 @@ namespace Document.API.Consumers
                 var versionKmId = document.Id.ToString();
                 _logger.LogInformation("Removing expired document {VersionId} from Kernel Memory at Vietnam time {VietnamTime}",
                     document.Id, vietnamTime);
-
                 // ✅ Complete removal like in ApprovalService - no re-indexing
                 try
                 {
