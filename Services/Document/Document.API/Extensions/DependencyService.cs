@@ -307,7 +307,7 @@ public static class DependencyService
             .WithSearchClientConfig(new()
             {
                 EmptyAnswer = "No results found. Please try again.",
-                AnswerTokens = 1500,
+                AnswerTokens = 4000,
                 MaxMatchesCount = 30,
             })
             .Build<MemoryServerless>(kmbOptions);

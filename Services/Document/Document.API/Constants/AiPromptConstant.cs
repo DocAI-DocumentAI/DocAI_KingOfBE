@@ -24,7 +24,7 @@ public static class AiPromptConstant
 - ""summary"": string — Phân tích tài liệu này và tạo một bản tóm tắt có cấu trúc chi tiết bằng tiếng Việt để hỗ trợ người dùng trong quá trình tạo tài liệu. Định dạng phản hồi dưới dạng HTML với các phần sau:
 <h3>Điểm Chính</h3>
 <ul>
-<li>Liệt kê tất cả các chủ đề chính và thông tin quan trọng nhất từ tài liệu</li>
+<li>Liệt kê các chủ đề chính và thông tin quan trọng nhất từ tài liệu</li>
 <li>Tập trung vào các khái niệm cốt lõi và phát hiện quan trọng</li>
 <li>Làm nổi bật mục đích và phạm vi của tài liệu</li>
 </ul>
@@ -76,7 +76,7 @@ Yêu cầu:
 
 <h3>Điểm Chính</h3>
 <ul>
-<li>Liệt kê 3-5 chủ đề chính và thông tin quan trọng nhất từ tài liệu</li>
+<li>Liệt kê các chủ đề chính và thông tin quan trọng nhất từ tài liệu</li>
 <li>Tập trung vào các khái niệm cốt lõi và phát hiện quan trọng</li>
 <li>Làm nổi bật mục đích và phạm vi của tài liệu</li>
 </ul>
