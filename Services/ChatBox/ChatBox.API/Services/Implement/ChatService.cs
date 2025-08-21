@@ -169,155 +169,59 @@ namespace ChatBox.API.Services.Implement
         /// </summary>
         private async Task<string> GenerateAIResponse(ChatSession session, string userMessage, string documentContent, List<DocumentInfo> documentSources, bool hasDocumentContext)
         {
-            var message = userMessage.ToLowerInvariant().Trim();
-            if (System.Text.RegularExpressions.Regex.IsMatch(message, @"^(tôi là ai|who am i|ai tôi|tôi là gì)"))
-            {
-                try
-                {
-                    var preferences = await _preferenceService.GetEffectivePreferencesAsync(session.Id, session.UserId);
-                    var userContext = GetUserContextFromJWT();
-
-                    var displayName = !string.IsNullOrEmpty(preferences.UserName)
-                        ? preferences.UserName
-                        : userContext.FullName ?? "User";
-
-                    var response = new StringBuilder();
-                    response.AppendLine($"Chào {displayName}!");
-                    response.AppendLine();
-                    response.AppendLine("**Thông tin về bạn:**");
-                    response.AppendLine($"• **Tên hiển thị:** {displayName}");
-                    response.AppendLine($"• **Họ và tên:** {userContext.FullName ?? "Không rõ"}");
-                    response.AppendLine($"• **Phòng ban:** {userContext.DepartmentName ?? "Không rõ"}");
-                    response.AppendLine($"• **Vai trò:** {userContext.Role ?? "Không rõ"}");
-
-                    if (preferences.HasAnyPreferences && preferences.ChatbotCharacteristics.Any())
-                    {
-                        response.AppendLine($"• **Phong cách trò chuyện:** {string.Join(", ", preferences.ChatbotCharacteristics.Take(3))}");
-                    }
-
-                    return response.ToString();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to get user identity");
-                    return "Xin lỗi, tôi gặp sự cố khi lấy thông tin của bạn.";
-                }
-            }
-
-            // ✅ NEW: Try resolve document references from context
-            var resolvedMessage = await TryResolveDocumentReference(userMessage, session.Id);
-            if (resolvedMessage != null)
-            {
-                _logger.LogInformation("✅ [CONTEXT-RESOLVED] Using resolved message for AI processing");
-                userMessage = resolvedMessage; // Use resolved message instead
-            }
-            else if (IsVagueDocumentQuestion(userMessage))
-            {
-                // Only ask for clarification if cannot resolve from context
-                return "Bạn đang đề cập đến tài liệu nào cụ thể? Vui lòng cho biết tên tài liệu để tôi có thể hỗ trợ chính xác.";
-            }
-
-            // ✅ ENHANCED: Build context-aware chat history
-            var contextAwareChatHistory = await BuildContextAwareChatHistory(session.Id);
-            contextAwareChatHistory.AddUserMessage(userMessage);
+            var cleanChatHistory = await BuildCleanChatHistoryAsync(session.Id);
+            cleanChatHistory.AddUserMessage(userMessage);
 
             var aiChatHistory = hasDocumentContext
-                ? CreateEnhancedChatHistoryForAI(contextAwareChatHistory, documentContent, userMessage, documentSources)
-                : contextAwareChatHistory;
+                ? CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage, documentSources)
+                : cleanChatHistory;
 
             LogDocumentContextUsage(hasDocumentContext);
 
             return await _semanticKernelService.GetChatResponseAsync(session.ModelName, aiChatHistory);
         }
-        private async Task<ChatHistory> BuildContextAwareChatHistory(string sessionId)
-        {
-            var messages = await GetSessionMessages(sessionId);
-            var chatHistory = new ChatHistory();
 
-            // ✅ Build base system prompt with user preferences
-            var session = await GetSessionByIdOnly(sessionId);
-            var baseSystemPrompt = await BuildBaseSystemPromptAsync(sessionId);
-
-            // ✅ Extract document references from conversation
-            var docReferences = ExtractDocumentReferencesFromHistory(messages.ToList());
-
-            // ✅ Enhance system prompt with context memory
-            var enhancedSystemPrompt = baseSystemPrompt;
-
-            if (docReferences.Any())
-            {
-                var contextInfo = new StringBuilder();
-                contextInfo.AppendLine();
-                contextInfo.AppendLine("🧠 **CONVERSATION MEMORY - DOCUMENT REFERENCES:**");
-                contextInfo.AppendLine("(AI phải sử dụng thông tin này để hiểu references trong câu hỏi)");
-                contextInfo.AppendLine();
-
-                foreach (var kvp in docReferences.Take(10)) // Limit to avoid token overflow
-                {
-                    contextInfo.AppendLine($"📄 **Số {kvp.Key}:** {kvp.Value}");
-                }
-
-                contextInfo.AppendLine();
-                contextInfo.AppendLine("**REFERENCE RESOLUTION RULES:**");
-                contextInfo.AppendLine("- Khi user nói 'số X', AI biết đó là document name tương ứng");
-                contextInfo.AppendLine("- Khi user hỏi 'bạn nhớ số 3 từ khi nào', AI giải thích context");
-                contextInfo.AppendLine("- Luôn sử dụng tên tài liệu chính xác thay vì số");
-
-                enhancedSystemPrompt += contextInfo.ToString();
-
-                _logger.LogInformation("🧠 [MEMORY] Injected {Count} document references into context", docReferences.Count);
-            }
-
-            chatHistory.AddSystemMessage(enhancedSystemPrompt);
-
-            // Add recent messages
-            var recentMessages = messages.TakeLast(ChatConstants.MaxHistoryMessages).ToList();
-            AddMessagesToHistory(chatHistory, recentMessages);
-
-            return await EnsureTokenLimitCompliance(chatHistory, sessionId, enhancedSystemPrompt, messages);
-        }
-        private bool IsVagueDocumentQuestion(string userMessage)
-        {
-            var message = userMessage.ToLowerInvariant().Trim();
-
-            // Only consider vague if has number reference but no other context clues
-            var hasNumberReference = System.Text.RegularExpressions.Regex.IsMatch(message,
-                @"(?:tài liệu|document)\s+(?:số|number)\s+\d+");
-
-            if (!hasNumberReference) return false;
-
-            // Not vague if user is clearly asking for a list
-            var hasListingContext = System.Text.RegularExpressions.Regex.IsMatch(message,
-                @"(?:có bao nhiêu|liệt kê|danh sách|tất cả|count|list)");
-
-            return !hasListingContext;
-        }
         /// <summary>
         /// ✅ UPDATED: Generate streaming AI response with raw content
         /// </summary>
-
         private async Task<IAsyncEnumerable<string>> GenerateAIResponseStream(ChatSession session, string userMessage, string documentContent, List<DocumentInfo> documentSources)
         {
-            _logger.LogInformation("🔵 [STREAM-START] Processing streaming request for session {SessionId}", session.Id);
+            var cleanChatHistory = await BuildCleanChatHistoryAsync(session.Id);
+            cleanChatHistory.AddUserMessage(userMessage);
+            var aiChatHistory = CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage, documentSources);
 
-            // ✅ STEP 1: Try resolve document references from conversation context
-            var resolvedMessage = await TryResolveDocumentReference(userMessage, session.Id);
 
-            // ✅ STEP 2: Build context-aware chat history (includes user preferences + conversation memory)
-            var contextAwareChatHistory = await BuildContextAwareChatHistory(session.Id);
-            contextAwareChatHistory.AddUserMessage(userMessage);
-
-            var aiChatHistory = CreateEnhancedChatHistoryForAI(
-                contextAwareChatHistory,
-                documentContent,
-                userMessage,
-                documentSources);
-
-            LogDocumentContextUsage(documentSources?.Any() == true);
-            var streamResponse = await _semanticKernelService.GetChatResponseStreamAsync(session.ModelName, aiChatHistory);
-            return streamResponse;
+            return await _semanticKernelService.GetChatResponseStreamAsync(session.ModelName, aiChatHistory);
         }
+        private string BuildUserInfoSection()
+        {
+            try
+            {
+                var userContext = GetUserContextFromJWT();
 
+                var displayName = userContext.FullName;
+                if (string.IsNullOrEmpty(displayName))
+                    displayName = userContext.Email?.Split('@')[0];
+                if (string.IsNullOrEmpty(displayName))
+                    displayName = "Người dùng";
+
+                var userInfo = new StringBuilder();
+                userInfo.AppendLine("👤 **THÔNG TIN NGƯỜI DÙNG HIỆN TẠI:**");
+                userInfo.AppendLine($"🏷️ **Tên gọi:** {displayName}");
+                userInfo.AppendLine($"📧 **Email:** {userContext.Email ?? "Không rõ"}");
+                userInfo.AppendLine($"🏢 **Phòng ban:** {userContext.DepartmentName ?? "Không rõ"}");
+                userInfo.AppendLine($"👤 **Chức vụ:** {userContext.Role ?? "Không rõ"}");
+                userInfo.AppendLine($"📋 **Hướng dẫn:** Gọi người dùng là '{displayName}', trả lời bằng tiếng Việt");
+                userInfo.AppendLine();
+
+                return userInfo.ToString();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to build user info section");
+                return "👤 **THÔNG TIN NGƯỜI DÙNG:** Không xác định\n\n";
+            }
+        }
         /// <summary>
         /// ✅ KEEP EXISTING: CreateEnhancedChatHistoryForAI - same prompt logic, now with raw content
         /// </summary>
@@ -332,6 +236,8 @@ namespace ChatBox.API.Services.Implement
 
                 if (!string.IsNullOrEmpty(documentContent) || documentSources?.Any() == true)
                 {
+                    var userInfo = BuildUserInfoSection();
+
                     // ✅ BUILD COMPLETE DOCUMENT PACKAGE với metadata
                     var completeDocumentInfo = BuildCompleteDocumentPackage(documentContent, documentSources, currentQuestion);
                     var actualSourceDocumentTitle = GetActualSourceDocumentTitle(documentContent, documentSources);
@@ -343,7 +249,7 @@ namespace ChatBox.API.Services.Implement
                         : "[Trích từ tài liệu nội bộ]";
 
                     // ✅ STRICT: Base system prompt FIRST, then document-specific rules
-                    enhancedSystemPrompt = $@"{originalSystemMessage.Content}
+                    enhancedSystemPrompt = $@"{userInfo}{originalSystemMessage.Content}
 
 🔒 STRICT DOCUMENT EXPERT - ZERO TOLERANCE FOR VIOLATIONS 🔒
 
@@ -464,7 +370,9 @@ Tuy nhiên, tài liệu không đề cập chi tiết về [MISSING_PART].
                 else
                 {
                     // ✅ NO DOCUMENT: Friendly but clear refusal
-                    enhancedSystemPrompt = $@"{originalSystemMessage.Content}
+                    var userInfo = BuildUserInfoSection();
+
+                    enhancedSystemPrompt = $@"{userInfo}{originalSystemMessage.Content}
 
 🤖 NO DOCUMENT MODE - STRICT GUIDELINES
 
@@ -1570,6 +1478,25 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
             if (_tokenCountService.IsContextWithinLimit(chatHistory, currentModelName))
                 return chatHistory;
 
+            // ✅ THÊM: Sliding window logic thay vì hard cut
+            var reducedHistory = new ChatHistory();
+            reducedHistory.AddSystemMessage(baseSystemPrompt);
+
+            // ✅ Thử từ MaxHistoryMessages xuống MinHistoryMessages
+            for (int messageCount = ChatConstants.MaxHistoryMessages; messageCount >= ChatConstants.MinHistoryMessages; messageCount -= 5)
+            {
+                var testHistory = new ChatHistory();
+                testHistory.AddSystemMessage(baseSystemPrompt);
+
+                var recentMessages = allMessages.TakeLast(messageCount).ToList();
+                AddMessagesToHistory(testHistory, recentMessages);
+
+                if (_tokenCountService.IsContextWithinLimit(testHistory, currentModelName))
+                {
+                    _logger.LogInformation("Optimized to {MessageCount} messages for token limit", messageCount);
+                    return testHistory;
+                }
+            }
             return await CreateReducedChatHistory(baseSystemPrompt, allMessages);
         }
 
@@ -1606,13 +1533,14 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
         {
             try
             {
-                // ✅ SAME CALL: Chỉ method implementation thay đổi, call không đổi
                 var preferences = await _preferenceService.GetEffectivePreferencesAsync(sessionId, userId);
-                // ✅ FIXED: GetEffectivePreferencesAsync giờ có logic đúng (Session Override > User Default)
+                var userContext = GetUserContextFromJWT();
 
-                var enhancedPrompt = basePrompt;
+                // ✅ THÊM user info ở đầu base prompt
+                var userInfo = BuildUserInfoSection();
+                var enhancedPrompt = $@"{userInfo}{basePrompt}";
 
-                // ✅ SAME: Các helper methods này KHÔNG ĐỔI
+                // ✅ Giữ nguyên logic cũ để thêm characteristics
                 enhancedPrompt = AddUserNameToPrompt(enhancedPrompt, preferences.UserName);
                 enhancedPrompt = AddCharacteristicsToPrompt(enhancedPrompt, preferences.ChatbotCharacteristics);
                 enhancedPrompt = AddAdditionalInfoToPrompt(enhancedPrompt, preferences.AdditionalInfo);
@@ -1622,7 +1550,18 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to enhance prompt with user preferences for user {UserId}, session {SessionId}. Using base prompt.", userId, sessionId);
-                return basePrompt; // ✅ SAME: Fallback logic không đổi
+
+                // ✅ Fallback với user info từ JWT
+                try
+                {
+                    var userInfo = BuildUserInfoSection();
+                    return $@"{userInfo}{basePrompt}";
+                }
+                catch (Exception fallbackEx)
+                {
+                    _logger.LogWarning(fallbackEx, "Failed to add user context, using base prompt only");
+                    return basePrompt;
+                }
             }
         }
 
@@ -1670,37 +1609,44 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
 
         private (ChatMessage UserMessage, ChatMessage AiMessage) CreateChatMessages(string userContent, string aiContent, ChatSession session, string userId, List<DocumentInfo> documentSources = null)
         {
+            var baseTimestamp = DateTime.UtcNow;
+            // ✅ SỬA: Dùng AddTicks(1) thay vì AddMilliseconds(1) để tránh race condition
+            var userTimestamp = baseTimestamp;
+            var aiTimestamp = baseTimestamp.AddTicks(1);
+
             var userMessage = new ChatMessage
             {
                 Content = userContent,
                 Role = MessageRole.User,
                 TokenCount = _tokenCountService.CountTokens(userContent, session.ModelName),
                 SessionId = session.Id,
-                Timestamp = DateTime.UtcNow,
+                Timestamp = userTimestamp, // ✅ SỬA timestamp
                 DocumentSources = "",
                 CreatedBy = userId,
                 UpdatedBy = userId,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = userTimestamp, // ✅ SỬA CreatedAt
+                UpdatedAt = userTimestamp
             };
+
             string sourcesString = null;
             if (documentSources?.Any() == true)
             {
                 sourcesString = string.Join(";", documentSources.Select(doc =>
                  $"{doc.DocumentId ?? ""}|{doc.Title ?? ""}|{doc.RelevanceScore:F3}"));
             }
+
             var aiMessage = new ChatMessage
             {
                 Content = aiContent,
                 Role = MessageRole.Assistant,
                 TokenCount = _tokenCountService.CountTokens(aiContent, session.ModelName),
                 SessionId = session.Id,
-                Timestamp = DateTime.UtcNow.AddMilliseconds(1), // Ensure order
-                DocumentSources = sourcesString, // ✅ Lưu string đơn giản
+                Timestamp = aiTimestamp, // ✅ SỬA timestamp
+                DocumentSources = sourcesString,
                 CreatedBy = "system",
                 UpdatedBy = "system",
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = aiTimestamp, // ✅ SỬA CreatedAt  
+                UpdatedAt = aiTimestamp
             };
 
             return (userMessage, aiMessage);
@@ -2048,11 +1994,14 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
         private async Task<List<ChatMessage>> GetSessionMessages(string sessionId)
         {
             var result = await _unitOfWork.GetRepository<ChatMessage>()
-                .GetListAsync(
-                    predicate: m => m.SessionId == sessionId,
-                    orderBy: q => q.OrderBy(m => m.CreatedAt));
+         .GetListAsync(
+             predicate: m => m.SessionId == sessionId,
+             orderBy: q => q.OrderBy(m => m.CreatedAt));
 
-            return result.ToList();
+            // ✅ CHỈ THÊM: Take limit để tránh load quá nhiều messages
+            return result.Count > ChatConstants.MaxHistoryMessages
+                ? result.Skip(result.Count - ChatConstants.MaxHistoryMessages).ToList()
+                : result.ToList();
         }
 
         #endregion
@@ -2239,67 +2188,14 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
             bool hasDocumentContext,
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            var message = userMessageContent.ToLowerInvariant().Trim();
-            if (System.Text.RegularExpressions.Regex.IsMatch(message, @"^(tôi là ai|who am i|ai tôi)"))
-            {
-                var preferences = await _preferenceService.GetEffectivePreferencesAsync(session.Id, userId);
-                var userContext = GetUserContextFromJWT();
-                var displayName = !string.IsNullOrEmpty(preferences.UserName) ? preferences.UserName : userContext.FullName ?? "User";
-
-                var identityResponse = $"Chào {displayName}!\n\n**Thông tin về bạn:**\n• **Tên hiển thị:** {displayName}\n• **Phòng ban:** {userContext.DepartmentName ?? "Không rõ"}";
-
-                yield return new ChatStreamResponse
-                {
-                    SessionId = session.Id,
-                    Message = identityResponse,
-                    MessageChunk = identityResponse,
-                    Role = MessageRole.Assistant,
-                    Timestamp = DateTime.UtcNow,
-                    ModelUsed = session.ModelName,
-                    DocumentSources = null,
-                    HasDocumentContext = false,
-                    IsComplete = true
-                };
-
-                await SaveStreamingChatData(identityResponse, session.Id, userId, userMessageContent, isFirstMessage, session.ModelName, documentSources);
-                yield break;
-            }
-
-            // ✅ Try resolve context before processing stream
-            var resolvedMessage = await TryResolveDocumentReference(userMessageContent, session.Id);
-            if (resolvedMessage != null)
-            {
-                _logger.LogInformation("🎯 [STREAM-RESOLVED] Using context-resolved message");
-                // Continue with resolved message - let normal streaming handle it
-            }
-            else if (IsVagueDocumentQuestion(userMessageContent))
-            {
-                var clarification = "Bạn đang đề cập đến tài liệu nào cụ thể? Vui lòng cho biết tên tài liệu để tôi có thể hỗ trợ chính xác.";
-
-                yield return new ChatStreamResponse
-                {
-                    SessionId = session.Id,
-                    Message = clarification,
-                    MessageChunk = clarification,
-                    Role = MessageRole.Assistant,
-                    Timestamp = DateTime.UtcNow,
-                    ModelUsed = session.ModelName,
-                    DocumentSources = documentSources?.Take(5).ToList(),
-                    HasDocumentContext = hasDocumentContext,
-                    IsComplete = true
-                };
-
-                await SaveStreamingChatData(clarification, session.Id, userId, userMessageContent, isFirstMessage, session.ModelName, documentSources);
-                yield break;
-            }
-
-            // ✅ Continue with normal streaming (existing logic)
-            _logger.LogInformation("🔵 [STREAM-START] Session: {SessionId}, Context-aware: {HasContext}",
-                session.Id, resolvedMessage != null);
+            _logger.LogInformation("🔵 [STREAM-START] Session: {SessionId}, User: {UserId}, IsFirstMessage: {IsFirst}",
+                session.Id, userId, isFirstMessage);
 
             var fullResponse = new StringBuilder();
             var timestamp = DateTime.UtcNow;
+            var tokenCount = 0;
 
+            // Stream tokens
             await foreach (var token in stream.WithCancellation(cancellationToken))
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -2308,8 +2204,10 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
                     yield break;
                 }
 
-                if (string.IsNullOrEmpty(token)) continue;
+                if (string.IsNullOrEmpty(token))
+                    continue;
 
+                tokenCount++;
                 fullResponse.Append(token);
                 var currentFullMessage = fullResponse.ToString();
 
@@ -2327,7 +2225,10 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
                 };
             }
 
-            // Final response and save
+            _logger.LogInformation("🔵 [STREAM-COMPLETE] Session: {SessionId}, Tokens: {TokenCount}, ResponseLength: {Length}",
+                session.Id, tokenCount, fullResponse.Length);
+
+            // Prepare final response data TRƯỚC
             var finalContent = fullResponse.ToString();
             var finalTokenCount = _tokenCountService.CountTokens(finalContent, session.ModelName);
 
@@ -2336,27 +2237,60 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
                 DocumentId = doc.DocumentId,
                 Title = doc.Title,
                 RelevanceScore = doc.RelevanceScore,
+                Summary = "",  // ❌ Reset thành empty
                 VersionId = doc.VersionId,
                 VersionName = doc.VersionName,
+                DepartmentId = doc.DepartmentId,
                 DepartmentName = doc.DepartmentName,
                 ApprovedBy = doc.ApprovedBy,
                 CreatedBy = doc.CreatedBy,
                 SignedBy = doc.SignedBy,
+                OwnerName = doc.OwnerName,
+                Description = null,
+                Tags = null,
                 EffectiveFrom = doc.EffectiveFrom,
                 EffectiveUntil = doc.EffectiveUntil,
                 ApprovalDate = doc.ApprovalDate,
                 ReviewerName = doc.ReviewerName,
             }).ToList();
 
+            // ✅ FIX 1: Save TRƯỚC KHI yield return cuối cùng
+            _logger.LogInformation("🟢 [SAVE-BEFORE-FINAL] Starting save for session: {SessionId}", session.Id);
+
+            // Option A: Save đồng bộ (đơn giản, an toàn)
             try
             {
-                await SaveStreamingChatData(finalContent, session.Id, userId, userMessageContent, isFirstMessage, session.ModelName, documentSources);
-                _logger.LogInformation("✅ [SAVE-SUCCESS] Context-aware data saved for session: {SessionId}", session.Id);
+                await SaveStreamingChatData(finalContent, session.Id, userId, userMessageContent,
+                    isFirstMessage, session.ModelName, documentSources);
+                _logger.LogInformation("✅ [SAVE-SUCCESS] Data saved for session: {SessionId}", session.Id);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "🔴 [SAVE-ERROR] Failed to save for session {SessionId}", session.Id);
+                // Vẫn tiếp tục return response cho user
             }
+
+            // Option B: Nếu muốn dùng Task.Run, phải chờ nó start
+            // var saveTask = Task.Run(async () =>
+            // {
+            //     _logger.LogInformation("🟢 [SAVE-TASK-START] Session: {SessionId}", session.Id);
+            //     try
+            //     {
+            //         await SaveStreamingChatData(finalContent, session.Id, userId, userMessageContent,
+            //             isFirstMessage, session.ModelName, documentSources);
+            //         _logger.LogInformation("✅ [SAVE-TASK-SUCCESS] Session: {SessionId}", session.Id);
+            //     }
+            //     catch (Exception ex)
+            //     {
+            //         _logger.LogError(ex, "🔴 [SAVE-TASK-ERROR] Session {SessionId}", session.Id);
+            //     }
+            // });
+            // 
+            // // Chờ task start (không chờ complete)
+            // await Task.Delay(10); // Đảm bảo task đã start
+
+            // NOW yield final response
+            _logger.LogInformation("🔵 [STREAM-FINAL-SENDING] Sending final response for session: {SessionId}", session.Id);
 
             yield return new ChatStreamResponse
             {
@@ -2371,123 +2305,8 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
                 IsComplete = true,
                 TotalTokenCount = finalTokenCount
             };
-        }
-        private Dictionary<string, string> ExtractDocumentReferencesFromHistory(List<ChatMessage> messages)
-        {
-            var references = new Dictionary<string, string>();
 
-            // Look at recent AI responses for numbered documents
-            var recentAiMessages = messages
-                .Where(m => m.Role == MessageRole.Assistant)
-                .TakeLast(5) // Check last 5 AI responses
-                .ToList();
-
-            foreach (var message in recentAiMessages)
-            {
-                // Pattern 1: "1. Document Name" 
-                var listPattern = @"(\d+)\.\s*([^\n\r]{15,100})";
-                var listMatches = System.Text.RegularExpressions.Regex.Matches(message.Content, listPattern);
-
-                foreach (System.Text.RegularExpressions.Match match in listMatches)
-                {
-                    var number = match.Groups[1].Value;
-                    var docName = match.Groups[2].Value.Trim()
-                        .Replace("- ", "")
-                        .Replace("–", "")
-                        .Replace("*", "")
-                        .Trim();
-
-                    // Only store if looks like a real document name
-                    if (docName.Length > 15 && docName.Length < 100 && !references.ContainsKey(number))
-                    {
-                        references[number] = docName;
-                        _logger.LogInformation("📝 [CONTEXT] Learned: số {Number} = {DocName}", number, docName.Substring(0, Math.Min(50, docName.Length)));
-                    }
-                }
-
-                // Pattern 2: "Tài liệu 1: Document Name"
-                var prefixPattern = @"(?:Tài liệu|Document)\s+(\d+):\s*([^\n\r]{15,100})";
-                var prefixMatches = System.Text.RegularExpressions.Regex.Matches(message.Content, prefixPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-                foreach (System.Text.RegularExpressions.Match match in prefixMatches)
-                {
-                    var number = match.Groups[1].Value;
-                    var docName = match.Groups[2].Value.Trim();
-
-                    if (docName.Length > 15 && !references.ContainsKey(number))
-                    {
-                        references[number] = docName;
-                        _logger.LogInformation("📝 [CONTEXT] Learned: số {Number} = {DocName}", number, docName.Substring(0, Math.Min(50, docName.Length)));
-                    }
-                }
-            }
-
-            return references;
-        }
-
-        // ✅ FIX 2: Try resolve "số X" from context before asking clarification
-        private async Task<string> TryResolveDocumentReference(string userMessage, string sessionId)
-        {
-            var message = userMessage.ToLowerInvariant();
-
-            // Check if user is referencing "số X" or "number X"
-            var numberMatch = System.Text.RegularExpressions.Regex.Match(message, @"(?:số|number)\s*(\d+)");
-            if (!numberMatch.Success) return null;
-
-            var requestedNumber = numberMatch.Groups[1].Value;
-
-            // Get conversation history and extract references
-            var messages = await GetSessionMessages(sessionId);
-            var docReferences = ExtractDocumentReferencesFromHistory(messages.ToList());
-
-            // Try to resolve the reference
-            if (docReferences.ContainsKey(requestedNumber))
-            {
-                var resolvedDocName = docReferences[requestedNumber];
-                _logger.LogInformation("🎯 [RESOLVE] số {Number} → {DocName}", requestedNumber, resolvedDocName);
-
-                // Replace "số X" với actual document name trong user message
-                var resolvedMessage = System.Text.RegularExpressions.Regex.Replace(
-                    userMessage,
-                    @"(?:tài liệu\s+)?(?:số|number)\s*" + requestedNumber,
-                    $"tài liệu \"{resolvedDocName}\"",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-                _logger.LogInformation("🔄 [TRANSFORM] '{Original}' → '{Resolved}'", userMessage, resolvedMessage);
-
-                return resolvedMessage; // Return resolved message for further processing
-            }
-
-            _logger.LogWarning("❓ [UNRESOLVED] Cannot resolve 'số {Number}' from context", requestedNumber);
-            return null; // Cannot resolve - will need clarification
-        }
-        private bool ShouldNumberDocuments(string currentQuestion, List<DocumentInfo> documentSources)
-        {
-            var question = currentQuestion.ToLowerInvariant();
-
-            // Number documents when user explicitly asks for lists/counts
-            var listingKeywords = new[]
-            {
-                "Có những",
-        "có bao nhiêu",
-        "liệt kê",
-        "danh sách",
-        "tất cả tài liệu",
-        "các tài liệu",
-        "show me all",
-        "list all",
-        "count"
-    };
-
-            var hasListingIntent = listingKeywords.Any(keyword => question.Contains(keyword));
-            var hasMultipleDocuments = documentSources?.Count > 1;
-
-            var shouldNumber = hasListingIntent && hasMultipleDocuments;
-
-            _logger.LogInformation("📋 [NUMBERING] Question: '{Question}' → ShouldNumber: {ShouldNumber}",
-                currentQuestion, shouldNumber);
-
-            return shouldNumber;
+            _logger.LogInformation("🔵 [STREAM-METHOD-END] Session: {SessionId}", session.Id);
         }
 
         private async Task SaveStreamingChatData(string fullResponse, string sessionId, string userId, string userMessageContent, bool isFirstMessage, string modelName, List<DocumentInfo> documentSources = null)
@@ -2549,35 +2368,44 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
 
         private (ChatMessage UserMessage, ChatMessage AiMessage) CreateStreamingChatMessages(string userContent, string aiContent, string sessionId, string userId, string modelName, List<DocumentInfo> documentSources = null)
         {
+            var baseTimestamp = DateTime.UtcNow;
+            // ✅ SỬA: Dùng AddTicks(1)
+            var userTimestamp = baseTimestamp;
+            var aiTimestamp = baseTimestamp.AddTicks(1);
+
             var userMessage = new ChatMessage
             {
                 Content = userContent,
                 Role = MessageRole.User,
                 TokenCount = _tokenCountService.CountTokens(userContent, modelName),
                 SessionId = sessionId,
-                Timestamp = DateTime.UtcNow.AddMilliseconds(-1),
+                Timestamp = userTimestamp, // ✅ SỬA
                 DocumentSources = "",
                 CreatedBy = userId,
                 UpdatedBy = userId,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = userTimestamp, // ✅ SỬA
+                UpdatedAt = userTimestamp
             };
+
             string sourcesString = null;
-            var sourcesData = documentSources.Select(doc => new
+            if (documentSources?.Any() == true)
             {
-                DocumentId = doc.DocumentId,
-                VersionName = doc.VersionName,
-                Title = doc.Title,
-                SignedBy = doc.SignedBy,
-                CreateBy = doc.CreatedBy,
-                ReviewName = doc.ReviewerName,
-                ApprovedBy = doc.ApprovedBy,
-                DepartmentName = doc.DepartmentName,
-                EffectiveFrom = doc.EffectiveFrom,
-                EffectiveUntil = doc.EffectiveUntil,
-                RelevanceScore = doc.RelevanceScore
-            });
-            sourcesString = JsonSerializer.Serialize(sourcesData);
+                var sourcesData = documentSources.Select(doc => new
+                {
+                    DocumentId = doc.DocumentId,
+                    VersionName = doc.VersionName,
+                    Title = doc.Title,
+                    SignedBy = doc.SignedBy,
+                    CreateBy = doc.CreatedBy,
+                    ReviewName = doc.ReviewerName,
+                    ApprovedBy = doc.ApprovedBy,
+                    DepartmentName = doc.DepartmentName,
+                    EffectiveFrom = doc.EffectiveFrom,
+                    EffectiveUntil = doc.EffectiveUntil,
+                    RelevanceScore = doc.RelevanceScore
+                });
+                sourcesString = JsonSerializer.Serialize(sourcesData);
+            }
 
             var aiMessage = new ChatMessage
             {
@@ -2585,12 +2413,12 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
                 Role = MessageRole.Assistant,
                 TokenCount = _tokenCountService.CountTokens(aiContent, modelName),
                 SessionId = sessionId,
-                Timestamp = DateTime.UtcNow,
+                Timestamp = aiTimestamp, // ✅ SỬA
                 DocumentSources = sourcesString,
                 CreatedBy = "system",
                 UpdatedBy = "system",
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = aiTimestamp, // ✅ SỬA
+                UpdatedAt = aiTimestamp
             };
 
             return (userMessage, aiMessage);
