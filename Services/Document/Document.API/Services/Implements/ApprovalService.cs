@@ -75,10 +75,12 @@ namespace Document.API.Services.Implements
                 selector: v => v,
                 filter: filter,
                 include: i => i.Include(v => v.DocumentFile)
-                              .ThenInclude(df => df.DocumentType)
-                              .Include(v => v.ApprovalClaim)
+                              .ThenInclude(df => df.DocumentType!)
+                              .Include(v => v.ApprovalClaim!)
                               .Include(v => v.DocumentTags)
-                              .ThenInclude(dt => dt.Tag),
+                              .ThenInclude(dt => dt.Tag)
+                              .Include(v => v.Folder!)
+                              .Include(v => v.TargetFolder!),
                 predicate: basePredicate,
                 orderBy: v => v.OrderBy(v => v.LastSubmitted),
                 page: pageNumber,
@@ -292,7 +294,7 @@ namespace Document.API.Services.Implements
             var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
                 .SingleOrDefaultAsync(
                     predicate: v => v.Id == versionId && (v.Status == StatusEnum.Pending || v.Status == StatusEnum.Rejected),
-                    include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag).Include(v => v.ApprovalClaim)
+                    include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType!).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag).Include(v => v.ApprovalClaim!)
                 );
 
             if (documentVersion == null)
@@ -339,9 +341,10 @@ namespace Document.API.Services.Implements
             var versionToReview = await _unitOfWork.GetRepository<DocumentVersion>()
             .SingleOrDefaultAsync(
                 predicate: v => v.Id == versionId,
-                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType!)
                               .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
-                              .Include(v => v.Folder) // ✅ FOLDER-AWARE: Include folder information
+                              .Include(v => v.Folder!) // ✅ FOLDER-AWARE: Include current folder information
+                              .Include(v => v.TargetFolder!) // ✅ FOLDER-AWARE: Include target folder information
             ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
             var documentFile = versionToReview.DocumentFile;
 
@@ -517,12 +520,33 @@ namespace Document.API.Services.Implements
                     // Documents stay in drafts during pending status, then move to functional folders when approved
                     var currentFileId = versionToReview.GoogleDriveFileId ?? versionToReview.FilePath;
 
-                    // ✅ FOLDER-AWARE: Move to target functional folder if specified in request
+                    // ✅ FOLDER-AWARE: Determine target folder for approved document
+                    string? targetFolderId = null;
+
+                    // 1. First priority: TargetFolderId from request
                     if (!string.IsNullOrEmpty(request.TargetFolderId))
+                    {
+                        targetFolderId = request.TargetFolderId;
+                        _logger.LogInformation("Using target folder from request: {TargetFolderId}", targetFolderId);
+                    }
+                    // 2. Second priority: TargetFolderId from the version being submitted (stored during draft creation)
+                    else if (!string.IsNullOrEmpty(versionToReview.TargetFolderId))
+                    {
+                        targetFolderId = versionToReview.TargetFolderId;
+                        _logger.LogInformation("Using target folder from document version: {TargetFolderId}", targetFolderId);
+                    }
+                    // 3. Last resort: Department root folder
+                    else
+                    {
+                        targetFolderId = await GetDepartmentRootFolderAsync(documentFile.DepartmentId);
+                        _logger.LogInformation("Using department root folder as fallback: {FolderId}", targetFolderId);
+                    }
+
+                    if (!string.IsNullOrEmpty(targetFolderId))
                     {
                         // Get target folder information
                         var targetFolder = await _unitOfWork.GetRepository<Folder>()
-                            .SingleOrDefaultAsync(predicate: f => f.Id == request.TargetFolderId);
+                            .SingleOrDefaultAsync(predicate: f => f.Id == targetFolderId);
 
                         if (targetFolder != null && !string.IsNullOrEmpty(targetFolder.GoogleDriveFolderId))
                         {
@@ -532,8 +556,16 @@ namespace Document.API.Services.Implements
                                 currentFileId, targetFolder.Name);
 
                             // ✅ FOLDER-AWARE: Update folder ID in database
-                            versionToReview.FolderId = request.TargetFolderId;
+                            versionToReview.FolderId = targetFolderId;
                         }
+                        else
+                        {
+                            _logger.LogWarning("Target folder {FolderId} not found or missing Google Drive ID", targetFolderId);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("No target folder could be determined for approved document {DocumentId}", documentFile.Id);
                     }
                     // FilePath remains the Google Drive file ID - no change needed
 
@@ -899,14 +931,15 @@ namespace Document.API.Services.Implements
                 response.SourceFolder = MapToFolderSummary(versionToReview.Folder);
             }
 
-            // ✅ FOLDER-AWARE: Add target folder information if moved
-            if (request.IsApproved && !string.IsNullOrEmpty(request.TargetFolderId))
+            // ✅ FOLDER-AWARE: Add target folder information if moved (from any source)
+            if (request.IsApproved && !string.IsNullOrEmpty(versionToReview.FolderId))
             {
                 var targetFolder = await _unitOfWork.GetRepository<Folder>()
-                    .SingleOrDefaultAsync(predicate: f => f.Id == request.TargetFolderId);
+                    .SingleOrDefaultAsync(predicate: f => f.Id == versionToReview.FolderId);
                 if (targetFolder != null)
                 {
                     response.TargetFolder = MapToFolderSummary(targetFolder);
+                    _logger.LogInformation("Added target folder {FolderName} to approval response", targetFolder.Name);
                 }
             }
 
@@ -1413,7 +1446,7 @@ namespace Document.API.Services.Implements
             // Get all document versions for the department
             var allVersions = await repo.GetListAsync(
                 predicate: v => v.DocumentFile.DepartmentId == departmentId,
-                include: i => i.Include(v => v.DocumentFile).Include(v => v.ApprovalClaim)
+                include: i => i.Include(v => v.DocumentFile).Include(v => v.ApprovalClaim!)
             );
 
             var statistics = new ApprovalQueueStatistics
@@ -1446,6 +1479,47 @@ namespace Document.API.Services.Implements
             }
 
             return statistics;
+        }
+
+        /// <summary>
+        /// Get the department root folder ID for approved documents
+        /// </summary>
+        /// <param name="departmentId">Department ID</param>
+        /// <returns>Department root folder ID</returns>
+        private async Task<string?> GetDepartmentRootFolderAsync(string? departmentId)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(departmentId))
+                {
+                    _logger.LogWarning("Department ID is null or empty, cannot get root folder");
+                    return null;
+                }
+
+                // Get the department root folder (non-system folder with no parent)
+                var departmentRootFolder = await _unitOfWork.GetRepository<Folder>()
+                    .SingleOrDefaultAsync(
+                        predicate: f => f.DepartmentId == departmentId &&
+                                       f.ParentFolderId == null &&
+                                       !f.IsSystemFolder &&
+                                       !f.IsDeleted
+                    );
+
+                if (departmentRootFolder != null)
+                {
+                    _logger.LogInformation("Found department root folder {FolderId} for department {DepartmentId}",
+                        departmentRootFolder.Id, departmentId);
+                    return departmentRootFolder.Id;
+                }
+
+                _logger.LogWarning("No department root folder found for department {DepartmentId}", departmentId);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting department root folder for department {DepartmentId}", departmentId);
+                return null;
+            }
         }
     }
 }

@@ -1,5 +1,8 @@
 using Document.API.Services.Interfaces;
+using Document.Domain.Models;
+using Document.Infrastructure.Repository.Interfaces;
 using MassTransit;
+using Microsoft.EntityFrameworkCore;
 using Shared.Commands;
 using Shared.DTOs;
 
@@ -16,6 +19,7 @@ namespace Document.API.Services.Implements
         private readonly IRequestClient<CompanyEmployeeRequest> _companyEmployeeClient;
         private readonly IRequestClient<GetAllDepartmentsRequest> _getAllDepartmentsClient;
         private readonly IFolderService _folderService;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly ILogger<GoogleDrivePermissionSetupService> _logger;
 
         // No functional folders created automatically
@@ -29,6 +33,7 @@ namespace Document.API.Services.Implements
             IRequestClient<CompanyEmployeeRequest> companyEmployeeClient,
             IRequestClient<GetAllDepartmentsRequest> getAllDepartmentsClient,
             IFolderService folderService,
+            IUnitOfWork unitOfWork,
             ILogger<GoogleDrivePermissionSetupService> logger)
         {
             _googleDriveService = googleDriveService;
@@ -36,6 +41,7 @@ namespace Document.API.Services.Implements
             _companyEmployeeClient = companyEmployeeClient;
             _getAllDepartmentsClient = getAllDepartmentsClient;
             _folderService = folderService;
+            _unitOfWork = unitOfWork;
             _logger = logger;
         }
 
@@ -115,8 +121,8 @@ namespace Document.API.Services.Implements
         }
 
         public async Task<GoogleDrivePermissionSetupResponse> SetupUserPermissionsAsync(
-            string userEmail, 
-            string departmentId, 
+            string userEmail,
+            string departmentId,
             string departmentName)
         {
             _logger.LogInformation("Setting up Google Drive permissions for user {UserEmail} in department {DepartmentId} ({DepartmentName})",
@@ -129,34 +135,34 @@ namespace Document.API.Services.Implements
 
             try
             {
-                // Grant access to department and public folders
-                var (success, errors) = await GrantFolderAccessToUserAsync(userEmail, departmentId, _departmentFolderTypes.ToList(), true);
-                
+                // Grant access to actual folders from database instead of hardcoded types
+                var (success, errors) = await GrantDatabaseFolderAccessToUserAsync(userEmail, departmentId);
+
                 if (success)
                 {
                     response.SuccessfulPermissions = 1;
                     response.Success = true;
-                    response.Message = $"Successfully setup permissions for user {userEmail}";
+                    response.Message = $"Successfully setup Google Drive permissions for user {userEmail}";
                 }
                 else
                 {
                     response.FailedPermissions = 1;
                     response.Success = false;
-                    response.Message = $"Failed to setup permissions for user {userEmail}";
+                    response.Message = $"Failed to setup Google Drive permissions for user {userEmail}";
                     response.Errors.AddRange(errors);
                 }
 
-                _logger.LogInformation("User permission setup completed for {UserEmail}: Success={Success}",
+                _logger.LogInformation("User Google Drive permission setup completed for {UserEmail}: Success={Success}",
                     userEmail, response.Success);
 
                 return response;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error setting up user permissions for {UserEmail}", userEmail);
+                _logger.LogError(ex, "Error setting up user Google Drive permissions for {UserEmail}", userEmail);
                 response.Success = false;
                 response.FailedPermissions = 1;
-                response.Message = $"Failed to setup user permissions: {ex.Message}";
+                response.Message = $"Failed to setup user Google Drive permissions: {ex.Message}";
                 response.Errors.Add(ex.Message);
                 return response;
             }
@@ -234,6 +240,72 @@ namespace Document.API.Services.Implements
                 response.Message = $"Bulk initialization failed: {ex.Message}";
                 response.Errors.Add(ex.Message);
                 return response;
+            }
+        }
+
+        /// <summary>
+        /// Grant Google Drive access to folders that the user should have access to based on database permissions
+        /// </summary>
+        /// <param name="userEmail">User email</param>
+        /// <param name="departmentId">User's department ID</param>
+        /// <returns>Success status and any errors</returns>
+        public async Task<(bool Success, List<string> Errors)> GrantDatabaseFolderAccessToUserAsync(
+            string userEmail,
+            string departmentId)
+        {
+            var errors = new List<string>();
+            var successCount = 0;
+            var totalAttempts = 0;
+
+            try
+            {
+                _logger.LogInformation("Granting Google Drive access to database folders for user {UserEmail} in department {DepartmentId}", userEmail, departmentId);
+
+                // Get folders from database that the user should have access to:
+                // 1. Public folders (accessible to all employees)
+                // 2. Department folders (accessible to department members)
+                var accessibleFolders = await _unitOfWork.GetRepository<Folder>()
+                    .GetListAsync(
+                        predicate: f => !f.IsDeleted &&
+                                       (f.IsPublic || f.DepartmentId == departmentId),
+                        include: i => i.Include(f => f.FolderPermissions)
+                    );
+
+                _logger.LogInformation("Found {FolderCount} accessible folders for user {UserEmail} in department {DepartmentId}",
+                    accessibleFolders.Count, userEmail, departmentId);
+
+                foreach (var folder in accessibleFolders)
+                {
+                    totalAttempts++;
+                    try
+                    {
+                        // Grant viewer access to the Google Drive folder
+                        await _googleDriveService.GrantUserAccessAsync(folder.GoogleDriveFolderId, userEmail, "reader");
+                        successCount++;
+                        _logger.LogDebug("Granted viewer access to folder '{FolderName}' ({GoogleDriveFolderId}) for user {UserEmail}",
+                            folder.Name, folder.GoogleDriveFolderId, userEmail);
+                    }
+                    catch (Exception ex)
+                    {
+                        var errorMsg = $"Failed to grant access to folder '{folder.Name}' ({folder.GoogleDriveFolderId}): {ex.Message}";
+                        errors.Add(errorMsg);
+                        _logger.LogWarning(ex, "Failed to grant access to folder '{FolderName}' ({GoogleDriveFolderId}) for user {UserEmail}",
+                            folder.Name, folder.GoogleDriveFolderId, userEmail);
+                    }
+                }
+
+                var success = totalAttempts == 0 || successCount == totalAttempts;
+
+                _logger.LogInformation("Completed Google Drive folder access setup for user {UserEmail}: {SuccessCount}/{TotalAttempts} successful",
+                    userEmail, successCount, totalAttempts);
+
+                return (success, errors);
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"Unexpected error granting database folder access: {ex.Message}");
+                _logger.LogError(ex, "Unexpected error granting database folder access to user {UserEmail}", userEmail);
+                return (false, errors);
             }
         }
 

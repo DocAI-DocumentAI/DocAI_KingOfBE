@@ -158,6 +158,7 @@ public class ApiEndPointConstant
         public const string GetFolderDocumentStats = ApiEndpoint + "/folder-documents/{folderId}/statistics";
         public const string MoveDocument = ApiEndpoint + "/folder-documents/{documentVersionId}/move";
         public const string GetDocumentFolderPath = ApiEndpoint + "/folder-documents/{documentVersionId}/folder-path";
+        public const string GetDocumentDetail = ApiEndpoint + "/folder-documents/{documentVersionId}/detail";
     }
 
     public class FolderPermission

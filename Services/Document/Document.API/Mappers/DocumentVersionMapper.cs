@@ -25,7 +25,11 @@ namespace Document.API.Mappers
                 .ForMember(dest => dest.DocumentTypeName, opt => opt.MapFrom(src => src.DocumentFile.DocumentType != null ? src.DocumentFile.DocumentType.Name : null))
                 .ForMember(dest => dest.SignedBy, opt => opt.MapFrom(src => src.SignedBy))
                 .ForMember(dest => dest.EffectiveFrom, opt => opt.MapFrom(src => src.EffectiveFrom))
-                .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil));
+                .ForMember(dest => dest.EffectiveUntil, opt => opt.MapFrom(src => src.EffectiveUntil))
+                .ForMember(dest => dest.FolderId, opt => opt.MapFrom(src => src.FolderId))
+                .ForMember(dest => dest.FolderName, opt => opt.MapFrom(src => src.Folder != null ? src.Folder.Name : null))
+                .ForMember(dest => dest.TargetFolderId, opt => opt.MapFrom(src => src.TargetFolderId))
+                .ForMember(dest => dest.TargetFolderName, opt => opt.MapFrom(src => src.TargetFolder != null ? src.TargetFolder.Name : null));
 
             CreateMap<DocumentVersion, PendingDocumentResponse>()
                 .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => src.Id))

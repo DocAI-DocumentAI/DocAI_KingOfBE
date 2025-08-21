@@ -12,6 +12,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Linq.Expressions;
+using Document.API.Constants;
+using Shared.Exceptions;
 
 namespace Document.API.Services.Implements
 {
@@ -61,7 +63,8 @@ namespace Document.API.Services.Implements
                     var folderPermission = await _folderPermissionService.GetEffectivePermissionAsync(request.FolderId, userId, userDepartmentId ?? string.Empty);
                     if (folderPermission == null || !folderPermission.Value.Includes(PermissionType.View))
                     {
-                        throw new UnauthorizedAccessException("Access denied to this folder");
+                        throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                            FolderMessageConstant.Permissions.AccessDeniedToFolder);
                     }
 
                     var folderDetail = await _folderService.GetFolderByIdAsync(request.FolderId);
@@ -177,7 +180,8 @@ namespace Document.API.Services.Implements
                 var folderPermission = await _folderPermissionService.GetEffectivePermissionAsync(request.FolderId, userId, userDepartmentId ?? string.Empty);
                 if (folderPermission == null || !folderPermission.Value.Includes(PermissionType.View))
                 {
-                    throw new UnauthorizedAccessException("Access denied to search in this folder");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        FolderMessageConstant.Permissions.AccessDeniedToSearchInFolder);
                 }
 
                 // Get search folder information
@@ -465,7 +469,8 @@ namespace Document.API.Services.Implements
 
                 if (documentVersion == null)
                 {
-                    throw new KeyNotFoundException($"Document version {documentVersionId} not found");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        string.Format(FolderMessageConstant.System.DocumentVersionNotFound, documentVersionId));
                 }
 
                 // ✅ Check SOURCE folder permission (if document is in a folder)
@@ -476,7 +481,8 @@ namespace Document.API.Services.Implements
 
                     if (sourcePermission == null || !sourcePermission.Value.Includes(PermissionType.Edit))
                     {
-                        throw new UnauthorizedAccessException("Access denied to move document from source folder");
+                        throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                            FolderMessageConstant.Permissions.AccessDeniedToMoveFromSourceFolder);
                     }
                 }
 
@@ -486,7 +492,8 @@ namespace Document.API.Services.Implements
 
                 if (targetPermission == null || !targetPermission.Value.Includes(PermissionType.Edit))
                 {
-                    throw new UnauthorizedAccessException("Access denied to move document to target folder");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        FolderMessageConstant.Permissions.AccessDeniedToMoveToTargetFolder);
                 }
 
                 // ✅ Move file in Google Drive if it exists
@@ -554,7 +561,8 @@ namespace Document.API.Services.Implements
                 // Check target folder permissions
                 if (!await _folderPermissionService.GetEffectivePermissionAsync(targetFolderId, userId, userDepartmentId ?? string.Empty).ContinueWith(t => t.Result?.Includes(PermissionType.Edit) == true))
                 {
-                    throw new UnauthorizedAccessException("Access denied to upload documents to target folder");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        FolderMessageConstant.Permissions.AccessDeniedToUploadToTargetFolder);
                 }
 
                 var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>()
@@ -1214,7 +1222,8 @@ namespace Document.API.Services.Implements
 
                 if (targetFolder == null)
                 {
-                    throw new KeyNotFoundException($"Target folder not found");
+                    throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND,
+                        FolderMessageConstant.System.TargetFolderNotFound);
                 }
 
                 // Check if target folder is within user's department or public
@@ -1224,10 +1233,9 @@ namespace Document.API.Services.Implements
                     var targetDepartmentName = await GetDepartmentNameAsync(targetFolder.DepartmentId);
                     var userDepartmentName = await GetDepartmentNameAsync(userDepartmentId);
 
-                    throw new UnauthorizedAccessException(
-                        $"Access denied: Cannot move documents outside your department. " +
-                        $"Target folder belongs to '{targetDepartmentName}' but you belong to '{userDepartmentName}'. " +
-                        $"Managers can only move documents within their own department folders.");
+                    throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
+                        string.Format(FolderMessageConstant.System.AccessDeniedCannotMoveDocumentsOutsideDepartment,
+                            targetDepartmentName, userDepartmentName));
                 }
 
                 _logger.LogInformation("Department boundary validation passed for user {UserId} to move document to folder {FolderId}",
@@ -1236,7 +1244,8 @@ namespace Document.API.Services.Implements
             catch (Exception ex) when (!(ex is UnauthorizedAccessException || ex is KeyNotFoundException))
             {
                 _logger.LogError(ex, "Error validating department boundary for document move by user {UserId}", userId);
-                throw new InvalidOperationException("Error validating department access for document move", ex);
+                throw new ErrorException(StatusCodes.Status500InternalServerError, ErrorCode.INTERNAL_SERVER_ERROR,
+                    FolderMessageConstant.System.ErrorValidatingDepartmentAccessForDocumentMove);
             }
         }
 
@@ -1269,6 +1278,238 @@ namespace Document.API.Services.Implements
 
             var extension = Path.GetExtension(fileName);
             return string.IsNullOrEmpty(extension) ? null : extension.TrimStart('.').ToUpperInvariant();
+        }
+
+        public async Task<FolderDocumentDetailResponse> GetDocumentDetailAsync(string documentVersionId)
+        {
+            try
+            {
+                _logger.LogInformation("Getting document detail for version {DocumentVersionId}", documentVersionId);
+
+                var userId = JwtTokenHelper.GetUserId(_httpContextAccessor);
+                var userDepartmentId = JwtTokenHelper.GetDepartmentIdOrNull(_httpContextAccessor);
+
+                // Get document with all related data
+                var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>()
+                    .SingleOrDefaultAsync(
+                        predicate: dv => dv.Id == documentVersionId,
+                        include: i => i.Include(dv => dv.DocumentFile)
+                                      .ThenInclude(df => df.DocumentType)
+                                      .Include(dv => dv.DocumentTags)
+                                      .ThenInclude(dt => dt.Tag)
+                                      .Include(dv => dv.Folder)
+                                      .Include(dv => dv.TargetFolder)
+                                      .Include(dv => dv.ApprovalLogs)
+                    );
+
+                if (documentVersion == null)
+                {
+                    throw new KeyNotFoundException($"Document version {documentVersionId} not found");
+                }
+
+                // Check access permissions
+                var hasAccess = documentVersion.IsPublic ||
+                               documentVersion.DocumentFile.DepartmentId == userDepartmentId ||
+                               documentVersion.DocumentFile.OwnerId == userId;
+
+                if (!hasAccess)
+                {
+                    throw new UnauthorizedAccessException("You don't have permission to view this document");
+                }
+
+                // Get folder context
+                var folderContext = await BuildFolderContextAsync(documentVersion, userId, userDepartmentId);
+
+                // Get user permissions
+                var permissions = await BuildDocumentPermissionsAsync(documentVersion, userId, userDepartmentId);
+
+                // Build response
+                var response = new FolderDocumentDetailResponse
+                {
+                    DocumentId = documentVersion.DocumentFileId,
+                    VersionId = documentVersion.Id,
+                    Title = documentVersion.Title,
+                    Description = documentVersion.DocumentFile?.Description, // Get from DocumentFile
+                    Summary = documentVersion.Summary,
+                    VersionName = documentVersion.VersionName,
+                    Status = documentVersion.Status.ToString(),
+                    IsPublic = documentVersion.IsPublic,
+                    IsOfficial = documentVersion.IsOfficial,
+
+                    FileInfo = new DocumentFileInfo
+                    {
+                        FileName = documentVersion.FileName,
+                        FilePath = documentVersion.FilePath,
+                        FileSize = documentVersion.FileSize,
+                        FileType = documentVersion.FileType,
+                        FileHash = documentVersion.FileHash
+                    },
+
+                    DocumentType = new FolderDocumentTypeInfo
+                    {
+                        Id = documentVersion.DocumentFile.DocumentTypeId,
+                        Name = documentVersion.DocumentFile.DocumentType?.Name ?? "Unknown",
+                        Description = documentVersion.DocumentFile.DocumentType?.Description
+                    },
+
+                    Tags = documentVersion.DocumentTags?.Select(dt => dt.Tag.Name).ToList() ?? new List<string>(),
+
+                    Dates = new DocumentDates
+                    {
+                        CreatedTime = documentVersion.CreatedTime,
+                        LastUpdatedTime = documentVersion.LastUpdatedTime ?? documentVersion.CreatedTime,
+                        EffectiveFrom = documentVersion.EffectiveFrom,
+                        EffectiveUntil = documentVersion.EffectiveUntil,
+                        ApprovedAt = null, // DocumentVersion doesn't have ApprovedAt - get from approval logs
+                        SubmittedAt = documentVersion.LastSubmitted
+                    },
+
+                    Ownership = new OwnershipInfo
+                    {
+                        OwnerId = documentVersion.DocumentFile.OwnerId,
+                        OwnerName = null, // DocumentFile doesn't have OwnerName - would need to get from user service
+                        OwnerEmail = null, // DocumentFile doesn't have OwnerEmail - would need to get from user service
+                        DepartmentId = documentVersion.DocumentFile.DepartmentId,
+                        DepartmentName = null, // DocumentFile doesn't have DepartmentName - would need to get from department service
+                        SignedBy = documentVersion.SignedBy
+                    },
+
+                    FolderContext = folderContext,
+                    Permissions = permissions,
+                    ApprovalInfo = await BuildApprovalInfoAsync(documentVersion),
+
+                    GoogleDrive = new GoogleDriveInfo
+                    {
+                        GoogleDriveFileId = documentVersion.GoogleDriveFileId,
+                        GoogleDriveFolderId = documentVersion.Folder?.GoogleDriveFolderId,
+                        WebViewLink = null, // DocumentVersion doesn't have these properties
+                        DownloadLink = null // DocumentVersion doesn't have these properties
+                    }
+                };
+
+                _logger.LogInformation("Successfully retrieved document detail for {DocumentVersionId}", documentVersionId);
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting document detail for {DocumentVersionId}", documentVersionId);
+                throw;
+            }
+        }
+
+        private async Task<FolderContext> BuildFolderContextAsync(DocumentVersion documentVersion, string userId, string? userDepartmentId)
+        {
+            var context = new FolderContext();
+
+            // Current folder
+            if (documentVersion.Folder != null)
+            {
+                context.CurrentFolder = MapToFolderSummary(documentVersion.Folder);
+
+                // Get breadcrumb
+                context.Breadcrumb = await _folderService.GetFolderBreadcrumbAsync(documentVersion.Folder.Id);
+            }
+
+            // Target folder (for documents in approval workflow)
+            if (documentVersion.TargetFolder != null)
+            {
+                context.TargetFolder = MapToFolderSummary(documentVersion.TargetFolder);
+            }
+
+            // Check if user can move document
+            context.CanMoveDocument = await CanUserMoveDocumentAsync(documentVersion, userId, userDepartmentId);
+
+            return context;
+        }
+
+        private async Task<DocumentPermissions> BuildDocumentPermissionsAsync(DocumentVersion documentVersion, string userId, string? userDepartmentId)
+        {
+            var isOwner = documentVersion.DocumentFile.OwnerId == userId;
+            var isInSameDepartment = documentVersion.DocumentFile.DepartmentId == userDepartmentId;
+            var isPublic = documentVersion.IsPublic;
+
+            // Get folder permissions if document is in a folder
+            PermissionType? folderPermission = null;
+            if (!string.IsNullOrEmpty(documentVersion.FolderId))
+            {
+                folderPermission = await _folderPermissionService.GetEffectivePermissionAsync(
+                    documentVersion.FolderId, userId, userDepartmentId ?? string.Empty);
+            }
+
+            return new DocumentPermissions
+            {
+                CanView = isPublic || isInSameDepartment || isOwner,
+                CanEdit = isOwner && documentVersion.Status == StatusEnum.Draft,
+                CanDelete = isOwner && (documentVersion.Status == StatusEnum.Draft || documentVersion.Status == StatusEnum.Rejected),
+                CanMove = isOwner && folderPermission?.Includes(PermissionType.Edit) == true,
+                CanDownload = isPublic || isInSameDepartment || isOwner,
+                CanShare = folderPermission?.Includes(PermissionType.Manage) == true,
+                CanApprove = !isOwner && isInSameDepartment && documentVersion.Status == StatusEnum.Pending,
+                CanReject = !isOwner && isInSameDepartment && documentVersion.Status == StatusEnum.Pending
+            };
+        }
+
+        private async Task<ApprovalInfo?> BuildApprovalInfoAsync(DocumentVersion documentVersion)
+        {
+            if (documentVersion.ApprovalLogs?.Any() != true)
+            {
+                return null;
+            }
+
+            var latestApproval = documentVersion.ApprovalLogs
+                .OrderByDescending(al => al.CreatedTime)
+                .FirstOrDefault();
+
+            if (latestApproval == null)
+            {
+                return null;
+            }
+
+            return new ApprovalInfo
+            {
+                ReviewerId = latestApproval.CreatedBy,
+                ReviewerName = null, // Would need to get from user service
+                ReviewComments = latestApproval.Comments,
+                ReviewedAt = latestApproval.CreatedTime,
+                ReviewAction = latestApproval.Action.ToString(),
+                ApprovalHistory = documentVersion.ApprovalLogs
+                    .OrderByDescending(al => al.CreatedTime)
+                    .Select(al => new ApprovalLogEntry
+                    {
+                        Action = al.Action.ToString(),
+                        Comments = al.Comments,
+                        ReviewerId = al.CreatedBy,
+                        ReviewerName = null, // Would need to get from user service
+                        ReviewedAt = al.CreatedTime
+                    })
+                    .ToList()
+            };
+        }
+
+        private async Task<bool> CanUserMoveDocumentAsync(DocumentVersion documentVersion, string userId, string? userDepartmentId)
+        {
+            // Only owner can move documents
+            if (documentVersion.DocumentFile.OwnerId != userId)
+            {
+                return false;
+            }
+
+            // Can only move drafts and rejected documents
+            if (documentVersion.Status != StatusEnum.Draft && documentVersion.Status != StatusEnum.Rejected)
+            {
+                return false;
+            }
+
+            // Check folder permissions if document is in a folder
+            if (!string.IsNullOrEmpty(documentVersion.FolderId))
+            {
+                var folderPermission = await _folderPermissionService.GetEffectivePermissionAsync(
+                    documentVersion.FolderId, userId, userDepartmentId ?? string.Empty);
+
+                return folderPermission?.Includes(PermissionType.Edit) == true;
+            }
+
+            return true;
         }
 
         #endregion

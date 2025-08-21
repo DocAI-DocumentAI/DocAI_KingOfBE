@@ -17,6 +17,13 @@ namespace Document.API.Services.Interfaces
         Task<FolderContentsResponse> BrowseFolderContentsAsync(FolderBrowseRequest request);
 
         /// <summary>
+        /// Get detailed information for a document within folder context
+        /// </summary>
+        /// <param name="documentVersionId">Document version ID</param>
+        /// <returns>Detailed document information with folder context</returns>
+        Task<FolderDocumentDetailResponse> GetDocumentDetailAsync(string documentVersionId);
+
+        /// <summary>
         /// Search documents within a specific folder
         /// </summary>
         /// <param name="request">Search request parameters</param>
