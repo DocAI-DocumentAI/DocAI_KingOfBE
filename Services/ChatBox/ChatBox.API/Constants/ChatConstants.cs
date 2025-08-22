@@ -61,7 +61,7 @@ QUY TẮC TRẢ LỜI:
 ĐỊNH DẠNG:
 - Sử dụng markdown để format đẹp
 - Chia thành sections rõ ràng
-- Bullet points và numbering khi phù hợp
+- Liệt kê thông tin bằng dấu gạch đầu dòng với nội dung cụ thể
 - Kết thúc bằng câu hỏi hỗ trợ thêm
 
 LƯU Ý: Hệ thống sẽ tự động tìm kiếm tài liệu cho mọi câu hỏi. Bạn chỉ cần xử lý kết quả.";

@@ -259,33 +259,22 @@ namespace ChatBox.API.Services.Implement
         private string BuildCitationWithMetadata(string documentTitle, List<DocumentInfo> documentSources)
         {
             if (documentSources?.Any() != true)
-            {
                 return "[Trích từ tài liệu nội bộ]";
-            }
 
-            var primarySource = documentSources.FirstOrDefault();
-            if (primarySource == null)
+            var source = documentSources.First();
+            var title = source.Title ?? documentTitle ?? "tài liệu nội bộ";
+            var citation = $"Trích từ tài liệu: {title}";
+
+            if (!string.IsNullOrEmpty(source.DocumentId))
             {
-                return "[Trích từ tài liệu nội bộ]";
+                var version = source.VersionId ?? source.VersionName?.Trim();
+                var idPart = string.IsNullOrEmpty(version)
+                    ? $"[Id]{source.DocumentId}"
+                    : $"[Id]{source.DocumentId}+{version}";
+                citation += $" `{idPart}`";
             }
 
-            var title = !string.IsNullOrEmpty(documentTitle) ? documentTitle : "tài liệu nội bộ";
-            var citationText = $"Trích từ tài liệu: {title}";
-
-            // ✅ Add markdown with [Id]+documentId+versionId format (separated)
-            if (!string.IsNullOrEmpty(primarySource.DocumentId))
-            {
-                var idString = $"[Id]{primarySource.DocumentId}";
-
-                if (!string.IsNullOrEmpty(primarySource.VersionId))
-                {
-                    idString += $"+{primarySource.VersionId}";
-                }
-
-                citationText += $" `{idString}`";
-            }
-
-            return citationText;
+            return citation;
         }
         /// <summary>
         /// ✅ KEEP EXISTING: CreateEnhancedChatHistoryForAI - same prompt logic, now with raw content

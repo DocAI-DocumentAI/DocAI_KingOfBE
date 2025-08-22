@@ -2,52 +2,72 @@
 
 public static class VietnamTimeHelper
 {
-    private static readonly TimeZoneInfo VietnamTimeZone =
-        TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"); // UTC+7
+    private static readonly TimeZoneInfo VietnamTimeZone = GetVietnamTimeZone();
 
-    /// <summary>
-    /// Lấy ngày hiện tại theo giờ Việt Nam (chỉ ngày, không có giờ)
-    /// </summary>
-    public static DateTime GetVietnamDate()
+    private static TimeZoneInfo GetVietnamTimeZone()
     {
-        return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, VietnamTimeZone).Date;
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+        }
+        catch
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
+            }
+            catch
+            {
+                return TimeZoneInfo.Utc;
+            }
+        }
     }
 
-    /// <summary>
-    /// Lấy DateTime hiện tại theo giờ Việt Nam (có cả giờ)
-    /// </summary>
     public static DateTime GetVietnamDateTime()
     {
         return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, VietnamTimeZone);
     }
 
-    /// <summary>
-    /// Chuyển đổi UTC DateTime sang giờ Việt Nam
-    /// </summary>
-    public static DateTime ConvertToVietnamTime(DateTime utcDateTime)
+    public static DateTime GetVietnamDate()
     {
-        if (utcDateTime.Kind == DateTimeKind.Utc)
-            return TimeZoneInfo.ConvertTimeFromUtc(utcDateTime, VietnamTimeZone);
-
-        // Nếu không phải UTC, giả sử là local time
-        return TimeZoneInfo.ConvertTime(utcDateTime, VietnamTimeZone);
+        return GetVietnamDateTime().Date;
     }
 
-    /// <summary>
-    /// Kiểm tra xem một ngày có phải là hôm nay theo giờ Việt Nam không
-    /// </summary>
-    public static bool IsToday(DateTime date)
+    // ✅ NEW: Convert UTC to Vietnam time
+    public static DateTime ConvertUtcToVietnam(DateTime utcDateTime)
     {
-        var vietnamToday = GetVietnamDate();
-        return date.Date == vietnamToday;
+        if (utcDateTime.Kind != DateTimeKind.Utc)
+        {
+            utcDateTime = DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc);
+        }
+        return TimeZoneInfo.ConvertTimeFromUtc(utcDateTime, VietnamTimeZone);
     }
 
-    /// <summary>
-    /// Tính số ngày từ hôm nay đến ngày chỉ định (theo giờ Việt Nam)
-    /// </summary>
+    // ✅ NEW: Convert Vietnam time to UTC
+    public static DateTime ConvertVietnamToUtc(DateTime vietnamDateTime)
+    {
+        return TimeZoneInfo.ConvertTimeToUtc(vietnamDateTime, VietnamTimeZone);
+    }
+
+    // ✅ NEW: Calculate days from today (Vietnam time)
     public static int DaysFromToday(DateTime targetDate)
     {
         var vietnamToday = GetVietnamDate();
-        return (targetDate.Date - vietnamToday).Days;
+        var targetVietnamDate = ConvertUtcToVietnam(targetDate).Date;
+        return (targetVietnamDate - vietnamToday).Days;
+    }
+
+    // ✅ NEW: Get UTC date that's safe for PostgreSQL queries
+    public static DateTime GetUtcDateForQuery()
+    {
+        return DateTime.UtcNow.Date;
+    }
+
+    // ✅ NEW: Ensure DateTime is UTC for database operations
+    public static DateTime EnsureUtc(DateTime dateTime)
+    {
+        return dateTime.Kind == DateTimeKind.Utc
+            ? dateTime
+            : DateTime.SpecifyKind(dateTime, DateTimeKind.Utc);
     }
 }
