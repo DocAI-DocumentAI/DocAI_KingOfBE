@@ -301,13 +301,13 @@ namespace ChatBox.API.Services.Implement
 
 
                     // ✅ STRICT: Base system prompt FIRST, then document-specific rules
-                    enhancedSystemPrompt = $@"{userInfo}{originalSystemMessage.Content}
+            enhancedSystemPrompt = userInfo + originalSystemMessage.Content + @"
 
 🔒 STRICT DOCUMENT EXPERT - ZERO TOLERANCE FOR VIOLATIONS 🔒
 
 **CRITICAL LANGUAGE RULE:** Always respond in Vietnamese. Never mix languages.
 
-**CURRENT QUESTION:** {currentQuestion}
+**CURRENT QUESTION:** " + currentQuestion + @"
 
 **MANDATORY RELEVANCE CHECK - NO EXCEPTIONS:**
 Before using ANY document, you MUST verify:
@@ -347,7 +347,7 @@ CORRECT: Không có thông tin về X trong tài liệu hiện có
 Theo tài liệu '[EXACT_TITLE]':
 [EXACT_CONTENT_FROM_DOCUMENT_ONLY]
 
-{citationSuffix}
+" + citationSuffix + @"
 
 ✅ **When no relevant document found:**
 Không có thông tin về [TOPIC] trong các tài liệu hiện có.
@@ -374,7 +374,7 @@ Tài liệu không đề cập. Tôi khuyến nghị bạn tham khảo...
 Không có thông tin về [TOPIC] trong tài liệu.
 
 **DECISION FLOWCHART:**
-1. Read question: {currentQuestion}
+1. Read question: " + currentQuestion + @"
 2. Check each document title/summary
 3. Is connection IMMEDIATELY OBVIOUS? 
    - YES → Use document with exact quotes only
@@ -390,7 +390,7 @@ Không có thông tin về [TOPIC] trong tài liệu.
 - NO advice not directly from provided documents
 
 === DOCUMENT INFORMATION ===
-{completeDocumentInfo}
+" + completeDocumentInfo + @"
 === END DOCUMENT INFORMATION ===
 
 **FINAL CHECKPOINT:**
@@ -406,7 +406,7 @@ Before responding, ask yourself:
 Theo tài liệu '[TITLE]':
 [EXACT_QUOTE_FROM_DOCUMENT]
 
-{citationSuffix}
+" + citationSuffix + @"
 
 **Format 2 - No Information:**
 Không có thông tin về [TOPIC] trong các tài liệu hiện có.
@@ -424,7 +424,7 @@ Tuy nhiên, tài liệu không đề cập chi tiết về [MISSING_PART].
                     // ✅ NO DOCUMENT: Friendly but clear refusal
                     var userInfo = await BuildUserInfoSectionAsync(sessionId);
 
-                    enhancedSystemPrompt = $@"{userInfo}{originalSystemMessage.Content}
+                    enhancedSystemPrompt = userInfo + originalSystemMessage.Content + @"
 
 🤖 NO DOCUMENT MODE - STRICT GUIDELINES
 
