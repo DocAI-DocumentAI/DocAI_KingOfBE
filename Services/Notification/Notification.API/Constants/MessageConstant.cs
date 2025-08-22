@@ -20,9 +20,15 @@ public static class MessageConstant
 
     public static class Config
     {
-        public const string UpdateSuccess = "Configuration updated successfully";
-        public const string InvalidCron = "Invalid cron expression";
-        public const string UpdateFailed = "Failed to update configuration";
+        public const string UpdateFailed = "Failed to update notification configuration";
+        public const string GetFailed = "Failed to retrieve notification configuration";
+        public const string InvalidCronExpression = "Invalid cron expression provided";
+        public const string UpdateSuccess = "Notification configuration updated successfully";
+        public const string JobTriggered = "Job triggered successfully";
+        public const string JobsPaused = "All notification jobs paused";
+        public const string JobsResumed = "All notification jobs resumed";
+        public const string JobTriggerFailed = "Failed to trigger job";
+        public const string JobControlFailed = "Failed to control jobs";
     }
 
     public static class Document

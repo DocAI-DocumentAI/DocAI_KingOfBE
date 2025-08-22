@@ -154,26 +154,37 @@ public static class DependencyService
             // ✅ FIX: Add Vietnam timezone
             var vietnamTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
 
-            // NotificationScanJob
-            var scanJobKey = new JobKey("NotificationScanJob");
-            q.AddJob<NotificationScanJob>(opts => opts.WithIdentity(scanJobKey));
+            // ✅ Job 1: Expired Documents
+            var expiredJobKey = new JobKey("ExpiredDocumentNotificationJob");
+            q.AddJob<ExpiredDocumentNotificationJob>(opts => opts.WithIdentity(expiredJobKey));
             q.AddTrigger(opts => opts
-                .ForJob(scanJobKey)
-                .WithIdentity("NotificationScanTrigger")
+                .ForJob(expiredJobKey)
+                .WithIdentity("ExpiredDocumentTrigger")
                 .WithCronSchedule(
-                    configuration["Quartz:ScanCronExpression"] ?? "0 0 7 * * ?",
-                    x => x.InTimeZone(vietnamTimeZone))); // ✅ ADDED: Vietnam timezone
+                    configuration["Notification:ExpiredNotificationCron"] ?? "0 0 8 * * ?",
+                    x => x.InTimeZone(vietnamTimeZone)));
 
-            // CleanUpOldLogsJob
+            // ✅ Job 2: Near-Expired Documents
+            var nearExpiredJobKey = new JobKey("NearExpiredDocumentNotificationJob");
+            q.AddJob<NearExpiredDocumentNotificationJob>(opts => opts.WithIdentity(nearExpiredJobKey));
+            q.AddTrigger(opts => opts
+                .ForJob(nearExpiredJobKey)
+                .WithIdentity("NearExpiredDocumentTrigger")
+                .WithCronSchedule(
+                    configuration["Notification:NearExpiredNotificationCron"] ?? "0 0 9 ? * MON",
+                    x => x.InTimeZone(vietnamTimeZone)));
+
+            // ✅ Job 3: Cleanup (keep existing)
             var cleanupJobKey = new JobKey("CleanUpOldLogsJob");
             q.AddJob<CleanUpOldLogsJob>(opts => opts.WithIdentity(cleanupJobKey));
             q.AddTrigger(opts => opts
                 .ForJob(cleanupJobKey)
                 .WithIdentity("CleanUpOldLogsTrigger")
                 .WithCronSchedule(
-                    configuration["Quartz:CleanupCronExpression"] ?? "0 0 2 ? * SUN", // ✅ CHANGED: 2 AM instead of midnight
-                    x => x.InTimeZone(vietnamTimeZone))); // ✅ ADDED: Vietnam timezone
+                    configuration["Quartz:CleanupCronExpression"] ?? "0 0 2 ? * SUN",
+                    x => x.InTimeZone(vietnamTimeZone)));
         });
+
 
         services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
         return services;

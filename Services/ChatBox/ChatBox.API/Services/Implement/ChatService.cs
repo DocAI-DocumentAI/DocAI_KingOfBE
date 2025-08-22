@@ -173,7 +173,7 @@ namespace ChatBox.API.Services.Implement
             cleanChatHistory.AddUserMessage(userMessage);
 
             var aiChatHistory = hasDocumentContext
-                ? CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage, documentSources)
+                ? await CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage, documentSources, session.Id) // ✅ THÊM sessionId
                 : cleanChatHistory;
 
             LogDocumentContextUsage(hasDocumentContext);
@@ -188,16 +188,22 @@ namespace ChatBox.API.Services.Implement
         {
             var cleanChatHistory = await BuildCleanChatHistoryAsync(session.Id);
             cleanChatHistory.AddUserMessage(userMessage);
-            var aiChatHistory = CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage, documentSources);
-
+            var aiChatHistory = await CreateEnhancedChatHistoryForAI(cleanChatHistory, documentContent, userMessage, documentSources, session.Id); // ✅ THÊM sessionId
 
             return await _semanticKernelService.GetChatResponseStreamAsync(session.ModelName, aiChatHistory);
         }
-        private string BuildUserInfoSection()
+        private async Task<string> BuildUserInfoSectionAsync(string sessionId = null)
         {
             try
             {
                 var userContext = GetUserContextFromJWT();
+
+                // ✅ THÊM: Lấy preferences từ PreferenceService
+                UserPreferenceResponse preferences = null;
+                if (!string.IsNullOrEmpty(sessionId))
+                {
+                    preferences = await _preferenceService.GetEffectivePreferencesAsync(sessionId, userContext.UserId);
+                }
 
                 var displayName = userContext.FullName;
                 if (string.IsNullOrEmpty(displayName))
@@ -205,12 +211,40 @@ namespace ChatBox.API.Services.Implement
                 if (string.IsNullOrEmpty(displayName))
                     displayName = "Người dùng";
 
+                // ✅ THÊM: Sử dụng UserName từ preferences nếu có
+                if (preferences != null && !string.IsNullOrEmpty(preferences.UserName))
+                {
+                    displayName = preferences.UserName;
+                }
+
                 var userInfo = new StringBuilder();
                 userInfo.AppendLine("👤 **THÔNG TIN NGƯỜI DÙNG HIỆN TẠI:**");
                 userInfo.AppendLine($"🏷️ **Tên gọi:** {displayName}");
                 userInfo.AppendLine($"📧 **Email:** {userContext.Email ?? "Không rõ"}");
                 userInfo.AppendLine($"🏢 **Phòng ban:** {userContext.DepartmentName ?? "Không rõ"}");
                 userInfo.AppendLine($"👤 **Chức vụ:** {userContext.Role ?? "Không rõ"}");
+
+                // ✅ THÊM: Chatbot Characteristics 
+                if (preferences?.ChatbotCharacteristics?.Any() == true)
+                {
+                    var characteristicNames = preferences.ChatbotCharacteristics
+                        .Select(c => ChatbotCharacteristics.GetDisplayName(c))
+                        .Where(name => !string.IsNullOrEmpty(name));
+
+                    if (characteristicNames.Any())
+                    {
+                        userInfo.AppendLine($"🤖 **Phong cách AI:** {string.Join(", ", characteristicNames)}");
+                        userInfo.AppendLine($"📋 **Hướng dẫn AI:** Hãy thể hiện phong cách: {string.Join(", ", characteristicNames)}");
+                    }
+                }
+
+                // ✅ THÊM: Additional Info
+                if (preferences != null && !string.IsNullOrEmpty(preferences.AdditionalInfo))
+                {
+                    userInfo.AppendLine($"ℹ️ **Thông tin bổ sung:** {preferences.AdditionalInfo}");
+                    userInfo.AppendLine($"📝 **Lưu ý AI:** Tham khảo thông tin này khi trả lời: {preferences.AdditionalInfo}");
+                }
+
                 userInfo.AppendLine($"📋 **Hướng dẫn:** Gọi người dùng là '{displayName}', trả lời bằng tiếng Việt");
                 userInfo.AppendLine();
 
@@ -222,10 +256,41 @@ namespace ChatBox.API.Services.Implement
                 return "👤 **THÔNG TIN NGƯỜI DÙNG:** Không xác định\n\n";
             }
         }
+        private string BuildCitationWithMetadata(string documentTitle, List<DocumentInfo> documentSources)
+        {
+            if (documentSources?.Any() != true)
+            {
+                return "[Trích từ tài liệu nội bộ]";
+            }
+
+            var primarySource = documentSources.FirstOrDefault();
+            if (primarySource == null)
+            {
+                return "[Trích từ tài liệu nội bộ]";
+            }
+
+            var title = !string.IsNullOrEmpty(documentTitle) ? documentTitle : "tài liệu nội bộ";
+            var citationText = $"Trích từ tài liệu: {title}";
+
+            // ✅ Add markdown with [Id]+documentId+versionId format (separated)
+            if (!string.IsNullOrEmpty(primarySource.DocumentId))
+            {
+                var idString = $"[Id]{primarySource.DocumentId}";
+
+                if (!string.IsNullOrEmpty(primarySource.VersionId))
+                {
+                    idString += $"+{primarySource.VersionId}";
+                }
+
+                citationText += $" `{idString}`";
+            }
+
+            return citationText;
+        }
         /// <summary>
         /// ✅ KEEP EXISTING: CreateEnhancedChatHistoryForAI - same prompt logic, now with raw content
         /// </summary>
-        private ChatHistory CreateEnhancedChatHistoryForAI(ChatHistory cleanHistory, string documentContent, string currentQuestion, List<DocumentInfo> documentSources = null)
+        private async Task<ChatHistory> CreateEnhancedChatHistoryForAI(ChatHistory cleanHistory, string documentContent, string currentQuestion, List<DocumentInfo> documentSources = null, string sessionId = null)
         {
             var enhancedHistory = new ChatHistory();
             var originalSystemMessage = cleanHistory.FirstOrDefault(m => m.Role == AuthorRole.System);
@@ -236,17 +301,15 @@ namespace ChatBox.API.Services.Implement
 
                 if (!string.IsNullOrEmpty(documentContent) || documentSources?.Any() == true)
                 {
-                    var userInfo = BuildUserInfoSection();
+
+                    // ✅ SỬA: Chỉ gọi 1 lần BuildUserInfoSectionAsync
+                    var userInfo = await BuildUserInfoSectionAsync(sessionId);
 
                     // ✅ BUILD COMPLETE DOCUMENT PACKAGE với metadata
                     var completeDocumentInfo = BuildCompleteDocumentPackage(documentContent, documentSources, currentQuestion);
                     var actualSourceDocumentTitle = GetActualSourceDocumentTitle(documentContent, documentSources);
-                    var versionInfo = documentSources?.FirstOrDefault()?.VersionId;
-                    var versionSuffix = !string.IsNullOrEmpty(versionInfo) ? $" - Version: {versionInfo}" : "";
+                    var citationSuffix = BuildCitationWithMetadata(actualSourceDocumentTitle, documentSources);
 
-                    var citationSuffix = !string.IsNullOrEmpty(actualSourceDocumentTitle)
-                        ? $"[Trích từ tài liệu: {actualSourceDocumentTitle}{versionSuffix}]"
-                        : "[Trích từ tài liệu nội bộ]";
 
                     // ✅ STRICT: Base system prompt FIRST, then document-specific rules
                     enhancedSystemPrompt = $@"{userInfo}{originalSystemMessage.Content}
@@ -370,7 +433,7 @@ Tuy nhiên, tài liệu không đề cập chi tiết về [MISSING_PART].
                 else
                 {
                     // ✅ NO DOCUMENT: Friendly but clear refusal
-                    var userInfo = BuildUserInfoSection();
+                    var userInfo = await BuildUserInfoSectionAsync(sessionId);
 
                     enhancedSystemPrompt = $@"{userInfo}{originalSystemMessage.Content}
 
@@ -1533,14 +1596,12 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
         {
             try
             {
+                // ✅ LOẠI BỎ: Không build user info ở đây nữa vì đã có trong CreateEnhancedChatHistoryForAI
                 var preferences = await _preferenceService.GetEffectivePreferencesAsync(sessionId, userId);
-                var userContext = GetUserContextFromJWT();
 
-                // ✅ THÊM user info ở đầu base prompt
-                var userInfo = BuildUserInfoSection();
-                var enhancedPrompt = $@"{userInfo}{basePrompt}";
+                var enhancedPrompt = basePrompt; // ✅ Giữ nguyên base prompt
 
-                // ✅ Giữ nguyên logic cũ để thêm characteristics
+                // ✅ OPTIONAL: Có thể giữ lại logic cũ này nếu cần thêm vào base prompt không có document
                 enhancedPrompt = AddUserNameToPrompt(enhancedPrompt, preferences.UserName);
                 enhancedPrompt = AddCharacteristicsToPrompt(enhancedPrompt, preferences.ChatbotCharacteristics);
                 enhancedPrompt = AddAdditionalInfoToPrompt(enhancedPrompt, preferences.AdditionalInfo);
@@ -1550,19 +1611,9 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to enhance prompt with user preferences for user {UserId}, session {SessionId}. Using base prompt.", userId, sessionId);
-
-                // ✅ Fallback với user info từ JWT
-                try
-                {
-                    var userInfo = BuildUserInfoSection();
-                    return $@"{userInfo}{basePrompt}";
-                }
-                catch (Exception fallbackEx)
-                {
-                    _logger.LogWarning(fallbackEx, "Failed to add user context, using base prompt only");
-                    return basePrompt;
-                }
+                return basePrompt;
             }
+
         }
 
         private string AddUserNameToPrompt(string prompt, string userName)

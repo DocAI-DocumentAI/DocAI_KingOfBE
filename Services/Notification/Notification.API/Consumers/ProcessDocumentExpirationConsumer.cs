@@ -10,7 +10,9 @@ public class ProcessDocumentExpirationConsumer : IConsumer<ProcessDocumentExpira
     private readonly INotificationService _notificationService;
     private readonly ILogger<ProcessDocumentExpirationConsumer> _logger;
 
-    public ProcessDocumentExpirationConsumer(INotificationService notificationService, ILogger<ProcessDocumentExpirationConsumer> logger)
+    public ProcessDocumentExpirationConsumer(
+        INotificationService notificationService,
+        ILogger<ProcessDocumentExpirationConsumer> logger)
     {
         _notificationService = notificationService;
         _logger = logger;
@@ -19,22 +21,34 @@ public class ProcessDocumentExpirationConsumer : IConsumer<ProcessDocumentExpira
     public async Task Consume(ConsumeContext<ProcessDocumentExpirationCommand> context)
     {
         var command = context.Message;
-        _logger.LogInformation("Consuming expiration command for DocumentId: {DocId}, Type: {Type}",
+        _logger.LogInformation("Processing expiration notification for DocumentId: {DocId}, Type: {Type}",
             command.Document.DocumentId, command.NotificationType);
 
         try
         {
-            if (command.NotificationType == Domain.Enums.NotificationType.Expired)
+            switch (command.NotificationType)
             {
-                await _notificationService.ProcessExpiredDocumentNotification(command.Document);
+                case Domain.Enums.NotificationType.Expired:
+                    await _notificationService.ProcessExpiredDocumentNotification(command.Document);
+                    break;
+
+                case Domain.Enums.NotificationType.NearingExpiration:
+                    await _notificationService.ProcessNearingExpirationNotification(command.Document);
+                    break;
+
+                default:
+                    _logger.LogWarning("Unknown notification type: {Type} for document {DocId}",
+                        command.NotificationType, command.Document.DocumentId);
+                    break;
             }
-            else if (command.NotificationType == Domain.Enums.NotificationType.NearingExpiration)
-            {
-                await _notificationService.ProcessNearingExpirationNotification(command.Document);
-            }
+
+            _logger.LogInformation("Successfully processed {Type} notification for document {DocId}",
+                command.NotificationType, command.Document.DocumentId);
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Error processing {Type} notification for document {DocId}",
+                command.NotificationType, command.Document.DocumentId);
             throw;
         }
     }

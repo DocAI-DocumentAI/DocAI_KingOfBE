@@ -57,6 +57,7 @@ public class NotificationService : INotificationService
         _serviceProvider = serviceProvider;
         _userService = userService;
     }
+
     private async Task<List<UserDto>> GetAuthorizedRecipientsAsync(DocumentExpirationDto document)
     {
         var recipients = new List<UserDto>();
@@ -70,17 +71,6 @@ public class NotificationService : INotificationService
             // Get department editors
             var departmentEditors = await _userService.GetDepartmentEditorsAsync(document.DepartmentId);
             recipients.AddRange(departmentEditors);
-
-            //// Get document stakeholders
-            //var documentStakeholders = await _userService.GetDocumentStakeholdersAsync(document.DocumentId);
-            //recipients.AddRange(documentStakeholders);
-
-            //// If public, notify admins
-            //if (document.IsPublic)
-            //{
-            //    var admins = await _userService.GetUsersByRoleAsync("Admin");
-            //    recipients.AddRange(admins);
-            //}
 
             // Always notify creator
             if (!string.IsNullOrEmpty(document.CreatedBy) && Guid.TryParse(document.CreatedBy, out var creatorId))
@@ -110,6 +100,7 @@ public class NotificationService : INotificationService
             return new List<UserDto>();
         }
     }
+
     private bool HasDocumentAccess(UserDto user, DocumentExpirationDto document)
     {
         try
@@ -131,7 +122,6 @@ public class NotificationService : INotificationService
         if (!effectiveUntil.HasValue)
             return "N/A";
 
-        // ✅ Sử dụng ngày Việt Nam để tính toán
         var vietnamDate = VietnamTimeHelper.GetVietnamDate();
         var days = (effectiveUntil.Value.Date - vietnamDate).Days;
 
@@ -142,6 +132,7 @@ public class NotificationService : INotificationService
         else
             return $"Còn {days} ngày";
     }
+
     private async Task SendSignalRNotificationAsync(UserDto user, NotificationType type,
         string subject, DocumentExpirationDto document)
     {
@@ -199,6 +190,7 @@ public class NotificationService : INotificationService
             _logger.LogError(ex, "Error sending general notification");
         }
     }
+
     public async Task ProcessNearingExpirationNotification(DocumentExpirationDto document)
     {
         await ProcessDocumentNotificationAsync(document, NotificationType.NearingExpiration,
@@ -210,7 +202,7 @@ public class NotificationService : INotificationService
         await ProcessDocumentNotificationAsync(document, NotificationType.Expired,
             ApiConstants.DOCUMENT_EXPIRED_TEMPLATE);
 
-        // ✅ Try to update document status to Archived
+        // Try to update document status to Archived
         await TryUpdateDocumentStatusAsync(document);
     }
 
@@ -279,9 +271,9 @@ public class NotificationService : INotificationService
 
             var logRepo = _unitOfWork.GetRepository<NotificationLog>();
 
-            // ✅ STEP 1: First check for duplicates to avoid unnecessary processing
+            // Check for duplicates to avoid unnecessary processing
             var checkPeriod = type == NotificationType.Expired
-                ? DateTime.UtcNow.AddDays(-1)  // 1 days for expired (only once per document)
+                ? DateTime.UtcNow.AddDays(-1)  // 1 day for expired
                 : DateTime.UtcNow.AddDays(-7);  // 7 days for near-expiration
 
             var existingNotification = await logRepo.AnyAsync(l =>
@@ -294,12 +286,12 @@ public class NotificationService : INotificationService
 
             if (existingNotification)
             {
-                _logger.LogDebug("🚫 Duplicate notification skipped for {Email} - already sent {Type} for {DocId}/{Version}",
+                _logger.LogDebug("Duplicate notification skipped for {Email} - already sent {Type} for {DocId}/{Version}",
                     user.Email, type, document.DocumentId, document.Version);
                 return;
             }
 
-            // ✅ STEP 2: Create unique processing record to claim this notification
+            // Create unique processing record to claim this notification
             var uniqueKey = $"{document.DocumentId}_{document.Version}_{type}_{user.Email}_{DateTime.UtcNow:yyyyMMddHHmmss}";
             var processingId = Guid.NewGuid();
 
@@ -312,29 +304,29 @@ public class NotificationService : INotificationService
                 RecipientType = RecipientType.Email,
                 RecipientAddress = user.Email,
                 Subject = "PROCESSING...",
-                Message = uniqueKey, // Temporary unique identifier
+                Message = uniqueKey,
                 IsSent = false,
                 SentAt = null,
                 CreateAt = vietnamTime,
                 ErrorMessage = "Processing in progress..."
             };
 
-            // ✅ STEP 3: Atomic insert to claim this notification
+            // Atomic insert to claim this notification
             try
             {
                 await logRepo.InsertAsync(processingLog);
                 await _unitOfWork.CommitAsync();
-                _logger.LogDebug("🔒 Claimed notification processing for {Email} - ProcessingId: {ProcessingId}",
+                _logger.LogDebug("Claimed notification processing for {Email} - ProcessingId: {ProcessingId}",
                     user.Email, processingId);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning("⚠️ Failed to claim notification processing for {Email} - likely duplicate: {Error}",
+                _logger.LogWarning("Failed to claim notification processing for {Email} - likely duplicate: {Error}",
                     user.Email, ex.Message);
                 return;
             }
 
-            // ✅ STEP 4: Double-check for duplicates after claiming (race condition protection)
+            // Double-check for duplicates after claiming
             var duplicateAfterClaim = await logRepo.AnyAsync(l =>
                 l.DocumentId == document.DocumentId &&
                 l.DocumentVersion == document.Version &&
@@ -342,28 +334,28 @@ public class NotificationService : INotificationService
                 l.RecipientAddress == user.Email &&
                 l.IsSent == true &&
                 l.SentAt >= checkPeriod &&
-                l.Id != processingId); // Exclude our processing record
+                l.Id != processingId);
 
             if (duplicateAfterClaim)
             {
-                _logger.LogWarning("🚫 Duplicate found after claiming - cleaning up processing record for {Email}", user.Email);
+                _logger.LogWarning("Duplicate found after claiming - cleaning up processing record for {Email}", user.Email);
                 logRepo.DeleteAsync(processingLog);
                 await _unitOfWork.CommitAsync();
                 return;
             }
 
-            // ✅ STEP 5: Get email template
+            // Get email template
             var template = await _emailTemplateService.GetEmailTemplateByNameAsync(templateName);
             if (template == null)
             {
-                _logger.LogError("❌ Template '{TemplateName}' not found", templateName);
+                _logger.LogError("Template '{TemplateName}' not found", templateName);
                 processingLog.ErrorMessage = $"Template '{templateName}' not found";
                 logRepo.UpdateAsync(processingLog);
                 await _unitOfWork.CommitAsync();
                 return;
             }
 
-            // ✅ STEP 6: Prepare email content
+            // Prepare email content
             var documentLink = $"https://docai.asia/document/{document.DocumentId}";
             var expirationStatus = type == NotificationType.Expired ? "đã hết hạn" : "sắp hết hạn";
             var daysUntilExpiration = GetDaysUntilExpiration(document.EffectiveUntil);
@@ -386,11 +378,11 @@ public class NotificationService : INotificationService
                 ? $"[{document.DepartmentName}] Tài liệu '{document.Title}' đã hết hạn"
                 : $"[{document.DepartmentName}] Tài liệu '{document.Title}' sắp hết hạn";
 
-            // ✅ STEP 7: Send email
-            _logger.LogDebug("📧 Sending email to {Email} with subject: {Subject}", user.Email, subject);
+            // Send email
+            _logger.LogDebug("Sending email to {Email} with subject: {Subject}", user.Email, subject);
             var emailSent = await _emailService.SendEmailAsync(user.Email, subject, emailBody);
 
-            // ✅ STEP 8: Update processing record with final result
+            // Update processing record with final result
             processingLog.Subject = subject;
             processingLog.Message = emailBody;
             processingLog.IsSent = emailSent;
@@ -402,30 +394,29 @@ public class NotificationService : INotificationService
 
             if (emailSent)
             {
-                _logger.LogInformation("✅ Successfully sent {Type} notification to {Email} for document {DocId}/{Version} - ProcessingId: {ProcessingId}",
-                    type, user.Email, document.DocumentId, document.Version, processingId);
+                _logger.LogInformation("Successfully sent {Type} notification to {Email} for document {DocId}/{Version}",
+                    type, user.Email, document.DocumentId, document.Version);
 
-                // ✅ STEP 9: Send SignalR notification
+                // Send SignalR notification
                 try
                 {
                     await SendSignalRNotificationAsync(user, type, subject, document);
-                    _logger.LogDebug("📡 SignalR notification sent to {UserId}", user.UserId);
+                    _logger.LogDebug("SignalR notification sent to {UserId}", user.UserId);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "⚠️ Failed to send SignalR notification to {UserId}", user.UserId);
-                    // Don't fail the whole operation for SignalR issues
+                    _logger.LogWarning(ex, "Failed to send SignalR notification to {UserId}", user.UserId);
                 }
             }
             else
             {
-                _logger.LogError("❌ Failed to send {Type} notification to {Email} for document {DocId}/{Version} - ProcessingId: {ProcessingId}",
-                    type, user.Email, document.DocumentId, document.Version, processingId);
+                _logger.LogError("Failed to send {Type} notification to {Email} for document {DocId}/{Version}",
+                    type, user.Email, document.DocumentId, document.Version);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "💥 Unexpected error sending notification to {Email} for document {DocId}/{Version}",
+            _logger.LogError(ex, "Unexpected error sending notification to {Email} for document {DocId}/{Version}",
                 user.Email, document.DocumentId, document.Version);
 
             // Try to clean up any processing record if it exists
@@ -448,7 +439,7 @@ public class NotificationService : INotificationService
             }
             catch (Exception cleanupEx)
             {
-                _logger.LogWarning(cleanupEx, "⚠️ Failed to cleanup processing records for {Email}", user.Email);
+                _logger.LogWarning(cleanupEx, "Failed to cleanup processing records for {Email}", user.Email);
             }
         }
     }
@@ -463,7 +454,6 @@ public class NotificationService : INotificationService
                 return;
             }
 
-            // ✅ Log timezone information
             var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
             _logger.LogInformation("Updating document {DocId}/{Version} status to Archived at Vietnam time: {VietnamTime}",
                 document.DocumentId, document.Version, vietnamTime);
@@ -478,36 +468,34 @@ public class NotificationService : INotificationService
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
             var response = await updateClient.GetResponse<UpdateDocumentStatusResponse>(
-        new UpdateDocumentStatusCommand
-        {
-            DocumentId = document.DocumentId,
-            Version = document.Version,
-            NewStatus = "Archived",
-            UpdateKernelMemory = true,    
-            VietnamTime = vietnamTime,  
-            UpdatedBy = "system_expiration", 
-            RequestId = Guid.NewGuid()
-        },
-        timeout.Token
-    );
+                new UpdateDocumentStatusCommand
+                {
+                    DocumentId = document.DocumentId,
+                    Version = document.Version,
+                    NewStatus = "Archived",
+                    UpdateKernelMemory = true,
+                    VietnamTime = vietnamTime,
+                    UpdatedBy = "system_expiration",
+                    RequestId = Guid.NewGuid()
+                },
+                timeout.Token);
 
             if (response?.Message?.Success == true)
             {
-                _logger.LogInformation("Successfully updated document {DocId}/{Version} from {OldStatus} to {NewStatus} at Vietnam time {VietnamTime}. Kernel Memory updated: {KMUpdated}",
-                    document.DocumentId, document.Version, response.Message.OldStatus, response.Message.NewStatus, vietnamTime, response.Message.KernelMemoryUpdated);
+                _logger.LogInformation("Successfully updated document {DocId}/{Version} from {OldStatus} to {NewStatus}",
+                    document.DocumentId, document.Version, response.Message.OldStatus, response.Message.NewStatus);
 
-                // ✅ ADD: Lưu log cho việc archive document
                 var archiveLog = new NotificationLog
                 {
                     DocumentId = document.DocumentId,
                     DocumentVersion = document.Version,
                     NotificationType = NotificationType.General,
-                    RecipientType = RecipientType.SystemAlert, // System event
+                    RecipientType = RecipientType.SystemAlert,
                     RecipientAddress = "system",
                     Subject = $"Document Archived: {document.Title}",
-                    Message = $"Document '{document.Title}' (Version: {document.Version}) has been automatically archived due to expiration. Previous status: {response.Message.OldStatus}, New status: {response.Message.NewStatus}. Kernel Memory updated: {response.Message.KernelMemoryUpdated}",
+                    Message = $"Document '{document.Title}' has been automatically archived due to expiration.",
                     IsSent = true,
-                    SentAt = vietnamTime, // ✅ Vietnam time
+                    SentAt = vietnamTime,
                     ErrorMessage = null
                 };
 
@@ -517,84 +505,46 @@ public class NotificationService : INotificationService
             {
                 _logger.LogError("Failed to update document status for {DocId}/{Version}: {Error}",
                     document.DocumentId, document.Version, response?.Message?.ErrorMessage ?? "Unknown error");
-
-                // ✅ ADD: Lưu log cho việc archive thất bại
-                var failureLog = new NotificationLog
-                {
-                    DocumentId = document.DocumentId,
-                    DocumentVersion = document.Version,
-                    NotificationType = NotificationType.General,
-                    RecipientType = RecipientType.SystemAlert,
-                    RecipientAddress = "system",
-                    Subject = $"Document Archive Failed: {document.Title}",
-                    Message = $"Failed to archive document '{document.Title}' (Version: {document.Version}). Error: {response?.Message?.ErrorMessage ?? "Unknown error"}",
-                    IsSent = false,
-                    SentAt = vietnamTime,
-                    ErrorMessage = response?.Message?.ErrorMessage ?? "Unknown error"
-                };
-
-                await _logService.CreateLogAsync(failureLog);
             }
-        }
-        catch (RequestTimeoutException)
-        {
-            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
-            _logger.LogError("Timeout updating document status for {DocId}/{Version}",
-                document.DocumentId, document.Version);
-
-            // ✅ ADD: Log timeout
-            var timeoutLog = new NotificationLog
-            {
-                DocumentId = document.DocumentId,
-                DocumentVersion = document.Version,
-                NotificationType = NotificationType.General,
-                RecipientType = RecipientType.SystemAlert,
-                RecipientAddress = "system",
-                Subject = $"Document Archive Timeout: {document.Title}",
-                Message = $"Timeout while trying to archive document '{document.Title}' (Version: {document.Version})",
-                IsSent = false,
-                SentAt = vietnamTime,
-                ErrorMessage = "Request timeout"
-            };
-
-            await _logService.CreateLogAsync(timeoutLog);
         }
         catch (Exception ex)
         {
-            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
             _logger.LogError(ex, "Error updating document status for {DocId}/{Version}",
                 document.DocumentId, document.Version);
-
-            // ✅ ADD: Log exception
-            var exceptionLog = new NotificationLog
-            {
-                DocumentId = document.DocumentId,
-                DocumentVersion = document.Version,
-                NotificationType = NotificationType.General,
-                RecipientType = RecipientType.SystemAlert,
-                RecipientAddress = "system",
-                Subject = $"Document Archive Error: {document.Title}",
-                Message = $"Error while trying to archive document '{document.Title}' (Version: {document.Version}). Exception: {ex.Message}",
-                IsSent = false,
-                SentAt = vietnamTime,
-                ErrorMessage = ex.Message
-            };
-
-            await _logService.CreateLogAsync(exceptionLog);
         }
     }
+
     public async Task ProcessWeeklyGroupedNotificationAsync(List<DocumentExpirationDto> documents, string departmentName)
+    {
+        await ProcessGroupedNotificationAsync(documents, departmentName, "Weekly", "WeeklyDocumentExpiration", 7);
+    }
+
+    // ✅ NEW: Daily grouped notification method
+    public async Task ProcessDailyGroupedNotificationAsync(List<DocumentExpirationDto> documents, string departmentName)
+    {
+        await ProcessGroupedNotificationAsync(documents, departmentName, "Daily", "DailyDocumentExpiration", 1);
+    }
+
+    private async Task ProcessGroupedNotificationAsync(List<DocumentExpirationDto> documents, string departmentName,
+        string groupType, string templateName, int duplicateCheckDays)
     {
         try
         {
-            _logger.LogInformation("Processing weekly grouped notification for {DepartmentName} with {Count} documents",
-                departmentName, documents.Count);
+            _logger.LogInformation("Processing {GroupType} grouped notification for {DepartmentName} with {Count} documents",
+                groupType, departmentName, documents.Count);
 
-            // ✅ Get template (fallback to individual if not found)
-            var template = await _emailTemplateService.GetEmailTemplateByNameAsync("WeeklyDocumentExpiration");
+            // ✅ REUSE: Try primary template first, fallback to WeeklyDocumentExpiration
+            var template = await _emailTemplateService.GetEmailTemplateByNameAsync(templateName);
+            if (template == null && templateName != "WeeklyDocumentExpiration")
+            {
+                _logger.LogWarning("Template '{TemplateName}' not found, falling back to 'WeeklyDocumentExpiration'", templateName);
+                template = await _emailTemplateService.GetEmailTemplateByNameAsync("WeeklyDocumentExpiration");
+            }
+
             if (template == null)
             {
-                _logger.LogWarning("Weekly template not found, using individual notifications for {DepartmentName}", departmentName);
+                _logger.LogWarning("No suitable template found, using individual notifications for {DepartmentName}", departmentName);
+
                 // Fallback: send individual notifications
                 foreach (var doc in documents)
                 {
@@ -603,7 +553,7 @@ public class NotificationService : INotificationService
                 return;
             }
 
-            // ✅ Get recipients for the department
+            // Get recipients for the department
             var recipients = await GetDepartmentRecipientsAsync(documents.First().DepartmentId);
             if (!recipients.Any())
             {
@@ -611,78 +561,83 @@ public class NotificationService : INotificationService
                 return;
             }
 
-            // ✅ Create grouped content
+            // Create grouped content with dynamic text based on groupType
             var documentsListHtml = CreateDocumentsListHtml(documents);
-            var weekRange = GetCurrentWeekRange();
-            var subject = $"[{departmentName}] Thông báo tuần: {documents.Count} tài liệu sắp hết hạn";
+            var timeRange = groupType == "Weekly" ? GetCurrentWeekRange() : DateTime.UtcNow.ToString("dd/MM/yyyy");
+            var subject = $"[{departmentName}] Thông báo {groupType.ToLower()}: {documents.Count} tài liệu sắp hết hạn";
 
-            // ✅ Send to all department recipients
+            // Send to all department recipients
             var notificationTasks = recipients.Select(async user =>
             {
                 try
                 {
-                    await SendWeeklyGroupedNotificationAsync(
+                    await SendGroupedNotificationAsync(
                         user.Email,
                         user.Name,
                         subject,
-                        template.TemplateName,
+                        template.TemplateName, // ✅ Use actual template name found
                         departmentName,
                         documents.Count,
                         documentsListHtml,
-                        weekRange,
+                        timeRange,
                         documents.First().DepartmentId.ToString(),
-                        user.UserId);
+                        user.UserId,
+                        groupType,
+                        duplicateCheckDays);
 
-                    _logger.LogDebug("Weekly grouped notification sent to {UserEmail}", user.Email);
+                    _logger.LogDebug("{GroupType} grouped notification sent to {UserEmail}", groupType, user.Email);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to send weekly grouped notification to {UserEmail}", user.Email);
+                    _logger.LogError(ex, "Failed to send {GroupType} grouped notification to {UserEmail}", groupType, user.Email);
                 }
             });
 
             await Task.WhenAll(notificationTasks);
 
-            _logger.LogInformation("Weekly grouped notifications sent to {Count} users for {DepartmentName}",
-                recipients.Count, departmentName);
+            _logger.LogInformation("{GroupType} grouped notifications sent to {Count} users for {DepartmentName}",
+                groupType, recipients.Count, departmentName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing weekly grouped notification for {DepartmentName}", departmentName);
+            _logger.LogError(ex, "Error processing {GroupType} grouped notification for {DepartmentName}", groupType, departmentName);
         }
     }
-    private async Task SendWeeklyGroupedNotificationAsync(
-    string recipientEmail,
-    string recipientName,
-    string subject,
-    string templateName,
-    string departmentName,
-    int documentCount,
-    string documentsListHtml,
-    string weekRange,
-    string departmentId,
-    Guid userId)
+
+    private async Task SendGroupedNotificationAsync(
+        string recipientEmail,
+        string recipientName,
+        string subject,
+        string templateName,
+        string departmentName,
+        int documentCount,
+        string documentsListHtml,
+        string timeRange,
+        string departmentId,
+        Guid userId,
+        string groupType,
+        int duplicateCheckDays)
     {
         try
         {
-            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime(); // ✅ ADD: Vietnam time
+            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
 
-            // ✅ Check for recent weekly notification to avoid duplicates
+            // Check for recent grouped notification to avoid duplicates
             var logRepo = _unitOfWork.GetRepository<NotificationLog>();
-            var last7Days = DateTime.UtcNow.AddDays(-7);
+            var cutoffTime = DateTime.UtcNow.AddDays(-duplicateCheckDays);
 
             var alreadySent = await logRepo.AnyAsync(l =>
-                l.DocumentId == "WEEKLY_GROUP" &&
+                l.DocumentId == $"{groupType.ToUpper()}_GROUP" &&
                 l.DocumentVersion == departmentId &&
                 l.RecipientAddress == recipientEmail &&
                 l.NotificationType == NotificationType.General &&
                 l.IsSent == true &&
-                l.SentAt >= last7Days);
+                l.SentAt >= cutoffTime);
 
             if (alreadySent)
             {
-                _logger.LogDebug("Weekly notification already sent to {Email} for department {DeptId} in last 7 days",
-                    recipientEmail, departmentId);
+                _logger.LogDebug("{GroupType} notification already sent to {Email} for department {DeptId} in last {Days} days",
+                    groupType, recipientEmail, departmentId, duplicateCheckDays);
                 return;
             }
 
@@ -693,64 +648,69 @@ public class NotificationService : INotificationService
                 return;
             }
 
-            // ✅ Replace placeholders (similar to existing pattern)
+            // ✅ ENHANCED: Replace placeholders with better handling for both Daily and Weekly
             var emailBody = template.BodyHtml
                 .Replace("{{RecipientName}}", SanitizeValue(recipientName))
                 .Replace("{{RecipientEmail}}", SanitizeValue(recipientEmail))
+                .Replace("{{UserName}}", SanitizeValue(recipientName))       // Alternative placeholder
+                .Replace("{{UserEmail}}", SanitizeValue(recipientEmail))     // Alternative placeholder
                 .Replace("{{DepartmentName}}", SanitizeValue(departmentName))
                 .Replace("{{DocumentCount}}", documentCount.ToString())
                 .Replace("{{DocumentsList}}", documentsListHtml)
-                .Replace("{{WeekRange}}", SanitizeValue(weekRange));
+                .Replace("{{WeekRange}}", SanitizeValue(timeRange))          // For Weekly template compatibility
+                .Replace("{{TimeRange}}", SanitizeValue(timeRange))          // Generic time range
+                .Replace("{{GroupType}}", groupType)                        // Daily or Weekly
+                .Replace("{{NotificationType}}", groupType.ToLower())       // daily or weekly
+                .Replace("{{VietnamTime}}", vietnamTime.ToString("dd/MM/yyyy HH:mm"));
 
             var emailSent = await _emailService.SendEmailAsync(recipientEmail, subject, emailBody);
 
-            // ✅ Log as General notification (reuse existing enum)
+            // Log as General notification
             var log = new NotificationLog
             {
-                DocumentId = "WEEKLY_GROUP", // Special identifier
-                DocumentVersion = departmentId, // Store department ID here
-                NotificationType = NotificationType.General, // Reuse existing type
+                DocumentId = $"{groupType.ToUpper()}_GROUP", // WEEKLY_GROUP or DAILY_GROUP
+                DocumentVersion = departmentId,
+                NotificationType = NotificationType.General,
                 RecipientType = RecipientType.Email,
                 RecipientAddress = recipientEmail,
                 Subject = subject,
                 Message = emailBody,
                 IsSent = emailSent,
                 SentAt = emailSent ? vietnamTime : null,
-                ErrorMessage = emailSent ? null : "Failed to send weekly grouped notification"
+                ErrorMessage = emailSent ? null : $"Failed to send {groupType.ToLower()} grouped notification"
             };
 
             await _logService.CreateLogAsync(log);
 
-            // ✅ Send SignalR notification (similar to existing pattern)
+            // Send SignalR notification
             if (emailSent)
             {
                 await SendSignalRNotificationAsync(
                     userId,
                     subject,
-                    $"Weekly document expiration summary for {departmentName}",
-                    Guid.NewGuid()); // Use new GUID as placeholder
+                    $"{groupType} document expiration summary for {departmentName}",
+                    Guid.NewGuid());
             }
 
-            _logger.LogInformation("Successfully sent weekly grouped notification to {Email} for {DepartmentName}",
-                recipientEmail, departmentName);
+            _logger.LogInformation("Successfully sent {GroupType} grouped notification to {Email} for {DepartmentName}",
+                groupType, recipientEmail, departmentName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error sending weekly grouped notification to {Email}", recipientEmail);
+            _logger.LogError(ex, "Error sending {GroupType} grouped notification to {Email}", groupType, recipientEmail);
         }
     }
-   
 
-    // ✅ Helper methods (simple implementations)
+    // Helper methods
     private string CreateDocumentsListHtml(List<DocumentExpirationDto> documents)
     {
         var html = "<ul style='line-height: 1.6;'>";
-        var vietnamDate = VietnamTimeHelper.GetVietnamDate(); // ✅ FIX: Dùng Vietnam date
+        var vietnamDate = VietnamTimeHelper.GetVietnamDate();
 
         foreach (var doc in documents.OrderBy(d => d.EffectiveUntil))
         {
             var daysLeft = doc.EffectiveUntil.HasValue
-                ? (doc.EffectiveUntil.Value.Date - vietnamDate).Days  // ✅ FIX: Vietnam date
+                ? (doc.EffectiveUntil.Value.Date - vietnamDate).Days
                 : 0;
 
             var statusColor = daysLeft <= 3 ? "color: #d9534f;" : "color: #f0ad4e;";
@@ -760,19 +720,19 @@ public class NotificationService : INotificationService
                 : $"https://docai.asia/document/{doc.DocumentId}";
 
             html += $@"
-        <li style='margin-bottom: 15px; padding: 12px; border-left: 3px solid #f0ad4e; background-color: #fefefe; border-radius: 4px;'>
-            <div style='margin-bottom: 6px;'>
-                <strong style='{statusColor}'>{SanitizeValue(doc.Title)}</strong>
-                <a href='{documentLink}' style='margin-left: 10px; color: #007bff; text-decoration: none; font-size: 12px;'>
-                    🔗 Xem tài liệu
-                </a>
-            </div>
-            <div style='font-size: 13px; color: #6c757d;'>
-                Phiên bản: {SanitizeValue(doc.Version)} | 
-                Hết hạn: {doc.EffectiveUntil?.ToString("dd/MM/yyyy")} 
-                <span style='{statusColor}; font-weight: bold;'>({daysLeft} ngày nữa)</span>
-            </div>
-        </li>";
+            <li style='margin-bottom: 15px; padding: 12px; border-left: 3px solid #f0ad4e; background-color: #fefefe; border-radius: 4px;'>
+                <div style='margin-bottom: 6px;'>
+                    <strong style='{statusColor}'>{SanitizeValue(doc.Title)}</strong>
+                    <a href='{documentLink}' style='margin-left: 10px; color: #007bff; text-decoration: none; font-size: 12px;'>
+                        🔗 Xem tài liệu
+                    </a>
+                </div>
+                <div style='font-size: 13px; color: #6c757d;'>
+                    Phiên bản: {SanitizeValue(doc.Version)} | 
+                    Hết hạn: {doc.EffectiveUntil?.ToString("dd/MM/yyyy")} 
+                    <span style='{statusColor}; font-weight: bold;'>({daysLeft} ngày nữa)</span>
+                </div>
+            </li>";
         }
         html += "</ul>";
         return html;
@@ -780,7 +740,7 @@ public class NotificationService : INotificationService
 
     private string GetCurrentWeekRange()
     {
-        var vietnamToday = VietnamTimeHelper.GetVietnamDate(); // ✅ FIX: Dùng Vietnam date
+        var vietnamToday = VietnamTimeHelper.GetVietnamDate();
         var startOfWeek = vietnamToday.AddDays(-(int)vietnamToday.DayOfWeek + 1); // Monday
         var endOfWeek = startOfWeek.AddDays(6); // Sunday
 
@@ -793,7 +753,6 @@ public class NotificationService : INotificationService
         {
             var recipients = new List<UserDto>();
 
-            // ✅ Get department managers, editors, and users (similar to existing pattern)
             var managers = await _userService.GetDepartmentManagersAsync(departmentId);
             var editors = await _userService.GetDepartmentEditorsAsync(departmentId);
             var departmentUsers = await _userService.GetUsersByDepartmentAsync(departmentId);
@@ -802,7 +761,7 @@ public class NotificationService : INotificationService
             recipients.AddRange(editors);
             recipients.AddRange(departmentUsers);
 
-            // ✅ Remove duplicates (similar to existing pattern)
+            // Remove duplicates
             var uniqueRecipients = recipients
                 .Where(r => !string.IsNullOrEmpty(r.Email))
                 .GroupBy(r => r.Email.ToLower())
@@ -821,7 +780,6 @@ public class NotificationService : INotificationService
         }
     }
 
-    // ✅ Reuse existing method pattern
     private static string SanitizeValue(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -830,7 +788,6 @@ public class NotificationService : INotificationService
         return value.Replace("<", "&lt;").Replace(">", "&gt;").Trim();
     }
 
-    // ✅ Reuse existing SignalR method
     private async Task SendSignalRNotificationAsync(
         Guid userId,
         string subject,
@@ -841,18 +798,18 @@ public class NotificationService : INotificationService
         {
             await _hubContext.Clients.User(userId.ToString()).SendAsync("ReceiveNotification", new
             {
-                Type = "WeeklyExpiration",
+                Type = "GroupedExpiration",
                 Subject = subject,
                 Message = message,
                 Timestamp = DateTime.UtcNow,
                 DocumentId = documentId
             });
 
-            _logger.LogDebug("SignalR weekly notification sent to user {UserId}", userId);
+            _logger.LogDebug("SignalR grouped notification sent to user {UserId}", userId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error sending SignalR weekly notification to user {UserId}", userId);
+            _logger.LogError(ex, "Error sending SignalR grouped notification to user {UserId}", userId);
         }
     }
 }

@@ -44,5 +44,13 @@ public static class ApiEndpointConstant
     {
         public const string Get = "config";
         public const string Update = "config";
+        public const string GetStatus = "config/status";
+        public const string GetNextRuns = "config/next-runs";
+
+        public const string TriggerExpired = "config/trigger-expired";
+        public const string TriggerNearExpired = "config/trigger-near-expired";
+        public const string TriggerCleanup = "config/trigger-cleanup";
+        public const string PauseJobs = "config/pause";
+        public const string ResumeJobs = "config/resume";
     }
 }

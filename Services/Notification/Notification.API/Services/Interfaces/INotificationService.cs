@@ -8,10 +8,11 @@ namespace Notification.API.Services.Interfaces
 {
     public interface INotificationService
     {
-        Task ProcessNearingExpirationNotification(DocumentExpirationDto document);
         Task ProcessExpiredDocumentNotification(DocumentExpirationDto document);
-        Task SendGeneralNotificationAsync(string templateName, string recipientEmail, string recipientName);
+        Task ProcessNearingExpirationNotification(DocumentExpirationDto document);
         Task ProcessWeeklyGroupedNotificationAsync(List<DocumentExpirationDto> documents, string departmentName);
+        Task ProcessDailyGroupedNotificationAsync(List<DocumentExpirationDto> documents, string departmentName);
+        Task SendGeneralNotificationAsync(string templateName, string recipientEmail, string recipientName);
 
     }
 }

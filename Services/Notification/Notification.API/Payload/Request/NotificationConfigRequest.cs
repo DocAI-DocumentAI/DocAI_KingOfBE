@@ -1,18 +1,28 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using Notification.Domain.Enums;
 
 namespace Notification.API.Payload.Request
 {
     public class NotificationConfigRequest
     {
-        [Range(1, 365, ErrorMessage = "Warning threshold must be between 1 and 365 days.")]
-        public int WarningThresholdDays { get; set; }
+        [Range(1, 30)]
+        public int WarningThresholdDays { get; set; } = 7;
 
-        [Required(ErrorMessage = "Scan cron expression is required.")]
-        public string ScanCronExpression { get; set; } = null!;
-        public bool QuartzEnabled { get; set; }
+        [Range(7, 365)]
+        public int LogRetentionDays { get; set; } = 90;
 
-        [Range(30, 1825, ErrorMessage = "Log retention period must be between 30 and 1825 days (5 years).")]
-        public int LogRetentionDays { get; set; }
+        public bool QuartzEnabled { get; set; } = true;
+
+        [Required]
+        public string ExpiredNotificationCron { get; set; } = "0 0 8 * * ?";
+
+        [Required]
+        public string NearExpiredNotificationCron { get; set; } = "0 0 9 * * MON";
+
+        public bool EnableExpiredNotifications { get; set; } = true;
+        public bool EnableNearExpiredNotifications { get; set; } = true;
+
+        public NotificationMode NearExpiredMode { get; set; } = NotificationMode.Weekly;
     }
 }
