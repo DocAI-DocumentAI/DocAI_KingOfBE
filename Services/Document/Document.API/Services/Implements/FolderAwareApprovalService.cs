@@ -271,6 +271,7 @@ namespace Document.API.Services.Implements
 
                             // ✅ ALWAYS UPDATE: Mark the DocumentFile as replaced regardless of archiving
                             replacedDocument.IsReplaced = true;
+                            replacedDocument.ReplacedById = documentFile.Id; // Set reverse relationship
                             await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(replacedDocument);
                         }
                     }
@@ -479,6 +480,7 @@ namespace Document.API.Services.Implements
                         filter: null!,
                         predicate: predicate,
                         include: i => i.Include(dv => dv.DocumentFile)
+                                      .ThenInclude(df => df.ReplacementDocument)
                                       .Include(dv => dv.Folder)
                                       .Include(dv => dv.TargetFolder)
                                       .Include(dv => dv.DocumentTags).ThenInclude(dt => dt.Tag),
@@ -1007,6 +1009,7 @@ namespace Document.API.Services.Implements
                     .GetListAsync(
                         predicate: predicate,
                         include: i => i.Include(dv => dv.DocumentFile)
+                                      .ThenInclude(df => df.ReplacementDocument)
                                       .Include(dv => dv.Folder)
                                       .Include(dv => dv.TargetFolder)
                                       .Include(dv => dv.DocumentTags).ThenInclude(dt => dt.Tag),
@@ -1137,7 +1140,12 @@ namespace Document.API.Services.Implements
 
                     // Resubmission info (TODO: implement)
                     ResubmissionCount = 0, // TODO: implement resubmission tracking
-                    PreviousRejectionReason = null // TODO: implement rejection reason tracking
+                    PreviousRejectionReason = null, // TODO: implement rejection reason tracking
+
+                    // Replacement relationship fields
+                    ReplacementId = document.DocumentFile?.ReplacementId,
+                    ReplacementDocumentName = document.DocumentFile?.ReplacementDocument?.Title,
+                    IsReplaced = document.DocumentFile?.IsReplaced ?? false
                 };
 
                 // Calculate derived fields
@@ -1190,6 +1198,8 @@ namespace Document.API.Services.Implements
 
                 approvalInfos.Add(approvalInfo);
             }
+
+            // Reverse replacement relationships are now populated directly from database via ReplacedById field
 
             // ✅ ADDED: Enrich with user names using the enrichment service
             await EnrichDocumentApprovalInfosAsync(approvalInfos);
@@ -1367,6 +1377,8 @@ namespace Document.API.Services.Implements
             return "Normal";
         }
 
+        // NOTE: PopulateReverseReplacementsForApprovalInfoAsync method removed - reverse relationships now populated directly from database via ReplacedById field
+
         /// <summary>
         /// ✅ ADDED: Enrich DocumentApprovalInfo objects with user names
         /// </summary>
@@ -1412,7 +1424,13 @@ namespace Document.API.Services.Implements
                     FolderId = ai.FolderId,
                     TargetFolderId = ai.TargetFolderId,
                     FolderName = ai.FolderName,
-                    TargetFolderName = ai.TargetFolderName
+                    TargetFolderName = ai.TargetFolderName,
+                    // Replacement relationship fields
+                    ReplacementId = ai.ReplacementId,
+                    ReplacementDocumentName = ai.ReplacementDocumentName,
+                    IsReplaced = ai.IsReplaced,
+                    ReplacedById = ai.ReplacedById,
+                    ReplacedByDocumentName = ai.ReplacedByDocumentName
                 }).ToList();
 
                 // Enrich with names

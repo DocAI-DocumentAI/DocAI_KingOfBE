@@ -227,7 +227,7 @@ public class AIConfigurationService : IAIConfigurationService
         {
             ModelName = "openai/gpt-4o-mini",
             ModelId = "GPT-4o Mini",
-            MaxToken = 2000,
+            MaxToken = 3500,
             SystemPrompt = "You are a helpful document analysis assistant. Analyze the provided document and extract the requested information accurately and concisely.",
             IsDefault = true
         };

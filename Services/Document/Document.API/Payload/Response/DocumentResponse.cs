@@ -117,6 +117,21 @@ public class DocumentResponse
     public bool IsReplaced { get; set; }
 
     /// <summary>
+    /// ID of the document that replaces this document (reverse relationship)
+    /// </summary>
+    public string? ReplacedById { get; set; }
+
+    /// <summary>
+    /// Full details of the document that replaces this document (reverse relationship)
+    /// </summary>
+    public DocumentResponse? ReplacedByDocument { get; set; }
+
+    /// <summary>
+    /// Name of the document that replaces this document (reverse relationship)
+    /// </summary>
+    public string? ReplacedByDocumentName { get; set; }
+
+    /// <summary>
     /// Indicates whether the document is public (accessible to all employees) or private (restricted to same department)
     /// </summary>
     public bool IsPublic { get; set; }

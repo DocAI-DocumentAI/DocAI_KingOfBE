@@ -146,5 +146,30 @@ namespace Document.API.Payload.Response
         /// Target folder name where the document will be moved when approved
         /// </summary>
         public string? TargetFolderName { get; set; }
+
+        /// <summary>
+        /// ID of the document that this document replaces (forward relationship)
+        /// </summary>
+        public string? ReplacementId { get; set; }
+
+        /// <summary>
+        /// Name of the document that this document replaces (forward relationship)
+        /// </summary>
+        public string? ReplacementDocumentName { get; set; }
+
+        /// <summary>
+        /// Whether this document has been replaced by another document
+        /// </summary>
+        public bool IsReplaced { get; set; }
+
+        /// <summary>
+        /// ID of the document that replaces this document (reverse relationship)
+        /// </summary>
+        public string? ReplacedById { get; set; }
+
+        /// <summary>
+        /// Name of the document that replaces this document (reverse relationship)
+        /// </summary>
+        public string? ReplacedByDocumentName { get; set; }
     }
 }

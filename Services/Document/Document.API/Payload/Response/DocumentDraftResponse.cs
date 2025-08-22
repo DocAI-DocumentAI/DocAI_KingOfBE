@@ -25,6 +25,21 @@ namespace Document.API.Payload.Response
         public DocumentResponse? ReplacementDocument { get; set; }
         public string? ReplacementDocumentName { get; set; }
         public bool IsReplaced { get; set; }
+
+        /// <summary>
+        /// ID of the document that replaces this document (reverse relationship)
+        /// </summary>
+        public string? ReplacedById { get; set; }
+
+        /// <summary>
+        /// Full details of the document that replaces this document (reverse relationship)
+        /// </summary>
+        public DocumentResponse? ReplacedByDocument { get; set; }
+
+        /// <summary>
+        /// Name of the document that replaces this document (reverse relationship)
+        /// </summary>
+        public string? ReplacedByDocumentName { get; set; }
         public DateTime? LastSubmitted { get; set; }
         public string? SubmittedBy { get; set; }
         public string? SubmittedByName { get; set; }

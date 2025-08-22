@@ -427,12 +427,10 @@ public class DocumentService : IDocumentService
 
             if (documentToReplace != null)
             {
-                documentToReplace.IsReplaced = true;
-                documentToReplace.LastUpdatedBy = userId;
-                documentToReplace.LastUpdatedTime = DateTime.UtcNow;
-                await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentToReplace);
-                await _unitOfWork.CommitAsync();
-                _logger.LogInformation("Marked document {OriginalDocumentId} as replaced by new document {NewDocumentId}", documentToReplace.Id, documentFile.Id);
+                // ✅ FIXED: Do NOT mark as replaced during draft creation
+                // The replacement document should only be marked as IsReplaced = true when the replacing document is APPROVED
+                // This prevents the bug where replacement documents become unavailable before approval
+                _logger.LogInformation("Document {NewDocumentId} created as replacement for {OriginalDocumentId} - replacement will be marked when approved", documentFile.Id, documentToReplace.Id);
             }
         }
         catch (Exception ex)
@@ -1767,6 +1765,8 @@ public class DocumentService : IDocumentService
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
                           .Include(v => v.Folder)
                           .Include(v => v.TargetFolder),
@@ -1799,7 +1799,10 @@ public class DocumentService : IDocumentService
 
         var draft = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         if (draft == null)
@@ -1808,6 +1811,9 @@ public class DocumentService : IDocumentService
         }
         
         var response = _mapper.Map<DocumentDraftResponse>(draft);
+
+        // Reverse replacement relationships are now populated directly from database via ReplacedById field
+
         var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
         _logger.LogInformation("Draft document response enriched with names for version {VersionId}", versionId);
         return enrichedResponse;
@@ -1823,11 +1829,17 @@ public class DocumentService : IDocumentService
             selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
             filter: filter,
             predicate: d => d.DocumentFile.OwnerId == userId,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
         );
+
+        // Populate reverse replacement relationships for all documents
+        await PopulateReverseReplacementsAsync(myDocuments.Items);
 
         // Enrich documents with names
         var enrichedDocuments = await _enrichmentService.EnrichDocumentDraftResponsesAsync(myDocuments.Items.ToList());
@@ -1951,7 +1963,10 @@ public class DocumentService : IDocumentService
             filter: null,
             selector : d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.LastUpdatedTime),
             page: pageNumber,
             size: pageSize
@@ -1982,7 +1997,10 @@ public class DocumentService : IDocumentService
 
         var rejectedDocument = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         if (rejectedDocument == null)
@@ -2003,7 +2021,10 @@ public class DocumentService : IDocumentService
 
         var officialDocument = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.DocumentFileId == documentFileId && v.IsOfficial && (v.IsPublic || v.DocumentFile.DepartmentId == userDepartmentId),
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         if (officialDocument == null)
@@ -2039,7 +2060,10 @@ public class DocumentService : IDocumentService
             filter: null,
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: accessControlPredicate,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -2184,7 +2208,10 @@ public class DocumentService : IDocumentService
 
         var document = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
         if (document == null)
@@ -2207,6 +2234,8 @@ public class DocumentService : IDocumentService
         var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: dv => dv.DocumentFileId == documentId && dv.Id == versionId,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
                           .Include(v => v.Folder)
                           .Include(v => v.TargetFolder)
@@ -2224,6 +2253,9 @@ public class DocumentService : IDocumentService
         }
 
         var response = _mapper.Map<DocumentVersionResponse>(documentVersion);
+
+        // Reverse replacement relationships are now populated directly from database via ReplacedById field
+
         var enrichedResponse = await _enrichmentService.EnrichDocumentVersionResponseAsync(response);
         return enrichedResponse;
     }
@@ -2237,6 +2269,8 @@ public class DocumentService : IDocumentService
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
             predicate: dv => dv.DocumentFileId == documentId,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
                           .Include(v => v.Folder)
                           .Include(v => v.TargetFolder),
@@ -2248,6 +2282,14 @@ public class DocumentService : IDocumentService
         var accessibleVersions = documentVersions.Where(version => CanUserAccessDocumentVersion(version, userId, userDepartmentId)).ToList();
 
         var response = _mapper.Map<List<DocumentVersionResponse>>(accessibleVersions);
+
+        // Populate reverse replacement relationships for all versions
+        foreach (var versionResponse in response)
+        {
+            var version = accessibleVersions.FirstOrDefault(v => v.Id == versionResponse.VersionId);
+            // Reverse replacement relationships are now populated directly from database via ReplacedById field
+        }
+
         var enrichedResponse = await _enrichmentService.EnrichDocumentVersionResponsesAsync(response);
         return enrichedResponse;
     }
@@ -3155,6 +3197,8 @@ public class DocumentService : IDocumentService
                 predicate: predicate,
                 include: i => i.Include(dv => dv.DocumentFile)
                     .ThenInclude(df => df.DocumentType)
+                    .Include(dv => dv.DocumentFile)
+                    .ThenInclude(df => df.ReplacementDocument)
                     .Include(dv => dv.DocumentTags)
                     .ThenInclude(dt => dt.Tag)
             );
@@ -3264,7 +3308,10 @@ public class DocumentService : IDocumentService
             selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
             filter: filter,
             predicate: accessControlPredicate,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -3485,4 +3532,133 @@ public class DocumentService : IDocumentService
             // Don't throw - this is a cache update, not critical for main operation
         }
     }
+
+    /// <summary>
+    /// Populates reverse replacement relationship fields for multiple document responses (batch operation)
+    /// </summary>
+    private async Task PopulateReverseReplacementsAsync<T>(IEnumerable<T> responses) where T : class
+    {
+        try
+        {
+            var responseList = responses.ToList();
+            if (!responseList.Any()) return;
+
+            // Get all document file IDs from responses
+            var documentFileIds = new List<string>();
+            foreach (var response in responseList)
+            {
+                var documentIdProp = typeof(T).GetProperty("DocumentId");
+                if (documentIdProp != null)
+                {
+                    var documentId = documentIdProp.GetValue(response)?.ToString();
+                    if (!string.IsNullOrEmpty(documentId))
+                        documentFileIds.Add(documentId);
+                }
+            }
+
+            if (!documentFileIds.Any()) return;
+
+            // Batch query to find all replacing documents
+            var replacingDocuments = await _unitOfWork.GetRepository<DocumentFile>()
+                .GetListAsync(
+                    predicate: df => df.ReplacementId != null && documentFileIds.Contains(df.ReplacementId),
+                    include: i => i.Include(df => df.DocumentVersions.Where(v => v.Status == StatusEnum.Approved))
+                                  .ThenInclude(v => v.DocumentTags)
+                                  .ThenInclude(dt => dt.Tag)
+                );
+
+            // Create lookup dictionary for efficient matching
+            var replacementLookup = replacingDocuments
+                .Where(rd => !string.IsNullOrEmpty(rd.ReplacementId))
+                .ToDictionary(rd => rd.ReplacementId!, rd => rd);
+
+            // Populate reverse relationships for each response
+            foreach (var response in responseList)
+            {
+                var documentIdProp = typeof(T).GetProperty("DocumentId");
+                if (documentIdProp != null)
+                {
+                    var documentId = documentIdProp.GetValue(response)?.ToString();
+                    if (!string.IsNullOrEmpty(documentId) && replacementLookup.TryGetValue(documentId, out var replacingDocument))
+                    {
+                        PopulateReverseReplacementForSingleResponse(response, replacingDocument);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error populating reverse replacement relationships for batch of documents");
+            // Don't throw - this is supplementary information, not critical
+        }
+    }
+
+    /// <summary>
+    /// Helper method to populate reverse replacement fields for a single response with a known replacing document
+    /// </summary>
+    private void PopulateReverseReplacementForSingleResponse<T>(T response, DocumentFile replacingDocument) where T : class
+    {
+        try
+        {
+            var latestApprovedVersion = replacingDocument.DocumentVersions
+                .Where(v => v.Status == StatusEnum.Approved)
+                .OrderByDescending(v => v.CreatedTime)
+                .FirstOrDefault();
+
+            // Use reflection to set the reverse relationship properties
+            var responseType = typeof(T);
+
+            var replacedByIdProp = responseType.GetProperty("ReplacedById");
+            var replacedByDocumentProp = responseType.GetProperty("ReplacedByDocument");
+            var replacedByDocumentNameProp = responseType.GetProperty("ReplacedByDocumentName");
+
+            if (replacedByIdProp != null)
+                replacedByIdProp.SetValue(response, replacingDocument.Id);
+
+            if (replacedByDocumentNameProp != null)
+                replacedByDocumentNameProp.SetValue(response, replacingDocument.Title);
+
+            if (replacedByDocumentProp != null && latestApprovedVersion != null)
+            {
+                // Create a basic DocumentResponse without recursive replacement relationships to avoid circular references
+                var replacedByDocumentResponse = new DocumentResponse
+                {
+                    Id = replacingDocument.Id,
+                    Title = replacingDocument.Title,
+                    Description = replacingDocument.Description,
+                    Status = latestApprovedVersion.Status.ToString(),
+                    CreatedBy = replacingDocument.CreatedBy,
+                    CreatedTime = replacingDocument.CreatedTime,
+                    LastUpdatedby = replacingDocument.LastUpdatedBy,
+                    LastUpdatedTime = replacingDocument.LastUpdatedTime,
+                    FilePath = latestApprovedVersion.FilePath,
+                    FileType = latestApprovedVersion.FileType,
+                    FileSize = latestApprovedVersion.FileSize,
+                    Version = latestApprovedVersion.VersionName,
+                    DepartmentId = replacingDocument.DepartmentId,
+                    DocumentTypeId = replacingDocument.DocumentTypeId,
+                    DocumentTypeName = replacingDocument.DocumentType?.Name,
+                    IsPublic = latestApprovedVersion.IsPublic,
+                    SignedBy = latestApprovedVersion.SignedBy,
+                    EffectiveFrom = latestApprovedVersion.EffectiveFrom,
+                    EffectiveUntil = latestApprovedVersion.EffectiveUntil,
+                    Tags = latestApprovedVersion.DocumentTags?.Select(dt => dt.Tag.Name).ToList() ?? new List<string>(),
+                    ReplacementId = replacingDocument.ReplacementId,
+                    IsReplaced = replacingDocument.IsReplaced,
+                    // Don't populate reverse relationships to avoid circular references
+                    ReplacedById = null,
+                    ReplacedByDocument = null,
+                    ReplacedByDocumentName = null
+                };
+                replacedByDocumentProp.SetValue(response, replacedByDocumentResponse);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error populating reverse replacement relationship for single response");
+            // Don't throw - this is supplementary information, not critical
+        }
+    }
+
+    // NOTE: PopulateReverseReplacementAsync method removed - reverse relationships now populated directly from database via ReplacedById field
 }

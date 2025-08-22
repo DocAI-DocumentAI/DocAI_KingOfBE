@@ -215,7 +215,7 @@ public class KernelMemoryConfigurationService : IKernelMemoryConfigurationServic
                 .WithSearchClientConfig(new()
                 {
                     EmptyAnswer = "No results found. Please try again.",
-                    AnswerTokens = openRouterConfig?.MaxTokens ?? 2000,
+                    AnswerTokens = 3500,
                     MaxMatchesCount = 30,
                 })
                 .Build<MemoryServerless>(kmbOptions);

@@ -20,6 +20,16 @@ namespace Document.Domain.Model
         public bool IsReplaced { get; set; } = false;
 
         /// <summary>
+        /// ID of the document that replaces this document (reverse relationship)
+        /// </summary>
+        public string? ReplacedById { get; set; }
+
+        /// <summary>
+        /// Navigation property to the document that replaces this document (reverse relationship)
+        /// </summary>
+        public DocumentFile? ReplacedByDocument { get; set; }
+
+        /// <summary>
         /// Foreign key to DocumentType
         /// </summary>
         [Required]

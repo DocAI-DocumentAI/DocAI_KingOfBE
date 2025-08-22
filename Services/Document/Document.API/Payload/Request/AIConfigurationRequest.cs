@@ -62,7 +62,7 @@ public class UpdateAIConfigurationRequest
     /// Maximum tokens for the model
     /// </summary>
     [Range(1, 32000)]
-    public int MaxToken { get; set; } = 2000;
+    public int MaxToken { get; set; }
 
     /// <summary>
     /// System prompt for document analysis (only used for AnalyzeDocumentAsync)
