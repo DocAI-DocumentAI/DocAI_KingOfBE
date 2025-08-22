@@ -78,6 +78,8 @@ namespace Document.API.Services.Implements
                                (v.IsPublic || v.DocumentFile.DepartmentId == departmentId),
                 include: i => i.Include(v => v.DocumentFile)
                                .ThenInclude(df => df.DocumentType)
+                               .Include(v => v.DocumentFile)
+                               .ThenInclude(df => df.ReplacementDocument)
                                .Include(v => v.DocumentTags)
                                .ThenInclude(dt => dt.Tag),
                 orderBy: q => q.OrderByDescending(v => v.CreatedTime),

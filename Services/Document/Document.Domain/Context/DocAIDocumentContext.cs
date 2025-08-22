@@ -58,6 +58,19 @@ namespace Document.Domain.Context
                 .IsRequired(true) // Required after data migration
                 .OnDelete(DeleteBehavior.Restrict); // Prevent deletion of DocumentType if it has associated documents
 
+            // Configure DocumentFile replacement relationships
+            modelBuilder.Entity<DocumentFile>()
+                .HasOne(df => df.ReplacementDocument)
+                .WithMany()
+                .HasForeignKey(df => df.ReplacementId)
+                .OnDelete(DeleteBehavior.Restrict); // Prevent deletion of replacement document
+
+            modelBuilder.Entity<DocumentFile>()
+                .HasOne(df => df.ReplacedByDocument)
+                .WithMany()
+                .HasForeignKey(df => df.ReplacedById)
+                .OnDelete(DeleteBehavior.Restrict); // Prevent deletion of replacing document
+
             // Configure unique constraint on DocumentType name
             modelBuilder.Entity<DocumentType>()
                 .HasIndex(dt => dt.Name)

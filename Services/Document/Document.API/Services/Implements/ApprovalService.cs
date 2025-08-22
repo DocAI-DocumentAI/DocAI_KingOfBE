@@ -76,6 +76,8 @@ namespace Document.API.Services.Implements
                 filter: filter,
                 include: i => i.Include(v => v.DocumentFile)
                               .ThenInclude(df => df.DocumentType!)
+                              .Include(v => v.DocumentFile)
+                              .ThenInclude(df => df.ReplacementDocument)
                               .Include(v => v.ApprovalClaim!)
                               .Include(v => v.DocumentTags)
                               .ThenInclude(dt => dt.Tag)
@@ -126,6 +128,8 @@ namespace Document.API.Services.Implements
 
             // Enrich with names
             var enrichedDocuments = await _enrichmentService.EnrichPendingDocumentResponsesAsync(pendingDocuments.Items.ToList());
+
+            // Reverse replacement relationships are now populated directly from database via ReplacedById field
 
             // Add claim and additional information
             foreach (var document in enrichedDocuments)
@@ -479,6 +483,7 @@ namespace Document.API.Services.Implements
 
                             // ✅ ALWAYS UPDATE: Mark the DocumentFile as replaced regardless of archiving
                             replacedDocument.IsReplaced = true;
+                            replacedDocument.ReplacedById = documentFile.Id; // Set reverse relationship
                             await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(replacedDocument);
                         }
                     }
@@ -1410,6 +1415,11 @@ namespace Document.API.Services.Implements
             response.IsApproachingExpiration = response.DaysSinceSubmission >= 5;
             response.Priority = CalculatePriority(version);
 
+            // Replacement relationship fields
+            response.ReplacementId = version.DocumentFile?.ReplacementId;
+            response.ReplacementDocumentName = version.DocumentFile?.ReplacementDocument?.Title;
+            response.IsReplaced = version.DocumentFile?.IsReplaced ?? false;
+
             return response;
         }
 
@@ -1521,5 +1531,7 @@ namespace Document.API.Services.Implements
                 return null;
             }
         }
+
+        // NOTE: PopulateReverseReplacementsForPendingDocumentsAsync method removed - reverse relationships now populated directly from database via ReplacedById field
     }
 }
