@@ -9,7 +9,6 @@ namespace Notification.API.Services.Implement
         private readonly ISchedulerFactory _schedulerFactory;
         private readonly ILogger<NotificationSchedulerService> _logger;
 
-        // ✅ ADDED: Vietnam timezone
         private static readonly TimeZoneInfo VietnamTimeZone =
             TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
 
@@ -21,7 +20,15 @@ namespace Notification.API.Services.Implement
             _logger = logger;
         }
 
-        public async Task UpdateDocumentScanJobSchedule(string cronExpression)
+        public async Task UpdateExpiredDocumentJobSchedule(string cronExpression)
+        {
+            await UpdateJobSchedule("ExpiredDocumentTrigger", cronExpression, "Expired Document");
+        }
+        public async Task UpdateNearExpiredDocumentJobSchedule(string cronExpression)
+        {
+            await UpdateJobSchedule("NearExpiredDocumentTrigger", cronExpression, "Near-Expired Document");
+        }
+        private async Task UpdateJobSchedule(string triggerKey, string cronExpression, string jobName)
         {
             try
             {
@@ -31,55 +38,53 @@ namespace Notification.API.Services.Implement
                 }
 
                 var scheduler = await _schedulerFactory.GetScheduler();
-                var triggerKey = new TriggerKey("NotificationScanTrigger");
+                var trigger = new TriggerKey(triggerKey);
 
-                if (await scheduler.CheckExists(triggerKey))
+                if (await scheduler.CheckExists(trigger))
                 {
-                    // ✅ ENHANCED: Create new trigger with Vietnam timezone
                     var newTrigger = TriggerBuilder.Create()
-                        .WithIdentity(triggerKey)
-                        .WithCronSchedule(cronExpression, x => x.InTimeZone(VietnamTimeZone)) // ✅ Vietnam timezone
+                        .WithIdentity(trigger)
+                        .WithCronSchedule(cronExpression, x => x.InTimeZone(VietnamTimeZone))
                         .Build();
 
-                    await scheduler.RescheduleJob(triggerKey, newTrigger);
+                    await scheduler.RescheduleJob(trigger, newTrigger);
 
-                    _logger.LogInformation("✅ Updated notification scan job schedule to: '{CronExpression}' (Vietnam timezone)",
-                        cronExpression);
+                    _logger.LogInformation("✅ Updated {JobName} schedule to: '{CronExpression}' (Vietnam timezone)",
+                        jobName, cronExpression);
                 }
                 else
                 {
-                    _logger.LogWarning("⚠️ NotificationScanTrigger not found - cannot update schedule");
+                    _logger.LogWarning("⚠️ {TriggerKey} not found - cannot update schedule", triggerKey);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error updating notification scan job schedule to '{CronExpression}'",
-                    cronExpression);
+                _logger.LogError(ex, "❌ Error updating {JobName} schedule to '{CronExpression}'",
+                    jobName, cronExpression);
                 throw;
             }
         }
 
-        // ✅ ADDED: Pause all notification jobs
         public async Task PauseAllJobs()
         {
             try
             {
                 var scheduler = await _schedulerFactory.GetScheduler();
 
-                // Pause specific notification jobs
-                var scanJobKey = new JobKey("NotificationScanJob");
-                var cleanupJobKey = new JobKey("CleanUpOldLogsJob");
-
-                if (await scheduler.CheckExists(scanJobKey))
+                var jobKeys = new[]
                 {
-                    await scheduler.PauseJob(scanJobKey);
-                    _logger.LogInformation("⏸️ Paused NotificationScanJob");
-                }
+                    new JobKey("ExpiredDocumentNotificationJob"),
+                    new JobKey("NearExpiredDocumentNotificationJob"),
+                    new JobKey("CleanUpOldLogsJob")
+                };
 
-                if (await scheduler.CheckExists(cleanupJobKey))
+                foreach (var jobKey in jobKeys)
                 {
-                    await scheduler.PauseJob(cleanupJobKey);
-                    _logger.LogInformation("⏸️ Paused CleanUpOldLogsJob");
+                    if (await scheduler.CheckExists(jobKey))
+                    {
+                        await scheduler.PauseJob(jobKey);
+                        _logger.LogInformation("⏸️ Paused {JobName}", jobKey.Name);
+                    }
                 }
             }
             catch (Exception ex)
@@ -89,26 +94,26 @@ namespace Notification.API.Services.Implement
             }
         }
 
-        // ✅ ADDED: Resume all notification jobs
         public async Task ResumeAllJobs()
         {
             try
             {
                 var scheduler = await _schedulerFactory.GetScheduler();
 
-                var scanJobKey = new JobKey("NotificationScanJob");
-                var cleanupJobKey = new JobKey("CleanUpOldLogsJob");
-
-                if (await scheduler.CheckExists(scanJobKey))
+                var jobKeys = new[]
                 {
-                    await scheduler.ResumeJob(scanJobKey);
-                    _logger.LogInformation("▶️ Resumed NotificationScanJob");
-                }
+                    new JobKey("ExpiredDocumentNotificationJob"),
+                    new JobKey("NearExpiredDocumentNotificationJob"),
+                    new JobKey("CleanUpOldLogsJob")
+                };
 
-                if (await scheduler.CheckExists(cleanupJobKey))
+                foreach (var jobKey in jobKeys)
                 {
-                    await scheduler.ResumeJob(cleanupJobKey);
-                    _logger.LogInformation("▶️ Resumed CleanUpOldLogsJob");
+                    if (await scheduler.CheckExists(jobKey))
+                    {
+                        await scheduler.ResumeJob(jobKey);
+                        _logger.LogInformation("▶️ Resumed {JobName}", jobKey.Name);
+                    }
                 }
             }
             catch (Exception ex)
@@ -118,16 +123,18 @@ namespace Notification.API.Services.Implement
             }
         }
 
-        // ✅ ADDED: Get scheduler status
         public async Task<object> GetSchedulerStatusAsync()
         {
             try
             {
                 var scheduler = await _schedulerFactory.GetScheduler();
 
-                var scanJobKey = new JobKey("NotificationScanJob");
+                var expiredJobKey = new JobKey("ExpiredDocumentNotificationJob");
+                var nearExpiredJobKey = new JobKey("NearExpiredDocumentNotificationJob");
                 var cleanupJobKey = new JobKey("CleanUpOldLogsJob");
-                var scanTriggerKey = new TriggerKey("NotificationScanTrigger");
+
+                var expiredTriggerKey = new TriggerKey("ExpiredDocumentTrigger");
+                var nearExpiredTriggerKey = new TriggerKey("NearExpiredDocumentTrigger");
                 var cleanupTriggerKey = new TriggerKey("CleanUpOldLogsTrigger");
 
                 var vietnamNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, VietnamTimeZone);
@@ -139,7 +146,8 @@ namespace Notification.API.Services.Implement
                     CurrentVietnamTime = vietnamNow.ToString("yyyy-MM-dd HH:mm:ss (dddd)"),
                     Jobs = new
                     {
-                        ScanJob = await GetJobStatus(scheduler, scanJobKey, scanTriggerKey),
+                        ExpiredDocumentJob = await GetJobStatus(scheduler, expiredJobKey, expiredTriggerKey),
+                        NearExpiredDocumentJob = await GetJobStatus(scheduler, nearExpiredJobKey, nearExpiredTriggerKey),
                         CleanupJob = await GetJobStatus(scheduler, cleanupJobKey, cleanupTriggerKey)
                     }
                 };
@@ -151,7 +159,6 @@ namespace Notification.API.Services.Implement
             }
         }
 
-        // ✅ ADDED: Get individual job status
         private async Task<object> GetJobStatus(IScheduler scheduler, JobKey jobKey, TriggerKey triggerKey)
         {
             try
@@ -172,7 +179,6 @@ namespace Notification.API.Services.Implement
 
                 if (trigger != null)
                 {
-                    // Convert to Vietnam time
                     if (trigger.GetNextFireTimeUtc().HasValue)
                     {
                         nextFireTime = TimeZoneInfo.ConvertTimeFromUtc(
@@ -201,92 +207,43 @@ namespace Notification.API.Services.Implement
             }
         }
 
-        // ✅ ADDED: Update cleanup job schedule
-        public async Task UpdateCleanupJobSchedule(string cronExpression)
+        public async Task TriggerExpiredDocumentJobNow()
         {
-            try
-            {
-                if (!CronExpression.IsValidExpression(cronExpression))
-                {
-                    throw new ArgumentException($"Invalid cron expression: {cronExpression}");
-                }
-
-                var scheduler = await _schedulerFactory.GetScheduler();
-                var triggerKey = new TriggerKey("CleanUpOldLogsTrigger");
-
-                if (await scheduler.CheckExists(triggerKey))
-                {
-                    var newTrigger = TriggerBuilder.Create()
-                        .WithIdentity(triggerKey)
-                        .WithCronSchedule(cronExpression, x => x.InTimeZone(VietnamTimeZone))
-                        .Build();
-
-                    await scheduler.RescheduleJob(triggerKey, newTrigger);
-
-                    _logger.LogInformation("✅ Updated cleanup job schedule to: '{CronExpression}' (Vietnam timezone)",
-                        cronExpression);
-                }
-                else
-                {
-                    _logger.LogWarning("⚠️ CleanUpOldLogsTrigger not found - cannot update schedule");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ Error updating cleanup job schedule to '{CronExpression}'", cronExpression);
-                throw;
-            }
+            await TriggerJobNow("ExpiredDocumentNotificationJob", "Expired Document Notification");
         }
 
-        // ✅ ADDED: Trigger manual job execution
-        public async Task TriggerScanJobNow()
+        public async Task TriggerNearExpiredDocumentJobNow()
         {
-            try
-            {
-                var scheduler = await _schedulerFactory.GetScheduler();
-                var jobKey = new JobKey("NotificationScanJob");
-
-                if (await scheduler.CheckExists(jobKey))
-                {
-                    await scheduler.TriggerJob(jobKey);
-                    _logger.LogInformation("🚀 Manually triggered NotificationScanJob");
-                }
-                else
-                {
-                    throw new InvalidOperationException("NotificationScanJob not found");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ Error triggering scan job manually");
-                throw;
-            }
+            await TriggerJobNow("NearExpiredDocumentNotificationJob", "Near-Expired Document Notification");
         }
 
-        // ✅ ADDED: Trigger manual cleanup
         public async Task TriggerCleanupJobNow()
         {
+            await TriggerJobNow("CleanUpOldLogsJob", "Cleanup Old Logs");
+        }
+
+        private async Task TriggerJobNow(string jobName, string displayName)
+        {
             try
             {
                 var scheduler = await _schedulerFactory.GetScheduler();
-                var jobKey = new JobKey("CleanUpOldLogsJob");
+                var jobKey = new JobKey(jobName);
 
                 if (await scheduler.CheckExists(jobKey))
                 {
                     await scheduler.TriggerJob(jobKey);
-                    _logger.LogInformation("🚀 Manually triggered CleanUpOldLogsJob");
+                    _logger.LogInformation("🚀 Manually triggered {DisplayName} job", displayName);
                 }
                 else
                 {
-                    throw new InvalidOperationException("CleanUpOldLogsJob not found");
+                    throw new InvalidOperationException($"{displayName} job not found");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error triggering cleanup job manually");
+                _logger.LogError(ex, "❌ Error triggering {DisplayName} job manually", displayName);
                 throw;
             }
         }
     }
-
 }

@@ -2,11 +2,13 @@
 {
     public interface INotificationSchedulerService
     {
-        Task UpdateDocumentScanJobSchedule(string newCronExpression);
+        Task UpdateExpiredDocumentJobSchedule(string cronExpression);
+        Task UpdateNearExpiredDocumentJobSchedule(string cronExpression);
         Task PauseAllJobs();
         Task ResumeAllJobs();
         Task<object> GetSchedulerStatusAsync();
-        Task TriggerScanJobNow();
+        Task TriggerExpiredDocumentJobNow();
+        Task TriggerNearExpiredDocumentJobNow();
         Task TriggerCleanupJobNow();
 
     }

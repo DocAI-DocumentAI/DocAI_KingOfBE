@@ -7,5 +7,7 @@ namespace Notification.API.Services.Interfaces
     {
         Task<NotificationConfigResponse> GetNotificationConfigAsync();
         Task<NotificationConfigResponse> UpdateNotificationConfigAsync(NotificationConfigRequest request);
+        Task<DateTime?> GetNextRunTimeAsync(string cronExpression);
+        Task<object> GetConfigWithStatusAsync();
     }
 }

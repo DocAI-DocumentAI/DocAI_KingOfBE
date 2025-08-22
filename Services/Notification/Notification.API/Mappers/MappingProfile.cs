@@ -13,12 +13,22 @@ namespace Notification.API.Mappers
             CreateMap<EmailTemplateRequest, EmailTemplate>();
             CreateMap<EmailTemplate, EmailTemplateResponse>();
 
-            CreateMap<NotificationConfigRequest, NotificationConfig>();
-            CreateMap<NotificationConfig, NotificationConfigResponse>();
+            // ✅ UPDATED: Notification Config mappings với fields mới
+            CreateMap<NotificationConfigRequest, NotificationConfig>()
+                .ForMember(dest => dest.Id, opt => opt.Ignore())
+                .ForMember(dest => dest.ConfigKey, opt => opt.Ignore())
+                .ForMember(dest => dest.CreateAt, opt => opt.Ignore())
+                .ForMember(dest => dest.UpdateAt, opt => opt.Ignore());
 
+            CreateMap<NotificationConfig, NotificationConfigResponse>()
+                .ForMember(dest => dest.NextExpiredNotificationTime, opt => opt.Ignore())
+                .ForMember(dest => dest.NextNearExpiredNotificationTime, opt => opt.Ignore())
+                .ForMember(dest => dest.NearExpiredModeDescription, opt => opt.MapFrom(src => src.NearExpiredMode.ToString()));
+
+            // ✅ EXISTING: Notification Log mappings
             CreateMap<NotificationLog, NotificationResponse>()
-         .ForMember(dest => dest.IsRead, opt => opt.MapFrom(src => src.IsRead))     
-         .ForMember(dest => dest.ReadAt, opt => opt.MapFrom(src => src.ReadAt));
+                .ForMember(dest => dest.IsRead, opt => opt.MapFrom(src => src.IsRead))
+                .ForMember(dest => dest.ReadAt, opt => opt.MapFrom(src => src.ReadAt));
         }
 
     }

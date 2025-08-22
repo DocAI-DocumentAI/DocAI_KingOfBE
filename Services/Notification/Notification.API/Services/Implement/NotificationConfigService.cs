@@ -4,6 +4,7 @@ using Notification.API.Constants;
 using Notification.API.Payload.Request;
 using Notification.API.Payload.Response;
 using Notification.API.Services.Interfaces;
+using Notification.Domain.Enums;
 using Notification.Domain.Models;
 using Notification.Infrastructure.Repository.Interfaces;
 using Quartz;
@@ -17,9 +18,8 @@ namespace Notification.API.Services.Implement
         private readonly IMapper _mapper;
         private readonly ILogger<NotificationConfigService> _logger;
         private readonly IMemoryCache _cache;
-        private readonly INotificationSchedulerService? _schedulerService; // ✅ ADDED: Optional scheduler service
+        private readonly INotificationSchedulerService? _schedulerService;
 
-        // Vietnam timezone as default
         private static readonly TimeZoneInfo VietnamTimeZone = GetVietnamTimeZone();
 
         private static TimeZoneInfo GetVietnamTimeZone()
@@ -30,23 +30,23 @@ namespace Notification.API.Services.Implement
             }
             catch
             {
-                // Fallback for Linux/Mac
                 try
                 {
                     return TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
                 }
                 catch
                 {
-                    return TimeZoneInfo.Utc; // Last resort
+                    return TimeZoneInfo.Utc;
                 }
             }
         }
+
         public NotificationConfigService(
             IUnitOfWork<NotificationDbContext> unitOfWork,
             IMapper mapper,
             ILogger<NotificationConfigService> logger,
             IMemoryCache cache,
-            INotificationSchedulerService? schedulerService = null) // ✅ ADDED: Optional injection
+            INotificationSchedulerService? schedulerService = null)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
@@ -65,7 +65,7 @@ namespace Notification.API.Services.Implement
                 return cached;
 
             var config = await _unitOfWork.GetRepository<NotificationConfig>()
-                .SingleOrDefaultAsync(predicate: c => c.ConfigKey == ApiConstants.DEFAULT_CONFIG_KEY);
+                .SingleOrDefaultAsync(predicate: c => c.ConfigKey == "Default");
 
             if (config == null)
             {
@@ -73,6 +73,11 @@ namespace Notification.API.Services.Implement
             }
 
             var response = _mapper.Map<NotificationConfigResponse>(config);
+
+            // Calculate next run times
+            response.NextExpiredNotificationTime = await GetNextRunTimeAsync(config.ExpiredNotificationCron);
+            response.NextNearExpiredNotificationTime = await GetNextRunTimeAsync(config.NearExpiredNotificationCron);
+
             _cache.Set(cacheKey, response, TimeSpan.FromMinutes(30));
 
             return response;
@@ -80,19 +85,23 @@ namespace Notification.API.Services.Implement
 
         public async Task<NotificationConfigResponse> UpdateNotificationConfigAsync(NotificationConfigRequest request)
         {
-            if (!CronExpression.IsValidExpression(request.ScanCronExpression))
-                throw new BadHttpRequestException($"Invalid cron expression: {request.ScanCronExpression}");
+            // Validate cron expressions
+            if (!CronExpression.IsValidExpression(request.ExpiredNotificationCron))
+                throw new BadHttpRequestException($"Invalid expired notification cron expression: {request.ExpiredNotificationCron}");
+
+            if (!CronExpression.IsValidExpression(request.NearExpiredNotificationCron))
+                throw new BadHttpRequestException($"Invalid near-expired notification cron expression: {request.NearExpiredNotificationCron}");
 
             var repo = _unitOfWork.GetRepository<NotificationConfig>();
-            var config = await repo.SingleOrDefaultAsync(predicate: c => c.ConfigKey == ApiConstants.DEFAULT_CONFIG_KEY);
+            var config = await repo.SingleOrDefaultAsync(predicate: c => c.ConfigKey == "Default");
 
             if (config == null)
             {
                 config = await CreateDefaultConfigAsync();
             }
 
-            // ✅ STORE old values for comparison
-            var oldCronExpression = config.ScanCronExpression;
+            var oldExpiredCron = config.ExpiredNotificationCron;
+            var oldNearExpiredCron = config.NearExpiredNotificationCron;
             var oldQuartzEnabled = config.QuartzEnabled;
 
             _mapper.Map(request, config);
@@ -103,61 +112,70 @@ namespace Notification.API.Services.Implement
 
             _cache.Remove("notification_config");
 
-            // ✅ ADDED: Auto-update Quartz schedule if changed
-            await UpdateQuartzScheduleIfNeeded(config, oldCronExpression, oldQuartzEnabled);
+            // Update Quartz schedules if needed
+            await UpdateQuartzSchedulesIfNeeded(config, oldExpiredCron, oldNearExpiredCron, oldQuartzEnabled);
 
-            _logger.LogInformation("Notification configuration updated at {VietnamTime} (Vietnam time). " +
-                "WarningDays: {Days}, Cron: '{Cron}', QuartzEnabled: {Enabled}",
+            _logger.LogInformation("Notification configuration updated at {VietnamTime}. " +
+                "Expired: '{ExpiredCron}', NearExpired: '{NearExpiredCron}', Mode: {Mode}",
                 VietnamNow.ToString("yyyy-MM-dd HH:mm:ss"),
-                config.WarningThresholdDays,
-                config.ScanCronExpression,
-                config.QuartzEnabled);
+                config.ExpiredNotificationCron, config.NearExpiredNotificationCron, config.NearExpiredMode);
 
-            return _mapper.Map<NotificationConfigResponse>(config);
+            var response = _mapper.Map<NotificationConfigResponse>(config);
+            response.NextExpiredNotificationTime = await GetNextRunTimeAsync(config.ExpiredNotificationCron);
+            response.NextNearExpiredNotificationTime = await GetNextRunTimeAsync(config.NearExpiredNotificationCron);
+
+            return response;
         }
 
-        // ✅ ADDED: Auto-update Quartz when config changes
-        private async Task UpdateQuartzScheduleIfNeeded(NotificationConfig config, string oldCronExpression, bool oldQuartzEnabled)
+        private async Task UpdateQuartzSchedulesIfNeeded(NotificationConfig config, string oldExpiredCron,
+            string oldNearExpiredCron, bool oldQuartzEnabled)
         {
             if (_schedulerService == null)
             {
-                _logger.LogDebug("Scheduler service not available - Quartz may not be configured");
+                _logger.LogDebug("Scheduler service not available");
                 return;
             }
 
             try
             {
-                // Check if cron expression changed
-                bool cronChanged = !string.Equals(oldCronExpression, config.ScanCronExpression, StringComparison.OrdinalIgnoreCase);
+                bool expiredCronChanged = !string.Equals(oldExpiredCron, config.ExpiredNotificationCron, StringComparison.OrdinalIgnoreCase);
+                bool nearExpiredCronChanged = !string.Equals(oldNearExpiredCron, config.NearExpiredNotificationCron, StringComparison.OrdinalIgnoreCase);
                 bool enabledChanged = oldQuartzEnabled != config.QuartzEnabled;
 
-                if (cronChanged || enabledChanged)
+                if (enabledChanged)
                 {
                     if (config.QuartzEnabled)
                     {
-                        // Update/restart schedule with new cron
-                        await _schedulerService.UpdateDocumentScanJobSchedule(config.ScanCronExpression);
-                        _logger.LogInformation("✅ Updated Quartz schedule to: '{CronExpression}' (Vietnam timezone)",
-                            config.ScanCronExpression);
+                        await _schedulerService.ResumeAllJobs();
+                        _logger.LogInformation("✅ Resumed all Quartz jobs");
                     }
                     else
                     {
-                        // Disable/pause jobs
-                        await _schedulerService.PauseAllJobs(); // ✅ Implement this method
-                        _logger.LogInformation("⏸️ Paused Quartz jobs (disabled via config)");
+                        await _schedulerService.PauseAllJobs();
+                        _logger.LogInformation("⏸️ Paused all Quartz jobs");
                     }
                 }
-                else
+
+                if (config.QuartzEnabled)
                 {
-                    _logger.LogDebug("Quartz schedule unchanged");
+                    if (expiredCronChanged)
+                    {
+                        await _schedulerService.UpdateExpiredDocumentJobSchedule(config.ExpiredNotificationCron);
+                        _logger.LogInformation("✅ Updated expired document schedule to: '{CronExpression}'",
+                            config.ExpiredNotificationCron);
+                    }
+
+                    if (nearExpiredCronChanged)
+                    {
+                        await _schedulerService.UpdateNearExpiredDocumentJobSchedule(config.NearExpiredNotificationCron);
+                        _logger.LogInformation("✅ Updated near-expired document schedule to: '{CronExpression}'",
+                            config.NearExpiredNotificationCron);
+                    }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Failed to update Quartz schedule. Config saved but Quartz not updated. " +
-                    "Manual restart may be required.");
-
-                // Don't throw - config update should succeed even if Quartz update fails
+                _logger.LogError(ex, "❌ Failed to update Quartz schedules");
             }
         }
 
@@ -165,10 +183,14 @@ namespace Notification.API.Services.Implement
         {
             var defaultConfig = new NotificationConfig
             {
-                ConfigKey = ApiConstants.DEFAULT_CONFIG_KEY,
+                ConfigKey = "Default",
                 QuartzEnabled = true,
                 WarningThresholdDays = 7,
-                ScanCronExpression = "0 0 7 * * ?", // 7:00 AM Vietnam time
+                ExpiredNotificationCron = "0 0 8 * * ?",
+                NearExpiredNotificationCron = "0 0 9 * * MON",
+                EnableExpiredNotifications = true,
+                EnableNearExpiredNotifications = true,
+                NearExpiredMode = NotificationMode.Weekly,
                 LogRetentionDays = 90,
                 CreateAt = VietnamNow
             };
@@ -177,24 +199,49 @@ namespace Notification.API.Services.Implement
             await repo.InsertAsync(defaultConfig);
             await _unitOfWork.CommitAsync();
 
-            _logger.LogInformation("Created default notification configuration at {VietnamTime} (Vietnam time)",
+            _logger.LogInformation("Created default notification configuration at {VietnamTime}",
                 VietnamNow.ToString("yyyy-MM-dd HH:mm:ss"));
 
             return defaultConfig;
         }
 
-        // ✅ ADDED: Get config with Quartz status
-        public async Task<object> GetConfigWithQuartzStatusAsync()
+        public async Task<DateTime?> GetNextRunTimeAsync(string cronExpression)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(cronExpression) || !CronExpression.IsValidExpression(cronExpression))
+                {
+                    return null;
+                }
+
+                var cron = new CronExpression(cronExpression);
+                var vietnamNow = VietnamNow;
+                var nextUtc = cron.GetNextValidTimeAfter(vietnamNow.ToUniversalTime());
+
+                if (nextUtc.HasValue)
+                {
+                    return TimeZoneInfo.ConvertTimeFromUtc(nextUtc.Value.DateTime, VietnamTimeZone);
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calculating next run time for cron: {Cron}", cronExpression);
+                return null;
+            }
+        }
+
+        public async Task<object> GetConfigWithStatusAsync()
         {
             var config = await GetNotificationConfigAsync();
 
             object quartzStatus = "Not Available";
-
             if (_schedulerService != null)
             {
                 try
                 {
-                    quartzStatus = await _schedulerService.GetSchedulerStatusAsync(); // ✅ Implement this
+                    quartzStatus = await _schedulerService.GetSchedulerStatusAsync();
                 }
                 catch (Exception ex)
                 {
@@ -207,45 +254,8 @@ namespace Notification.API.Services.Implement
                 Config = config,
                 QuartzStatus = quartzStatus,
                 VietnamTime = VietnamNow.ToString("yyyy-MM-dd HH:mm:ss (dddd)"),
-                NextScheduledRun = await GetNextScheduledRunAsync()
+                TimeZone = "SE Asia Standard Time (GMT+7)"
             };
-        }
-
-        // ✅ ADDED: Get next scheduled run time
-        public async Task<DateTime?> GetNextScheduledRunAsync()
-        {
-            try
-            {
-                var config = await GetNotificationConfigAsync();
-
-                if (!config.QuartzEnabled || string.IsNullOrEmpty(config.ScanCronExpression))
-                {
-                    return null;
-                }
-
-                if (!CronExpression.IsValidExpression(config.ScanCronExpression))
-                {
-                    return null;
-                }
-
-                var cronExpression = new CronExpression(config.ScanCronExpression);
-                var vietnamNow = VietnamNow;
-
-                // Calculate in Vietnam timezone
-                var nextUtc = cronExpression.GetNextValidTimeAfter(vietnamNow.ToUniversalTime());
-
-                if (nextUtc.HasValue)
-                {
-                    return TimeZoneInfo.ConvertTimeFromUtc(nextUtc.Value.DateTime, VietnamTimeZone);
-                }
-
-                return null;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error calculating next scheduled run time");
-                return null;
-            }
         }
     }
 }
