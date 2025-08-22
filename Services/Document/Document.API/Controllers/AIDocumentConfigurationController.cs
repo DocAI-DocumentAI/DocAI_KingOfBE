@@ -14,21 +14,25 @@ namespace Document.API.Controllers;
 [Route(ApiEndPointConstant.ApiEndpoint)]
 [ApiController]
 [CustomAuthorize]
-public class AIConfigurationController : ControllerBase
+public class AIDocumentConfigurationController : ControllerBase
 {
     private readonly IAIConfigurationService _aiConfigurationService;
-    private readonly ILogger<AIConfigurationController> _logger;
+    private readonly ILogger<AIDocumentConfigurationController> _logger;
 
-    public AIConfigurationController(IAIConfigurationService aiConfigurationService, ILogger<AIConfigurationController> logger)
+    public AIDocumentConfigurationController(IAIConfigurationService aiConfigurationService, ILogger<AIDocumentConfigurationController> logger)
     {
         _aiConfigurationService = aiConfigurationService;
         _logger = logger;
     }
 
     /// <summary>
-    /// Get all AI configurations
+    /// (Document analyze) Get all AI configurations
     /// </summary>
     [HttpGet(ApiEndPointConstant.AIConfiguration.GetAll)]
+    [ProducesResponseType(typeof(ApiResponse<List<AIConfigurationResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetAllConfigurations()
     {
         var configurations = await _aiConfigurationService.GetAllConfigurationsAsync();
@@ -36,9 +40,13 @@ public class AIConfigurationController : ControllerBase
     }
 
     /// <summary>
-    /// Get default AI configuration
+    /// (Document analyze) Get default AI configuration
     /// </summary>
     [HttpGet(ApiEndPointConstant.AIConfiguration.GetDefault)]
+    [ProducesResponseType(typeof(ApiResponse<AIConfigurationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetDefaultConfiguration()
     {
         var configuration = await _aiConfigurationService.GetDefaultConfigurationAsync();
@@ -51,9 +59,13 @@ public class AIConfigurationController : ControllerBase
     }
 
     /// <summary>
-    /// Get AI configuration by ID
+    /// (Document analyze) Get AI configuration by ID
     /// </summary>
     [HttpGet(ApiEndPointConstant.AIConfiguration.GetById)]
+    [ProducesResponseType(typeof(ApiResponse<AIConfigurationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetConfigurationById(string id)
     {
         var configuration = await _aiConfigurationService.GetConfigurationByIdAsync(id);
@@ -61,9 +73,13 @@ public class AIConfigurationController : ControllerBase
     }
 
     /// <summary>
-    /// Create a new AI configuration
+    /// (Document analyze) Create a new AI configuration
     /// </summary>
     [HttpPost(ApiEndPointConstant.AIConfiguration.Create)]
+    [ProducesResponseType(typeof(ApiResponse<AIConfigurationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> CreateConfiguration([FromBody] CreateAIConfigurationRequest request)
     {
         var createdConfiguration = await _aiConfigurationService.CreateConfigurationAsync(request);
@@ -71,9 +87,13 @@ public class AIConfigurationController : ControllerBase
     }
 
     /// <summary>
-    /// Update an existing AI configuration
+    /// (Document analyze) Update an existing AI configuration
     /// </summary>
     [HttpPut(ApiEndPointConstant.AIConfiguration.Update)]
+    [ProducesResponseType(typeof(ApiResponse<AIConfigurationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> UpdateConfiguration(string id, [FromBody] UpdateAIConfigurationRequest request)
     {
         var updatedConfiguration = await _aiConfigurationService.UpdateConfigurationAsync(id, request);
@@ -81,9 +101,13 @@ public class AIConfigurationController : ControllerBase
     }
 
     /// <summary>
-    /// Delete an AI configuration
+    /// (Document analyze) Delete an AI configuration
     /// </summary>
     [HttpDelete(ApiEndPointConstant.AIConfiguration.Delete)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> DeleteConfiguration(string id)
     {
         await _aiConfigurationService.DeleteConfigurationAsync(id);
@@ -91,9 +115,13 @@ public class AIConfigurationController : ControllerBase
     }
 
     /// <summary>
-    /// Set an AI configuration as default
+    /// (Document analyze) Set an AI configuration as default
     /// </summary>
     [HttpPost(ApiEndPointConstant.AIConfiguration.SetDefault)]
+    [ProducesResponseType(typeof(ApiResponse<AIConfigurationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> SetDefaultConfiguration(string id)
     {
         var updatedConfiguration = await _aiConfigurationService.SetDefaultConfigurationAsync(id);
@@ -101,9 +129,13 @@ public class AIConfigurationController : ControllerBase
     }
 
     /// <summary>
-    /// Initialize default AI configuration (for setup)
+    /// (Document analyze) Initialize default AI configuration (for setup)
     /// </summary>
     [HttpPost(ApiEndPointConstant.AIConfiguration.Initialize)]
+    [ProducesResponseType(typeof(ApiResponse<AIConfigurationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> InitializeDefaultConfiguration()
     {
         var defaultConfiguration = await _aiConfigurationService.InitializeDefaultConfigurationAsync();
