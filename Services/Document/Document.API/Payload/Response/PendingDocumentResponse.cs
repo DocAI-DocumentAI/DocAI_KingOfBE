@@ -1,4 +1,5 @@
 ﻿using Document.Domain.Enums;
+using Document.API.Payload.Response.Document;
 
 namespace Document.API.Payload.Response
 {
@@ -171,5 +172,15 @@ namespace Document.API.Payload.Response
         /// Name of the document that replaces this document (reverse relationship)
         /// </summary>
         public string? ReplacedByDocumentName { get; set; }
+
+        /// <summary>
+        /// Detailed information of the document that this document replaces
+        /// </summary>
+        public DocumentSummaryResponse? ReplacementDocument { get; set; }
+
+        /// <summary>
+        /// Detailed information of the document that replaces this document
+        /// </summary>
+        public DocumentSummaryResponse? ReplacedByDocument { get; set; }
     }
 }

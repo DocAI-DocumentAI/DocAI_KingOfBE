@@ -23,8 +23,12 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.CreatedTime, opt => opt.MapFrom(src => src.CreatedTime))
             .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().DocumentTags.Select(dt => dt.Tag.Name).ToList()))
             .ForMember(dest => dest.ReplacementId, opt => opt.MapFrom(src => src.ReplacementId))
-            .ForMember(dest => dest.ReplacementDocument, opt => opt.MapFrom(src => src.ReplacementDocument))
+            .ForMember(dest => dest.ReplacementDocument, opt => opt.Ignore()) // Complex mapping - handled in service layer
+            .ForMember(dest => dest.ReplacementDocumentName, opt => opt.MapFrom(src => src.ReplacementDocument != null ? src.ReplacementDocument.Title : null))
             .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.IsReplaced))
+            .ForMember(dest => dest.ReplacedById, opt => opt.MapFrom(src => src.ReplacedById))
+            .ForMember(dest => dest.ReplacedByDocument, opt => opt.Ignore()) // Complex mapping - handled in service layer
+            .ForMember(dest => dest.ReplacedByDocumentName, opt => opt.MapFrom(src => src.ReplacedByDocument != null ? src.ReplacedByDocument.Title : null))
             .ForMember(dest => dest.LastSubmitted, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().LastSubmitted))
             .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().SubmittedBy))
             .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentTypeId))
@@ -105,7 +109,15 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.FolderId, opt => opt.MapFrom(src => src.FolderId))
             .ForMember(dest => dest.TargetFolderId, opt => opt.MapFrom(src => src.TargetFolderId))
             .ForMember(dest => dest.FolderName, opt => opt.MapFrom(src => src.Folder != null ? src.Folder.Name : null))
-            .ForMember(dest => dest.TargetFolderName, opt => opt.MapFrom(src => src.TargetFolder != null ? src.TargetFolder.Name : null));
+            .ForMember(dest => dest.TargetFolderName, opt => opt.MapFrom(src => src.TargetFolder != null ? src.TargetFolder.Name : null))
+            // Replacement relationship fields
+            .ForMember(dest => dest.ReplacementId, opt => opt.MapFrom(src => src.DocumentFile != null ? src.DocumentFile.ReplacementId : null))
+                        .ForMember(dest => dest.ReplacementDocument, opt => opt.Ignore()) // Complex mapping - handled in service layer
+            .ForMember(dest => dest.ReplacementDocumentName, opt => opt.MapFrom(src => src.DocumentFile != null && src.DocumentFile.ReplacementDocument != null ? src.DocumentFile.ReplacementDocument.Title : null))
+            .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.DocumentFile != null ? src.DocumentFile.IsReplaced : false))
+            .ForMember(dest => dest.ReplacedById, opt => opt.MapFrom(src => src.DocumentFile != null ? src.DocumentFile.ReplacedById : null))
+                        .ForMember(dest => dest.ReplacedByDocument, opt => opt.Ignore())
+            .ForMember(dest => dest.ReplacedByDocumentName, opt => opt.MapFrom(src => src.DocumentFile != null && src.DocumentFile.ReplacedByDocument != null ? src.DocumentFile.ReplacedByDocument.Title : null));
 
         CreateMap<DocumentVersion, DocumentResponse>()
             .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src.DocumentFile.Id.ToString()))
@@ -136,6 +148,35 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.ReplacedById, opt => opt.Ignore())
             .ForMember(dest => dest.ReplacedByDocument, opt => opt.Ignore())
             .ForMember(dest => dest.ReplacedByDocumentName, opt => opt.Ignore());
+
+        CreateMap<DocumentFile, DocumentResponse>()
+            .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src.Id))
+            .ForMember(dest => dest.Title, opt => opt.MapFrom(src => src.Title))
+            .ForMember(dest => dest.Description, opt => opt.MapFrom(src => src.Description))
+            .ForMember(dest => dest.CreatedBy, opt => opt.MapFrom(src => src.CreatedBy))
+            .ForMember(dest => dest.CreatedTime, opt => opt.MapFrom(src => src.CreatedTime))
+            .ForMember(dest => dest.LastUpdatedby, opt => opt.MapFrom(src => src.LastUpdatedBy))
+            .ForMember(dest => dest.LastUpdatedTime, opt => opt.MapFrom(src => src.LastUpdatedTime))
+            .ForMember(dest => dest.DepartmentId, opt => opt.MapFrom(src => src.DepartmentId))
+            .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentTypeId))
+            .ForMember(dest => dest.DocumentTypeName, opt => opt.MapFrom(src => src.DocumentType != null ? src.DocumentType.Name : null))
+            .ForMember(dest => dest.ReplacementId, opt => opt.MapFrom(src => src.ReplacementId))
+            .ForMember(dest => dest.ReplacementDocument, opt => opt.MapFrom(src => src.ReplacementDocument))
+            .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.IsReplaced))
+            .ForMember(dest => dest.ReplacedById, opt => opt.MapFrom(src => src.ReplacedById))
+            .ForMember(dest => dest.ReplacedByDocument, opt => opt.MapFrom(src => src.ReplacedByDocument))
+            .ForMember(dest => dest.ReplacedByDocumentName, opt => opt.MapFrom(src => src.ReplacedByDocument != null ? src.ReplacedByDocument.Title : null))
+            // Fields that need to come from DocumentVersion - will be ignored and set manually
+            .ForMember(dest => dest.Status, opt => opt.Ignore())
+            .ForMember(dest => dest.FilePath, opt => opt.Ignore())
+            .ForMember(dest => dest.FileType, opt => opt.Ignore())
+            .ForMember(dest => dest.FileSize, opt => opt.Ignore())
+            .ForMember(dest => dest.Version, opt => opt.Ignore())
+            .ForMember(dest => dest.Tags, opt => opt.Ignore())
+            .ForMember(dest => dest.IsPublic, opt => opt.Ignore())
+            .ForMember(dest => dest.SignedBy, opt => opt.Ignore())
+            .ForMember(dest => dest.EffectiveFrom, opt => opt.Ignore())
+            .ForMember(dest => dest.EffectiveUntil, opt => opt.Ignore());
 
         CreateMap<DocumentVersion, DocumentVersionResponse>()
             .ForMember(dest => dest.DocumentId, opt => opt.MapFrom(src => src.DocumentFileId))
