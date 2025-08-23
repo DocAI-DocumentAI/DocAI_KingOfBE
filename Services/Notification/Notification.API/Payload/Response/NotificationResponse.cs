@@ -6,7 +6,7 @@ namespace Notification.API.Payload.Response;
 public class NotificationResponse
 {
     public Guid Id { get; set; }
-    public Guid DocumentId { get; set; }
+    public string? DocumentId { get; set; }
     public string? DocumentVersion { get; set; }
     public NotificationType NotificationType { get; set; }
     public RecipientType RecipientType { get; set; }
