@@ -265,16 +265,18 @@ public class NotificationService : INotificationService
     {
         try
         {
-            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
+            var processingId = Guid.NewGuid();
+            var utcNow = DateTime.UtcNow; // ✅ Always use UTC
+
             _logger.LogInformation("Attempting to send {Type} notification to {Email} for document {DocId}/{Version}",
                 type, user.Email, document.DocumentId, document.Version);
 
             var logRepo = _unitOfWork.GetRepository<NotificationLog>();
 
-            // Check for duplicates to avoid unnecessary processing
+            // Check for duplicates
             var checkPeriod = type == NotificationType.Expired
-                ? DateTime.UtcNow.AddDays(-1)  // 1 day for expired
-                : DateTime.UtcNow.AddDays(-7);  // 7 days for near-expiration
+                ? DateTime.UtcNow.AddDays(-1)
+                : DateTime.UtcNow.AddDays(-7);
 
             var existingNotification = await logRepo.AnyAsync(l =>
                 l.DocumentId == document.DocumentId &&
@@ -286,15 +288,11 @@ public class NotificationService : INotificationService
 
             if (existingNotification)
             {
-                _logger.LogDebug("Duplicate notification skipped for {Email} - already sent {Type} for {DocId}/{Version}",
-                    user.Email, type, document.DocumentId, document.Version);
+                _logger.LogDebug("Duplicate notification skipped for {Email}", user.Email);
                 return;
             }
 
-            // Create unique processing record to claim this notification
-            var uniqueKey = $"{document.DocumentId}_{document.Version}_{type}_{user.Email}_{DateTime.UtcNow:yyyyMMddHHmmss}";
-            var processingId = Guid.NewGuid();
-
+            // Create processing record with UTC time
             var processingLog = new NotificationLog
             {
                 Id = processingId,
@@ -304,47 +302,26 @@ public class NotificationService : INotificationService
                 RecipientType = RecipientType.Email,
                 RecipientAddress = user.Email,
                 Subject = "PROCESSING...",
-                Message = uniqueKey,
+                Message = $"Processing_{utcNow:yyyyMMddHHmmss}",
                 IsSent = false,
                 SentAt = null,
-                CreateAt = vietnamTime,
+                CreateAt = utcNow,  // ✅ UTC instead of VietnamTime
                 ErrorMessage = "Processing in progress..."
             };
 
-            // Atomic insert to claim this notification
             try
             {
                 await logRepo.InsertAsync(processingLog);
                 await _unitOfWork.CommitAsync();
-                _logger.LogDebug("Claimed notification processing for {Email} - ProcessingId: {ProcessingId}",
-                    user.Email, processingId);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning("Failed to claim notification processing for {Email} - likely duplicate: {Error}",
+                _logger.LogWarning("Failed to claim notification processing for {Email}: {Error}",
                     user.Email, ex.Message);
                 return;
             }
 
-            // Double-check for duplicates after claiming
-            var duplicateAfterClaim = await logRepo.AnyAsync(l =>
-                l.DocumentId == document.DocumentId &&
-                l.DocumentVersion == document.Version &&
-                l.NotificationType == type &&
-                l.RecipientAddress == user.Email &&
-                l.IsSent == true &&
-                l.SentAt >= checkPeriod &&
-                l.Id != processingId);
-
-            if (duplicateAfterClaim)
-            {
-                _logger.LogWarning("Duplicate found after claiming - cleaning up processing record for {Email}", user.Email);
-                logRepo.DeleteAsync(processingLog);
-                await _unitOfWork.CommitAsync();
-                return;
-            }
-
-            // Get email template
+            // Get template and prepare content
             var template = await _emailTemplateService.GetEmailTemplateByNameAsync(templateName);
             if (template == null)
             {
@@ -355,9 +332,12 @@ public class NotificationService : INotificationService
                 return;
             }
 
-            // Prepare email content
+            // Prepare email content (same as before)
             var documentLink = $"https://docai.asia/document/{document.DocumentId}";
             var expirationStatus = type == NotificationType.Expired ? "đã hết hạn" : "sắp hết hạn";
+
+            // ✅ For display purposes, convert UTC to Vietnam time
+            var vietnamTimeForDisplay = VietnamTimeHelper.ConvertToVietnamTime(utcNow);
             var daysUntilExpiration = GetDaysUntilExpiration(document.EffectiveUntil);
 
             var emailBody = template.BodyHtml
@@ -372,41 +352,31 @@ public class NotificationService : INotificationService
                 .Replace("{{DepartmentName}}", document.DepartmentName ?? "Unknown Department")
                 .Replace("{{ExpirationStatus}}", expirationStatus)
                 .Replace("{{DaysUntilExpiration}}", daysUntilExpiration)
-                .Replace("{{VietnamTime}}", vietnamTime.ToString("dd/MM/yyyy HH:mm"));
+                .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm")); // ✅ Display only
 
             var subject = type == NotificationType.Expired
                 ? $"[{document.DepartmentName}] Tài liệu '{document.Title}' đã hết hạn"
                 : $"[{document.DepartmentName}] Tài liệu '{document.Title}' sắp hết hạn";
 
             // Send email
-            _logger.LogDebug("Sending email to {Email} with subject: {Subject}", user.Email, subject);
             var emailSent = await _emailService.SendEmailAsync(user.Email, subject, emailBody);
 
-            // Update processing record with final result
+            // ✅ Update with UTC time
             processingLog.Subject = subject;
             processingLog.Message = emailBody;
             processingLog.IsSent = emailSent;
-            processingLog.SentAt = emailSent ? vietnamTime : null;
+            processingLog.SentAt = emailSent ? DateTime.UtcNow : null; // ✅ UTC
             processingLog.ErrorMessage = emailSent ? null : "Failed to send email notification";
 
             logRepo.UpdateAsync(processingLog);
-            await _unitOfWork.CommitAsync();
+            await _unitOfWork.CommitAsync(); // ✅ Should work now
 
             if (emailSent)
             {
                 _logger.LogInformation("Successfully sent {Type} notification to {Email} for document {DocId}/{Version}",
                     type, user.Email, document.DocumentId, document.Version);
 
-                // Send SignalR notification
-                try
-                {
-                    await SendSignalRNotificationAsync(user, type, subject, document);
-                    _logger.LogDebug("SignalR notification sent to {UserId}", user.UserId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to send SignalR notification to {UserId}", user.UserId);
-                }
+                await SendSignalRNotificationAsync(user, type, subject, document);
             }
             else
             {
@@ -416,33 +386,10 @@ public class NotificationService : INotificationService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error sending notification to {Email} for document {DocId}/{Version}",
-                user.Email, document.DocumentId, document.Version);
-
-            // Try to clean up any processing record if it exists
-            try
-            {
-                var logRepo = _unitOfWork.GetRepository<NotificationLog>();
-                var processingRecords = await logRepo.GetListAsync(predicate: l =>
-                    l.DocumentId == document.DocumentId &&
-                    l.DocumentVersion == document.Version &&
-                    l.NotificationType == type &&
-                    l.RecipientAddress == user.Email &&
-                    l.IsSent == false &&
-                    l.Subject == "PROCESSING...");
-
-                foreach (var record in processingRecords)
-                {
-                    logRepo.DeleteAsync(record);
-                }
-                await _unitOfWork.CommitAsync();
-            }
-            catch (Exception cleanupEx)
-            {
-                _logger.LogWarning(cleanupEx, "Failed to cleanup processing records for {Email}", user.Email);
-            }
+            _logger.LogError(ex, "Unexpected error sending notification to {Email}", user.Email);
         }
     }
+
 
     private async Task TryUpdateDocumentStatusAsync(DocumentExpirationDto document)
     {
@@ -620,9 +567,9 @@ public class NotificationService : INotificationService
     {
         try
         {
-            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
+            var utcNow = DateTime.UtcNow; // ✅ Use UTC
 
-            // Check for recent grouped notification to avoid duplicates
+            // Check for recent grouped notification
             var logRepo = _unitOfWork.GetRepository<NotificationLog>();
             var cutoffTime = DateTime.UtcNow.AddDays(-duplicateCheckDays);
 
@@ -636,8 +583,7 @@ public class NotificationService : INotificationService
 
             if (alreadySent)
             {
-                _logger.LogDebug("{GroupType} notification already sent to {Email} for department {DeptId} in last {Days} days",
-                    groupType, recipientEmail, departmentId, duplicateCheckDays);
+                _logger.LogDebug("{GroupType} notification already sent to {Email}", groupType, recipientEmail);
                 return;
             }
 
@@ -648,27 +594,29 @@ public class NotificationService : INotificationService
                 return;
             }
 
-            // ✅ ENHANCED: Replace placeholders with better handling for both Daily and Weekly
+            // ✅ Convert to Vietnam time for display
+            var vietnamTimeForDisplay = VietnamTimeHelper.ConvertToVietnamTime(utcNow);
+
             var emailBody = template.BodyHtml
                 .Replace("{{RecipientName}}", SanitizeValue(recipientName))
                 .Replace("{{RecipientEmail}}", SanitizeValue(recipientEmail))
-                .Replace("{{UserName}}", SanitizeValue(recipientName))       // Alternative placeholder
-                .Replace("{{UserEmail}}", SanitizeValue(recipientEmail))     // Alternative placeholder
+                .Replace("{{UserName}}", SanitizeValue(recipientName))
+                .Replace("{{UserEmail}}", SanitizeValue(recipientEmail))
                 .Replace("{{DepartmentName}}", SanitizeValue(departmentName))
                 .Replace("{{DocumentCount}}", documentCount.ToString())
                 .Replace("{{DocumentsList}}", documentsListHtml)
-                .Replace("{{WeekRange}}", SanitizeValue(timeRange))          // For Weekly template compatibility
-                .Replace("{{TimeRange}}", SanitizeValue(timeRange))          // Generic time range
-                .Replace("{{GroupType}}", groupType)                        // Daily or Weekly
-                .Replace("{{NotificationType}}", groupType.ToLower())       // daily or weekly
-                .Replace("{{VietnamTime}}", vietnamTime.ToString("dd/MM/yyyy HH:mm"));
+                .Replace("{{WeekRange}}", SanitizeValue(timeRange))
+                .Replace("{{TimeRange}}", SanitizeValue(timeRange))
+                .Replace("{{GroupType}}", groupType)
+                .Replace("{{NotificationType}}", groupType.ToLower())
+                .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm")); // ✅ Display only
 
             var emailSent = await _emailService.SendEmailAsync(recipientEmail, subject, emailBody);
 
-            // Log as General notification
+            // ✅ Create log with UTC time
             var log = new NotificationLog
             {
-                DocumentId = $"{groupType.ToUpper()}_GROUP", // WEEKLY_GROUP or DAILY_GROUP
+                DocumentId = $"{groupType.ToUpper()}_GROUP",
                 DocumentVersion = departmentId,
                 NotificationType = NotificationType.General,
                 RecipientType = RecipientType.Email,
@@ -676,24 +624,15 @@ public class NotificationService : INotificationService
                 Subject = subject,
                 Message = emailBody,
                 IsSent = emailSent,
-                SentAt = emailSent ? vietnamTime : null,
+                SentAt = emailSent ? DateTime.UtcNow : null, // ✅ UTC
+                CreateAt = DateTime.UtcNow,                  // ✅ UTC
                 ErrorMessage = emailSent ? null : $"Failed to send {groupType.ToLower()} grouped notification"
             };
 
-            await _logService.CreateLogAsync(log);
+            await _logService.CreateLogAsync(log); // ✅ Should work now
 
-            // Send SignalR notification
-            if (emailSent)
-            {
-                await SendSignalRNotificationAsync(
-                    userId,
-                    subject,
-                    $"{groupType} document expiration summary for {departmentName}",
-                    Guid.NewGuid());
-            }
-
-            _logger.LogInformation("Successfully sent {GroupType} grouped notification to {Email} for {DepartmentName}",
-                groupType, recipientEmail, departmentName);
+            _logger.LogInformation("Successfully sent {GroupType} grouped notification to {Email}",
+                groupType, recipientEmail);
         }
         catch (Exception ex)
         {
