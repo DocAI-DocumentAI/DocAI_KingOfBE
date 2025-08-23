@@ -4,6 +4,7 @@ using Notification.API.Constants;
 using Notification.API.Payload.Request;
 using Notification.API.Payload.Response;
 using Notification.API.Services.Interfaces;
+using Notification.API.Utils;
 using Notification.Domain.Enums;
 using Notification.Domain.Models;
 using Notification.Infrastructure.Repository.Interfaces;
@@ -55,7 +56,6 @@ namespace Notification.API.Services.Implement
             _schedulerService = schedulerService;
         }
 
-        private static DateTime VietnamNow => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, VietnamTimeZone);
 
         public async Task<NotificationConfigResponse> GetNotificationConfigAsync()
         {
@@ -105,8 +105,7 @@ namespace Notification.API.Services.Implement
             var oldQuartzEnabled = config.QuartzEnabled;
 
             _mapper.Map(request, config);
-            config.UpdateAt = VietnamNow;
-
+            config.UpdateAt = VietnamTimeHelper.GetUtcNow();
             repo.UpdateAsync(config);
             await _unitOfWork.CommitAsync();
 
@@ -114,11 +113,6 @@ namespace Notification.API.Services.Implement
 
             // Update Quartz schedules if needed
             await UpdateQuartzSchedulesIfNeeded(config, oldExpiredCron, oldNearExpiredCron, oldQuartzEnabled);
-
-            _logger.LogInformation("Notification configuration updated at {VietnamTime}. " +
-                "Expired: '{ExpiredCron}', NearExpired: '{NearExpiredCron}', Mode: {Mode}",
-                VietnamNow.ToString("yyyy-MM-dd HH:mm:ss"),
-                config.ExpiredNotificationCron, config.NearExpiredNotificationCron, config.NearExpiredMode);
 
             var response = _mapper.Map<NotificationConfigResponse>(config);
             response.NextExpiredNotificationTime = await GetNextRunTimeAsync(config.ExpiredNotificationCron);
@@ -192,15 +186,12 @@ namespace Notification.API.Services.Implement
                 EnableNearExpiredNotifications = true,
                 NearExpiredMode = NotificationMode.Weekly,
                 LogRetentionDays = 90,
-                CreateAt = VietnamNow
+                CreateAt = VietnamTimeHelper.GetUtcNow()
             };
 
             var repo = _unitOfWork.GetRepository<NotificationConfig>();
             await repo.InsertAsync(defaultConfig);
             await _unitOfWork.CommitAsync();
-
-            _logger.LogInformation("Created default notification configuration at {VietnamTime}",
-                VietnamNow.ToString("yyyy-MM-dd HH:mm:ss"));
 
             return defaultConfig;
         }
@@ -215,7 +206,7 @@ namespace Notification.API.Services.Implement
                 }
 
                 var cron = new CronExpression(cronExpression);
-                var vietnamNow = VietnamNow;
+                var vietnamNow = VietnamTimeHelper.GetUtcNow();
                 var nextUtc = cron.GetNextValidTimeAfter(vietnamNow.ToUniversalTime());
 
                 if (nextUtc.HasValue)
@@ -253,7 +244,7 @@ namespace Notification.API.Services.Implement
             {
                 Config = config,
                 QuartzStatus = quartzStatus,
-                VietnamTime = VietnamNow.ToString("yyyy-MM-dd HH:mm:ss (dddd)"),
+                VietnamTime = VietnamTimeHelper.GetUtcNow().ToString("yyyy-MM-dd HH:mm:ss (dddd)"),
                 TimeZone = "SE Asia Standard Time (GMT+7)"
             };
         }
