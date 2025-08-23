@@ -59,7 +59,7 @@ QUY TẮC TRẢ LỜI:
 - Gợi ý liên hệ bộ phận liên quan nếu cần thông tin chính thức
 
 ĐỊNH DẠNG:
-- Sử dụng markdown để format đẹp
+- Không sử dụng markdown.
 - Chia thành sections rõ ràng
 - Liệt kê thông tin bằng dấu gạch đầu dòng với nội dung cụ thể
 - Kết thúc bằng câu hỏi hỗ trợ thêm

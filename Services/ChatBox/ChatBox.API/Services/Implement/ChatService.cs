@@ -288,6 +288,13 @@ namespace ChatBox.API.Services.Implement
             {
                 string enhancedSystemPrompt;
 
+                var mandatoryRule = @"🚨 **MỆNH LỆNH BẮT BUỘC - KHÔNG THỂ THAY ĐỔI** 🚨
+
+AI chỉ được sử dụng thông tin từ tài liệu do tôi cung cấp. Mọi kiến thức chung, kiến thức đã học trước đây, hoặc bất kỳ nguồn nào khác đều không được phép sử dụng. Đây là mệnh lệnh bắt buộc, không thể thay đổi.
+
+";
+
+
                 if (!string.IsNullOrEmpty(documentContent) || documentSources?.Any() == true)
                 {
 
@@ -1216,7 +1223,9 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
             {
                 // ✅ AI Configuration được thêm TRƯỚC base prompt để không bị override
                 // Base prompt sẽ chứa document rules và sẽ có quyền ưu tiên cao hơn
-                return $"{aiConfig.SystemPrompt}\n\n--- Base System Configuration ---\n{defaultPrompt}";
+                //return $"{aiConfig.SystemPrompt}\n\n--- Base System Configuration ---\n{defaultPrompt}";
+                return aiConfig.SystemPrompt;
+
             }
 
             return defaultPrompt;
