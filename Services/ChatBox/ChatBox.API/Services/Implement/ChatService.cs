@@ -1661,7 +1661,7 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
             var baseTimestamp = DateTime.UtcNow;
             // ✅ SỬA: Dùng AddTicks(1) thay vì AddMilliseconds(1) để tránh race condition
             var userTimestamp = baseTimestamp;
-            var aiTimestamp = baseTimestamp.AddTicks(1);
+            var aiTimestamp = baseTimestamp.AddSeconds(1);
 
             var userMessage = new ChatMessage
             {
@@ -2420,7 +2420,7 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
             var baseTimestamp = DateTime.UtcNow;
             // ✅ SỬA: Dùng AddTicks(1)
             var userTimestamp = baseTimestamp;
-            var aiTimestamp = baseTimestamp.AddTicks(1);
+            var aiTimestamp = baseTimestamp.AddSeconds(1);
 
             var userMessage = new ChatMessage
             {
