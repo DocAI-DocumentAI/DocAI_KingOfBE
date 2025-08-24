@@ -10,6 +10,7 @@ using Notification.Domain.Models;
 using Notification.Infrastructure.Repository.Interfaces;
 using Quartz;
 using Quartz.Impl.AdoJobStore;
+using Shared.Utils;
 
 namespace Notification.API.Services.Implement
 {
@@ -20,27 +21,6 @@ namespace Notification.API.Services.Implement
         private readonly ILogger<NotificationConfigService> _logger;
         private readonly IMemoryCache _cache;
         private readonly INotificationSchedulerService? _schedulerService;
-
-        private static readonly TimeZoneInfo VietnamTimeZone = GetVietnamTimeZone();
-
-        private static TimeZoneInfo GetVietnamTimeZone()
-        {
-            try
-            {
-                return TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
-            }
-            catch
-            {
-                try
-                {
-                    return TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
-                }
-                catch
-                {
-                    return TimeZoneInfo.Utc;
-                }
-            }
-        }
 
         public NotificationConfigService(
             IUnitOfWork<NotificationDbContext> unitOfWork,
@@ -85,6 +65,10 @@ namespace Notification.API.Services.Implement
 
         public async Task<NotificationConfigResponse> UpdateNotificationConfigAsync(NotificationConfigRequest request)
         {
+            var vietnamNow = TimeZoneHelper.VietnamNow; // ✅ For logging
+            _logger.LogInformation("🔧 Updating notification config at Vietnam time: {VietnamTime}",
+                vietnamNow.ToString("yyyy-MM-dd HH:mm:ss"));
+
             // Validate cron expressions
             if (!CronExpression.IsValidExpression(request.ExpiredNotificationCron))
                 throw new BadHttpRequestException($"Invalid expired notification cron expression: {request.ExpiredNotificationCron}");
@@ -97,6 +81,7 @@ namespace Notification.API.Services.Implement
 
             if (config == null)
             {
+                _logger.LogInformation("🆕 Config not found, creating default config");
                 config = await CreateDefaultConfigAsync();
             }
 
@@ -105,7 +90,7 @@ namespace Notification.API.Services.Implement
             var oldQuartzEnabled = config.QuartzEnabled;
 
             _mapper.Map(request, config);
-            config.UpdateAt = VietnamTimeHelper.GetUtcNow();
+            config.UpdateAt = TimeZoneHelper.UtcNow; 
             repo.UpdateAsync(config);
             await _unitOfWork.CommitAsync();
 
@@ -126,7 +111,7 @@ namespace Notification.API.Services.Implement
         {
             if (_schedulerService == null)
             {
-                _logger.LogDebug("Scheduler service not available");
+                _logger.LogWarning("⚠️ Scheduler service not available");
                 return;
             }
 
@@ -141,27 +126,6 @@ namespace Notification.API.Services.Implement
                     if (config.QuartzEnabled)
                     {
                         await _schedulerService.ResumeAllJobs();
-                        _logger.LogInformation("✅ Resumed all Quartz jobs");
-                    }
-                    else
-                    {
-                        await _schedulerService.PauseAllJobs();
-                        _logger.LogInformation("⏸️ Paused all Quartz jobs");
-                    }
-                }
-
-                if (config.QuartzEnabled)
-                {
-                    if (expiredCronChanged)
-                    {
-                        await _schedulerService.UpdateExpiredDocumentJobSchedule(config.ExpiredNotificationCron);
-                        _logger.LogInformation("✅ Updated expired document schedule to: '{CronExpression}'",
-                            config.ExpiredNotificationCron);
-                    }
-
-                    if (nearExpiredCronChanged)
-                    {
-                        await _schedulerService.UpdateNearExpiredDocumentJobSchedule(config.NearExpiredNotificationCron);
                         _logger.LogInformation("✅ Updated near-expired document schedule to: '{CronExpression}'",
                             config.NearExpiredNotificationCron);
                     }
@@ -175,23 +139,27 @@ namespace Notification.API.Services.Implement
 
         private async Task<NotificationConfig> CreateDefaultConfigAsync()
         {
+            var utcNow = TimeZoneHelper.UtcNow; // ✅ Use unified helper for database
+
             var defaultConfig = new NotificationConfig
             {
                 ConfigKey = "Default",
                 QuartzEnabled = true,
                 WarningThresholdDays = 7,
-                ExpiredNotificationCron = "0 0 8 * * ?",
-                NearExpiredNotificationCron = "0 0 9 * * MON",
+                ExpiredNotificationCron = "0 0 6 * * ?",        // 6:00 AM daily
+                NearExpiredNotificationCron = "0 0 6 * * ?",     // 6:00 AM daily  
                 EnableExpiredNotifications = true,
                 EnableNearExpiredNotifications = true,
-                NearExpiredMode = NotificationMode.Weekly,
+                NearExpiredMode = NotificationMode.Daily,
                 LogRetentionDays = 90,
-                CreateAt = VietnamTimeHelper.GetUtcNow()
+                CreateAt = utcNow // ✅ Store UTC in database
             };
 
             var repo = _unitOfWork.GetRepository<NotificationConfig>();
             await repo.InsertAsync(defaultConfig);
             await _unitOfWork.CommitAsync();
+
+            _logger.LogInformation("✅ Created default notification config with 6:00 AM schedule");
 
             return defaultConfig;
         }
@@ -206,12 +174,20 @@ namespace Notification.API.Services.Implement
                 }
 
                 var cron = new CronExpression(cronExpression);
-                var vietnamNow = VietnamTimeHelper.GetUtcNow();
-                var nextUtc = cron.GetNextValidTimeAfter(vietnamNow.ToUniversalTime());
+
+                // ✅ Use unified helper for UTC time
+                var utcNow = TimeZoneHelper.UtcNow;
+                var nextUtc = cron.GetNextValidTimeAfter(utcNow);
 
                 if (nextUtc.HasValue)
                 {
-                    return TimeZoneInfo.ConvertTimeFromUtc(nextUtc.Value.DateTime, VietnamTimeZone);
+                    // ✅ Convert to Vietnam time for display using unified helper
+                    var nextVietnam = TimeZoneHelper.ConvertUtcToVietnam(nextUtc.Value.DateTime);
+
+                    _logger.LogDebug("Next run time: Cron='{Cron}', UTC={NextUtc}, Vietnam={NextVietnam}",
+                        cronExpression, nextUtc.Value.DateTime, nextVietnam);
+
+                    return nextVietnam;
                 }
 
                 return null;
@@ -240,12 +216,15 @@ namespace Notification.API.Services.Implement
                 }
             }
 
+            var vietnamNow = TimeZoneHelper.VietnamNow; // ✅ Use unified helper
+
             return new
             {
                 Config = config,
                 QuartzStatus = quartzStatus,
-                VietnamTime = VietnamTimeHelper.GetUtcNow().ToString("yyyy-MM-dd HH:mm:ss (dddd)"),
-                TimeZone = "SE Asia Standard Time (GMT+7)"
+                VietnamTime = vietnamNow.ToString("yyyy-MM-dd HH:mm:ss (dddd)"),
+                TimeZone = TimeZoneHelper.VietnamTimeZone.Id,
+                TimezoneInfo = TimeZoneHelper.GetTimezoneInfo()
             };
         }
     }

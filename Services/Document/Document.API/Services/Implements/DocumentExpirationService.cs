@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Shared.Command;
 using Shared.DTOs;
 using Shared.Models;
+using Shared.Utils;
 
 namespace Document.API.Services.Implements
 {
@@ -38,30 +39,26 @@ namespace Document.API.Services.Implements
         public async Task<List<DocumentExpirationDto>> GetExpiringDocumentsAsync(DateTime warningDate)
         {
 
-            // ✅ FIX 1: Ensure warningDate is UTC for PostgreSQL compatibility
-            var warningDateUtc = warningDate.Kind == DateTimeKind.Utc
-                ? warningDate
-                : DateTime.SpecifyKind(warningDate, DateTimeKind.Utc);
+            // ✅ Ensure warningDate is UTC for PostgreSQL compatibility
+            var warningDateUtc = TimeZoneHelper.EnsureUtc(warningDate);
+            var todayUtc = TimeZoneHelper.UtcToday; // PostgreSQL-safe UTC date
 
-            // ✅ FIX 2: Use UTC date for database query, then convert for comparison
-            var todayUtc = DateTime.UtcNow.Date; // Always UTC for DB queries
-
-            _logger.LogInformation("Getting documents for expiration check. Warning date UTC: {WarningDateUtc}, Today UTC: {TodayUtc}",
+            _logger.LogInformation("🔍 Getting documents for expiration check. Warning date UTC: {WarningDateUtc}, Today UTC: {TodayUtc}",
                 warningDateUtc, todayUtc);
 
-            // ✅ FIX 3: Query database with UTC dates
+            // ✅ Query database with UTC dates to prevent PostgreSQL timezone errors
             var expiringDocuments = await _unitOfWork.GetRepository<DocumentVersion>()
                 .GetListAsync(
                     predicate: dv =>
                         dv.Status == StatusEnum.Approved &&
                         dv.EffectiveFrom.HasValue &&
                         dv.EffectiveUntil.HasValue &&
-                        dv.EffectiveUntil.Value.Date <= warningDateUtc.Date, // ✅ Use UTC date
+                        dv.EffectiveUntil.Value.Date <= warningDateUtc.Date, // Safe UTC comparison
                     include: i => i.Include(dv => dv.DocumentFile)
                                    .ThenInclude(df => df.DocumentType)
                 );
 
-            _logger.LogInformation("Found {Count} documents with expiration dates before {WarningDateUtc}",
+            _logger.LogInformation("📋 Found {Count} documents with expiration dates before {WarningDateUtc}",
                 expiringDocuments.Count, warningDateUtc);
 
             var result = new List<DocumentExpirationDto>();
@@ -83,11 +80,11 @@ namespace Document.API.Services.Implements
                 var departmentId = Guid.TryParse(doc.DocumentFile.DepartmentId, out var deptId) ? deptId : Guid.Empty;
                 var departmentName = departmentNames.TryGetValue(departmentId, out var name) ? name : "Unknown Department";
 
-                // ✅ FIX 4: Convert to Vietnam time for logging only
-                var vietnamExpiryDate = VietnamTimeHelper.ConvertUtcToVietnam(doc.EffectiveUntil.Value);
-                var daysFromToday = VietnamTimeHelper.DaysFromToday(doc.EffectiveUntil.Value);
+                // ✅ Convert to Vietnam time for logging only
+                var vietnamExpiryDate = TimeZoneHelper.ConvertUtcToVietnam(doc.EffectiveUntil.Value);
+                var daysFromToday = TimeZoneHelper.DaysFromToday(doc.EffectiveUntil.Value);
 
-                _logger.LogDebug("Document {DocId} expires on {ExpiryDateVietnam} (Vietnam time), {Days} days from today",
+                _logger.LogDebug("📄 Document {DocId} expires on {ExpiryDateVietnam} (Vietnam time), {Days} days from today",
                     doc.DocumentFile.Id, vietnamExpiryDate.ToString("yyyy-MM-dd"), daysFromToday);
 
                 result.Add(new DocumentExpirationDto
@@ -98,7 +95,7 @@ namespace Document.API.Services.Implements
                     DepartmentId = departmentId,
                     DepartmentName = departmentName,
                     EffectiveFrom = doc.EffectiveFrom,
-                    EffectiveUntil = doc.EffectiveUntil,
+                    EffectiveUntil = doc.EffectiveUntil, // Keep original UTC values
                     Status = doc.Status.ToString(),
                     DocumentLink = GenerateDocumentLink(doc.DocumentFile.Id, doc.Id),
                     IsPublic = doc.IsPublic,
@@ -106,7 +103,7 @@ namespace Document.API.Services.Implements
                 });
             }
 
-            _logger.LogInformation("Returning {Count} expiring/expired documents", result.Count);
+            _logger.LogInformation("✅ Returning {Count} expiring/expired documents", result.Count);
             return result;
         }
         private async Task<Dictionary<Guid, string>> GetDepartmentNamesAsync(List<Guid> departmentIds)
@@ -125,20 +122,20 @@ namespace Document.API.Services.Implements
 
                 if (response.Message.Success)
                 {
-                    _logger.LogInformation("Successfully retrieved {Count} department names",
+                    _logger.LogDebug("✅ Successfully retrieved {Count} department names",
                         response.Message.DepartmentNames.Count);
                     return response.Message.DepartmentNames;
                 }
 
-                _logger.LogWarning("Failed to get department names: {Error}", response.Message.ErrorMessage);
+                _logger.LogWarning("⚠️ Failed to get department names: {Error}", response.Message.ErrorMessage);
             }
             catch (RequestTimeoutException)
             {
-                _logger.LogWarning("Timeout getting department names, using fallback");
+                _logger.LogWarning("⏰ Timeout getting department names, using fallback");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting department names, using fallback");
+                _logger.LogError(ex, "❌ Error getting department names, using fallback");
             }
 
             // Fallback: Use department ID as name
@@ -151,11 +148,11 @@ namespace Document.API.Services.Implements
         // ... rest of the methods stay the same
         public async Task<bool> UpdateDocumentStatusAsync(string documentId, string version, string newStatus)
         {
-            var vietnamTime = VietnamTimeHelper.GetVietnamDateTime();
-            var utcNow = DateTime.UtcNow; // ✅ Use UTC for database storage
+            var vietnamTime = TimeZoneHelper.VietnamNow; // For display/logging
+            var utcNow = TimeZoneHelper.UtcNow; // For database storage - PostgreSQL safe
 
-            _logger.LogInformation("Updating document {DocumentId} version {Version} to status {NewStatus} at Vietnam time {VietnamTime}",
-                documentId, version, newStatus, vietnamTime);
+            _logger.LogInformation("🔄 Updating document {DocumentId} version {Version} to status {NewStatus} at Vietnam time {VietnamTime}",
+                documentId, version, newStatus, vietnamTime.ToString("yyyy-MM-dd HH:mm:ss"));
 
             try
             {
@@ -168,7 +165,7 @@ namespace Document.API.Services.Implements
 
                 if (document == null)
                 {
-                    _logger.LogWarning("Document not found for update: {DocumentId}/{Version}", documentId, version);
+                    _logger.LogWarning("⚠️ Document not found for update: {DocumentId}/{Version}", documentId, version);
                     return false;
                 }
 
@@ -176,34 +173,34 @@ namespace Document.API.Services.Implements
                 {
                     var oldStatus = document.Status;
                     document.Status = status;
-                    document.LastUpdatedTime = utcNow; // ✅ Store UTC in database
+                    document.LastUpdatedTime = utcNow; // ✅ Always store UTC in database
                     document.LastUpdatedBy = "system_notification";
 
                     await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(document);
                     await _unitOfWork.CommitAsync();
 
-                    _logger.LogInformation("Successfully updated document {DocumentId} from {OldStatus} to {NewStatus} at Vietnam time {VietnamTime}",
-                        documentId, oldStatus, newStatus, vietnamTime);
+                    _logger.LogInformation("✅ Successfully updated document {DocumentId} from {OldStatus} to {NewStatus} at Vietnam time {VietnamTime}",
+                        documentId, oldStatus, newStatus, vietnamTime.ToString("yyyy-MM-dd HH:mm:ss"));
                     return true;
                 }
                 else
                 {
-                    _logger.LogError("Invalid status provided: {NewStatus}", newStatus);
+                    _logger.LogError("❌ Invalid status provided: {NewStatus}", newStatus);
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating document status for {DocumentId} at Vietnam time {VietnamTime}",
-                    documentId, vietnamTime);
+                _logger.LogError(ex, "❌ Error updating document status for {DocumentId} at Vietnam time {VietnamTime}",
+                    documentId, vietnamTime.ToString("yyyy-MM-dd HH:mm:ss"));
                 return false;
             }
         }
 
         public async Task<bool> DeactivateDocumentWarningsAsync(string documentId, string version)
         {
-            _logger.LogInformation("Deactivating warnings for document {DocumentId} version {Version}",
-                documentId, version);
+            _logger.LogInformation("🔕 Deactivating warnings for document {DocumentId} version {Version}",
+                        documentId, version);
 
             try
             {
@@ -215,7 +212,7 @@ namespace Document.API.Services.Implements
 
                 if (document != null)
                 {
-                    _logger.LogInformation("Warnings deactivated for document {DocumentId}", documentId);
+                    _logger.LogInformation("✅ Warnings deactivated for document {DocumentId}", documentId);
                     return true;
                 }
 
@@ -223,7 +220,7 @@ namespace Document.API.Services.Implements
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error deactivating warnings for document {DocumentId}", documentId);
+                _logger.LogError(ex, "❌ Error deactivating warnings for document {DocumentId}", documentId);
                 return false;
             }
         }

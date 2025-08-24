@@ -16,4 +16,8 @@
       <PackageReference Include="Quartz.AspNetCore" Version="3.14.0" />
     </ItemGroup>
 
+    <ItemGroup>
+      <ProjectReference Include="..\..\..\Shared\Shared.csproj" />
+    </ItemGroup>
+
 </Project>
