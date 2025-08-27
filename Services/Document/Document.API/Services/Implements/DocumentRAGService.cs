@@ -53,8 +53,6 @@ namespace Document.API.Services.Implements
 
             try
             {
-                _logger.LogInformation("🔍 [RAG-{RequestId}] Starting search - DocumentId: {DocId}, Query: '{Query}', User: {FullName} ({Role}), Dept: {DeptName}",
-                    requestId, request.DocumentId ?? "None", request.Query, request.FullName, request.Role, request.DepartmentName);
 
                 if (string.IsNullOrWhiteSpace(request.Query))
                 {
@@ -65,16 +63,11 @@ namespace Document.API.Services.Implements
 
                 if (!citations.Any())
                 {
-                    _logger.LogInformation("❌ [RAG-{RequestId}] No citations found for query: '{Query}'", requestId, request.Query);
                     return CreateEmptyResponse(request, startTime, "No documents found");
                 }
 
-                _logger.LogInformation("📄 [RAG-{RequestId}] Found {Count} citations from KernelMemory", requestId, citations.Count);
 
                 var validCitations = await FilterCitationsWithCompleteBlocking(citations, request, requestId);
-
-                _logger.LogInformation("🔒 [RAG-{RequestId}] After permission filter: {Valid}/{Total} citations",
-                    requestId, validCitations.Count, citations.Count);
 
                 if (!validCitations.Any())
                 {
@@ -93,59 +86,18 @@ namespace Document.API.Services.Implements
                     QueryProcessed = request.Query,
                     ProcessingTimeMs = (long)(DateTime.UtcNow - startTime).TotalMilliseconds
                 };
-
-                _logger.LogInformation("✅ [RAG-{RequestId}] Success: {ProcessingTime}ms, Content: {ContentLength} chars, Sources: {SourceCount}",
-                    requestId, response.ProcessingTimeMs, rawContent?.Length ?? 0, sources.Count);
-
                 return response;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ [RAG-{RequestId}] Error processing request for user: {FullName} ({Role})",
-                    requestId, request.FullName, request.Role);
                 throw new InvalidOperationException($"RAG service error: {ex.Message}", ex);
             }
-        }
-
-        public async Task<string> GetRawContentAsync(string query, string userId)
-        {
-            var request = new DocumentRAGRequest
-            {
-                Query = query,
-                UserId = userId,
-                Role = "ADMIN",
-                MaxResults = 15,
-                MinRelevanceScore = 0.001
-            };
-
-            var response = await SearchDocumentsWithRAGAsync(request);
-            return response.Success ? response.RawContent : null;
-        }
-
-        public async Task<(string RawContent, List<DocumentSourceResponse> Sources)> GetRawContentWithSourcesAsync(string query, string userId)
-        {
-            var request = new DocumentRAGRequest
-            {
-                Query = query,
-                UserId = userId,
-                Role = "ADMIN",
-                MaxResults = 15,
-                MinRelevanceScore = 0.001
-            };
-
-            var response = await SearchDocumentsWithRAGAsync(request);
-
-            return response.Success
-                ? (response.RawContent, response.Sources)
-                : (null, new List<DocumentSourceResponse>());
         }
 
         private async Task<List<Citation>> PerformOptimizedSearch(DocumentRAGRequest request, string requestId)
         {
             try
             {
-                _logger.LogInformation("🔍 [SEARCH-{RequestId}] Starting optimized search - DocumentId: {DocId}, Query: '{Query}', User: {Role}",
-                    requestId, request.DocumentId ?? "None", request.Query, request.Role);
 
                 if (!string.IsNullOrEmpty(request.DocumentId))
                 {
@@ -156,20 +108,14 @@ namespace Document.API.Services.Implements
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ [SEARCH-{RequestId}] Error in search", requestId);
                 return new List<Citation>();
             }
         }
 
         private async Task<List<Citation>> SearchAllDocumentsOptimized(DocumentRAGRequest request, string requestId)
         {
-            _logger.LogInformation("🌐 [GENERAL-{RequestId}] Single comprehensive search", requestId);
-
             var queryType = ClassifyQuerySmart(request.Query);
             var (limit, minRelevance) = GetSearchParams(queryType);
-
-            _logger.LogInformation("🔎 [GENERAL-{RequestId}] QueryType: {Type}, Limit: {Limit}, MinRelevance: {MinRel}",
-                requestId, queryType, limit, minRelevance);
 
             // Get configured Kernel Memory instance
             var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
@@ -193,9 +139,6 @@ namespace Document.API.Services.Implements
                         minRelevance: minRelevance);
 
                     citations.AddRange(deptResult.Results);
-
-                    _logger.LogInformation("🏢 [GENERAL-{RequestId}] Found {Count} citations from department: {DeptId}",
-                        requestId, deptResult.Results.Count(), request.DepartmentId);
                 }
 
                 if (citations.Count < limit && request.Role?.ToUpper() != "ADMIN")
@@ -216,9 +159,6 @@ namespace Document.API.Services.Implements
                         .ToList();
 
                     citations.AddRange(newPublicCitations);
-
-                    _logger.LogInformation("🌍 [GENERAL-{RequestId}] Added {Count} public citations (total: {Total})",
-                        requestId, newPublicCitations.Count, citations.Count);
                 }
 
                 if (citations.Count < limit && !string.IsNullOrEmpty(request.UserId) && request.Role?.ToUpper() != "ADMIN")
@@ -239,17 +179,12 @@ namespace Document.API.Services.Implements
                         .ToList();
 
                     citations.AddRange(newOwnerCitations);
-
-                    _logger.LogInformation("👤 [GENERAL-{RequestId}] Added {Count} owner citations (total: {Total})",
-                        requestId, newOwnerCitations.Count, citations.Count);
                 }
 
-                _logger.LogInformation("📊 [GENERAL-{RequestId}] Total found: {Count} citations", requestId, citations.Count);
                 return citations;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ [GENERAL-{RequestId}] General search failed", requestId);
                 return new List<Citation>();
             }
         }

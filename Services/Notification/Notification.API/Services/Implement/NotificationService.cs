@@ -695,26 +695,22 @@ public class NotificationService : INotificationService
     {
         try
         {
-            var recipients = new List<UserDto>();
+            var allRecipients = new List<UserDto>();
 
             var managers = await _userService.GetDepartmentManagersAsync(departmentId);
             var editors = await _userService.GetDepartmentEditorsAsync(departmentId);
             var departmentUsers = await _userService.GetUsersByDepartmentAsync(departmentId);
 
-            recipients.AddRange(managers);
-            recipients.AddRange(editors);
-            recipients.AddRange(departmentUsers);
+            allRecipients.AddRange(managers);
+            allRecipients.AddRange(editors);
+            allRecipients.AddRange(departmentUsers);
 
-            // Remove duplicates
-            var uniqueRecipients = recipients
+            // Improved deduplication
+            var uniqueRecipients = allRecipients
                 .Where(r => !string.IsNullOrEmpty(r.Email))
-                .GroupBy(r => r.Email.ToLower())
+                .GroupBy(r => new { Email = r.Email.ToLower(), UserId = r.UserId })
                 .Select(g => g.First())
                 .ToList();
-
-            _logger.LogInformation("Found {Count} recipients for department {DepartmentId}",
-                uniqueRecipients.Count, departmentId);
-
             return uniqueRecipients;
         }
         catch (Exception ex)
