@@ -123,7 +123,10 @@ namespace ChatBox.API.Services.Implement
             {
                 // ✅ SAME: UserName logic OK
                 if (request.UserName != null)
-                    existingPreference.UserName = string.IsNullOrEmpty(request.UserName) ? null : request.UserName;
+                {
+                    var trimmed = request.UserName.Trim();
+                    existingPreference.UserName = string.IsNullOrEmpty(trimmed) ? null : trimmed;
+                }
 
                 // ✅ FIXED: ChatbotCharacteristics logic
                 if (request.ChatbotCharacteristics != null)
@@ -137,8 +140,10 @@ namespace ChatBox.API.Services.Implement
 
                 // ✅ SAME: AdditionalInfo logic OK  
                 if (request.AdditionalInfo != null)
-                    existingPreference.AdditionalInfo = string.IsNullOrEmpty(request.AdditionalInfo) ? null : request.AdditionalInfo;
-
+                {
+                    var trimmed = request.AdditionalInfo.Trim();
+                    existingPreference.AdditionalInfo = string.IsNullOrEmpty(trimmed) ? null : trimmed;
+                }
                 existingPreference.UpdatedAt = DateTime.UtcNow;
                 existingPreference.UpdatedBy = userId;
 

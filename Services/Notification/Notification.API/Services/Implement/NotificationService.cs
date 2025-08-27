@@ -123,8 +123,8 @@ public class NotificationService : INotificationService
         if (!effectiveUntil.HasValue)
             return "N/A";
 
-        // ✅ Use unified TimeZone helper
-        var daysFromToday = TimeZoneHelper.DaysFromToday(effectiveUntil.Value);
+        // FIX: Use enhanced method for database dates
+        var daysFromToday = TimeZoneHelper.DaysFromTodayFromDatabase(effectiveUntil.Value);
 
         if (daysFromToday < 0)
             return $"Đã hết hạn {Math.Abs(daysFromToday)} ngày";
@@ -269,6 +269,12 @@ public class NotificationService : INotificationService
         {
             var processingId = Guid.NewGuid();
             var utcNow = TimeZoneHelper.UtcNow; // ✅ Use unified helper
+            var effectiveUntilVietnam = document.EffectiveUntil.HasValue
+                                ? TimeZoneHelper.ConvertUtcToVietnam(
+                                    DateTime.SpecifyKind(document.EffectiveUntil.Value, DateTimeKind.Utc)
+                                  ).ToString("dd/MM/yyyy")
+                                : "N/A";
+            var daysUntilExpiration = GetDaysUntilExpiration(document.EffectiveUntil);
 
             _logger.LogInformation("Attempting to send {Type} notification to {Email} for document {DocId}/{Version}",
                 type, user.Email, document.DocumentId, document.Version);
@@ -340,7 +346,6 @@ public class NotificationService : INotificationService
 
             // ✅ For display purposes, convert UTC to Vietnam time using unified helper
             var vietnamTimeForDisplay = TimeZoneHelper.ConvertUtcToVietnam(utcNow);
-            var daysUntilExpiration = GetDaysUntilExpiration(document.EffectiveUntil);
 
             var emailBody = template.BodyHtml
                 .Replace("{{RecipientEmail}}", user.Email ?? "")
@@ -349,7 +354,7 @@ public class NotificationService : INotificationService
                 .Replace("{{UserName}}", user.Name ?? "")
                 .Replace("{{DocumentTitle}}", document.Title ?? "")
                 .Replace("{{DocumentVersion}}", document.Version ?? "")
-                .Replace("{{EffectiveUntil}}", document.EffectiveUntil?.ToString("dd/MM/yyyy") ?? "N/A")
+                .Replace("{{EffectiveUntil}}",effectiveUntilVietnam)
                 .Replace("{{DocumentLink}}", documentLink)
                 .Replace("{{DepartmentName}}", document.DepartmentName ?? "Unknown Department")
                 .Replace("{{ExpirationStatus}}", expirationStatus)
@@ -465,11 +470,6 @@ public class NotificationService : INotificationService
         }
     }
 
-    public async Task ProcessWeeklyGroupedNotificationAsync(List<DocumentExpirationDto> documents, string departmentName)
-    {
-        await ProcessGroupedNotificationAsync(documents, departmentName, "Weekly", "WeeklyDocumentExpiration", 7);
-    }
-
     // ✅ NEW: Daily grouped notification method
     public async Task ProcessDailyGroupedNotificationAsync(List<DocumentExpirationDto> documents, string departmentName)
     {
@@ -484,12 +484,12 @@ public class NotificationService : INotificationService
             _logger.LogInformation("Processing {GroupType} grouped notification for {DepartmentName} with {Count} documents",
                 groupType, departmentName, documents.Count);
 
-            // Try primary template first, fallback to WeeklyDocumentExpiration
+            // Try primary template first, fallback to DailyDocumentExpiration
             var template = await _emailTemplateService.GetEmailTemplateByNameAsync(templateName);
-            if (template == null && templateName != "WeeklyDocumentExpiration")
+            if (template == null && templateName != "DailyDocumentExpiration")
             {
-                _logger.LogWarning("Template '{TemplateName}' not found, falling back to 'WeeklyDocumentExpiration'", templateName);
-                template = await _emailTemplateService.GetEmailTemplateByNameAsync("WeeklyDocumentExpiration");
+                _logger.LogWarning("Template '{TemplateName}' not found, falling back to 'DailyDocumentExpiration'", templateName);
+                template = await _emailTemplateService.GetEmailTemplateByNameAsync("DailyDocumentExpiration");
             }
 
             if (template == null)
@@ -512,10 +512,10 @@ public class NotificationService : INotificationService
                 return;
             }
 
-            // Create grouped content with dynamic text based on groupType
+            // Create grouped content - CHỈ DAILY
             var documentsListHtml = CreateDocumentsListHtml(documents);
-            var timeRange = groupType == "Weekly" ? GetCurrentWeekRange() : TimeZoneHelper.VietnamNow.ToString("dd/MM/yyyy");
-            var subject = $"[{departmentName}] Thông báo {groupType.ToLower()}: {documents.Count} tài liệu sắp hết hạn";
+            var timeRange = TimeZoneHelper.VietnamNow.ToString("dd/MM/yyyy"); // Daily format
+            var subject = $"[{departmentName}] Thông báo daily: {documents.Count} tài liệu sắp hết hạn";
 
             // Send to all department recipients
             var notificationTasks = recipients.Select(async user =>
@@ -533,25 +533,25 @@ public class NotificationService : INotificationService
                         timeRange,
                         documents.First().DepartmentId.ToString(),
                         user.UserId,
-                        groupType,
-                        duplicateCheckDays);
+                        "Daily", // CHỈ DAILY
+                        1); // CHỈ 1 NGÀY
 
-                    _logger.LogDebug("{GroupType} grouped notification sent to {UserEmail}", groupType, user.Email);
+                    _logger.LogDebug("Daily grouped notification sent to {UserEmail}", user.Email);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to send {GroupType} grouped notification to {UserEmail}", groupType, user.Email);
+                    _logger.LogError(ex, "Failed to send daily grouped notification to {UserEmail}", user.Email);
                 }
             });
 
             await Task.WhenAll(notificationTasks);
 
-            _logger.LogInformation("{GroupType} grouped notifications sent to {Count} users for {DepartmentName}",
-                groupType, recipients.Count, departmentName);
+            _logger.LogInformation("Daily grouped notifications sent to {Count} users for {DepartmentName}",
+                recipients.Count, departmentName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing {GroupType} grouped notification for {DepartmentName}", groupType, departmentName);
+            _logger.LogError(ex, "Error processing daily grouped notification for {DepartmentName}", departmentName);
         }
     }
 
@@ -571,17 +571,17 @@ public class NotificationService : INotificationService
     {
         try
         {
-            var utcNow = TimeZoneHelper.UtcNow; // ✅ Use unified helper
+            var utcNow = TimeZoneHelper.UtcNow;
 
             // Check for recent grouped notification
             var logRepo = _unitOfWork.GetRepository<NotificationLog>();
-            var cutoffTime = TimeZoneHelper.UtcNow.AddDays(-duplicateCheckDays); // ✅ Use unified helper
+            var cutoffTime = TimeZoneHelper.UtcNow.AddDays(-duplicateCheckDays);
 
             var alreadySent = await logRepo.AnyAsync(l =>
                 l.DocumentId == $"{groupType.ToUpper()}_GROUP" &&
                 l.DocumentVersion == departmentId &&
                 l.RecipientAddress == recipientEmail &&
-                l.NotificationType == NotificationType.General &&
+                l.NotificationType == NotificationType.NearingExpiration && // THAY ĐỔI: từ General -> NearingExpiration
                 l.IsSent == true &&
                 l.SentAt >= cutoffTime);
 
@@ -598,7 +598,6 @@ public class NotificationService : INotificationService
                 return;
             }
 
-            // ✅ Convert to Vietnam time for display using unified helper
             var vietnamTimeForDisplay = TimeZoneHelper.ConvertUtcToVietnam(utcNow);
 
             var emailBody = template.BodyHtml
@@ -613,23 +612,23 @@ public class NotificationService : INotificationService
                 .Replace("{{TimeRange}}", SanitizeValue(timeRange))
                 .Replace("{{GroupType}}", groupType)
                 .Replace("{{NotificationType}}", groupType.ToLower())
-                .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm")); // ✅ Display only
+                .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm"));
 
             var emailSent = await _emailService.SendEmailAsync(recipientEmail, subject, emailBody);
 
-            // ✅ Create log with UTC time using unified helper
+            // THAY ĐỔI: Sử dụng NearingExpiration thay vì General
             var log = new NotificationLog
             {
                 DocumentId = $"{groupType.ToUpper()}_GROUP",
                 DocumentVersion = departmentId,
-                NotificationType = NotificationType.General,
+                NotificationType = NotificationType.NearingExpiration, // THAY ĐỔI
                 RecipientType = RecipientType.Email,
                 RecipientAddress = recipientEmail,
                 Subject = subject,
                 Message = emailBody,
                 IsSent = emailSent,
-                SentAt = emailSent ? TimeZoneHelper.UtcNow : null, // ✅ UTC
-                CreateAt = TimeZoneHelper.UtcNow,                  // ✅ UTC
+                SentAt = emailSent ? TimeZoneHelper.UtcNow : null,
+                CreateAt = TimeZoneHelper.UtcNow,
                 ErrorMessage = emailSent ? null : $"Failed to send {groupType.ToLower()} grouped notification"
             };
 
@@ -654,14 +653,20 @@ public class NotificationService : INotificationService
         foreach (var doc in documents.OrderBy(d => d.EffectiveUntil))
         {
             var daysLeft = doc.EffectiveUntil.HasValue
-                ? TimeZoneHelper.DaysFromToday(doc.EffectiveUntil.Value) // ✅ Use unified helper
-                : 0;
+                      ? TimeZoneHelper.DaysFromTodayFromDatabase(doc.EffectiveUntil.Value)
+                      : 0;
 
             var statusColor = daysLeft <= 3 ? "color: #d9534f;" : "color: #f0ad4e;";
 
             var documentLink = !string.IsNullOrEmpty(doc.DocumentLink)
                 ? doc.DocumentLink
                 : $"https://docai.asia/document/{doc.DocumentId}";
+            var effectiveUntilVietnam = doc.EffectiveUntil.HasValue
+    ? TimeZoneHelper.ConvertUtcToVietnam(
+        DateTime.SpecifyKind(doc.EffectiveUntil.Value, DateTimeKind.Utc)
+      ).ToString("dd/MM/yyyy")
+    : "N/A";
+
 
             html += $@"
             <li style='margin-bottom: 15px; padding: 12px; border-left: 3px solid #f0ad4e; background-color: #fefefe; border-radius: 4px;'>
@@ -673,7 +678,7 @@ public class NotificationService : INotificationService
                 </div>
                 <div style='font-size: 13px; color: #6c757d;'>
                     Phiên bản: {SanitizeValue(doc.Version)} | 
-                    Hết hạn: {doc.EffectiveUntil?.ToString("dd/MM/yyyy")} 
+                    Hết hạn: {effectiveUntilVietnam} 
                     <span style='{statusColor}; font-weight: bold;'>({daysLeft} ngày nữa)</span>
                 </div>
             </li>";

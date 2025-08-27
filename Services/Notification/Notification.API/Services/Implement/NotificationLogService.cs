@@ -130,7 +130,7 @@ namespace Notification.API.Services.Implement
                 var cutoffDate = DateTime.UtcNow.AddDays(-retentionDays);
 
                 var groupedLogs = await logRepo.GetListAsync(predicate: l =>
-                    (l.DocumentId == "WEEKLY_GROUP" || l.DocumentId == "DAILY_GROUP") &&
+                    l.DocumentId == "DAILY_GROUP" && // XÓA "WEEKLY_GROUP"
                     l.CreateAt < cutoffDate);
 
                 if (groupedLogs.Any())
@@ -164,7 +164,6 @@ namespace Notification.API.Services.Implement
                     processingNotifications = logs.Count(l => l.Subject == "PROCESSING..."),
                     expiredDocumentNotifications = logs.Count(l => l.NotificationType == Domain.Enums.NotificationType.Expired),
                     nearExpiredDocumentNotifications = logs.Count(l => l.NotificationType == Domain.Enums.NotificationType.NearingExpiration),
-                    weeklyGroupedNotifications = logs.Count(l => l.DocumentId == "WEEKLY_GROUP"),
                     dailyGroupedNotifications = logs.Count(l => l.DocumentId == "DAILY_GROUP"),
                     systemNotifications = logs.Count(l => l.RecipientAddress == "system"),
                     uniqueRecipients = logs.Where(l => !string.IsNullOrEmpty(l.RecipientAddress) && l.RecipientAddress != "system")

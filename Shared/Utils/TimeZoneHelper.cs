@@ -151,14 +151,53 @@ namespace Shared.Utils
         {
             var vietnamToday = VietnamToday;
 
-            // Convert target date to Vietnam timezone if it's UTC
-            var targetVietnam = targetDate.Kind == DateTimeKind.Utc
-                ? ConvertUtcToVietnam(targetDate).Date
-                : targetDate.Date;
+            // FIX: Entity Framework often returns DateTime with Kind.Unspecified
+            // even if the database stores UTC. We need to treat Unspecified as UTC
+            // if it comes from database context.
+            DateTime targetVietnam;
 
+            if (targetDate.Kind == DateTimeKind.Utc)
+            {
+                targetVietnam = ConvertUtcToVietnam(targetDate).Date;
+            }
+            else if (targetDate.Kind == DateTimeKind.Unspecified)
+            {
+                // FIX: Treat Unspecified as UTC when it comes from database
+                // This is the common case with Entity Framework
+                var utcDate = DateTime.SpecifyKind(targetDate, DateTimeKind.Utc);
+                targetVietnam = ConvertUtcToVietnam(utcDate).Date;
+            }
+            else
+            {
+                // DateTimeKind.Local - use as is
+                targetVietnam = targetDate.Date;
+            }
+
+            var days = (targetVietnam - vietnamToday).Days;
+
+            // DEBUG LOG (remove in production)
+            System.Diagnostics.Debug.WriteLine($"DaysFromToday Debug: Input={targetDate} (Kind={targetDate.Kind}), VietnamToday={vietnamToday}, TargetVietnam={targetVietnam}, Days={days}");
+
+            return days;
+        }
+        /// <summary>
+        /// Enhanced version with explicit UTC handling for database dates
+        /// Use this when you're sure the date comes from database as UTC
+        /// </summary>
+        /// <param name="databaseDate">DateTime from database (assumed UTC regardless of Kind)</param>
+        /// <returns>Number of days from today</returns>
+        public static int DaysFromTodayFromDatabase(DateTime databaseDate)
+        {
+            var vietnamToday = VietnamToday;
+
+            // Force treat as UTC regardless of Kind
+            var utcDate = databaseDate.Kind == DateTimeKind.Utc
+                ? databaseDate
+                : DateTime.SpecifyKind(databaseDate, DateTimeKind.Utc);
+
+            var targetVietnam = ConvertUtcToVietnam(utcDate).Date;
             return (targetVietnam - vietnamToday).Days;
         }
-
         /// <summary>
         /// Check if a date is today in Vietnam timezone
         /// </summary>

@@ -200,6 +200,7 @@ namespace ChatBox.API.Controllers
                     await writer.FlushAsync(cancellationToken);
                     _logger.LogWarning("Model switch not allowed in streaming: {Error}", ex.Message);
                 }
+
                 catch (Exception ex)
                 {
                     await writer.WriteAsync($"event: error\ndata: {{\"error\": \"Đã xảy ra lỗi không mong muốn.\", \"code\": \"INTERNAL_SERVER_ERROR\"}}\n\n");
