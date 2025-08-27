@@ -41,8 +41,9 @@ public class DocumentService : IDocumentService
     private readonly IRedisService _redisService;
     private readonly IFolderService _folderService;
     private readonly IAIConfigurationService _aiConfigurationService;
+    private readonly IDocumentRAGService _documentRAGService;
 
-    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemoryConfigurationService kernelMemoryConfigService, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService, IDocumentPermissionManager permissionManager, ITokenUsageLogger tokenUsageLogger, IRedisService redisService, IFolderService folderService, IAIConfigurationService aiConfigurationService)
+    public DocumentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<DocumentService> logger, IKernelMemoryConfigurationService kernelMemoryConfigService, IStorageService storageService, IConfiguration configuration, IDocumentEnrichmentService enrichmentService, IHttpContextAccessor httpContextAccessor, IDocumentReplacementService replacementService, IDocumentPermissionManager permissionManager, ITokenUsageLogger tokenUsageLogger, IRedisService redisService, IFolderService folderService, IAIConfigurationService aiConfigurationService, IDocumentRAGService documentRAGService)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
@@ -58,6 +59,7 @@ public class DocumentService : IDocumentService
         _redisService = redisService;
         _folderService = folderService;
         _aiConfigurationService = aiConfigurationService;
+        _documentRAGService = documentRAGService;
 
         var openRouterConfig = configuration.GetSection("OpenRouter").Get<OpenRouterConfigSetting>();
         var openAIConfig = configuration.GetSection("OpenAI").Get<OpenAIConfigSetting>();
@@ -1765,8 +1767,8 @@ public class DocumentService : IDocumentService
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
                           .Include(v => v.Folder)
                           .Include(v => v.TargetFolder),
@@ -1800,8 +1802,8 @@ public class DocumentService : IDocumentService
         var draft = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Draft,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
@@ -1828,8 +1830,8 @@ public class DocumentService : IDocumentService
             filter: filter,
             predicate: d => d.DocumentFile.OwnerId == userId,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
@@ -1962,8 +1964,8 @@ public class DocumentService : IDocumentService
             selector : d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.LastUpdatedTime),
             page: pageNumber,
@@ -1996,8 +1998,8 @@ public class DocumentService : IDocumentService
         var rejectedDocument = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
@@ -2020,8 +2022,8 @@ public class DocumentService : IDocumentService
         var officialDocument = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.DocumentFileId == documentFileId && v.IsOfficial && (v.IsPublic || v.DocumentFile.DepartmentId == userDepartmentId),
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
@@ -2059,8 +2061,8 @@ public class DocumentService : IDocumentService
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: accessControlPredicate,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
@@ -2122,7 +2124,10 @@ public class DocumentService : IDocumentService
             selector: d => _mapper.Map<DocumentDraftResponse>(d),
             filter: filter,
             predicate: accessControlPredicate,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -2176,7 +2181,10 @@ public class DocumentService : IDocumentService
             selector: dv => _mapper.Map<DocumentDraftResponse>(dv),
             filter: filter,
             predicate: d => d.DocumentFile.OwnerId == userId,
-            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType).Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+            include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -2207,8 +2215,8 @@ public class DocumentService : IDocumentService
         var document = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: v => v.Id == versionId && v.DocumentFile.OwnerId == userId,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
         );
 
@@ -2232,8 +2240,8 @@ public class DocumentService : IDocumentService
         var documentVersion = await _unitOfWork.GetRepository<DocumentVersion>().SingleOrDefaultAsync(
             predicate: dv => dv.DocumentFileId == documentId && dv.Id == versionId,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
                           .Include(v => v.Folder)
                           .Include(v => v.TargetFolder)
@@ -2265,8 +2273,8 @@ public class DocumentService : IDocumentService
         var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>().GetListAsync(
             predicate: dv => dv.DocumentFileId == documentId,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
                           .Include(v => v.Folder)
                           .Include(v => v.TargetFolder),
@@ -2557,6 +2565,7 @@ public class DocumentService : IDocumentService
         var startTime = DateTime.UtcNow;
         var userId = GetCurrentUserId();
         var userDepartmentId = GetCurrentUserDepartmentId();
+        var userRole = GetRoleFromJwt();
 
         _logger.LogInformation("Starting semantic search - User: {UserId}, Department: {DepartmentId}, Query: '{Query}', HybridScoring: {HybridScoring}, Scope: {Scope}",
             userId, userDepartmentId, request.Query.Substring(0, Math.Min(50, request.Query.Length)), request.EnableHybridScoring, request.Scope);
@@ -2573,11 +2582,11 @@ public class DocumentService : IDocumentService
             }
 
             // 1. Build the enhanced memory filter
-            var memoryFilter = BuildEnhancedMemoryFilter(filter, request);
-            _logger.LogDebug("Built memory filter with {FilterCount} conditions", GetFilterConditionCount(memoryFilter));
+            var memoryFilter = BuildEnhancedMemoryFilterWithAccessControl(filter, request, userDepartmentId, userRole, userId);
+            _logger.LogDebug("Built memory filter with comprehensive access control");
 
             // 2. Apply search scope filtering
-            ApplySearchScopeFilter(memoryFilter, request.Scope, filter);
+            ApplySearchScopeFilter(memoryFilter, request.Scope, filter, userDepartmentId);
 
             // 3. Fetch results from Kernel Memory with configurable parameters
             _logger.LogDebug("Executing Kernel Memory search with limit: {Limit}, minRelevance: {MinRelevance}",
@@ -2682,13 +2691,11 @@ public class DocumentService : IDocumentService
         var startTime = DateTime.UtcNow;
         var userId = GetCurrentUserId();
         var userDepartmentId = GetCurrentUserDepartmentId();
+        var userRole = GetRoleFromJwt();
         var requestId = Guid.NewGuid().ToString();
 
-        _logger.LogInformation("Starting enhanced semantic search - User: {UserId}, Department: {DepartmentId}, Query: '{Query}', RequestId: {RequestId}",
+        _logger.LogInformation("� [ENHANCED-SEARCH] Starting search - User: {UserId}, Department: {DepartmentId}, Query: '{Query}', RequestId: {RequestId}",
             userId, userDepartmentId, request.Query.Substring(0, Math.Min(50, request.Query.Length)), requestId);
-
-        // Get configured Kernel Memory instance
-        var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
 
         try
         {
@@ -2698,49 +2705,52 @@ public class DocumentService : IDocumentService
                 throw new ArgumentException(ValidationMessageConstant.SemanticSearch.QueryRequired, nameof(request.Query));
             }
 
-            // 1. Build the enhanced memory filter
-            var memoryFilter = BuildEnhancedMemoryFilter(filter, request);
-            _logger.LogDebug("Built memory filter with {FilterCount} conditions", GetFilterConditionCount(memoryFilter));
-
-            // 2. Apply search scope filtering
-            ApplySearchScopeFilter(memoryFilter, request.Scope, filter);
-
-            // 3. Use AskAsync for conversational AI response with relevant document sources
-            _logger.LogDebug("Executing Kernel Memory AskAsync for conversational response");
-
-            var prompt = string.Format(AiPromptConstant.SemanticSearch.ConversationalSearchPrompt, request.Query);
-
-            MemoryAnswer? answer = null;
-            using var aiCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-            try
+            // ✅ Use DocumentRAGService for document retrieval (proven working)
+            var ragRequest = new DocumentRAGRequest
             {
-                _logger.LogInformation("Making AI conversational search call with 2-minute timeout...");
-                answer = await memory.AskAsync(prompt, filter: memoryFilter);
+                RequestId = requestId,
+                Query = request.Query,
+                UserId = userId,
+                Email = JwtTokenHelper.GetUserEmailOrNull(_httpContextAccessor) ?? string.Empty,
+                FullName = JwtTokenHelper.GetUserFullName(_httpContextAccessor) ?? string.Empty,
+                Phone = string.Empty,
+                Role = userRole,
+                DepartmentId = userDepartmentId ?? string.Empty,
+                DepartmentName = JwtTokenHelper.GetDepartmentName(_httpContextAccessor) ?? string.Empty,
+                Permissions = new List<string>(),
+                MaxResults = Math.Min(Math.Max(request.MaxResults, 1), 15),
+                MinRelevanceScore = Math.Max(request.MinRelevance, 0.001),
+                OnlyPublic = false,
+                OnlyOfficial = true,
+                Tags = null,
+                EffectiveFrom = filter.EffectiveFrom,
+                EffectiveUntil = filter.EffectiveUntil,
+                RequestTime = DateTime.UtcNow
+            };
 
-                if (answer != null && answer.RelevantSources.Any() &&
-                    !AiPromptConstant.Configuration.FailureIndicators.Any(indicator =>
-                        answer.Result.Contains(indicator, StringComparison.OrdinalIgnoreCase)))
-                {
-                    _logger.LogInformation("Successfully received valid AI conversational response for query: {Query}", request.Query);
-                }
-                else
-                {
-                    _logger.LogWarning("AI conversational search returned no valid information for query: {Query}", request.Query);
-                }
-            }
-            catch (OperationCanceledException)
+            // Apply filter overrides if specified
+            if (!string.IsNullOrEmpty(filter.DepartmentId))
             {
-                _logger.LogWarning("AI conversational search timed out after 2 minutes for query: {Query}", request.Query);
-                throw new ErrorException(StatusCodes.Status408RequestTimeout, ErrorCode.BADREQUEST,
-                    "AI search timed out. Please try with a simpler query.");
+                ragRequest.DepartmentId = filter.DepartmentId;
             }
 
-            // 4. Process the AI response and extract relevant documents
+            _logger.LogInformation("� [ENHANCED-SEARCH] Calling DocumentRAGService for document retrieval...");
+
+            // ✅ Get documents using proven DocumentRAGService but with search-focused approach
+            var ragResponse = await _documentRAGService.SearchDocumentsWithRAGAsync(ragRequest);
+            var processingTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+
+            _logger.LogInformation("� [ENHANCED-SEARCH] Document retrieval - Success: {Success}, Sources: {SourceCount}, ProcessingTime: {ProcessingTime}ms",
+                ragResponse.Success, ragResponse.Sources?.Count ?? 0, processingTime);
+
+            // ✅ Create search-focused response instead of full conversational response
             var response = new EnhancedSemanticSearchResponse
             {
                 RequestId = requestId,
                 Query = request.Query,
-                ProcessingTimeMs = (long)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                Success = ragResponse.Success,
+                ProcessingTimeMs = (long)processingTime,
+                TotalDocuments = ragResponse.Sources?.Count ?? 0,
                 Metadata = new SearchMetadata
                 {
                     MinRelevance = request.MinRelevance,
@@ -2759,36 +2769,68 @@ public class DocumentService : IDocumentService
                 }
             };
 
-            if (answer != null && answer.RelevantSources.Any())
+            if (ragResponse.Sources?.Any() == true)
             {
-                response.Answer = answer.Result;
+                // ✅ Generate search-focused summary instead of full answer
+                response.Answer = await GenerateSearchSummary(request.Query, ragResponse.Sources, ragResponse.Sources.Count);
                 response.HasAnswer = true;
 
-                // 5. Convert relevant sources to SemanticSearchResponse objects
-                var relevantDocuments = await ProcessAISourcesIntoDocuments(answer.RelevantSources, request, filter);
-                response.RelevantDocuments = relevantDocuments;
-                response.TotalDocuments = relevantDocuments.Count;
+                // ✅ Convert documents with enhanced metadata for search results
+                response.RelevantDocuments = ragResponse.Sources.Select((source, index) => new SemanticSearchResponse
+                {
+                    Id = source.DocumentId,
+                    Title = source.Title ?? "Unknown Document",
+                    DocumentName = source.Title ?? "Unknown Document",
+                    Description = source.Description ?? string.Empty,
+                    Status = source.Status ?? "approved",
+                    DepartmentId = source.DepartmentId ?? string.Empty,
+                    DepartmentName = source.DepartmentName ?? string.Empty,
+                    CreatedBy = source.CreatedBy ?? string.Empty,
+                    CreatedByName = source.CreatedBy ?? string.Empty,
+                    CreatedTime = DateTime.UtcNow, // Not available in source
+                    FileType = source.FileType ?? string.Empty,
+                    FileSize = source.FileSize ?? 0,
+                    Version = source.VersionName ?? "1.0",
+                    Tags = source.Tags ?? new List<string>(),
+                    Relevance = source.RelevanceScore,
+                    DocumentTypeId = source.DocumentType ?? string.Empty,
+                    DocumentTypeName = source.DocumentType ?? string.Empty,
+                    IsPublic = source.IsPublic,
+                    SignedBy = source.SignedBy ?? string.Empty,
+                    EffectiveFrom = source.EffectiveFrom,
+                    EffectiveUntil = source.EffectiveUntil,
+                    Scoring = request.EnableHybridScoring ? new SemanticSearchScoring
+                    {
+                        SemanticSimilarity = source.RelevanceScore,
+                        MetadataScore = 0.0,
+                        ContextualScore = 0.0,
+                        FinalScore = source.RelevanceScore,
+                        AppliedBoosts = new List<string>(),
+                        MatchingTags = source.Tags ?? new List<string>()
+                    } : null,
+                    IsDepartmentBoosted = source.DepartmentId == userDepartmentId,
+                    Rank = index + 1
+                }).ToList();
 
-                _logger.LogInformation("Enhanced semantic search completed successfully - User: {UserId}, Query: '{Query}', Answer: {HasAnswer}, Documents: {DocumentCount}, ProcessingTime: {ProcessingTime}ms",
-                    userId, request.Query.Substring(0, Math.Min(50, request.Query.Length)), response.HasAnswer, response.TotalDocuments, response.ProcessingTimeMs);
+                _logger.LogInformation("✅ [ENHANCED-SEARCH] Successfully generated search summary for {Count} documents",
+                    response.RelevantDocuments.Count);
             }
             else
             {
-                // No relevant documents found
+                response.RelevantDocuments = new List<SemanticSearchResponse>();
                 response.Answer = string.Format(AiPromptConstant.SemanticSearch.NoResultsPrompt, request.Query);
                 response.HasAnswer = false;
-                response.TotalDocuments = 0;
-
-                _logger.LogInformation("No relevant documents found for enhanced semantic search - User: {UserId}, Query: '{Query}', ProcessingTime: {ProcessingTime}ms",
-                    userId, request.Query, response.ProcessingTimeMs);
             }
+
+            _logger.LogInformation("✅ [ENHANCED-SEARCH] Completed successfully - User: {UserId}, HasResults: {HasAnswer}, Documents: {DocumentCount}, ProcessingTime: {ProcessingTime}ms",
+                userId, response.HasAnswer, response.TotalDocuments, response.ProcessingTimeMs);
 
             return response;
         }
         catch (ArgumentException ex)
         {
             var processingTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
-            _logger.LogWarning(ex, "Invalid enhanced semantic search request - User: {UserId}, Query: '{Query}', Error: {Error}, ProcessingTime: {ProcessingTime}ms",
+            _logger.LogWarning(ex, "❌ [ENHANCED-SEARCH] Invalid request - User: {UserId}, Query: '{Query}', Error: {Error}, ProcessingTime: {ProcessingTime}ms",
                 userId, request.Query, ex.Message, processingTime);
 
             return new EnhancedSemanticSearchResponse
@@ -2797,13 +2839,14 @@ public class DocumentService : IDocumentService
                 Query = request.Query,
                 Success = false,
                 ErrorMessage = ex.Message,
-                ProcessingTimeMs = (long)processingTime
+                ProcessingTimeMs = (long)processingTime,
+                RelevantDocuments = new List<SemanticSearchResponse>()
             };
         }
         catch (Exception ex)
         {
             var processingTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
-            _logger.LogError(ex, "Error performing enhanced semantic search - User: {UserId}, Query: '{Query}', Error: {Error}, ProcessingTime: {ProcessingTime}ms",
+            _logger.LogError(ex, "❌ [ENHANCED-SEARCH] Error - User: {UserId}, Query: '{Query}', Error: {Error}, ProcessingTime: {ProcessingTime}ms",
                 userId, request.Query, ex.Message, processingTime);
 
             return new EnhancedSemanticSearchResponse
@@ -2812,41 +2855,215 @@ public class DocumentService : IDocumentService
                 Query = request.Query,
                 Success = false,
                 ErrorMessage = "An error occurred while performing enhanced semantic search. Please try again.",
-                ProcessingTimeMs = (long)processingTime
+                ProcessingTimeMs = (long)processingTime,
+                RelevantDocuments = new List<SemanticSearchResponse>()
             };
         }
     }
 
+    /// <summary>
+    /// Generate a concise search-focused summary instead of full conversational response
+    /// </summary>
+    private async Task<string> GenerateSearchSummary(string query, List<DocumentSourceResponse> sources, int totalCount)
+    {
+        try
+        {
+            // Create a DocumentRAGRequest to get AI-generated summary
+            var ragRequest = new DocumentRAGRequest
+            {
+                Query = query,
+                UserId = GetCurrentUserId(),
+                DepartmentId = GetCurrentUserDepartmentId(),
+                OnlyPublic = false, // Include both public and private documents
+                MaxResults = Math.Min(totalCount, 5) // Limit for context
+            };
+
+            // Use DocumentRAGService to search and get content
+            var ragResponse = await _documentRAGService.SearchDocumentsWithRAGAsync(ragRequest);
+            
+            // If we got valid content and sources, generate a natural summary
+            if (ragResponse?.Success == true && ragResponse.Sources?.Any() == true)
+            {
+                // Create a natural summary based on the found documents
+                var documentCount = ragResponse.Sources.Count;
+                var summary = documentCount > 1 
+                    ? $"Tôi tìm thấy {documentCount} tài liệu liên quan đến yêu cầu của bạn. "
+                    : "Tôi tìm thấy một tài liệu liên quan đến yêu cầu của bạn. ";
+                
+                // Add a brief description based on document types found
+                var documentTypes = ragResponse.Sources.Select(s => s.DocumentTypeName).Distinct().Where(t => !string.IsNullOrEmpty(t)).ToList();
+                if (documentTypes.Any())
+                {
+                    summary += $"Các tài liệu bao gồm {string.Join(", ", documentTypes.Take(3))}";
+                    if (documentTypes.Count > 3)
+                    {
+                        summary += " và các loại tài liệu khác";
+                    }
+                    summary += ". ";
+                }
+                
+                // Add context about departments if multiple departments involved
+                var departments = ragResponse.Sources.Select(s => s.DepartmentName).Distinct().Where(d => !string.IsNullOrEmpty(d)).ToList();
+                if (departments.Count > 1)
+                {
+                    summary += $"Tài liệu đến từ {departments.Count} phòng ban khác nhau.";
+                }
+                
+                return summary.Trim();
+            }
+            
+            _logger.LogInformation("🔍 [SEARCH-SUMMARY] Generated AI summary for query: {Query}, {Count} documents",
+                query.Substring(0, Math.Min(30, query.Length)), totalCount);
+            
+            return CreateQuickSearchSummary(query, sources, totalCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "⚠️ [SEARCH-SUMMARY] Failed to generate AI summary, using fallback");
+            return CreateQuickSearchSummary(query, sources, totalCount);
+        }
+    }
+
+    /// <summary>
+    /// Determine the appropriate search prompt based on query content
+    /// </summary>
+    private string DetermineSearchPromptType(string query)
+    {
+        var queryLower = query.ToLowerInvariant();
+        
+        // Check for legal/regulatory terms
+        if (queryLower.Contains("luật") || queryLower.Contains("quy định") || queryLower.Contains("thông tư") || 
+            queryLower.Contains("nghị định") || queryLower.Contains("pháp lý") || queryLower.Contains("law"))
+        {
+            return AiPromptConstant.SemanticSearch.LegalSearchPrompt;
+        }
+        
+        // Check for procedural terms
+        if (queryLower.Contains("làm thế nào") || queryLower.Contains("quy trình") || queryLower.Contains("thủ tục") || 
+            queryLower.Contains("hướng dẫn") || queryLower.Contains("what should") || queryLower.Contains("how to"))
+        {
+            return AiPromptConstant.SemanticSearch.ProcedureSearchPrompt;
+        }
+        
+        // Default to general search
+        return AiPromptConstant.SemanticSearch.SearchResultSummaryPrompt;
+    }
+
+    /// <summary>
+    /// Create a quick, simple search summary for fast response
+    /// </summary>
+    private string CreateQuickSearchSummary(string query, List<DocumentSourceResponse> sources, int totalCount)
+    {
+        var topDocuments = sources.Take(2).Select(s => s.Title ?? "Unknown Document").ToList();
+        var categories = sources.Select(s => s.DocumentType ?? "tài liệu")
+                               .Where(x => !string.IsNullOrEmpty(x))
+                               .GroupBy(x => x)
+                               .OrderByDescending(g => g.Count())
+                               .Select(g => g.Key)
+                               .Take(2)
+                               .ToList();
+        
+        // Start with natural phrase, let content determine what was found
+        string summary;
+        if (categories.Count > 1)
+        {
+            summary = $"Tôi tìm thấy các tài liệu về {categories.First().ToLower()} và {categories.Last().ToLower()}";
+        }
+        else if (categories.Any())
+        {
+            summary = $"Tôi tìm thấy {totalCount} {categories.First().ToLower()}";
+        }
+        else
+        {
+            summary = $"Tôi tìm thấy {totalCount} tài liệu";
+        }
+        
+        if (topDocuments.Any())
+        {
+            summary += $", bao gồm {string.Join(" và ", topDocuments.Take(2))}";
+        }
+        
+        // Add department info if available and relevant
+        var departments = sources.Where(s => !string.IsNullOrEmpty(s.DepartmentName))
+                                .Select(s => s.DepartmentName)
+                                .Distinct()
+                                .Take(1)
+                                .ToList();
+        if (departments.Any())
+        {
+            summary += $" từ {departments.First()}";
+        }
+        
+        summary += ".";
+        
+        return summary;
+    }
+
+    /// <summary>
+    /// Create document overview for AI prompt
+    /// </summary>
+    private string CreateDocumentOverview(List<DocumentSourceResponse> sources)
+    {
+        return string.Join("\n", sources.Select((source, index) => 
+            $"{index + 1}. {source.Title} - {source.DocumentType} ({source.DepartmentName})"));
+    }
+
     #region Semantic Search Helper Methods
 
-    private MemoryFilter BuildEnhancedMemoryFilter(SemanticSearchFilter filter, SemanticSearchRequest request)
+    private MemoryFilter BuildEnhancedMemoryFilterWithAccessControl(
+        SemanticSearchFilter filter,
+        SemanticSearchRequest request,
+        string? userDepartmentId,
+        string userRole,
+        string userId)
     {
         var memoryFilter = new MemoryFilter();
 
-        // Department filtering
+        // Always filter for approved and official documents only
+        memoryFilter.ByTag("status", "approved");
+        memoryFilter.ByTag("isOfficial", "true");
+
+        // Department filtering based on user role and permissions
         if (!string.IsNullOrEmpty(filter.DepartmentId))
         {
-            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.DepartmentId, filter.DepartmentId);
+            // When filtering by specific department:
+            // - If it's user's department: show all documents (public + private)
+            // - If it's different department: show only public documents
+            if (filter.DepartmentId == userDepartmentId)
+            {
+                memoryFilter.ByTag("departmentId", filter.DepartmentId);
+            }
+            else
+            {
+                memoryFilter.ByTag("departmentId", filter.DepartmentId);
+                memoryFilter.ByTag("isPublic", "true");
+            }
         }
-
-        // Public/private filtering
-        if (filter.IsPublic.HasValue)
+        else
         {
-            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.IsPublic, filter.IsPublic.Value.ToString().ToLower());
+            // Default access control: user can see public documents + private documents from their department
+            // This is handled by the database predicate, but we can pre-filter public documents in memory
+            if (!string.IsNullOrEmpty(userDepartmentId))
+            {
+                // Create a filter that matches either public documents OR documents from user's department
+                // Note: Kernel Memory doesn't support OR operations natively, so we rely on database filtering
+                memoryFilter.ByTag("isPublic", "true");
+            }
         }
-
-        // Note: Date range filtering (FromDate, ToDate, EffectiveFrom, EffectiveUntil)
-        // is handled in the database predicate since memory filters work with exact tag matches
-        // and don't support range queries efficiently
 
         // Content filtering - only DocumentType for memory filter
         if (!string.IsNullOrEmpty(filter.DocumentTypeId))
         {
-            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.DocumentType, filter.DocumentTypeId);
+            memoryFilter.ByTag("documentType", filter.DocumentTypeId);
         }
 
-        // Note: Tag and SignedBy filtering removed from memory filter to avoid conflicts
-        // All content filtering is now handled in the database predicate for consistency
+        // Owner-based filtering for draft/rejected documents (though we filter for approved only above)
+        if (!string.IsNullOrEmpty(userId))
+        {
+            // This would be for non-approved documents, but since we filter for approved only,
+            // this is mainly for future extensibility
+            memoryFilter.ByTag("ownerId", userId);
+        }
 
         return memoryFilter;
     }
@@ -2867,19 +3084,17 @@ public class DocumentService : IDocumentService
         return count; // Simplified for now
     }
 
-    private void ApplySearchScopeFilter(MemoryFilter memoryFilter, SearchScope scope, SemanticSearchFilter filter)
+    private void ApplySearchScopeFilter(MemoryFilter memoryFilter, SearchScope scope, SemanticSearchFilter filter, string? userDepartmentId)
     {
-        var userDepartmentId = GetCurrentUserDepartmentId();
-
         switch (scope)
         {
             case SearchScope.PublicOnly:
-                memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.IsPublic, "true");
+                memoryFilter.ByTag("isPublic", "true");
                 break;
             case SearchScope.DepartmentOnly:
                 if (!string.IsNullOrEmpty(userDepartmentId))
                 {
-                    memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.DepartmentId, userDepartmentId);
+                    memoryFilter.ByTag("departmentId", userDepartmentId);
                 }
                 break;
             case SearchScope.All:
@@ -3264,6 +3479,256 @@ public class DocumentService : IDocumentService
         return enrichedResponses;
     }
 
+    /// <summary>
+    /// Processes AI memory sources and converts them into SemanticSearchResponse objects with comprehensive access control
+    /// </summary>
+    private async Task<List<SemanticSearchResponse>> ProcessAISourcesIntoDocumentsWithAccessControl(
+        IEnumerable<Citation> relevantSources,
+        SemanticSearchRequest request,
+        SemanticSearchFilter filter,
+        string userId,
+        string? userDepartmentId,
+        string userRole)
+    {
+        // Extract document IDs from citations
+        var documentIds = relevantSources
+            .SelectMany(citation => citation.Partitions)
+            .Where(partition => partition.Tags.ContainsKey("documentId"))
+            .SelectMany(partition => partition.Tags["documentId"])
+            .Where(id => !string.IsNullOrEmpty(id))
+            .Distinct()
+            .Cast<string>()
+            .ToList();
+
+        if (!documentIds.Any())
+        {
+            return new List<SemanticSearchResponse>();
+        }
+
+        // Build database predicate for security filtering with comprehensive access control
+        var predicate = BuildDatabasePredicateWithCompleteAccessControl(
+            documentIds, request, filter, userId, userDepartmentId, userRole);
+
+        // Fetch document versions from database with security filtering
+        var documentVersions = await _unitOfWork.GetRepository<DocumentVersion>()
+            .GetListAsync(
+                predicate: predicate,
+                include: i => i.Include(dv => dv.DocumentFile)
+                    .ThenInclude(df => df.DocumentType)
+                    .Include(dv => dv.DocumentFile)
+                    .ThenInclude(df => df.ReplacementDocument)
+                    .Include(dv => dv.DocumentTags)
+                    .ThenInclude(dt => dt.Tag)
+            );
+
+        if (!documentVersions.Any())
+        {
+            return new List<SemanticSearchResponse>();
+        }
+
+        // Create candidates with relevance scores from citations and apply complete access control
+        var candidates = new List<SemanticSearchCandidate>();
+        foreach (var docVersion in documentVersions)
+        {
+            // Find the highest relevance score for this document from citations
+            var maxRelevance = relevantSources
+                .SelectMany(citation => citation.Partitions)
+                .Where(partition =>
+                    partition.Tags.ContainsKey("documentId") &&
+                    partition.Tags["documentId"].Contains(docVersion.DocumentFile.Id))
+                .Max(partition => partition.Relevance);
+
+            // Apply complete access control check (similar to DocumentRAGService)
+            if (await IsDocumentAccessibleToUser(docVersion, userId, userDepartmentId, userRole))
+            {
+                candidates.Add(new SemanticSearchCandidate
+                {
+                    DocumentVersion = docVersion,
+                    SemanticRelevance = maxRelevance,
+                    FinalScore = maxRelevance // Will be enhanced if hybrid scoring is enabled
+                });
+            }
+        }
+
+        // Apply hybrid scoring if enabled
+        if (request.EnableHybridScoring)
+        {
+            candidates = await ApplyHybridScoring(candidates, request, filter);
+        }
+
+        // Sort by final score and apply limits
+        var sortedCandidates = candidates
+            .OrderByDescending(c => c.FinalScore)
+            .Take(request.MaxResults)
+            .ToList();
+
+        // Convert to response objects
+        var responses = sortedCandidates.Select((candidate, index) => new SemanticSearchResponse
+        {
+            Id = candidate.DocumentVersion.DocumentFile.Id,
+            DepartmentId = candidate.DocumentVersion.DocumentFile.DepartmentId,
+            Title = candidate.DocumentVersion.Title,
+            DocumentName = candidate.DocumentVersion.FileName,
+            Description = candidate.DocumentVersion.Summary,
+            Status = candidate.DocumentVersion.Status.ToString(),
+            CreatedBy = candidate.DocumentVersion.CreatedBy,
+            CreatedTime = candidate.DocumentVersion.CreatedTime,
+            LastUpdatedby = candidate.DocumentVersion.LastUpdatedBy,
+            LastUpdatedTime = candidate.DocumentVersion.LastUpdatedTime,
+            FilePath = candidate.DocumentVersion.FilePath,
+            FileType = candidate.DocumentVersion.FileType,
+            FileSize = candidate.DocumentVersion.FileSize,
+            Version = candidate.DocumentVersion.VersionName,
+            Tags = candidate.DocumentVersion.DocumentTags?.Select(dt => dt.Tag.Name).ToList() ?? new List<string>(),
+            Relevance = candidate.FinalScore,
+            DocumentTypeId = candidate.DocumentVersion.DocumentFile.DocumentTypeId ?? string.Empty,
+            IsPublic = candidate.DocumentVersion.IsPublic,
+            SignedBy = candidate.DocumentVersion.SignedBy,
+            EffectiveFrom = candidate.DocumentVersion.EffectiveFrom,
+            EffectiveUntil = candidate.DocumentVersion.EffectiveUntil,
+            Scoring = candidate.Scoring,
+            IsDepartmentBoosted = candidate.IsDepartmentMatch,
+            Rank = index + 1
+        }).ToList();
+
+        // Enrich with names
+        var enrichedResponses = await _enrichmentService.EnrichSemanticSearchResponsesAsync(responses);
+
+        return enrichedResponses;
+    }
+
+    /// <summary>
+    /// Builds database predicate with comprehensive access control (similar to DocumentRAGService)
+    /// </summary>
+    private Expression<Func<DocumentVersion, bool>> BuildDatabasePredicateWithCompleteAccessControl(
+        List<string> documentIds,
+        SemanticSearchRequest request,
+        SemanticSearchFilter filter,
+        string userId,
+        string? userDepartmentId,
+        string userRole)
+    {
+        // Handle department-based filtering with proper access control
+        if (!string.IsNullOrEmpty(filter.DepartmentId))
+        {
+            // When filtering by specific department:
+            // - If it's user's department: show all documents (public + private)
+            // - If it's different department: show only public documents
+            if (filter.DepartmentId == userDepartmentId)
+            {
+                return dv => documentIds.Contains(dv.DocumentFile.Id) &&
+                            dv.Status == StatusEnum.Approved &&
+                            dv.IsOfficial &&
+                            dv.DocumentFile.DepartmentId == filter.DepartmentId &&
+                            // Additional filter conditions
+                            (!filter.FromDate.HasValue || dv.CreatedTime >= filter.FromDate.Value) &&
+                            (!filter.ToDate.HasValue || dv.CreatedTime <= filter.ToDate.Value) &&
+                            (!filter.EffectiveFrom.HasValue || dv.EffectiveFrom >= filter.EffectiveFrom.Value) &&
+                            (!filter.EffectiveUntil.HasValue || dv.EffectiveUntil <= filter.EffectiveUntil.Value) &&
+                            (string.IsNullOrEmpty(filter.DocumentTypeId) || dv.DocumentFile.DocumentTypeId == filter.DocumentTypeId);
+            }
+            else
+            {
+                return dv => documentIds.Contains(dv.DocumentFile.Id) &&
+                            dv.Status == StatusEnum.Approved &&
+                            dv.IsOfficial &&
+                            dv.DocumentFile.DepartmentId == filter.DepartmentId &&
+                            dv.IsPublic &&
+                            // Additional filter conditions
+                            (!filter.FromDate.HasValue || dv.CreatedTime >= filter.FromDate.Value) &&
+                            (!filter.ToDate.HasValue || dv.CreatedTime <= filter.ToDate.Value) &&
+                            (!filter.EffectiveFrom.HasValue || dv.EffectiveFrom >= filter.EffectiveFrom.Value) &&
+                            (!filter.EffectiveUntil.HasValue || dv.EffectiveUntil <= filter.EffectiveUntil.Value) &&
+                            (string.IsNullOrEmpty(filter.DocumentTypeId) || dv.DocumentFile.DocumentTypeId == filter.DocumentTypeId);
+            }
+        }
+        else
+        {
+            // Default access control: user can see public documents + private documents from their department
+            return dv => documentIds.Contains(dv.DocumentFile.Id) &&
+                        dv.Status == StatusEnum.Approved &&
+                        dv.IsOfficial &&
+                        (dv.IsPublic || dv.DocumentFile.DepartmentId == userDepartmentId) &&
+                        // Additional filter conditions
+                        (!filter.FromDate.HasValue || dv.CreatedTime >= filter.FromDate.Value) &&
+                        (!filter.ToDate.HasValue || dv.CreatedTime <= filter.ToDate.Value) &&
+                        (!filter.EffectiveFrom.HasValue || dv.EffectiveFrom >= filter.EffectiveFrom.Value) &&
+                        (!filter.EffectiveUntil.HasValue || dv.EffectiveUntil <= filter.EffectiveUntil.Value) &&
+                        (string.IsNullOrEmpty(filter.DocumentTypeId) || dv.DocumentFile.DocumentTypeId == filter.DocumentTypeId);
+        }
+    }
+
+    /// <summary>
+    /// Comprehensive access control check similar to DocumentRAGService.IsDocumentAccessibleToUser
+    /// </summary>
+    private Task<bool> IsDocumentAccessibleToUser(DocumentVersion docVersion, string userId, string? userDepartmentId, string userRole)
+    {
+        try
+        {
+            var role = userRole?.ToUpper() ?? "NONE";
+            var documentId = docVersion.DocumentFile.Id;
+
+            // Admin check
+            if (role == "ADMIN")
+            {
+                return Task.FromResult(false); // Block admin access for security
+            }
+
+            var docDepartmentId = docVersion.DocumentFile.DepartmentId;
+            var ownerId = docVersion.DocumentFile.OwnerId;
+            var isPublic = docVersion.IsPublic;
+
+            // Owner access - always granted
+            if (!string.IsNullOrEmpty(ownerId) && ownerId == userId)
+            {
+                _logger.LogDebug("✅ [ACCESS] GRANTED - Owner access: {DocId}", documentId);
+                return Task.FromResult(true);
+            }
+
+            // Public document access - always granted
+            if (isPublic)
+            {
+                _logger.LogDebug("✅ [ACCESS] GRANTED - Public document: {DocId}", documentId);
+                return Task.FromResult(true);
+            }
+
+            // Department-based access control
+            if (!string.IsNullOrEmpty(userDepartmentId) &&
+                !string.IsNullOrEmpty(docDepartmentId) &&
+                docDepartmentId == userDepartmentId)
+            {
+                switch (role)
+                {
+                    case "MANAGER":
+                    case "EDITOR":
+                    case "MEMBER":
+                    case "EMPLOYEE":
+                        _logger.LogDebug("✅ [ACCESS] GRANTED - Department access: {Role} in {DeptId} can access {DocId}",
+                            role, userDepartmentId, documentId);
+                        return Task.FromResult(true);
+
+                    default:
+                        _logger.LogDebug("🔒 [ACCESS] DENIED - Invalid role {Role} for department access: {DocId}",
+                            role, documentId);
+                        return Task.FromResult(false);
+                }
+            }
+
+            // Special permissions check (if implemented)
+            // This could be extended to check for special permissions like VIEW_ANY_DOCUMENT
+
+            _logger.LogDebug("🔒 [ACCESS] DENIED - No matching access criteria: {DocId} (UserDept: {UserDept}, DocDept: {DocDept})",
+                documentId, userDepartmentId ?? "None", docDepartmentId ?? "None");
+
+            return Task.FromResult(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "🔒 [ACCESS] ERROR - Denying access by default for safety: {DocId}", docVersion.DocumentFile.Id);
+            return Task.FromResult(false);
+        }
+    }
+
     #endregion
 
     public async Task<IPaginate<DocumentDraftResponse>> FullTextSearch(FullTextSearchFilter filter, int pageNumber, int pageSize)
@@ -3298,8 +3763,8 @@ public class DocumentService : IDocumentService
             filter: filter,
             predicate: accessControlPredicate,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument)
-                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
+                          .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,

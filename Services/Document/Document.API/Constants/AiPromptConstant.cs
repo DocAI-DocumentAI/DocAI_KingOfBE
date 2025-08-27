@@ -164,24 +164,55 @@ Yêu cầu:
     public static class SemanticSearch
     {
         /// <summary>
-        /// Enhanced prompt for semantic search that provides concise conversational AI responses with document sources
+        /// Simple and direct prompt for search results - just what was found with brief info
         /// </summary>
-        public const string ConversationalSearchPrompt = @"Trả lời ngắn gọn câu hỏi dựa trên tài liệu có liên quan (chỉ trong nội dung của tài liệu, cấm thêm thông tin bên ngoài). Giới hạn 2-3 câu, tập trung vào thông tin chính.
+        public const string ConversationalSearchPrompt = @"Dựa trên nội dung tài liệu đã tìm thấy, hãy trả lời ngắn gọn về những gì được tìm thấy. Bắt đầu bằng ""Tôi tìm thấy các tài liệu liên quan đến..."" hoặc ""Tôi tìm thấy một số tài liệu về..."" và mô tả ngắn gọn nội dung.
 
 Yêu cầu:
-- Trả lời trực tiếp, ngắn gọn, 2-3 câu
-- Chỉ thông tin quan trọng nhất
-- Tiếng Việt chuyên nghiệp
-- Nếu không có thông tin: ""Không tìm thấy thông tin liên quan, nhưng đây là một số tài liệu bạn có thể quan tâm ""
-
-Câu hỏi: {0}
+- 2-3 câu ngắn gọn
+- Bắt đầu với ""Tôi tìm thấy các/một số tài liệu..."" 
+- Mô tả tự nhiên nội dung tài liệu dựa trên những gì thực sự tìm thấy
+- Không sử dụng emoji hay format phức tạp
+- Tiếng Việt tự nhiên, đơn giản
+- Để AI tự quyết định cách mô tả dựa trên nội dung tài liệu
 
 Trả lời ngắn gọn:";
 
         /// <summary>
+        /// Alternative prompt for search result summary
+        /// </summary>
+        public const string SearchResultSummaryPrompt = @"Dựa trên tài liệu đã tìm thấy, hãy mô tả ngắn gọn những gì được tìm thấy. Bắt đầu với ""Tôi tìm thấy các tài liệu..."" hoặc ""Tôi tìm thấy một số tài liệu..."" và mô tả nội dung chính.
+
+Yêu cầu:
+- 2-3 câu ngắn gọn
+- Đơn giản, dễ hiểu
+- Tập trung vào nội dung chính của tài liệu
+- Để AI tự quyết định cách mô tả dựa trên nội dung thực tế";
+
+        /// <summary>
         /// Fallback prompt when no relevant documents are found
         /// </summary>
-        public const string NoResultsPrompt = @"Không tìm thấy tài liệu liên quan đến: ""{0}"". Nhưng đây là một số tài liệu bạn có thể quan tâm.";
+        public const string NoResultsPrompt = @"Tôi không tìm thấy tài liệu cụ thể liên quan đến ""{0}"". Dưới đây là một số tài liệu có thể hữu ích:";
+
+        /// <summary>
+        /// Prompt for legal document searches
+        /// </summary>
+        public const string LegalSearchPrompt = @"Dựa trên các tài liệu pháp lý đã tìm thấy, hãy mô tả ngắn gọn. Bắt đầu với ""Tôi tìm thấy các quy định..."" hoặc ""Tôi tìm thấy một số văn bản pháp lý..."".
+
+Yêu cầu:
+- 2-3 câu ngắn gọn
+- Mô tả loại văn bản và nội dung chính
+- Để AI tự quyết định cách mô tả dựa trên nội dung thực tế";
+
+        /// <summary>
+        /// Prompt for procedural/instructional searches  
+        /// </summary>
+        public const string ProcedureSearchPrompt = @"Dựa trên các hướng dẫn/quy trình đã tìm thấy, hãy mô tả ngắn gọn. Bắt đầu với ""Tôi tìm thấy các hướng dẫn..."" hoặc ""Tôi tìm thấy một số quy trình..."".
+
+Yêu cầu:
+- 2-3 câu ngắn gọn
+- Mô tả loại hướng dẫn và nội dung chính
+- Để AI tự quyết định cách mô tả dựa trên nội dung thực tế";
     }
 
     /// <summary>
