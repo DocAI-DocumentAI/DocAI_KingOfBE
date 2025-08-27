@@ -172,7 +172,6 @@ namespace Notification.API.Services.Implement
                 NearExpiredNotificationCron = "0 0 6 * * ?",     // 6:00 AM daily  
                 EnableExpiredNotifications = true,
                 EnableNearExpiredNotifications = true,
-                NearExpiredMode = NotificationMode.Daily,
                 LogRetentionDays = 90,
                 CreateAt = utcNow // ✅ Store UTC in database
             };

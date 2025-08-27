@@ -10,7 +10,6 @@ namespace Notification.API.Services.Interfaces
     {
         Task ProcessExpiredDocumentNotification(DocumentExpirationDto document);
         Task ProcessNearingExpirationNotification(DocumentExpirationDto document);
-        Task ProcessWeeklyGroupedNotificationAsync(List<DocumentExpirationDto> documents, string departmentName);
         Task ProcessDailyGroupedNotificationAsync(List<DocumentExpirationDto> documents, string departmentName);
         Task SendGeneralNotificationAsync(string templateName, string recipientEmail, string recipientName);
 

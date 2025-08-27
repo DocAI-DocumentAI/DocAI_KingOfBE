@@ -94,11 +94,6 @@ namespace Notification.API.Controllers
                     }
 
                     var config = await _configService.UpdateNotificationConfigAsync(request);
-
-                    _logger.LogInformation("Notification configuration updated by {UserId}. " +
-                        "Expired: '{ExpiredCron}', NearExpired: '{NearExpiredCron}', Mode: {Mode}",
-                        userId, request.ExpiredNotificationCron, request.NearExpiredNotificationCron, request.NearExpiredMode);
-
                     return Ok(config);
                 }
                 catch (BadHttpRequestException ex)
@@ -155,8 +150,6 @@ namespace Notification.API.Controllers
                         nextNearExpiredNotificationTime = config.NextNearExpiredNotificationTime,
                         expiredNotificationCron = config.ExpiredNotificationCron,
                         nearExpiredNotificationCron = config.NearExpiredNotificationCron,
-                        nearExpiredMode = config.NearExpiredMode,
-                        nearExpiredModeDescription = config.NearExpiredModeDescription,
                         enableExpiredNotifications = config.EnableExpiredNotifications,
                         enableNearExpiredNotifications = config.EnableNearExpiredNotifications,
                         quartzEnabled = config.QuartzEnabled

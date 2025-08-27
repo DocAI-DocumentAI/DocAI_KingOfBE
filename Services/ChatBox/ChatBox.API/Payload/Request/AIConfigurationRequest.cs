@@ -18,8 +18,8 @@ namespace ChatBox.API.Payload.Request
         [Range(0.0, 1.0)]
         public double TopP { get; set; } = 1.0;
 
-        [Range(1, 32000)]
-        public int MaxTokens { get; set; } = 4000;
+        [Range(256, 8192, ErrorMessage = "MaxTokens phải từ 256 đến 8192")]
+        public int MaxTokens { get; set; } = 2048;
 
         public string SystemPrompt { get; set; }
 

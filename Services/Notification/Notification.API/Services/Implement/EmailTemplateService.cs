@@ -7,6 +7,7 @@ using Notification.Domain.Models;
 using Notification.Infrastructure.Filter;
 using Notification.Infrastructure.Paginate;
 using Notification.Infrastructure.Repository.Interfaces;
+using Shared.Utils;
 
 
 
@@ -123,6 +124,11 @@ namespace Notification.API.Services.Implement
             var template = await GetEmailTemplateByNameAsync(templateName);
             if (template == null)
                 throw new BadHttpRequestException($"Template '{templateName}' not found");
+            var effectiveUntilDisplay = effectiveUntil.HasValue
+            ? TimeZoneHelper.ConvertUtcToVietnam(
+                DateTime.SpecifyKind(effectiveUntil.Value, DateTimeKind.Utc)
+              ).ToString("dd/MM/yyyy")
+            : "N/A";
 
             // ✅ FIX: Safe string replacement with null handling
             var content = template.BodyHtml
@@ -130,7 +136,7 @@ namespace Notification.API.Services.Implement
                 .Replace("{{UserName}}", SanitizeValue(userName))
                 .Replace("{{DocumentTitle}}", SanitizeValue(documentTitle))
                 .Replace("{{DocumentVersion}}", SanitizeValue(documentVersion))
-                .Replace("{{EffectiveUntil}}", effectiveUntil?.ToString("dd/MM/yyyy") ?? "N/A")
+                .Replace("{{EffectiveUntil}}", effectiveUntilDisplay)
                 .Replace("{{DocumentLink}}", SanitizeValue(documentLink))
                 .Replace("{{DismissLink}}", SanitizeValue(dismissLink));
 
