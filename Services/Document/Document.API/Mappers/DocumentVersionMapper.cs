@@ -18,10 +18,10 @@ namespace Document.API.Mappers
                 .ForMember(dest => dest.ReplacementDocumentName, opt => opt.MapFrom(src => src.DocumentFile.ReplacementDocument != null ? src.DocumentFile.ReplacementDocument.Title : null))
                 .ForMember(dest => dest.ReplacementDocument, opt => opt.MapFrom(src => src.DocumentFile.ReplacementDocument))
                 .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.DocumentFile.IsReplaced))
-                // Reverse relationship fields - populated manually in service layer
-                .ForMember(dest => dest.ReplacedById, opt => opt.Ignore())
-                .ForMember(dest => dest.ReplacedByDocument, opt => opt.Ignore())
-                .ForMember(dest => dest.ReplacedByDocumentName, opt => opt.Ignore())
+                // Reverse relationship fields - populated from database via DocumentFile navigation properties
+                .ForMember(dest => dest.ReplacedById, opt => opt.MapFrom(src => src.DocumentFile.ReplacedById))
+                .ForMember(dest => dest.ReplacedByDocument, opt => opt.MapFrom(src => src.DocumentFile.ReplacedByDocument))
+                .ForMember(dest => dest.ReplacedByDocumentName, opt => opt.MapFrom(src => src.DocumentFile.ReplacedByDocument != null ? src.DocumentFile.ReplacedByDocument.Title : null))
                 .ForMember(dest => dest.Tags, opt => opt.MapFrom(src => src.DocumentTags.Select(dt => dt.Tag.Name).ToList()))
                 .ForMember(dest => dest.LastSubmitted, opt => opt.MapFrom(src => src.LastSubmitted))
                 .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.SubmittedBy))

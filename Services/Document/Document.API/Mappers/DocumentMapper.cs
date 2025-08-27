@@ -27,7 +27,7 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.ReplacementDocumentName, opt => opt.MapFrom(src => src.ReplacementDocument != null ? src.ReplacementDocument.Title : null))
             .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.IsReplaced))
             .ForMember(dest => dest.ReplacedById, opt => opt.MapFrom(src => src.ReplacedById))
-            .ForMember(dest => dest.ReplacedByDocument, opt => opt.Ignore()) // Complex mapping - handled in service layer
+            .ForMember(dest => dest.ReplacedByDocument, opt => opt.MapFrom(src => src.ReplacedByDocument))
             .ForMember(dest => dest.ReplacedByDocumentName, opt => opt.MapFrom(src => src.ReplacedByDocument != null ? src.ReplacedByDocument.Title : null))
             .ForMember(dest => dest.LastSubmitted, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().LastSubmitted))
             .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.DocumentVersions.FirstOrDefault().SubmittedBy))
@@ -237,10 +237,10 @@ public class DocumentMapper : Profile
             .ForMember(dest => dest.ReplacementDocument, opt => opt.MapFrom(src => src.DocumentFile != null ? src.DocumentFile.ReplacementDocument : null))
             .ForMember(dest => dest.ReplacementDocumentName, opt => opt.MapFrom(src => src.DocumentFile != null && src.DocumentFile.ReplacementDocument != null ? src.DocumentFile.ReplacementDocument.Title : null))
             .ForMember(dest => dest.IsReplaced, opt => opt.MapFrom(src => src.DocumentFile != null ? src.DocumentFile.IsReplaced : false))
-            // Reverse relationship fields - populated manually in service layer
-            .ForMember(dest => dest.ReplacedById, opt => opt.Ignore())
-            .ForMember(dest => dest.ReplacedByDocument, opt => opt.Ignore())
-            .ForMember(dest => dest.ReplacedByDocumentName, opt => opt.Ignore())
+            // Reverse relationship fields - populated from database via DocumentFile navigation properties
+            .ForMember(dest => dest.ReplacedById, opt => opt.MapFrom(src => src.DocumentFile != null ? src.DocumentFile.ReplacedById : null))
+            .ForMember(dest => dest.ReplacedByDocument, opt => opt.MapFrom(src => src.DocumentFile != null ? src.DocumentFile.ReplacedByDocument : null))
+            .ForMember(dest => dest.ReplacedByDocumentName, opt => opt.MapFrom(src => src.DocumentFile != null && src.DocumentFile.ReplacedByDocument != null ? src.DocumentFile.ReplacedByDocument.Title : null))
             .ForMember(dest => dest.LastSubmitted, opt => opt.MapFrom(src => src.LastSubmitted))
             .ForMember(dest => dest.SubmittedBy, opt => opt.MapFrom(src => src.SubmittedBy))
             .ForMember(dest => dest.DocumentTypeId, opt => opt.MapFrom(src => src.DocumentFile != null ? src.DocumentFile.DocumentTypeId : null))

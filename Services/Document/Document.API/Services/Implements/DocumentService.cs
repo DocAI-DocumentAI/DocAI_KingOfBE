@@ -1812,8 +1812,6 @@ public class DocumentService : IDocumentService
         
         var response = _mapper.Map<DocumentDraftResponse>(draft);
 
-        // Reverse replacement relationships are now populated directly from database via ReplacedById field
-
         var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
         _logger.LogInformation("Draft document response enriched with names for version {VersionId}", versionId);
         return enrichedResponse;
@@ -2254,8 +2252,6 @@ public class DocumentService : IDocumentService
 
         var response = _mapper.Map<DocumentVersionResponse>(documentVersion);
 
-        // Reverse replacement relationships are now populated directly from database via ReplacedById field
-
         var enrichedResponse = await _enrichmentService.EnrichDocumentVersionResponseAsync(response);
         return enrichedResponse;
     }
@@ -2282,13 +2278,6 @@ public class DocumentService : IDocumentService
         var accessibleVersions = documentVersions.Where(version => CanUserAccessDocumentVersion(version, userId, userDepartmentId)).ToList();
 
         var response = _mapper.Map<List<DocumentVersionResponse>>(accessibleVersions);
-
-        // Populate reverse replacement relationships for all versions
-        foreach (var versionResponse in response)
-        {
-            var version = accessibleVersions.FirstOrDefault(v => v.Id == versionResponse.VersionId);
-            // Reverse replacement relationships are now populated directly from database via ReplacedById field
-        }
 
         var enrichedResponse = await _enrichmentService.EnrichDocumentVersionResponsesAsync(response);
         return enrichedResponse;
