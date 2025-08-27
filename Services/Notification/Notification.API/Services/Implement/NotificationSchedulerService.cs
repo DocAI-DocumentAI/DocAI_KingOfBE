@@ -1,6 +1,7 @@
 ﻿using Notification.API.Jobs;
 using Notification.API.Services.Interfaces;
 using Quartz;
+using Shared.Utils;
 
 namespace Notification.API.Services.Implement
 {
@@ -44,7 +45,7 @@ namespace Notification.API.Services.Implement
                 {
                     var newTrigger = TriggerBuilder.Create()
                         .WithIdentity(trigger)
-                        .WithCronSchedule(cronExpression, x => x.InTimeZone(VietnamTimeZone))
+                        .WithCronSchedule(cronExpression, x => x.InTimeZone(TimeZoneHelper.VietnamTimeZone))
                         .Build();
 
                     await scheduler.RescheduleJob(trigger, newTrigger);
