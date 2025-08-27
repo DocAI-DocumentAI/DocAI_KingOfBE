@@ -117,6 +117,10 @@ namespace ChatBox.API.Services.Implement
                 var decodedModelName = Uri.UnescapeDataString(request.ModelName ?? string.Empty);
                 var normalizedModelName = NormalizeModelName(decodedModelName);
 
+                if (normalizedModelName != config.ModelName && config.IsActive)
+                {
+                    throw new InvalidOperationException("Không thể thay đổi tên model khi model đang được kích hoạt. Vui lòng tắt model trước khi chỉnh sửa.");
+                }
                 if (normalizedModelName != config.ModelName)
                 {
                     var duplicate = await _unitOfWork.GetRepository<AIConfiguration>()

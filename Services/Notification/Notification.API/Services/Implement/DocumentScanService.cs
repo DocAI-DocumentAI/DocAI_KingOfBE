@@ -49,15 +49,16 @@ namespace Notification.API.Services.Implement
             try
             {
                 var allDocuments = await GetAllDocumentsFromServiceAsync();
-                var todayUtc = TimeZoneHelper.UtcToday; // ✅ Use unified helper for PostgreSQL-safe UTC date
+                var vietnamToday = TimeZoneHelper.VietnamToday;
 
+                // FIX: Use consistent filtering logic
                 var expiredDocs = allDocuments.Where(doc =>
                     doc.EffectiveFrom.HasValue &&
                     doc.EffectiveUntil.HasValue &&
-                    doc.EffectiveUntil.Value.Date < todayUtc).ToList();
+                    TimeZoneHelper.DaysFromTodayFromDatabase(doc.EffectiveUntil.Value) < 0).ToList();
 
-                _logger.LogInformation("Found {Count} expired documents (today UTC: {TodayUtc})",
-                    expiredDocs.Count, todayUtc);
+                _logger.LogInformation("Found {Count} expired documents (Vietnam today: {VietnamToday})",
+                                   expiredDocs.Count, vietnamToday.ToString("yyyy-MM-dd"));
                 return expiredDocs;
             }
             catch (Exception ex)
@@ -80,17 +81,18 @@ namespace Notification.API.Services.Implement
             try
             {
                 var allDocuments = await GetAllDocumentsFromServiceAsync();
-                var todayUtc = TimeZoneHelper.UtcToday; // ✅ Use unified helper for PostgreSQL-safe UTC date
-                var warningDateUtc = todayUtc.AddDays(config.WarningThresholdDays);
+                var vietnamToday = TimeZoneHelper.VietnamToday;
 
+                // FIX: Use consistent filtering logic
                 var nearExpiredDocs = allDocuments.Where(doc =>
                     doc.EffectiveFrom.HasValue &&
                     doc.EffectiveUntil.HasValue &&
-                    doc.EffectiveUntil.Value.Date >= todayUtc &&
-                    doc.EffectiveUntil.Value.Date <= warningDateUtc).ToList();
+                    TimeZoneHelper.IsNearingExpiration(
+                        DateTime.SpecifyKind(doc.EffectiveUntil.Value, DateTimeKind.Utc),
+                        config.WarningThresholdDays)).ToList();
 
-                _logger.LogInformation("Found {Count} near-expired documents (today UTC: {TodayUtc}, warning date UTC: {WarningDateUtc})",
-                    nearExpiredDocs.Count, todayUtc, warningDateUtc);
+                _logger.LogInformation("Found {Count} near-expired documents (Vietnam today: {VietnamToday}, threshold: {Threshold} days)",
+                    nearExpiredDocs.Count, vietnamToday.ToString("yyyy-MM-dd"), config.WarningThresholdDays);
                 return nearExpiredDocs;
             }
             catch (Exception ex)
@@ -103,29 +105,13 @@ namespace Notification.API.Services.Implement
         public async Task ProcessNearExpiredDocumentsAsync(List<DocumentExpirationDto> documents, string jobId)
         {
             var config = await _configService.GetNotificationConfigAsync();
-            var vietnamNow = TimeZoneHelper.VietnamNow; // ✅ For logging display
+            var vietnamNow = TimeZoneHelper.VietnamNow;
 
-            _logger.LogInformation("Processing {Count} near-expired documents with mode: {Mode} at Vietnam time: {VietnamTime} - JobId: {JobId}",
-                documents.Count, config.NearExpiredMode, vietnamNow.ToString("yyyy-MM-dd HH:mm:ss"), jobId);
+            _logger.LogInformation("Processing {Count} near-expired documents with Daily mode at Vietnam time: {VietnamTime} - JobId: {JobId}",
+                documents.Count, vietnamNow.ToString("yyyy-MM-dd HH:mm:ss"), jobId);
 
-            switch (config.NearExpiredMode)
-            {
-                case NotificationMode.Individual:
-                    await ProcessIndividualNotificationsAsync(documents, jobId);
-                    break;
-
-                case NotificationMode.Weekly:
-                    await ProcessWeeklyGroupedNotificationsAsync(documents, jobId);
-                    break;
-
-                case NotificationMode.Daily:
-                    await ProcessDailyGroupedNotificationsAsync(documents, jobId);
-                    break;
-
-                default:
-                    _logger.LogWarning("Unknown notification mode: {Mode} - JobId: {JobId}", config.NearExpiredMode, jobId);
-                    break;
-            }
+            // CHỈ GỬI DAILY GROUPED NOTIFICATIONS
+            await ProcessDailyGroupedNotificationsAsync(documents, jobId);
         }
 
         // Keep for backward compatibility
@@ -199,78 +185,10 @@ namespace Notification.API.Services.Implement
                 processedCount, skippedCount);
         }
 
-        private async Task ProcessIndividualNotificationsAsync(List<DocumentExpirationDto> documents, string jobId)
-        {
-            _logger.LogInformation("Sending individual notifications for {Count} documents - JobId: {JobId}",
-               documents.Count, jobId);
-
-            var processedCount = 0;
-            var skippedCount = 0;
-
-            foreach (var doc in documents)
-            {
-                try
-                {
-                    if (await HasRecentNotificationAsync(doc, NotificationType.NearingExpiration, 24))
-                    {
-                        skippedCount++;
-                        continue;
-                    }
-
-                    await _notificationService.ProcessNearingExpirationNotification(doc);
-                    processedCount++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error processing individual notification for {DocId}", doc.DocumentId);
-                    skippedCount++;
-                }
-            }
-
-            _logger.LogInformation("Individual notifications completed - Processed: {Processed}, Skipped: {Skipped}",
-                processedCount, skippedCount);
-        }
-
-        private async Task ProcessWeeklyGroupedNotificationsAsync(List<DocumentExpirationDto> documents, string jobId)
-        {
-            _logger.LogInformation("Sending weekly grouped notifications for {Count} documents - JobId: {JobId}",
-                documents.Count, jobId);
-
-            var departmentGroups = documents.GroupBy(d => new { d.DepartmentId, d.DepartmentName });
-            var processedCount = 0;
-            var skippedCount = 0;
-
-            foreach (var group in departmentGroups)
-            {
-                try
-                {
-                    var deptDocuments = group.ToList();
-
-                    if (await HasRecentGroupedNotificationForDepartmentAsync(group.Key.DepartmentId.ToString(), "WEEKLY_GROUP", 7))
-                    {
-                        skippedCount += deptDocuments.Count;
-                        continue;
-                    }
-
-                    await _notificationService.ProcessWeeklyGroupedNotificationAsync(deptDocuments, group.Key.DepartmentName);
-                    processedCount += deptDocuments.Count;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error processing weekly notification for department {DeptName}",
-                        group.Key.DepartmentName);
-                    skippedCount += group.Count();
-                }
-            }
-
-            _logger.LogInformation("Weekly notifications completed - Processed: {Processed}, Skipped: {Skipped}",
-                processedCount, skippedCount);
-        }
-
         private async Task ProcessDailyGroupedNotificationsAsync(List<DocumentExpirationDto> documents, string jobId)
         {
             _logger.LogInformation("Sending daily grouped notifications for {Count} documents - JobId: {JobId}",
-                documents.Count, jobId);
+               documents.Count, jobId);
 
             var departmentGroups = documents.GroupBy(d => new { d.DepartmentId, d.DepartmentName });
             var processedCount = 0;
@@ -282,7 +200,6 @@ namespace Notification.API.Services.Implement
                 {
                     var deptDocuments = group.ToList();
 
-                    // ✅ Check for recent daily grouped notifications (using DAILY_GROUP identifier)
                     if (await HasRecentGroupedNotificationForDepartmentAsync(group.Key.DepartmentId.ToString(), "DAILY_GROUP", 1))
                     {
                         skippedCount += deptDocuments.Count;
@@ -357,12 +274,12 @@ namespace Notification.API.Services.Implement
             try
             {
                 var logRepo = _unitOfWork.GetRepository<NotificationLog>();
-                var cutoffTime = TimeZoneHelper.UtcNow.AddDays(-days); // ✅ Use unified helper
+                var cutoffTime = TimeZoneHelper.UtcNow.AddDays(-days);
 
                 return await logRepo.AnyAsync(l =>
                     l.DocumentId == groupType &&
                     l.DocumentVersion == departmentId &&
-                    l.NotificationType == NotificationType.General &&
+                    l.NotificationType == NotificationType.NearingExpiration && // THAY ĐỔI: từ General -> NearingExpiration
                     l.IsSent == true &&
                     l.SentAt >= cutoffTime);
             }
@@ -370,26 +287,6 @@ namespace Notification.API.Services.Implement
             {
                 _logger.LogWarning(ex, "Error checking recent {GroupType} notifications for department {DepartmentId}",
                     groupType, departmentId);
-                return false;
-            }
-        }
-        private async Task<bool> HasRecentWeeklyNotificationForDepartmentAsync(string departmentId, int days)
-        {
-            try
-            {
-                var logRepo = _unitOfWork.GetRepository<NotificationLog>();
-                var cutoffTime = DateTime.UtcNow.AddDays(-days);
-
-                return await logRepo.AnyAsync(l =>
-                    l.DocumentId == "WEEKLY_GROUP" &&
-                    l.DocumentVersion == departmentId &&
-                    l.NotificationType == NotificationType.General &&
-                    l.IsSent == true &&
-                    l.SentAt >= cutoffTime);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error checking recent weekly notifications for department {DepartmentId}", departmentId);
                 return false;
             }
         }

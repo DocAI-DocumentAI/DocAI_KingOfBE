@@ -32,13 +32,13 @@
         public const int GPT4MaxContextTokens = 6000;
         public const int GPT35MaxTokens = 4096;
         public const int GPT35MaxContextTokens = 3000;
-        public const int DefaultMaxTokens = 4000;
+        public const int DefaultMaxTokens = 2048;
         public const int DefaultMaxContextTokens = 4000;
 
         // Preference limits
         public const int MaxCharacteristics = 2;
         public const int MaxAdditionalInfoLength = 200;
-        public const int MaxTitleLength = 50;
+        public const int MaxTitleLength = 100;
 
         // Prompts
         public const string SystemPrompt = @"Bạn là AI Assistant của hệ thống tài liệu nội bộ công ty, chuyên hỗ trợ nhân viên tìm kiếm thông tin và trả lời câu hỏi.
