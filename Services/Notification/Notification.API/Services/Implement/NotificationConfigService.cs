@@ -111,7 +111,7 @@ namespace Notification.API.Services.Implement
         {
             if (_schedulerService == null)
             {
-                _logger.LogWarning("⚠️ Scheduler service not available");
+                _logger.LogWarning("Scheduler service not available");
                 return;
             }
 
@@ -121,19 +121,41 @@ namespace Notification.API.Services.Implement
                 bool nearExpiredCronChanged = !string.Equals(oldNearExpiredCron, config.NearExpiredNotificationCron, StringComparison.OrdinalIgnoreCase);
                 bool enabledChanged = oldQuartzEnabled != config.QuartzEnabled;
 
+                // Update expired notification schedule if changed
+                if (expiredCronChanged)
+                {
+                    await _schedulerService.UpdateExpiredDocumentJobSchedule(config.ExpiredNotificationCron);
+                    _logger.LogInformation("Updated expired document schedule to: '{CronExpression}'",
+                        config.ExpiredNotificationCron);
+                }
+
+                // Update near-expired notification schedule if changed
+                if (nearExpiredCronChanged)
+                {
+                    await _schedulerService.UpdateNearExpiredDocumentJobSchedule(config.NearExpiredNotificationCron);
+                    _logger.LogInformation("Updated near-expired document schedule to: '{CronExpression}'",
+                        config.NearExpiredNotificationCron);
+                }
+
+                // Handle enabled/disabled state
                 if (enabledChanged)
                 {
                     if (config.QuartzEnabled)
                     {
                         await _schedulerService.ResumeAllJobs();
-                        _logger.LogInformation("✅ Updated near-expired document schedule to: '{CronExpression}'",
-                            config.NearExpiredNotificationCron);
+                        _logger.LogInformation("Resumed all notification jobs");
+                    }
+                    else
+                    {
+                        await _schedulerService.PauseAllJobs();
+                        _logger.LogInformation("Paused all notification jobs");
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Failed to update Quartz schedules");
+                _logger.LogError(ex, "Failed to update Quartz schedules");
+                throw; // Re-throw to let caller know update failed
             }
         }
 
@@ -173,21 +195,22 @@ namespace Notification.API.Services.Implement
                     return null;
                 }
 
+                _logger.LogDebug("Calculating next run time for cron: {Cron}", cronExpression);
+
                 var cron = new CronExpression(cronExpression);
 
-                // ✅ Use unified helper for UTC time
-                var utcNow = TimeZoneHelper.UtcNow;
-                var nextUtc = cron.GetNextValidTimeAfter(utcNow);
+                // Use Vietnam time directly without setting timezone on cron
+                var vietnamNow = TimeZoneHelper.VietnamNow;
+                var nextVietnam = cron.GetNextValidTimeAfter(vietnamNow);
 
-                if (nextUtc.HasValue)
+                if (nextVietnam.HasValue)
                 {
-                    // ✅ Convert to Vietnam time for display using unified helper
-                    var nextVietnam = TimeZoneHelper.ConvertUtcToVietnam(nextUtc.Value.DateTime);
+                    var result = nextVietnam.Value.DateTime;
 
-                    _logger.LogDebug("Next run time: Cron='{Cron}', UTC={NextUtc}, Vietnam={NextVietnam}",
-                        cronExpression, nextUtc.Value.DateTime, nextVietnam);
+                    _logger.LogDebug("Cron calculation: VietnamNow={VietnamNow}, NextRun={NextRun}",
+                        vietnamNow, result);
 
-                    return nextVietnam;
+                    return result;
                 }
 
                 return null;
