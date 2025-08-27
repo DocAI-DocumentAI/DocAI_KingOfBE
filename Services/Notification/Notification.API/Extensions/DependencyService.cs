@@ -160,19 +160,14 @@ public static class DependencyService
             q.AddTrigger(opts => opts
                 .ForJob(expiredJobKey)
                 .WithIdentity("ExpiredDocumentTrigger")
-                .WithCronSchedule(
-                    configuration["Notification:ExpiredNotificationCron"] ?? "0 0 8 * * ?",
-                    x => x.InTimeZone(vietnamTimeZone)));
+                .WithCronSchedule("0 0 7 * * ?", x => x.InTimeZone(vietnamTimeZone))); // Default 7:00 AM
 
-            // ✅ Job 2: Near-Expired Documents
             var nearExpiredJobKey = new JobKey("NearExpiredDocumentNotificationJob");
             q.AddJob<NearExpiredDocumentNotificationJob>(opts => opts.WithIdentity(nearExpiredJobKey));
             q.AddTrigger(opts => opts
                 .ForJob(nearExpiredJobKey)
                 .WithIdentity("NearExpiredDocumentTrigger")
-                .WithCronSchedule(
-                    configuration["Notification:NearExpiredNotificationCron"] ?? "0 0 9 ? * MON",
-                    x => x.InTimeZone(vietnamTimeZone)));
+                .WithCronSchedule("0 0 7 * * ?", x => x.InTimeZone(vietnamTimeZone)));
 
             // ✅ Job 3: Cleanup (keep existing)
             var cleanupJobKey = new JobKey("CleanUpOldLogsJob");
@@ -187,6 +182,8 @@ public static class DependencyService
 
 
         services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
+        services.AddHostedService<ConfigSyncService>();
+
         return services;
     }
     public static IServiceCollection AddMassTransit(this IServiceCollection services, IConfiguration configuration)
