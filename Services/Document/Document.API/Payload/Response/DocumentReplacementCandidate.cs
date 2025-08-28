@@ -9,6 +9,7 @@ namespace Document.API.Payload.Response
         public double SemanticScore { get; set; }
         public double MetadataScore { get; set; }
         public double ContextScore { get; set; }
+        public double ConfidenceScore { get; set; }
         public List<string> Reasons { get; set; } = new List<string>();
         public bool CanReplace { get; set; }
         public string? DepartmentId { get; set; }
