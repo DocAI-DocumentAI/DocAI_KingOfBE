@@ -29,5 +29,17 @@ namespace Document.API.Services.Interfaces
         Task<ApprovalQueueDetailResponse> GetApprovalQueueDetailAsync(string versionId);
         Task ProcessExpiredSubmissionsAsync(); // BR-214: Auto-reject expired submissions
         Task ProcessInactiveClaimsAsync(); // Auto-release inactive claims
+
+        /// <summary>
+        /// ✅ NEW: Manually archive an approved document
+        /// BR-300: Managers can manually archive approved documents within their department
+        /// </summary>
+        Task<ArchiveDocumentResponse> ArchiveDocumentAsync(string versionId, ArchiveDocumentRequest request);
+
+        /// <summary>
+        /// ✅ NEW: Permanently delete an archived document
+        /// BR-301: Managers can permanently delete archived documents within their department
+        /// </summary>
+        Task<DeleteArchivedDocumentResponse> DeleteArchivedDocumentAsync(string versionId, DeleteArchivedDocumentRequest request);
     }
 }

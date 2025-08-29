@@ -69,6 +69,22 @@ public class MessageConstant
     public const string InvalidStatusForApprovalQueue = "Invalid status for approval queue list. Only 'Pending' 'Rejected' documents can be accepted.";
     public const string GoogleDriveNotConfigured = "Google Drive is not configured";
 
+    // Archive and Delete messages
+    public const string CanOnlyArchiveApprovedDocuments = "Only documents with status 'Approved' can be archived.";
+    public const string DocumentAlreadyArchived = "Document is already archived.";
+    public const string ArchiveReasonRequired = "Reason for archiving is required.";
+    public const string ArchiveReasonTooShort = "Archive reason must be at least 10 characters long.";
+    public const string UnauthorizedToArchiveDocument = "You do not have permission to archive this document.";
+    public const string CannotArchiveDocumentWithActiveReplacements = "Cannot archive document that has active replacement documents in progress.";
+    public const string DocumentArchivedSuccessfully = "Document archived successfully.";
+    
+    public const string CanOnlyDeleteArchivedDocuments = "Only documents with status 'Archived' can be permanently deleted.";
+    public const string DeleteArchivedReasonRequired = "Reason for deleting archived document is required.";
+    public const string DeleteArchivedReasonTooShort = "Delete reason must be at least 10 characters long.";
+    public const string ConfirmDeleteArchivedDocument = "This will permanently delete the archived document and all its data. This action cannot be undone.";
+    public const string UnauthorizedToDeleteArchivedDocument = "You do not have permission to delete this archived document.";
+    public const string ArchivedDocumentDeletedSuccessfully = "Archived document deleted successfully.";
+
     // AI Configuration messages
     public const string AIConfigurationNotFound = "AI configuration not found.";
     public const string AIConfigurationModelNameExists = "AI configuration with this model name already exists.";

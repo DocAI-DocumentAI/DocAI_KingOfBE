@@ -12,6 +12,8 @@ namespace Document.Domain.Enums
         Approved,
         Rejected,
         Claimed,
-        Unclaimed
+        Unclaimed,
+        Archived,
+        Deleted
     }
 }

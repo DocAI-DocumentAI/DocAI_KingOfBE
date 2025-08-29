@@ -207,5 +207,83 @@ namespace Document.API.Controllers
                 return StatusCode(500, ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while retrieving the approval queue detail", 500));
             }
         }
+
+        /// <summary>
+        /// ✅ NEW: Manually archive an approved document
+        /// BR-300: Managers can manually archive approved documents within their department
+        /// </summary>
+        [HttpPost(ApiEndPointConstant.Approval.ArchiveDocument)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager })]
+        [ProducesResponseType(typeof(ApiResponse<ArchiveDocumentResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> ArchiveDocument([FromRoute(Name = "id")] string versionId, [FromBody] ArchiveDocumentRequest request)
+        {
+            // Validate input
+            if (string.IsNullOrWhiteSpace(versionId))
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_VERSION_ID", "Version ID is required", 400));
+            }
+
+            if (request == null)
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", "Request body is required", 400));
+            }
+
+            try
+            {
+                var result = await _approvalService.ArchiveDocumentAsync(versionId, request);
+                return Ok(ApiResponse<ArchiveDocumentResponse>.Success(result, "Document archived successfully", 200));
+            }
+            catch (ErrorException ex)
+            {
+                return StatusCode(ex.StatusCode, ApiResponse<object>.Error(ex.ErrorDetail.ErrorCode, ex.ErrorDetail.Message?.ToString() ?? "An error occurred", ex.StatusCode));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while archiving the document", 500));
+            }
+        }
+
+        /// <summary>
+        /// ✅ NEW: Permanently delete an archived document
+        /// BR-301: Managers can permanently delete archived documents within their department
+        /// </summary>
+        [HttpDelete(ApiEndPointConstant.Approval.DeleteArchivedDocument)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager })]
+        [ProducesResponseType(typeof(ApiResponse<DeleteArchivedDocumentResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> DeleteArchivedDocument([FromRoute(Name = "id")] string versionId, [FromBody] DeleteArchivedDocumentRequest request)
+        {
+            // Validate input
+            if (string.IsNullOrWhiteSpace(versionId))
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_VERSION_ID", "Version ID is required", 400));
+            }
+
+            if (request == null)
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", "Request body is required", 400));
+            }
+
+            try
+            {
+                var result = await _approvalService.DeleteArchivedDocumentAsync(versionId, request);
+                return Ok(ApiResponse<DeleteArchivedDocumentResponse>.Success(result, "Archived document deleted successfully", 200));
+            }
+            catch (ErrorException ex)
+            {
+                return StatusCode(ex.StatusCode, ApiResponse<object>.Error(ex.ErrorDetail.ErrorCode, ex.ErrorDetail.Message?.ToString() ?? "An error occurred", ex.StatusCode));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while deleting the archived document", 500));
+            }
+        }
     }
 }
