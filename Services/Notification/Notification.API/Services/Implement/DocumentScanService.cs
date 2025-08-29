@@ -48,7 +48,7 @@ namespace Notification.API.Services.Implement
 
             try
             {
-                var allDocuments = await GetAllDocumentsFromServiceAsync();
+                var allDocuments = await GetAllDocumentsFromServiceAsync(config.WarningThresholdDays);
                 var vietnamToday = TimeZoneHelper.VietnamToday;
 
                 // FIX: Use consistent filtering logic
@@ -80,19 +80,18 @@ namespace Notification.API.Services.Implement
 
             try
             {
-                var allDocuments = await GetAllDocumentsFromServiceAsync();
-                var vietnamToday = TimeZoneHelper.VietnamToday;
+                var allDocuments = await GetAllDocumentsFromServiceAsync(config.WarningThresholdDays);
+                var todayUtc = TimeZoneHelper.UtcToday;
+                var warningDateUtc = todayUtc.AddDays(config.WarningThresholdDays);
 
-                // FIX: Use consistent filtering logic
                 var nearExpiredDocs = allDocuments.Where(doc =>
                     doc.EffectiveFrom.HasValue &&
                     doc.EffectiveUntil.HasValue &&
-                    TimeZoneHelper.IsNearingExpiration(
-                        DateTime.SpecifyKind(doc.EffectiveUntil.Value, DateTimeKind.Utc),
-                        config.WarningThresholdDays)).ToList();
+                    doc.EffectiveUntil.Value.Date >= todayUtc &&
+                    doc.EffectiveUntil.Value.Date <= warningDateUtc).ToList();
 
-                _logger.LogInformation("Found {Count} near-expired documents (Vietnam today: {VietnamToday}, threshold: {Threshold} days)",
-                    nearExpiredDocs.Count, vietnamToday.ToString("yyyy-MM-dd"), config.WarningThresholdDays);
+                _logger.LogInformation("Found {Count} near-expired documents using runtime threshold {Threshold} days (warning date: {WarningDate})",
+                    nearExpiredDocs.Count, config.WarningThresholdDays, warningDateUtc.ToString("yyyy-MM-dd"));
                 return nearExpiredDocs;
             }
             catch (Exception ex)
@@ -118,7 +117,7 @@ namespace Notification.API.Services.Implement
         public async Task ScanAndProcessDocumentsAsync()
         {
             var scanId = Guid.NewGuid().ToString("N")[..8];
-            var vietnamNow = TimeZoneHelper.VietnamNow; // ✅ For logging display
+            var vietnamNow = TimeZoneHelper.VietnamNow;
 
             _logger.LogInformation("Starting legacy document expiration scan at Vietnam time: {VietnamTime} - ScanId: {ScanId}",
                 vietnamNow.ToString("yyyy-MM-dd HH:mm:ss"), scanId);
@@ -221,20 +220,23 @@ namespace Notification.API.Services.Implement
                 processedCount, skippedCount);
         }
 
-        private async Task<List<DocumentExpirationDto>> GetAllDocumentsFromServiceAsync()
+        private async Task<List<DocumentExpirationDto>> GetAllDocumentsFromServiceAsync(int warningDays)
         {
             try
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
 
-                // ✅ Use unified helper for UTC date
+                // Use runtime warningDays instead of hardcoded 365
+                var warningDate = TimeZoneHelper.UtcNow.AddDays(warningDays);
+
                 var response = await _documentClient.GetResponse<GetExpiringDocumentsResponse>(
-                    new GetExpiringDocumentsCommand { WarningDate = TimeZoneHelper.UtcNow.AddDays(365) },
+                    new GetExpiringDocumentsCommand { WarningDate = warningDate },
                     timeout.Token);
 
                 if (response.Message.Success)
                 {
-                    _logger.LogDebug("Retrieved {Count} documents from document service", response.Message.Documents.Count);
+                    _logger.LogDebug("Retrieved {Count} documents from document service using runtime threshold {WarningDays} days",
+                        response.Message.Documents.Count, warningDays);
                     return response.Message.Documents;
                 }
 

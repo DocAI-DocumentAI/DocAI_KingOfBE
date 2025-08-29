@@ -10,5 +10,6 @@ namespace Notification.API.Services.Interfaces
         Task CreateLogAsync(NotificationLog log);
         Task<IPaginate<NotificationResponse>> GetNotificationLogsAsync(NotificationRequest request);
         Task CleanUpOldLogsAsync();
+        Task CleanUpGroupedNotificationLogsAsync(int? customRetentionDays = null);
     }
 }
