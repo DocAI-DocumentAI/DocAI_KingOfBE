@@ -1339,7 +1339,7 @@ public class UserService : BaseService<UserService>, IUserService
     public async Task<RefreshTokenResponse> RefreshTokenAsync(RefreshTokenRequest request)
     {
         var principal = JwtUtil.GetPrincipalFromExpiredToken(request.RefreshToken, _configuration);
-        var userId = principal.FindFirst("UserId")?.Value;
+                var userId = principal.FindFirst("userId")?.Value;
 
         if (string.IsNullOrEmpty(userId))
         {

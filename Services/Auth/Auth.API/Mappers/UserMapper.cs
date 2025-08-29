@@ -4,6 +4,7 @@ using Auth.API.Payload.Response.Department;
 using Auth.API.Payload.Response.Permission;
 using Auth.API.Payload.Response.Role;
 using Auth.API.Payload.Response.User;
+using Auth.API.Payload.Response.Auth;
 using Auth.Domain.Models;
 using AutoMapper;
 
@@ -15,6 +16,7 @@ public class UserMapper : Profile
     {
         CreateMap<RegisterRequest, User>();
         CreateMap<User, RegisterResponse>();
+        CreateMap<User, RefreshTokenResponse>();
 
         CreateMap<User, UserResponse>()
             .ForMember(dest => dest.Role, opt => opt.MapFrom(src => new RoleResponse
