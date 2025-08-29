@@ -2776,41 +2776,51 @@ public class DocumentService : IDocumentService
                 response.HasAnswer = true;
 
                 // ✅ Convert documents with enhanced metadata for search results
-                response.RelevantDocuments = ragResponse.Sources.Select((source, index) => new SemanticSearchResponse
+                var documentCountFromAI = ExtractDocumentCountFromAIAnswer(response.Answer);
+                if (documentCountFromAI <= 0)
                 {
-                    Id = source.DocumentId,
-                    Title = source.Title ?? "Unknown Document",
-                    DocumentName = source.Title ?? "Unknown Document",
-                    Description = source.Description ?? string.Empty,
-                    Status = source.Status ?? "approved",
-                    DepartmentId = source.DepartmentId ?? string.Empty,
-                    DepartmentName = source.DepartmentName ?? string.Empty,
-                    CreatedBy = source.CreatedBy ?? string.Empty,
-                    CreatedByName = source.CreatedBy ?? string.Empty,
-                    CreatedTime = DateTime.UtcNow, // Not available in source
-                    FileType = source.FileType ?? string.Empty,
-                    FileSize = source.FileSize ?? 0,
-                    Version = source.VersionName ?? "1.0",
-                    Tags = source.Tags ?? new List<string>(),
-                    Relevance = source.RelevanceScore,
-                    DocumentTypeId = source.DocumentType ?? string.Empty,
-                    DocumentTypeName = source.DocumentType ?? string.Empty,
-                    IsPublic = source.IsPublic,
-                    SignedBy = source.SignedBy ?? string.Empty,
-                    EffectiveFrom = source.EffectiveFrom,
-                    EffectiveUntil = source.EffectiveUntil,
-                    Scoring = request.EnableHybridScoring ? new SemanticSearchScoring
+                    documentCountFromAI = ragResponse.Sources.GroupBy(s => s.DocumentId).Count();
+                }
+
+                response.RelevantDocuments = ragResponse.Sources
+                    .GroupBy(s => s.DocumentId)
+                    .Select(g => g.OrderByDescending(s => s.RelevanceScore).First())
+                    .Take(documentCountFromAI)
+                    .Select((source, index) => new SemanticSearchResponse
                     {
-                        SemanticSimilarity = source.RelevanceScore,
-                        MetadataScore = 0.0,
-                        ContextualScore = 0.0,
-                        FinalScore = source.RelevanceScore,
-                        AppliedBoosts = new List<string>(),
-                        MatchingTags = source.Tags ?? new List<string>()
-                    } : null,
-                    IsDepartmentBoosted = source.DepartmentId == userDepartmentId,
-                    Rank = index + 1
-                }).ToList();
+                        Id = source.DocumentId,
+                        Title = source.Title ?? "Unknown Document",
+                        DocumentName = source.Title ?? "Unknown Document",
+                        Description = source.Description ?? string.Empty,
+                        Status = source.Status ?? "approved",
+                        DepartmentId = source.DepartmentId ?? string.Empty,
+                        DepartmentName = source.DepartmentName ?? string.Empty,
+                        CreatedBy = source.CreatedBy ?? string.Empty,
+                        CreatedByName = source.CreatedBy ?? string.Empty,
+                        CreatedTime = DateTime.UtcNow,
+                        FileType = source.FileType ?? string.Empty,
+                        FileSize = source.FileSize ?? 0,
+                        Version = source.VersionName ?? "1.0",
+                        Tags = source.Tags ?? new List<string>(),
+                        Relevance = source.RelevanceScore,
+                        DocumentTypeId = source.DocumentType ?? string.Empty,
+                        DocumentTypeName = source.DocumentType ?? string.Empty,
+                        IsPublic = source.IsPublic,
+                        SignedBy = source.SignedBy ?? string.Empty,
+                        EffectiveFrom = source.EffectiveFrom,
+                        EffectiveUntil = source.EffectiveUntil,
+                        Scoring = request.EnableHybridScoring ? new SemanticSearchScoring
+                        {
+                            SemanticSimilarity = source.RelevanceScore,
+                            MetadataScore = 0.0,
+                            ContextualScore = 0.0,
+                            FinalScore = source.RelevanceScore,
+                            AppliedBoosts = new List<string>(),
+                            MatchingTags = source.Tags ?? new List<string>()
+                        } : null,
+                        IsDepartmentBoosted = source.DepartmentId == userDepartmentId,
+                        Rank = index + 1
+                    }).ToList();
 
                 _logger.LogInformation("✅ [ENHANCED-SEARCH] Successfully generated search summary for {Count} documents",
                     response.RelevantDocuments.Count);
@@ -2860,7 +2870,27 @@ public class DocumentService : IDocumentService
             };
         }
     }
+    private int ExtractDocumentCountFromAIAnswer(string aiAnswer)
+    {
+        if (string.IsNullOrEmpty(aiAnswer)) return 0;
 
+        var patterns = new[]
+        {
+        @"tìm thấy (\d+) tài liệu",
+        @"có (\d+) tài liệu",
+        @"(\d+) tài liệu liên quan"
+    };
+
+        foreach (var pattern in patterns)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(aiAnswer, pattern);
+            if (match.Success && int.TryParse(match.Groups[1].Value, out int count))
+            {
+                return count;
+            }
+        }
+        return 0;
+    }
     /// <summary>
     /// Generate a concise search-focused summary instead of full conversational response
     /// </summary>
