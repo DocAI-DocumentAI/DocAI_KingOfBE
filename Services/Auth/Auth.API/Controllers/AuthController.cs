@@ -372,9 +372,9 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy Refresh token của GG
+    /// Lấy Refresh token
     /// </summary>
-    [HttpPost(ApiEndPointConstant.User.GoogleRefreshToken)]
+    [HttpPost(ApiEndPointConstant.User.RefreshToken)]
     [ProducesResponseType(typeof(RefreshTokenResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
