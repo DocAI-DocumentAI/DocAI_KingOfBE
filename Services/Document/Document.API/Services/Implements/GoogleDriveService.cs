@@ -735,24 +735,32 @@ namespace Document.API.Services.Implements
 
         /// <summary>
         /// Generate secure iframe viewing URL for Google Drive file
+        /// Uses proper Google Drive embedding with link sharing for universal access
+        /// 
+        /// IMPORTANT: Google Drive iframe preview does NOT support access tokens in URL parameters.
+        /// The correct approach is to use link sharing permissions on the file itself.
+        /// This method:
+        /// 1. Validates user access via internal business logic
+        /// 2. Enables "anyone with link" sharing on the file for iframe viewing
+        /// 3. Returns the standard iframe URL which Google Drive will honor with link sharing
         /// </summary>
         /// <param name="fileId">Google Drive file ID</param>
         /// <param name="userEmail">User email for access validation</param>
         /// <param name="departmentId">User's department ID for access control</param>
-        /// <returns>Iframe URL with access token or null if access denied</returns>
+        /// <returns>Iframe URL for Google Drive file or null if access denied</returns>
         public async Task<string?> GenerateIframeViewingUrlAsync(string fileId, string userEmail, string departmentId)
         {
             try
             {
                 _logger.LogInformation("Generating iframe viewing URL for file {FileId} and user {UserEmail}", fileId, userEmail);
 
-                // // Validate user access first
-                // var hasAccess = await ValidateUserAccessAsync(fileId, userEmail, departmentId);
-                // if (!hasAccess)
-                // {
-                //     _logger.LogWarning("User {UserEmail} does not have access to file {FileId}", userEmail, fileId);
-                //     return null;
-                // }
+                // Validate user access first (internal business logic)
+                var hasAccess = await ValidateUserAccessAsync(fileId, userEmail, departmentId);
+                if (!hasAccess)
+                {
+                    _logger.LogWarning("User {UserEmail} does not have access to file {FileId}", userEmail, fileId);
+                    return null;
+                }
 
                 // Get file metadata to determine viewing method
                 var metadata = await GetFileMetadataForViewingAsync(fileId);
@@ -762,51 +770,17 @@ namespace Document.API.Services.Implements
                     return null;
                 }
 
-                // // For Google Drive files, we can use the webViewLink for iframe embedding
-                // // But we need to ensure the user has proper access
-                // await EnsureUserHasFileAccessAsync(fileId, userEmail);
+                using var driveService = await _oauthService.CreateCompanyDriveServiceAsync();
 
-                // Use company access token for iframe embedding (temporary - allows everyone to view)
-                string iframeUrl;
-                try
-                {
-                    // // TEMPORARILY COMMENTED OUT: Get user ID from JWT token to retrieve their Google access token
-                    // var userId = JwtTokenHelper.GetUserId(_httpContextAccessor);
+                // Ensure the file has proper link sharing enabled for iframe viewing
+                // This is necessary because Google Drive iframe doesn't support access_token in URL
+                await EnsureFileLinkSharingAsync(driveService, fileId);
 
-                    // // TEMPORARILY COMMENTED OUT: Try to get user's personal Google access token first
-                    // var userAccessToken = await _oauthService.GetUserAccessTokenAsync(userId);
+                // Generate the proper iframe URL for Google Drive
+                // With link sharing enabled, this URL will work in iframes without authentication
+                string iframeUrl = $"https://drive.google.com/file/d/{fileId}/preview";
 
-                    // if (!string.IsNullOrEmpty(userAccessToken))
-                    // {
-                    //     // Include user's access token in the iframe URL for authentication
-                    //     iframeUrl = $"https://drive.google.com/file/d/{fileId}/preview?access_token={userAccessToken}";
-                    //     _logger.LogInformation("Generated iframe URL with user access token for file {FileId}", fileId);
-                    // }
-                    // else
-                    // {
-                        // Use company access token for all users (temporary)
-                        var companyAccessToken = await _oauthService.GetCompanyAccessTokenAsync();
-                        if (!string.IsNullOrEmpty(companyAccessToken))
-                        {
-                            iframeUrl = $"https://drive.google.com/file/d/{fileId}/preview?access_token={companyAccessToken}";
-                            _logger.LogInformation("Generated iframe URL with company access token for file {FileId} (temporary - all users)", fileId);
-                        }
-                        else
-                        {
-                            // Last fallback: Basic URL without access token (may require user to sign in)
-                            iframeUrl = $"https://drive.google.com/file/d/{fileId}/preview";
-                            _logger.LogWarning("Generated iframe URL without access token for file {FileId} - user may need to sign in", fileId);
-                        }
-                    // }
-                }
-                catch (Exception tokenEx)
-                {
-                    _logger.LogWarning(tokenEx, "Failed to get company access token for iframe URL, using basic URL for file {FileId}", fileId);
-                    // Fallback to basic URL
-                    iframeUrl = $"https://drive.google.com/file/d/{fileId}/preview";
-                }
-
-                _logger.LogInformation("Generated iframe URL for file {FileId}", fileId);
+                _logger.LogInformation("Generated iframe URL for file {FileId} with link sharing enabled", fileId);
                 return iframeUrl;
             }
             catch (Exception ex)
@@ -1019,6 +993,53 @@ namespace Document.API.Services.Implements
                 "application/vnd.ms-powerpoint" => true, // PPT
                 _ => false
             };
+        }
+
+        /// <summary>
+        /// Ensure file has proper link sharing enabled for iframe viewing
+        /// This enables universal access via iframe without requiring individual user permissions
+        /// </summary>
+        /// <param name="driveService">Google Drive service instance</param>
+        /// <param name="fileId">Google Drive file ID</param>
+        private async Task EnsureFileLinkSharingAsync(DriveService driveService, string fileId)
+        {
+            try
+            {
+                _logger.LogInformation("Ensuring link sharing is enabled for file {FileId}", fileId);
+
+                // Check current permissions
+                var permissionsRequest = driveService.Permissions.List(fileId);
+                permissionsRequest.Fields = "permissions(id,type,role)";
+                var permissions = await ExecuteWithRetryAsync(async () => await permissionsRequest.ExecuteAsync());
+
+                // Check if file already has "anyone with link" permission
+                var linkPermission = permissions.Permissions?.FirstOrDefault(p => 
+                    p.Type == "anyone" && p.Role == "reader");
+
+                if (linkPermission == null)
+                {
+                    // Create "anyone with link" permission for iframe viewing
+                    var permission = new Permission
+                    {
+                        Type = "anyone",
+                        Role = "reader"
+                    };
+
+                    var createRequest = driveService.Permissions.Create(permission, fileId);
+                    await ExecuteWithRetryAsync(async () => await createRequest.ExecuteAsync());
+
+                    _logger.LogInformation("Link sharing enabled for file {FileId} - now accessible via iframe", fileId);
+                }
+                else
+                {
+                    _logger.LogDebug("File {FileId} already has link sharing enabled", fileId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to enable link sharing for file {FileId}. File may still be viewable with individual permissions.", fileId);
+                // Don't throw - we can still try to view the file
+            }
         }
 
         #region New Service Methods for FileController
