@@ -17,15 +17,18 @@ namespace Notification.API.Services.Implement
         private readonly IUnitOfWork<NotificationDbContext> _unitOfWork;
         private readonly IMapper _mapper;
         private readonly ILogger<NotificationLogService> _logger;
+        private readonly INotificationConfigService _configService; // ADD: Direct config service
 
         public NotificationLogService(
             IUnitOfWork<NotificationDbContext> unitOfWork,
             IMapper mapper,
-            ILogger<NotificationLogService> logger)
+            ILogger<NotificationLogService> logger,
+            INotificationConfigService configService) // ADD: Inject config service
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _logger = logger;
+            _configService = configService;
         }
 
         public async Task CreateLogAsync(NotificationLog log)
@@ -68,11 +71,9 @@ namespace Notification.API.Services.Implement
         {
             try
             {
-                var configRepo = _unitOfWork.GetRepository<NotificationConfig>();
-
-                // ✅ UPDATED: Use "Default" instead of ApiConstants.DEFAULT_CONFIG_KEY
-                var config = await configRepo.SingleOrDefaultAsync(predicate: c => c.ConfigKey == "Default");
-                var retentionDays = config?.LogRetentionDays ?? 90;
+                // Get fresh runtime config
+                var config = await _configService.GetNotificationConfigAsync();
+                var retentionDays = config.LogRetentionDays;
                 var cutoffDate = DateTime.UtcNow.AddDays(-retentionDays);
 
                 var logRepo = _unitOfWork.GetRepository<NotificationLog>();
@@ -82,12 +83,12 @@ namespace Notification.API.Services.Implement
                 {
                     logRepo.DeleteRangeAsync(logsToDelete);
                     await _unitOfWork.CommitAsync();
-                    _logger.LogInformation("Cleaned up {Count} old notification logs older than {Days} days",
+                    _logger.LogInformation("Cleaned up {Count} old notification logs older than {Days} days (runtime config)",
                         logsToDelete.Count, retentionDays);
                 }
                 else
                 {
-                    _logger.LogInformation("No old notification logs found for cleanup (retention: {Days} days)", retentionDays);
+                    _logger.LogInformation("No old notification logs found for cleanup (retention: {Days} days, runtime config)", retentionDays);
                 }
             }
             catch (Exception ex)
@@ -102,7 +103,7 @@ namespace Notification.API.Services.Implement
             try
             {
                 var logRepo = _unitOfWork.GetRepository<NotificationLog>();
-                var cutoffTime = DateTime.UtcNow.AddHours(-24); // Remove processing logs older than 24 hours
+                var cutoffTime = DateTime.UtcNow.AddHours(-24);
 
                 var processingLogs = await logRepo.GetListAsync(predicate: l =>
                     l.Subject == "PROCESSING..." &&
@@ -122,22 +123,24 @@ namespace Notification.API.Services.Implement
             }
         }
 
-        public async Task CleanUpGroupedNotificationLogsAsync(int retentionDays = 30)
+        public async Task CleanUpGroupedNotificationLogsAsync(int? customRetentionDays = null)
         {
             try
             {
-                var logRepo = _unitOfWork.GetRepository<NotificationLog>();
+                var retentionDays = customRetentionDays ?? (await _configService.GetNotificationConfigAsync()).LogRetentionDays;
                 var cutoffDate = DateTime.UtcNow.AddDays(-retentionDays);
 
+                var logRepo = _unitOfWork.GetRepository<NotificationLog>();
                 var groupedLogs = await logRepo.GetListAsync(predicate: l =>
-                    l.DocumentId == "DAILY_GROUP" && // XÓA "WEEKLY_GROUP"
+                    l.DocumentId == "DAILY_GROUP" &&
                     l.CreateAt < cutoffDate);
 
                 if (groupedLogs.Any())
                 {
                     logRepo.DeleteRangeAsync(groupedLogs);
                     await _unitOfWork.CommitAsync();
-                    _logger.LogInformation("Cleaned up {Count} old grouped notification logs", groupedLogs.Count);
+                    _logger.LogInformation("Cleaned up {Count} old grouped notification logs using {Days} days retention (runtime config)",
+                        groupedLogs.Count, retentionDays);
                 }
             }
             catch (Exception ex)

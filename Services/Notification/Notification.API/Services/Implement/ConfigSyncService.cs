@@ -1,4 +1,5 @@
-﻿using Notification.API.Services.Interfaces;
+﻿using Notification.API.Payload.Response;
+using Notification.API.Services.Interfaces;
 
 namespace Notification.API.Services.Implement
 {
@@ -6,8 +7,9 @@ namespace Notification.API.Services.Implement
     {
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<ConfigSyncService> _logger;
-        private string? _lastConfigHash;
+        private string _lastConfigHash;
         private readonly SemaphoreSlim _syncSemaphore = new(1, 1);
+        private NotificationConfigResponse _previousConfig;
 
         public ConfigSyncService(IServiceProvider serviceProvider, ILogger<ConfigSyncService> logger)
         {
@@ -17,18 +19,14 @@ namespace Notification.API.Services.Implement
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            // Wait for application to fully start
             await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
-
-            // Initial sync
             await PerformConfigSyncAsync("Initial startup sync");
 
-            // Continuous monitoring loop
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken); // Check every 2 minutes
+                    await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken);
                     await PerformConfigSyncAsync("Periodic sync check");
                 }
                 catch (OperationCanceledException)
@@ -39,7 +37,6 @@ namespace Notification.API.Services.Implement
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error during periodic config sync");
-                    // Continue loop after error with shorter delay
                     await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                 }
             }
@@ -65,11 +62,9 @@ namespace Notification.API.Services.Implement
                     return;
                 }
 
-                // Get current config from database
                 var config = await configService.GetNotificationConfigAsync();
                 var currentConfigHash = ComputeConfigHash(config);
 
-                // Only sync if config has changed
                 if (currentConfigHash == _lastConfigHash)
                 {
                     _logger.LogDebug("Config unchanged, skipping sync - {Reason}", reason);
@@ -78,7 +73,6 @@ namespace Notification.API.Services.Implement
 
                 _logger.LogInformation("Config changes detected, syncing schedules - {Reason}", reason);
 
-                // Get current Quartz job status
                 var quartzStatus = await schedulerService.GetSchedulerStatusAsync();
                 var needsUpdate = await CheckIfUpdateNeeded(config, quartzStatus);
 
@@ -96,7 +90,6 @@ namespace Notification.API.Services.Implement
                         config.NearExpiredNotificationCron);
                 }
 
-                // Handle quartzEnabled state
                 if (needsUpdate.enabledStateChanged)
                 {
                     if (config.QuartzEnabled)
@@ -111,13 +104,40 @@ namespace Notification.API.Services.Implement
                     }
                 }
 
+                // Handle LogRetentionDays changes
+                if (_previousConfig != null && config.LogRetentionDays < _previousConfig.LogRetentionDays)
+                {
+                    _logger.LogInformation("Log retention decreased from {Old} to {New} days - triggering immediate cleanup",
+                        _previousConfig.LogRetentionDays, config.LogRetentionDays);
+
+                    var logService = scope.ServiceProvider.GetService<INotificationLogService>();
+                    if (logService != null)
+                    {
+                        // Trigger immediate cleanup in background
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await logService.CleanUpOldLogsAsync();
+                                await logService.CleanUpGroupedNotificationLogsAsync();
+                                _logger.LogInformation("Completed immediate log cleanup due to retention decrease");
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Error during immediate log cleanup");
+                            }
+                        });
+                    }
+                }
+
+                _previousConfig = config;
                 _lastConfigHash = currentConfigHash;
                 _logger.LogInformation("Config sync completed successfully - {Reason}", reason);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to sync config with Quartz schedules - {Reason}", reason);
-                throw; // Let the outer loop handle retry logic
+                throw;
             }
             finally
             {
@@ -125,10 +145,12 @@ namespace Notification.API.Services.Implement
             }
         }
 
-        private string ComputeConfigHash(dynamic config)
+        // Include ALL config values in hash
+        private string ComputeConfigHash(NotificationConfigResponse config)
         {
-            // Create hash from critical config values
-            var configString = $"{config.ExpiredNotificationCron}|{config.NearExpiredNotificationCron}|{config.QuartzEnabled}|{config.EnableExpiredNotifications}|{config.EnableNearExpiredNotifications}|{config.UpdateAt}";
+            var configString = $"{config.ExpiredNotificationCron}|{config.NearExpiredNotificationCron}|" +
+                              $"{config.QuartzEnabled}|{config.EnableExpiredNotifications}|{config.EnableNearExpiredNotifications}|" +
+                              $"{config.WarningThresholdDays}|{config.LogRetentionDays}|{config.UpdateAt}";
 
             using var sha256 = System.Security.Cryptography.SHA256.Create();
             var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(configString));
@@ -136,13 +158,12 @@ namespace Notification.API.Services.Implement
         }
 
         private async Task<(bool expiredNeedsUpdate, bool nearExpiredNeedsUpdate, bool enabledStateChanged)>
-            CheckIfUpdateNeeded(dynamic config, dynamic quartzStatus)
+            CheckIfUpdateNeeded(NotificationConfigResponse config, dynamic quartzStatus)
         {
             try
             {
-                // Extract current job cron expressions from Quartz status
-                string? currentExpiredCron = null;
-                string? currentNearExpiredCron = null;
+                string currentExpiredCron = null;
+                string currentNearExpiredCron = null;
                 bool currentQuartzRunning = false;
 
                 if (quartzStatus != null && quartzStatus.GetType().GetProperty("Jobs") != null)
@@ -179,7 +200,7 @@ namespace Notification.API.Services.Implement
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error checking if update needed, assuming update is required");
-                return (true, true, true); // Fallback to update everything
+                return (true, true, true);
             }
         }
 
