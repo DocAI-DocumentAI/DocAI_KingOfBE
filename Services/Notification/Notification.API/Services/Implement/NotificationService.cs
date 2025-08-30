@@ -123,8 +123,9 @@ public class NotificationService : INotificationService
         if (!effectiveUntil.HasValue)
             return "N/A";
 
-        // FIX: Use enhanced method for database dates
-        var daysFromToday = TimeZoneHelper.DaysFromTodayFromDatabase(effectiveUntil.Value);
+        // Use consistent timezone calculation
+        var docUtc = DateTime.SpecifyKind(effectiveUntil.Value, DateTimeKind.Utc);
+        var daysFromToday = TimeZoneHelper.DaysFromToday(docUtc);
 
         if (daysFromToday < 0)
             return $"Đã hết hạn {Math.Abs(daysFromToday)} ngày";
