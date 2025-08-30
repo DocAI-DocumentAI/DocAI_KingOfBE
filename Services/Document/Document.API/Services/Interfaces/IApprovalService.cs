@@ -31,27 +31,15 @@ namespace Document.API.Services.Interfaces
         Task ProcessInactiveClaimsAsync(); // Auto-release inactive claims
 
         /// <summary>
-        /// Archive an approved document manually (Manager only)
-        /// Changes status from Approved to Archived and removes from Kernel Memory
+        /// ✅ NEW: Manually archive an approved document
+        /// BR-300: Managers can manually archive approved documents within their department
         /// </summary>
-        /// <param name="versionId">Version ID to archive</param>
-        /// <param name="request">Archive request with reason</param>
-        Task ArchiveDocumentAsync(string versionId, ArchiveDocumentRequest request);
+        Task<ArchiveDocumentResponse> ArchiveDocumentAsync(string versionId, ArchiveDocumentRequest request);
 
         /// <summary>
-        /// Permanently delete an archived document (Manager only)
-        /// Removes from database, storage, and Kernel Memory
+        /// ✅ NEW: Permanently delete an archived document
+        /// BR-301: Managers can permanently delete archived documents within their department
         /// </summary>
-        /// <param name="versionId">Archived version ID to delete</param>
-        /// <param name="request">Delete request with confirmation</param>
-        Task DeleteArchivedDocumentAsync(string versionId, DeleteArchivedDocumentRequest request);
-
-        /// <summary>
-        /// Permanently delete an entire document with all its versions (Manager only)
-        /// Removes all versions from database, storage, and Kernel Memory
-        /// </summary>
-        /// <param name="documentId">Document ID to delete entirely</param>
-        /// <param name="request">Delete request with confirmation</param>
-        Task DeleteEntireDocumentAsync(string documentId, DeleteArchivedDocumentRequest request);
+        Task<DeleteArchivedDocumentResponse> DeleteArchivedDocumentAsync(string versionId, DeleteArchivedDocumentRequest request);
     }
 }

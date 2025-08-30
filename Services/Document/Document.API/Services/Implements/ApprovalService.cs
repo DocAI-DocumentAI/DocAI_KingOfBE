@@ -2107,6 +2107,466 @@ namespace Document.API.Services.Implements
             }
         }
 
+        /// <summary>
+        /// ✅ NEW: Manually archive an approved document
+        /// BR-300: Managers can manually archive approved documents within their department
+        /// </summary>
+        public async Task<ArchiveDocumentResponse> ArchiveDocumentAsync(string versionId, ArchiveDocumentRequest request)
+        {
+            // Get current user ID and department ID from JWT token
+            var userId = GetCurrentUserId();
+            var managerDepartmentId = GetCurrentUserDepartmentId();
+
+            // Validate input
+            if (string.IsNullOrWhiteSpace(request.Reason))
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.ArchiveReasonRequired);
+
+            if (request.Reason.Trim().Length < 10)
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.ArchiveReasonTooShort);
+
+            // Get document version with all necessary includes
+            var versionToArchive = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(
+                    predicate: v => v.Id == versionId,
+                    include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType!)
+                                  .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                                  .Include(v => v.Folder!)
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
+
+            var documentFile = versionToArchive.DocumentFile;
+
+            // Check permission - manager can only archive documents in their department
+            if (documentFile.DepartmentId != managerDepartmentId)
+                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToArchiveDocument);
+
+            // Check document status - can only archive approved documents
+            if (versionToArchive.Status != StatusEnum.Approved)
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.CanOnlyArchiveApprovedDocuments);
+
+            // Check if document is already archived
+            if (versionToArchive.Status == StatusEnum.Archived)
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DocumentAlreadyArchived);
+
+            // Business Rule: Check if there are active replacement documents in progress
+            // (Similar to how we check in DocumentService.DeleteApprovedDocumentAsync)
+            if (!request.ForceArchive)
+            {
+                var hasActiveReplacements = await _unitOfWork.GetRepository<DocumentFile>()
+                    .CountAsync(predicate: df => df.ReplacementId == documentFile.Id &&
+                                               df.DocumentVersions.Any(v => v.Status == StatusEnum.Pending || v.Status == StatusEnum.Draft)) > 0;
+
+                if (hasActiveReplacements)
+                    throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.CannotArchiveDocumentWithActiveReplacements);
+            }
+
+            var warnings = new List<string>();
+            bool removedFromKernelMemory = false;
+
+            try
+            {
+                // ========================================
+                // ARCHIVE DOCUMENT PROCESS
+                // ========================================
+
+                // 1. Remove from Kernel Memory index (similar to how replacement works)
+                var versionKmId = $"doc_{versionToArchive.Id}";
+                
+                try
+                {
+                    await _memory.DeleteDocumentAsync(versionKmId).WaitAsync(TimeSpan.FromSeconds(10));
+                    removedFromKernelMemory = true;
+                    _logger.LogInformation("Removed archived document {VersionId} from Kernel Memory with ID {KmId}", versionId, versionKmId);
+                }
+                catch (Exception ex)
+                {
+                    warnings.Add($"Failed to remove document from Kernel Memory index: {ex.Message}");
+                    _logger.LogWarning(ex, "Failed to remove document {VersionId} from Kernel Memory during archival", versionId);
+                }
+
+                // 2. Update document status to archived
+                versionToArchive.Status = StatusEnum.Archived;
+                versionToArchive.LastUpdatedBy = userId;
+                versionToArchive.LastUpdatedTime = DateTime.UtcNow;
+
+                // 3. Update document file metadata
+                documentFile.LastUpdatedBy = userId;
+                documentFile.LastUpdatedTime = DateTime.UtcNow;
+
+                // 4. Create an approval log entry for the archive action
+                var archiveLog = new ApprovalLog
+                {
+                    DocumentVersionId = versionId,
+                    Action = ApprovalAction.Archived,
+                    Comments = $"Manually archived by manager. Reason: {request.Reason}" + 
+                               (string.IsNullOrEmpty(request.Comments) ? "" : $". Additional comments: {request.Comments}"),
+                    CreatedBy = userId,
+                    CreatedTime = DateTime.UtcNow
+                };
+
+                await _unitOfWork.GetRepository<ApprovalLog>().InsertAsync(archiveLog);
+
+                // 5. Save all changes
+                await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(versionToArchive);
+                await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentFile);
+                await _unitOfWork.CommitAsync();
+
+                // 6. Prepare response
+                var response = new ArchiveDocumentResponse
+                {
+                    DocumentVersionId = versionId,
+                    DocumentFileId = documentFile.Id,
+                    Title = documentFile.Title,
+                    VersionName = versionToArchive.VersionName,
+                    Status = versionToArchive.Status.ToString(),
+                    ArchivedAt = DateTime.UtcNow,
+                    ArchivedBy = userId,
+                    Reason = request.Reason,
+                    Comments = request.Comments,
+                    RemovedFromKernelMemory = removedFromKernelMemory,
+                    Warnings = warnings,
+                    Message = MessageConstant.DocumentArchivedSuccessfully
+                };
+
+                // 7. Add folder information if available
+                if (versionToArchive.Folder != null)
+                {
+                    response.Folder = MapToFolderSummary(versionToArchive.Folder);
+                }
+
+                // 8. Enrich with user name
+                response.ArchivedByName = await _nameLookupService.GetUserNameAsync(userId);
+
+                _logger.LogInformation("Document version {VersionId} manually archived by manager {UserId} for reason: {Reason}", 
+                    versionId, userId, request.Reason);
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error occurred while archiving document {VersionId}", versionId);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// ✅ NEW: Permanently delete an archived document
+        /// BR-301: Managers can permanently delete archived documents within their department
+        /// </summary>
+        public async Task<DeleteArchivedDocumentResponse> DeleteArchivedDocumentAsync(string versionId, DeleteArchivedDocumentRequest request)
+        {
+            // Get current user ID and department ID from JWT token
+            var userId = GetCurrentUserId();
+            var managerDepartmentId = GetCurrentUserDepartmentId();
+
+            // Validate input
+            if (!request.ConfirmPermanentDeletion)
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.ConfirmDeleteArchivedDocument);
+
+            if (string.IsNullOrWhiteSpace(request.Reason))
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DeleteArchivedReasonRequired);
+
+            if (request.Reason.Trim().Length < 10)
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.DeleteArchivedReasonTooShort);
+
+            // Get document version with all necessary includes
+            var versionToDelete = await _unitOfWork.GetRepository<DocumentVersion>()
+                .SingleOrDefaultAsync(
+                    predicate: v => v.Id == versionId,
+                    include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType!)
+                                  .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                                  .Include(v => v.Folder!)
+                ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentVersionNotFound);
+
+            var documentFile = versionToDelete.DocumentFile;
+
+            // Check permission - manager can only delete archived documents in their department
+            if (documentFile.DepartmentId != managerDepartmentId)
+                throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToDeleteArchivedDocument);
+
+            // Check document status - can only delete archived documents
+            if (versionToDelete.Status != StatusEnum.Archived)
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.CanOnlyDeleteArchivedDocuments);
+
+            var warnings = new List<string>();
+            bool fileDeletedFromStorage = false;
+            bool removedFromKernelMemory = false;
+            int databaseRecordsDeleted = 0;
+
+            try
+            {
+                // ========================================
+                // DELETE ARCHIVED DOCUMENT PROCESS
+                // ========================================
+
+                // Store information for response before deletion
+                var responseData = new
+                {
+                    DocumentVersionId = versionId,
+                    DocumentFileId = documentFile.Id,
+                    Title = documentFile.Title,
+                    VersionName = versionToDelete.VersionName,
+                    FilePath = versionToDelete.FilePath
+                };
+
+                // 1. Remove from Kernel Memory index (if still exists)
+                var versionKmId = $"doc_{versionToDelete.Id}";
+                
+                try
+                {
+                    await _memory.DeleteDocumentAsync(versionKmId).WaitAsync(TimeSpan.FromSeconds(10));
+                    removedFromKernelMemory = true;
+                    _logger.LogInformation("Removed deleted archived document {VersionId} from Kernel Memory with ID {KmId}", versionId, versionKmId);
+                }
+                catch (Exception ex)
+                {
+                    warnings.Add($"Failed to remove document from Kernel Memory index: {ex.Message}");
+                    _logger.LogWarning(ex, "Failed to remove document {VersionId} from Kernel Memory during deletion", versionId);
+                }
+
+                // 2. Delete physical file from storage
+                if (!string.IsNullOrEmpty(versionToDelete.FilePath))
+                {
+                    try
+                    {
+                        await _storageService.DeleteFileAsync(versionToDelete.FilePath);
+                        fileDeletedFromStorage = true;
+                        _logger.LogInformation("Deleted physical file {FilePath} for document {VersionId}", versionToDelete.FilePath, versionId);
+                    }
+                    catch (Exception ex)
+                    {
+                        warnings.Add($"Failed to delete physical file from storage: {ex.Message}");
+                        _logger.LogWarning(ex, "Failed to delete physical file {FilePath} for document {VersionId}", versionToDelete.FilePath, versionId);
+                    }
+                }
+
+                // 3. Create a final audit log entry before deletion
+                var deleteLog = new ApprovalLog
+                {
+                    DocumentVersionId = versionId,
+                    Action = ApprovalAction.Deleted, // Assuming this exists, or we can use a custom string
+                    Comments = $"Permanently deleted archived document by manager. Reason: {request.Reason}",
+                    CreatedBy = userId,
+                    CreatedTime = DateTime.UtcNow
+                };
+
+                await _unitOfWork.GetRepository<ApprovalLog>().InsertAsync(deleteLog);
+                databaseRecordsDeleted++;
+
+                // 4. Delete related records in correct order (avoid foreign key constraints)
+                
+                // Delete document tags
+                var documentTags = await _unitOfWork.GetRepository<DocumentTag>()
+                    .GetListAsync(predicate: dt => dt.DocumentVersionId == versionId);
+                
+                if (documentTags.Any())
+                {
+                    foreach (var tag in documentTags)
+                    {
+                        _unitOfWork.GetRepository<DocumentTag>().DeleteAsync(tag);
+                        databaseRecordsDeleted++;
+                    }
+                }
+
+                // Delete approval claims
+                var approvalClaims = await _unitOfWork.GetRepository<ApprovalClaim>()
+                    .GetListAsync(predicate: ac => ac.DocumentVersionId == versionId);
+                
+                if (approvalClaims.Any())
+                {
+                    foreach (var claim in approvalClaims)
+                    {
+                        _unitOfWork.GetRepository<ApprovalClaim>().DeleteAsync(claim);
+                        databaseRecordsDeleted++;
+                    }
+                }
+
+                // Delete approval logs (except the one we just created)
+                var approvalLogs = await _unitOfWork.GetRepository<ApprovalLog>()
+                    .GetListAsync(predicate: al => al.DocumentVersionId == versionId && al.Id != deleteLog.Id);
+                
+                if (approvalLogs.Any())
+                {
+                    foreach (var log in approvalLogs)
+                    {
+                        _unitOfWork.GetRepository<ApprovalLog>().DeleteAsync(log);
+                        databaseRecordsDeleted++;
+                    }
+                }
+
+                // Delete bookmarks (using DocumentId which maps to DocumentFileId)
+                var bookmarks = await _unitOfWork.GetRepository<Bookmark>()
+                    .GetListAsync(predicate: b => b.DocumentId == documentFile.Id);
+                
+                if (bookmarks.Any())
+                {
+                    foreach (var bookmark in bookmarks)
+                    {
+                        _unitOfWork.GetRepository<Bookmark>().DeleteAsync(bookmark);
+                        databaseRecordsDeleted++;
+                    }
+                }
+
+                // 5. Check if this is the last version of the document file
+                var otherVersions = await _unitOfWork.GetRepository<DocumentVersion>()
+                    .GetListAsync(predicate: v => v.DocumentFileId == documentFile.Id && v.Id != versionId);
+
+                // 6. Delete the document version
+                _unitOfWork.GetRepository<DocumentVersion>().DeleteAsync(versionToDelete);
+                databaseRecordsDeleted++;
+
+                // 7. If this was the last version, handle replacement relationships and delete the document file
+                if (!otherVersions.Any())
+                {
+                    // Before deleting the DocumentFile, handle replacement relationships to avoid foreign key violations
+                    // We need to handle BOTH directions of the replacement chain properly
+                    
+                    // 7a. Handle documents that reference this document as their replacement (forward references)
+                    var documentsReplacedByThis = await _unitOfWork.GetRepository<DocumentFile>()
+                        .GetListAsync(predicate: df => df.ReplacementId == documentFile.Id);
+                    
+                    // 7b. Handle documents that this document replaces (reverse references)
+                    var documentsReplacingThis = await _unitOfWork.GetRepository<DocumentFile>()
+                        .GetListAsync(predicate: df => df.ReplacedById == documentFile.Id);
+                    
+                    // 7c. Get the document that this document replaces (if any)
+                    DocumentFile? documentBeingReplaced = null;
+                    if (!string.IsNullOrEmpty(documentFile.ReplacementId))
+                    {
+                        documentBeingReplaced = await _unitOfWork.GetRepository<DocumentFile>()
+                            .SingleOrDefaultAsync(predicate: df => df.Id == documentFile.ReplacementId);
+                    }
+                    
+                    // 7d. Get the document that replaces this document (if any)
+                    DocumentFile? documentReplacingThis = null;
+                    if (!string.IsNullOrEmpty(documentFile.ReplacedById))
+                    {
+                        documentReplacingThis = await _unitOfWork.GetRepository<DocumentFile>()
+                            .SingleOrDefaultAsync(predicate: df => df.Id == documentFile.ReplacedById);
+                    }
+                    
+                    // 7e. Clear forward references (documents that point to this as replacement)
+                    if (documentsReplacedByThis.Any())
+                    {
+                        foreach (var docReplacedByThis in documentsReplacedByThis)
+                        {
+                            // If there's a chain, try to maintain it by linking to the next document
+                            if (documentReplacingThis != null)
+                            {
+                                docReplacedByThis.ReplacementId = documentReplacingThis.Id;
+                                _logger.LogInformation("Updated replacement chain: Document {OldReplacedDoc} now points to {NewReplacementDoc} instead of deleted document {DeletedDoc}", 
+                                    docReplacedByThis.Id, documentReplacingThis.Id, documentFile.Id);
+                            }
+                            else
+                            {
+                                docReplacedByThis.ReplacementId = null;
+                                _logger.LogInformation("Cleared replacement reference from document {DocumentId} to deleted document {DeletedDocumentId}", 
+                                    docReplacedByThis.Id, documentFile.Id);
+                            }
+                            await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(docReplacedByThis);
+                        }
+                        databaseRecordsDeleted += documentsReplacedByThis.Count;
+                    }
+                    
+                    // 7f. Clear reverse references (documents that this document replaces)
+                    if (documentsReplacingThis.Any())
+                    {
+                        foreach (var docReplacingThis in documentsReplacingThis)
+                        {
+                            // If there's a chain, try to maintain it by linking to the previous document
+                            if (documentBeingReplaced != null)
+                            {
+                                docReplacingThis.ReplacedById = documentBeingReplaced.Id;
+                                _logger.LogInformation("Updated reverse replacement chain: Document {NewReplacingDoc} now replaces {OldReplacedDoc} instead of deleted document {DeletedDoc}", 
+                                    docReplacingThis.Id, documentBeingReplaced.Id, documentFile.Id);
+                            }
+                            else
+                            {
+                                docReplacingThis.ReplacedById = null;
+                                _logger.LogInformation("Cleared reverse replacement reference from document {DocumentId} to deleted document {DeletedDocumentId}", 
+                                    docReplacingThis.Id, documentFile.Id);
+                            }
+                            await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(docReplacingThis);
+                        }
+                        databaseRecordsDeleted += documentsReplacingThis.Count;
+                    }
+                    
+                    // 7g. Clear this document's own replacement references
+                    bool documentUpdated = false;
+                    if (!string.IsNullOrEmpty(documentFile.ReplacementId))
+                    {
+                        documentFile.ReplacementId = null;
+                        documentUpdated = true;
+                        _logger.LogInformation("Cleared forward replacement reference from deleted document {DocumentId}", documentFile.Id);
+                    }
+                    
+                    if (!string.IsNullOrEmpty(documentFile.ReplacedById))
+                    {
+                        documentFile.ReplacedById = null;
+                        documentUpdated = true;
+                        _logger.LogInformation("Cleared reverse replacement reference from deleted document {DocumentId}", documentFile.Id);
+                    }
+                    
+                    if (documentUpdated)
+                    {
+                        await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentFile);
+                    }
+                    
+                    // 7h. Update replacement chains in the documents we're linking together
+                    if (documentBeingReplaced != null && documentReplacingThis != null)
+                    {
+                        // Link the chain: documentBeingReplaced -> documentReplacingThis
+                        documentBeingReplaced.ReplacedById = documentReplacingThis.Id;
+                        documentReplacingThis.ReplacementId = documentBeingReplaced.Id;
+                        
+                        await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentBeingReplaced);
+                        await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentReplacingThis);
+                        
+                        _logger.LogInformation("Linked replacement chain after deletion: {OldDoc} -> {NewDoc} (bypassing deleted {DeletedDoc})", 
+                            documentBeingReplaced.Id, documentReplacingThis.Id, documentFile.Id);
+                        databaseRecordsDeleted += 2;
+                    }
+                    
+                    // 7i. Now it's safe to delete the document file
+                    _unitOfWork.GetRepository<DocumentFile>().DeleteAsync(documentFile);
+                    databaseRecordsDeleted++;
+                    _logger.LogInformation("Deleted document file {DocumentFileId} as it had no remaining versions", documentFile.Id);
+                }
+
+                // 8. Save all changes
+                await _unitOfWork.CommitAsync();
+
+                // 9. Prepare response
+                var response = new DeleteArchivedDocumentResponse
+                {
+                    DocumentVersionId = responseData.DocumentVersionId,
+                    DocumentFileId = responseData.DocumentFileId,
+                    Title = responseData.Title,
+                    VersionName = responseData.VersionName,
+                    DeletedAt = DateTime.UtcNow,
+                    DeletedBy = userId,
+                    Reason = request.Reason,
+                    FileDeletedFromStorage = fileDeletedFromStorage,
+                    RemovedFromKernelMemory = removedFromKernelMemory,
+                    DatabaseRecordsDeleted = databaseRecordsDeleted,
+                    Warnings = warnings,
+                    Message = MessageConstant.ArchivedDocumentDeletedSuccessfully
+                };
+
+                // 10. Enrich with user name
+                response.DeletedByName = await _nameLookupService.GetUserNameAsync(userId);
+
+                _logger.LogInformation("Archived document version {VersionId} permanently deleted by manager {UserId} for reason: {Reason}. {RecordCount} database records deleted.", 
+                    versionId, userId, request.Reason, databaseRecordsDeleted);
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error occurred while deleting archived document {VersionId}", versionId);
+                throw;
+            }
+        }
+
         // NOTE: PopulateReverseReplacementsForPendingDocumentsAsync method removed - reverse relationships now populated directly from database via ReplacedById field
     }
 }

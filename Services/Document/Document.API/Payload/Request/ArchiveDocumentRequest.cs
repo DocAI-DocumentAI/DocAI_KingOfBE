@@ -1,28 +1,25 @@
-using System.ComponentModel.DataAnnotations;
 
 namespace Document.API.Payload.Request
 {
     /// <summary>
-    /// Request model for archiving approved documents
-    /// Allows managers to manually archive documents that are no longer current
+    /// Request model for manually archiving an approved document
     /// </summary>
     public class ArchiveDocumentRequest
     {
         /// <summary>
-        /// Reason for archiving the document (mandatory for audit purposes)
+        /// Reason for archiving the document (mandatory for audit trail)
         /// </summary>
-        [Required(ErrorMessage = "Archive reason is required")]
-        [StringLength(500, MinimumLength = 10, ErrorMessage = "Archive reason must be between 10 and 500 characters")]
-        public string ArchiveReason { get; set; } = string.Empty;
+        public string Reason { get; set; } = string.Empty;
 
         /// <summary>
-        /// Whether to notify the document owner about the archival
+        /// Optional additional comments for the archival
         /// </summary>
-        public bool NotifyOwner { get; set; } = true;
+        public string? Comments { get; set; }
 
         /// <summary>
-        /// Whether to notify users with access to the document
+        /// Force archive even if there are active replacements or dependencies
+        /// Only admins can use this flag
         /// </summary>
-        public bool NotifyUsers { get; set; } = false;
+        public bool ForceArchive { get; set; } = false;
     }
 }

@@ -69,8 +69,7 @@ public class ApiEndPointConstant
         public const string KeepClaimAlive = ApiEndpoint + "/keep-claim-alive/{id}";
         public const string GetApprovalQueueDetail = ApiEndpoint + "/approval-queue/detail/{id}";
         public const string ArchiveDocument = ApiEndpoint + "/archive/{id}";
-        public const string DeleteArchivedDocument = ApiEndpoint + "/archived/{id}/delete";
-        public const string DeleteEntireDocument = ApiEndpoint + "/documents/{id}/delete-entire";
+        public const string DeleteArchivedDocument = ApiEndpoint + "/delete-archived/{id}";
     }
 
     public class Bookmark

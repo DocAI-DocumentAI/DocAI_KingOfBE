@@ -209,25 +209,33 @@ namespace Document.API.Controllers
         }
 
         /// <summary>
-        /// Archive an approved document manually (Manager only)
-        /// Changes status from Approved to Archived and removes from Kernel Memory
+        /// ✅ NEW: Manually archive an approved document
+        /// BR-300: Managers can manually archive approved documents within their department
         /// </summary>
-        /// <param name="documentId">Version ID to archive</param>
-        /// <param name="request">Archive request with reason</param>
-        /// <returns>Success response</returns>
         [HttpPost(ApiEndPointConstant.Approval.ArchiveDocument)]
         [CustomAuthorize(Roles = new[] { Roles.Manager })]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<ArchiveDocumentResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ArchiveDocument([FromRoute(Name = "id")] string documentId, [FromBody] ArchiveDocumentRequest request)
+        public async Task<IActionResult> ArchiveDocument([FromRoute(Name = "id")] string versionId, [FromBody] ArchiveDocumentRequest request)
         {
+            // Validate input
+            if (string.IsNullOrWhiteSpace(versionId))
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_VERSION_ID", "Version ID is required", 400));
+            }
+
+            if (request == null)
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", "Request body is required", 400));
+            }
+
             try
             {
-                await _approvalService.ArchiveDocumentAsync(documentId, request);
-                return Ok(ApiResponse<object>.Success(null, "Document archived successfully", 200));
+                var result = await _approvalService.ArchiveDocumentAsync(versionId, request);
+                return Ok(ApiResponse<ArchiveDocumentResponse>.Success(result, "Document archived successfully", 200));
             }
             catch (ErrorException ex)
             {
@@ -240,26 +248,33 @@ namespace Document.API.Controllers
         }
 
         /// <summary>
-        /// Permanently delete an archived document (Manager only)
-        /// Removes from database, storage, and Kernel Memory
+        /// ✅ NEW: Permanently delete an archived document
+        /// BR-301: Managers can permanently delete archived documents within their department
         /// </summary>
-        /// <param name="documentId">Archived version ID to delete</param>
-        /// <param name="request">Delete request with confirmation</param>
-        /// <returns>Success response</returns>
         [HttpDelete(ApiEndPointConstant.Approval.DeleteArchivedDocument)]
         [CustomAuthorize(Roles = new[] { Roles.Manager })]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<DeleteArchivedDocumentResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> DeleteArchivedDocument([FromRoute(Name = "id")] string documentId, [FromBody] DeleteArchivedDocumentRequest request)
+        public async Task<IActionResult> DeleteArchivedDocument([FromRoute(Name = "id")] string versionId, [FromBody] DeleteArchivedDocumentRequest request)
         {
+            // Validate input
+            if (string.IsNullOrWhiteSpace(versionId))
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_VERSION_ID", "Version ID is required", 400));
+            }
+
+            if (request == null)
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", "Request body is required", 400));
+            }
+
             try
             {
-                await _approvalService.DeleteArchivedDocumentAsync(documentId, request);
-                return Ok(ApiResponse<object>.Success(null, "Archived document deleted permanently", 200));
+                var result = await _approvalService.DeleteArchivedDocumentAsync(versionId, request);
+                return Ok(ApiResponse<DeleteArchivedDocumentResponse>.Success(result, "Archived document deleted successfully", 200));
             }
             catch (ErrorException ex)
             {
@@ -268,38 +283,6 @@ namespace Document.API.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while deleting the archived document", 500));
-            }
-        }
-
-        /// <summary>
-        /// Permanently delete an entire document with all its versions (Manager only)
-        /// Removes all versions from database, storage, and Kernel Memory
-        /// </summary>
-        /// <param name="documentId">Document ID to delete entirely</param>
-        /// <param name="request">Delete request with confirmation</param>
-        /// <returns>Success response</returns>
-        [HttpDelete(ApiEndPointConstant.Approval.DeleteEntireDocument)]
-        [CustomAuthorize(Roles = new[] { Roles.Manager })]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> DeleteEntireDocument([FromRoute(Name = "id")] string documentId, [FromBody] DeleteArchivedDocumentRequest request)
-        {
-            try
-            {
-                await _approvalService.DeleteEntireDocumentAsync(documentId, request);
-                return Ok(ApiResponse<object>.Success(null, "Entire document deleted permanently", 200));
-            }
-            catch (ErrorException ex)
-            {
-                return StatusCode(ex.StatusCode, ApiResponse<object>.Error(ex.ErrorDetail.ErrorCode, ex.ErrorDetail.Message?.ToString() ?? "An error occurred", ex.StatusCode));
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while deleting the entire document", 500));
             }
         }
     }
