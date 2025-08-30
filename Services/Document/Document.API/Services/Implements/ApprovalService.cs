@@ -1839,9 +1839,119 @@ namespace Document.API.Services.Implements
                 _unitOfWork.GetRepository<DocumentVersion>().DeleteAsync(versionToDelete);
                 databaseRecordsDeleted++;
 
-                // 7. If this was the last version, delete the document file as well
+                // 7. If this was the last version, handle replacement relationships and delete the document file
                 if (!otherVersions.Any())
                 {
+                    // Before deleting the DocumentFile, handle replacement relationships to avoid foreign key violations
+                    // We need to handle BOTH directions of the replacement chain properly
+                    
+                    // 7a. Handle documents that reference this document as their replacement (forward references)
+                    var documentsReplacedByThis = await _unitOfWork.GetRepository<DocumentFile>()
+                        .GetListAsync(predicate: df => df.ReplacementId == documentFile.Id);
+                    
+                    // 7b. Handle documents that this document replaces (reverse references)
+                    var documentsReplacingThis = await _unitOfWork.GetRepository<DocumentFile>()
+                        .GetListAsync(predicate: df => df.ReplacedById == documentFile.Id);
+                    
+                    // 7c. Get the document that this document replaces (if any)
+                    DocumentFile? documentBeingReplaced = null;
+                    if (!string.IsNullOrEmpty(documentFile.ReplacementId))
+                    {
+                        documentBeingReplaced = await _unitOfWork.GetRepository<DocumentFile>()
+                            .SingleOrDefaultAsync(predicate: df => df.Id == documentFile.ReplacementId);
+                    }
+                    
+                    // 7d. Get the document that replaces this document (if any)
+                    DocumentFile? documentReplacingThis = null;
+                    if (!string.IsNullOrEmpty(documentFile.ReplacedById))
+                    {
+                        documentReplacingThis = await _unitOfWork.GetRepository<DocumentFile>()
+                            .SingleOrDefaultAsync(predicate: df => df.Id == documentFile.ReplacedById);
+                    }
+                    
+                    // 7e. Clear forward references (documents that point to this as replacement)
+                    if (documentsReplacedByThis.Any())
+                    {
+                        foreach (var docReplacedByThis in documentsReplacedByThis)
+                        {
+                            // If there's a chain, try to maintain it by linking to the next document
+                            if (documentReplacingThis != null)
+                            {
+                                docReplacedByThis.ReplacementId = documentReplacingThis.Id;
+                                _logger.LogInformation("Updated replacement chain: Document {OldReplacedDoc} now points to {NewReplacementDoc} instead of deleted document {DeletedDoc}", 
+                                    docReplacedByThis.Id, documentReplacingThis.Id, documentFile.Id);
+                            }
+                            else
+                            {
+                                docReplacedByThis.ReplacementId = null;
+                                _logger.LogInformation("Cleared replacement reference from document {DocumentId} to deleted document {DeletedDocumentId}", 
+                                    docReplacedByThis.Id, documentFile.Id);
+                            }
+                            await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(docReplacedByThis);
+                        }
+                        databaseRecordsDeleted += documentsReplacedByThis.Count;
+                    }
+                    
+                    // 7f. Clear reverse references (documents that this document replaces)
+                    if (documentsReplacingThis.Any())
+                    {
+                        foreach (var docReplacingThis in documentsReplacingThis)
+                        {
+                            // If there's a chain, try to maintain it by linking to the previous document
+                            if (documentBeingReplaced != null)
+                            {
+                                docReplacingThis.ReplacedById = documentBeingReplaced.Id;
+                                _logger.LogInformation("Updated reverse replacement chain: Document {NewReplacingDoc} now replaces {OldReplacedDoc} instead of deleted document {DeletedDoc}", 
+                                    docReplacingThis.Id, documentBeingReplaced.Id, documentFile.Id);
+                            }
+                            else
+                            {
+                                docReplacingThis.ReplacedById = null;
+                                _logger.LogInformation("Cleared reverse replacement reference from document {DocumentId} to deleted document {DeletedDocumentId}", 
+                                    docReplacingThis.Id, documentFile.Id);
+                            }
+                            await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(docReplacingThis);
+                        }
+                        databaseRecordsDeleted += documentsReplacingThis.Count;
+                    }
+                    
+                    // 7g. Clear this document's own replacement references
+                    bool documentUpdated = false;
+                    if (!string.IsNullOrEmpty(documentFile.ReplacementId))
+                    {
+                        documentFile.ReplacementId = null;
+                        documentUpdated = true;
+                        _logger.LogInformation("Cleared forward replacement reference from deleted document {DocumentId}", documentFile.Id);
+                    }
+                    
+                    if (!string.IsNullOrEmpty(documentFile.ReplacedById))
+                    {
+                        documentFile.ReplacedById = null;
+                        documentUpdated = true;
+                        _logger.LogInformation("Cleared reverse replacement reference from deleted document {DocumentId}", documentFile.Id);
+                    }
+                    
+                    if (documentUpdated)
+                    {
+                        await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentFile);
+                    }
+                    
+                    // 7h. Update replacement chains in the documents we're linking together
+                    if (documentBeingReplaced != null && documentReplacingThis != null)
+                    {
+                        // Link the chain: documentBeingReplaced -> documentReplacingThis
+                        documentBeingReplaced.ReplacedById = documentReplacingThis.Id;
+                        documentReplacingThis.ReplacementId = documentBeingReplaced.Id;
+                        
+                        await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentBeingReplaced);
+                        await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(documentReplacingThis);
+                        
+                        _logger.LogInformation("Linked replacement chain after deletion: {OldDoc} -> {NewDoc} (bypassing deleted {DeletedDoc})", 
+                            documentBeingReplaced.Id, documentReplacingThis.Id, documentFile.Id);
+                        databaseRecordsDeleted += 2;
+                    }
+                    
+                    // 7i. Now it's safe to delete the document file
                     _unitOfWork.GetRepository<DocumentFile>().DeleteAsync(documentFile);
                     databaseRecordsDeleted++;
                     _logger.LogInformation("Deleted document file {DocumentFileId} as it had no remaining versions", documentFile.Id);
