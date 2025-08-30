@@ -1594,7 +1594,7 @@ namespace Document.API.Services.Implements
                 // ========================================
 
                 // 1. Remove from Kernel Memory index (similar to how replacement works)
-                var versionKmId = $"doc_{versionToArchive.Id}";
+                var versionKmId = versionToArchive.Id.ToString();
 
                 try
                 {
@@ -1828,7 +1828,7 @@ namespace Document.API.Services.Implements
                 };
 
                 // 1. Remove from Kernel Memory index (if still exists)
-                var versionKmId = $"doc_{versionToDelete.Id}";
+                var versionKmId = versionToDelete.Id.ToString();
 
                 try
                 {
