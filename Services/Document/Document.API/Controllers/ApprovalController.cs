@@ -248,6 +248,56 @@ namespace Document.API.Controllers
         }
 
         /// <summary>
+        /// Get approval logs for managers to view department approval history with filtering
+        /// </summary>
+        /// <param name="filter">Filter criteria for approval logs</param>
+        /// <param name="pageNumber">Page number (default: 1)</param>
+        /// <param name="pageSize">Page size (default: 10, max: 100)</param>
+        /// <returns>Paginated list of approval log entries</returns>
+        [HttpGet(ApiEndPointConstant.Approval.GetApprovalLogs)]
+        [CustomAuthorize(Roles = new[] { Roles.Manager })]
+        [ProducesResponseType(typeof(ApiResponse<IPaginate<ManagerApprovalLogResponse>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetApprovalLogs(
+            [FromQuery] ManagerApprovalLogFilter filter,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 10)
+        {
+            // Validate pagination parameters
+            if (pageNumber < 1)
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_PAGE_NUMBER", "Page number must be greater than 0", 400));
+            }
+
+            if (pageSize < 1 || pageSize > 100)
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_PAGE_SIZE", "Page size must be between 1 and 100", 400));
+            }
+
+            // Validate date range if provided
+            if (filter.FromDate.HasValue && filter.ToDate.HasValue && filter.FromDate > filter.ToDate)
+            {
+                return BadRequest(ApiResponse<object>.Error("INVALID_DATE_RANGE", "From date cannot be greater than to date", 400));
+            }
+
+            try
+            {
+                var result = await _approvalService.GetApprovalLogsAsync(filter, pageNumber, pageSize);
+                return Ok(ApiResponse<IPaginate<ManagerApprovalLogResponse>>.Success(result, "Approval logs retrieved successfully", 200));
+            }
+            catch (ErrorException ex)
+            {
+                return StatusCode(ex.StatusCode, ApiResponse<object>.Error(ex.ErrorDetail.ErrorCode, ex.ErrorDetail.Message?.ToString() ?? "An error occurred", ex.StatusCode));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while retrieving approval logs", 500));
+            }
+        }
+
+        /// <summary>
         /// ✅ NEW: Permanently delete an archived document
         /// BR-301: Managers can permanently delete archived documents within their department
         /// </summary>

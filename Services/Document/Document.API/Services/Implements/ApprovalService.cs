@@ -1674,6 +1674,100 @@ namespace Document.API.Services.Implements
         }
 
         /// <summary>
+        /// Get approval logs for managers to view department approval history with filtering
+        /// </summary>
+        public async Task<IPaginate<ManagerApprovalLogResponse>> GetApprovalLogsAsync(Document.Infrastructure.Filter.ManagerApprovalLogFilter filter, int pageNumber, int pageSize)
+        {
+            var departmentId = GetCurrentUserDepartmentId() ?? throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToAccessApprovalQueue);
+
+            // Get paginated approval logs with enhanced includes for department documents only
+            var approvalLogs = await _unitOfWork.GetRepository<ApprovalLog>()
+                .GetPagingListAsync(
+                    selector: log => log,
+                    filter: filter,
+                    include: i => i.Include(log => log.DocumentVersion)
+                                  .ThenInclude(v => v.DocumentFile)
+                                  .ThenInclude(df => df.DocumentType!)
+                                  .Include(log => log.DocumentVersion)
+                                  .ThenInclude(v => v.DocumentTags)
+                                  .ThenInclude(dt => dt.Tag)
+                                  .Include(log => log.DocumentVersion)
+                                  .ThenInclude(v => v.Folder!),
+                    predicate: log => log.DocumentVersion.DocumentFile.DepartmentId == departmentId,
+                    orderBy: logs => logs.OrderByDescending(log => log.CreatedTime),
+                    page: pageNumber,
+                    size: pageSize
+                );
+
+            // Map to response objects
+            var responseItems = approvalLogs.Items.Select(log => new ManagerApprovalLogResponse
+            {
+                Id = log.Id,
+                Action = log.Action,
+                Comments = log.Comments,
+                DocumentVersionId = log.DocumentVersionId,
+                DocumentId = log.DocumentVersion.DocumentFileId,
+                DocumentTitle = log.DocumentVersion.DocumentFile.Title,
+                DocumentDescription = log.DocumentVersion.DocumentFile.Description,
+                VersionName = log.DocumentVersion.VersionName,
+                FileName = log.DocumentVersion.FileName,
+                DocumentTypeId = log.DocumentVersion.DocumentFile.DocumentTypeId,
+                DocumentTypeName = log.DocumentVersion.DocumentFile.DocumentType?.Name,
+                SubmittedBy = log.DocumentVersion.SubmittedBy,
+                SubmittedAt = log.DocumentVersion.LastSubmitted,
+                ReviewedBy = log.CreatedBy,
+                ReviewedAt = log.CreatedTime,
+                Status = log.DocumentVersion.Status.ToString(),
+                IsPublic = log.DocumentVersion.IsPublic,
+                DepartmentId = log.DocumentVersion.DocumentFile.DepartmentId,
+                Tags = log.DocumentVersion.DocumentTags?.Select(dt => dt.Tag.Name).ToList() ?? new List<string>(),
+                SignedBy = log.DocumentVersion.SignedBy,
+                EffectiveFrom = log.DocumentVersion.EffectiveFrom,
+                EffectiveUntil = log.DocumentVersion.EffectiveUntil,
+                FolderId = log.DocumentVersion.FolderId,
+                FolderName = log.DocumentVersion.Folder?.Name
+            }).ToList();
+
+            // Enrich with names using the name lookup service
+            foreach (var item in responseItems)
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(item.SubmittedBy))
+                    {
+                        item.SubmittedByName = await _nameLookupService.GetUserNameAsync(item.SubmittedBy);
+                    }
+
+                    if (!string.IsNullOrEmpty(item.ReviewedBy))
+                    {
+                        item.ReviewedByName = await _nameLookupService.GetUserNameAsync(item.ReviewedBy);
+                    }
+
+                    if (!string.IsNullOrEmpty(item.DepartmentId))
+                    {
+                        item.DepartmentName = await _nameLookupService.GetDepartmentNameAsync(item.DepartmentId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to enrich names for approval log {LogId}", item.Id);
+                }
+            }
+
+            var result = new Paginate<ManagerApprovalLogResponse>
+            {
+                Items = responseItems,
+                Page = approvalLogs.Page,
+                Size = approvalLogs.Size,
+                Total = approvalLogs.Total,
+                TotalPages = approvalLogs.TotalPages
+            };
+
+            _logger.LogInformation("Retrieved {Count} approval logs for department {DepartmentId}", responseItems.Count, departmentId);
+            return result;
+        }
+
+        /// <summary>
         /// ✅ NEW: Permanently delete an archived document
         /// BR-301: Managers can permanently delete archived documents within their department
         /// </summary>

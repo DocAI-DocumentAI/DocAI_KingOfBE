@@ -41,5 +41,10 @@ namespace Document.API.Services.Interfaces
         /// BR-301: Managers can permanently delete archived documents within their department
         /// </summary>
         Task<DeleteArchivedDocumentResponse> DeleteArchivedDocumentAsync(string versionId, DeleteArchivedDocumentRequest request);
+
+        /// <summary>
+        /// Get approval logs for managers to view department approval history with filtering
+        /// </summary>
+        Task<IPaginate<ManagerApprovalLogResponse>> GetApprovalLogsAsync(Document.Infrastructure.Filter.ManagerApprovalLogFilter filter, int pageNumber, int pageSize);
     }
 }

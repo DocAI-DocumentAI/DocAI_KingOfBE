@@ -70,6 +70,7 @@ public class ApiEndPointConstant
         public const string GetApprovalQueueDetail = ApiEndpoint + "/approval-queue/detail/{id}";
         public const string ArchiveDocument = ApiEndpoint + "/archive/{id}";
         public const string DeleteArchivedDocument = ApiEndpoint + "/delete-archived/{id}";
+        public const string GetApprovalLogs = ApiEndpoint + "/approval-logs";
     }
 
     public class Bookmark
