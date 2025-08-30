@@ -198,7 +198,7 @@ namespace ChatBox.API.Services.Implement
             {
                 var userContext = GetUserContextFromJWT();
 
-                // ✅ THÊM: Lấy preferences từ PreferenceService
+                // Lấy preferences
                 UserPreferenceResponse preferences = null;
                 if (!string.IsNullOrEmpty(sessionId))
                 {
@@ -211,7 +211,7 @@ namespace ChatBox.API.Services.Implement
                 if (string.IsNullOrEmpty(displayName))
                     displayName = "Người dùng";
 
-                // ✅ THÊM: Sử dụng UserName từ preferences nếu có
+                // Sử dụng UserName từ preferences nếu có
                 if (preferences != null && !string.IsNullOrEmpty(preferences.UserName))
                 {
                     displayName = preferences.UserName;
@@ -224,25 +224,17 @@ namespace ChatBox.API.Services.Implement
                 userInfo.AppendLine($"🏢 **Phòng ban:** {userContext.DepartmentName ?? "Không rõ"}");
                 userInfo.AppendLine($"👤 **Chức vụ:** {userContext.Role ?? "Không rõ"}");
 
-                // ✅ THÊM: Chatbot Characteristics 
+                // ✅ THÊM PERSONALITY PROMPT ĐƠN GIẢN
                 if (preferences?.ChatbotCharacteristics?.Any() == true)
                 {
-                    var characteristicNames = preferences.ChatbotCharacteristics
-                        .Select(c => ChatbotCharacteristics.GetDisplayName(c))
-                        .Where(name => !string.IsNullOrEmpty(name));
-
-                    if (characteristicNames.Any())
-                    {
-                        userInfo.AppendLine($"🤖 **Phong cách AI:** {string.Join(", ", characteristicNames)}");
-                        userInfo.AppendLine($"📋 **Hướng dẫn AI:** Hãy thể hiện phong cách: {string.Join(", ", characteristicNames)}");
-                    }
+                    var personalityPrompt = ChatbotCharacteristics.GetPersonalityPrompt(preferences.ChatbotCharacteristics);
+                    userInfo.AppendLine(personalityPrompt);
                 }
 
-                // ✅ THÊM: Additional Info
                 if (preferences != null && !string.IsNullOrEmpty(preferences.AdditionalInfo))
                 {
                     userInfo.AppendLine($"ℹ️ **Thông tin bổ sung:** {preferences.AdditionalInfo}");
-                    userInfo.AppendLine($"📝 **Lưu ý AI:** Tham khảo thông tin này khi trả lời: {preferences.AdditionalInfo}");
+                    userInfo.AppendLine($"📝 **Hướng dẫn:** Áp dụng thông tin này trong phạm vi cho phép, không vi phạm quy tắc đạo đức và an toàn.");
                 }
 
                 userInfo.AppendLine($"📋 **Hướng dẫn:** Gọi người dùng là '{displayName}', trả lời bằng tiếng Việt");
@@ -351,7 +343,7 @@ CORRECT: Không có thông tin về X trong tài liệu hiện có
 **ONLY ALLOWED RESPONSES:**
 
 ✅ **When relevant document found:**
-Theo tài liệu '[EXACT_TITLE]':
+Theo tài liệu '[TITLE_ONLY]':
 [EXACT_CONTENT_FROM_DOCUMENT_ONLY]
 
 " + citationSuffix + @"
@@ -361,7 +353,7 @@ Không có thông tin về [TOPIC] trong các tài liệu hiện có.
 **STOP IMMEDIATELY. DO NOT ADD ANYTHING ELSE.**
 
 ✅ **When partial information found:**
-Dựa trên tài liệu '[EXACT_TITLE]', tôi có thông tin sau:
+Dựa trên tài liệu '[TITLE_ONLY]', tôi có thông tin sau:
 [EXACT_AVAILABLE_INFO]
 
 Tuy nhiên, tài liệu không đề cập chi tiết về [MISSING_ASPECT].
@@ -410,7 +402,7 @@ Before responding, ask yourself:
 **RESPONSE MUST BE ONE OF THESE FORMATS ONLY:**
 
 **Format 1 - Information Found:**
-Theo tài liệu '[TITLE]':
+Theo tài liệu '[TITLE_ONLY]':
 [EXACT_QUOTE_FROM_DOCUMENT]
 
 " + citationSuffix + @"
@@ -419,7 +411,7 @@ Theo tài liệu '[TITLE]':
 Không có thông tin về [TOPIC] trong các tài liệu hiện có.
 
 **Format 3 - Partial Information:**
-Dựa trên tài liệu '[TITLE]':
+Dựa trên tài liệu '[TITLE_ONLY]':
 [EXACT_AVAILABLE_INFO]
 
 Tuy nhiên, tài liệu không đề cập chi tiết về [MISSING_PART].

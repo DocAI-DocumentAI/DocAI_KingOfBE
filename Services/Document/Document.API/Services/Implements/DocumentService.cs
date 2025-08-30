@@ -2776,42 +2776,51 @@ public class DocumentService : IDocumentService
                 response.HasAnswer = true;
 
                 // ✅ Convert documents with enhanced metadata for search results
-                response.RelevantDocuments = ragResponse.Sources.Select((source, index) => new SemanticSearchResponse
+                var documentCountFromAI = ExtractDocumentCountFromAIAnswer(response.Answer);
+                if (documentCountFromAI <= 0)
                 {
-                    Id = source.DocumentId,
-                    Title = source.Title ?? "Unknown Document",
-                    DocumentName = source.Title ?? "Unknown Document",
-                    Description = source.Description ?? string.Empty,
-                    Status = source.Status ?? "approved",
-                    DepartmentId = source.DepartmentId ?? string.Empty,
-                    DepartmentName = source.DepartmentName ?? string.Empty,
-                    CreatedBy = source.CreatedBy ?? string.Empty,
-                    CreatedByName = source.CreatedBy ?? string.Empty,
-                    CreatedTime = DateTime.UtcNow, // Not available in source
-                    FileType = source.FileType ?? string.Empty,
-                    FileSize = source.FileSize ?? 0,
-                    Version = source.VersionName ?? "1.0",
-                    Tags = source.Tags ?? new List<string>(),
-                    Relevance = source.RelevanceScore,
-                    DocumentTypeId = source.DocumentType ?? string.Empty,
-                    DocumentTypeName = source.DocumentType ?? string.Empty,
-                    IsPublic = source.IsPublic,
-                    SignedBy = source.SignedBy ?? string.Empty,
-                    EffectiveFrom = source.EffectiveFrom,
-                    EffectiveUntil = source.EffectiveUntil,
-                    Scoring = request.EnableHybridScoring ? new SemanticSearchScoring
-                    {
-                        SemanticSimilarity = source.RelevanceScore,
-                        MetadataScore = 0.0,
-                        ContextualScore = 0.0,
-                        FinalScore = source.RelevanceScore,
-                        AppliedBoosts = new List<string>(),
-                        MatchingTags = source.Tags ?? new List<string>()
-                    } : null,
-                    IsDepartmentBoosted = source.DepartmentId == userDepartmentId,
-                    Rank = index + 1
-                }).ToList();
+                    documentCountFromAI = ragResponse.Sources.GroupBy(s => s.DocumentId).Count();
+                }
 
+                response.RelevantDocuments = ragResponse.Sources
+                    .GroupBy(s => s.DocumentId)
+                    .Select(g => g.OrderByDescending(s => s.RelevanceScore).First())
+                    .Take(documentCountFromAI)
+                    .Select((source, index) => new SemanticSearchResponse
+                    {
+                        Id = source.DocumentId,
+                        Title = source.Title ?? "Unknown Document",
+                        DocumentName = source.Title ?? "Unknown Document",
+                        Description = source.Description ?? string.Empty,
+                        Status = source.Status ?? "approved",
+                        DepartmentId = source.DepartmentId ?? string.Empty,
+                        DepartmentName = source.DepartmentName ?? string.Empty,
+                        CreatedBy = source.CreatedBy ?? string.Empty,
+                        CreatedByName = source.CreatedBy ?? string.Empty,
+                        CreatedTime = DateTime.UtcNow,
+                        FileType = source.FileType ?? string.Empty,
+                        FileSize = source.FileSize ?? 0,
+                        Version = source.VersionName ?? "1.0",
+                        Tags = source.Tags ?? new List<string>(),
+                        Relevance = source.RelevanceScore,
+                        DocumentTypeId = source.DocumentType ?? string.Empty,
+                        DocumentTypeName = source.DocumentType ?? string.Empty,
+                        IsPublic = source.IsPublic,
+                        SignedBy = source.SignedBy ?? string.Empty,
+                        EffectiveFrom = source.EffectiveFrom,
+                        EffectiveUntil = source.EffectiveUntil,
+                        Scoring = request.EnableHybridScoring ? new SemanticSearchScoring
+                        {
+                            SemanticSimilarity = source.RelevanceScore,
+                            MetadataScore = 0.0,
+                            ContextualScore = 0.0,
+                            FinalScore = source.RelevanceScore,
+                            AppliedBoosts = new List<string>(),
+                            MatchingTags = source.Tags ?? new List<string>()
+                        } : null,
+                        IsDepartmentBoosted = source.DepartmentId == userDepartmentId,
+                        Rank = index + 1
+                    }).ToList();
                 _logger.LogInformation("✅ [ENHANCED-SEARCH] Successfully generated search summary for {Count} documents",
                     response.RelevantDocuments.Count);
             }
@@ -2859,6 +2868,173 @@ public class DocumentService : IDocumentService
                 RelevantDocuments = new List<SemanticSearchResponse>()
             };
         }
+    }
+    private int ExtractDocumentCountFromAIAnswer(string aiAnswer)
+    {
+        if (string.IsNullOrEmpty(aiAnswer)) return 0;
+
+        var patterns = new[]
+        {
+        @"tìm thấy (\d+) tài liệu",
+        @"có (\d+) tài liệu",
+        @"(\d+) tài liệu liên quan"
+    };
+
+        foreach (var pattern in patterns)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(aiAnswer, pattern);
+            if (match.Success && int.TryParse(match.Groups[1].Value, out int count))
+            {
+                return count;
+            }
+        }
+        return 0;
+    }
+    /// <summary>
+    /// Generate a concise search-focused summary instead of full conversational response
+    /// </summary>
+    private async Task<string> GenerateSearchSummary(string query, List<DocumentSourceResponse> sources, int totalCount)
+    {
+        try
+        {
+            // Create a DocumentRAGRequest to get AI-generated summary
+            var ragRequest = new DocumentRAGRequest
+            {
+                Query = query,
+                UserId = GetCurrentUserId(),
+                DepartmentId = GetCurrentUserDepartmentId(),
+                OnlyPublic = false, // Include both public and private documents
+                MaxResults = Math.Min(totalCount, 5) // Limit for context
+            };
+
+            // Use DocumentRAGService to search and get content
+            var ragResponse = await _documentRAGService.SearchDocumentsWithRAGAsync(ragRequest);
+            
+            // If we got valid content and sources, generate a natural summary
+            if (ragResponse?.Success == true && ragResponse.Sources?.Any() == true)
+            {
+                // Create a natural summary based on the found documents
+                var documentCount = ragResponse.Sources.Count;
+                var summary = documentCount > 1 
+                    ? $"Tôi tìm thấy {documentCount} tài liệu liên quan đến yêu cầu của bạn. "
+                    : "Tôi tìm thấy một tài liệu liên quan đến yêu cầu của bạn. ";
+                
+                // Add a brief description based on document types found
+                var documentTypes = ragResponse.Sources.Select(s => s.DocumentTypeName).Distinct().Where(t => !string.IsNullOrEmpty(t)).ToList();
+                if (documentTypes.Any())
+                {
+                    summary += $"Các tài liệu bao gồm {string.Join(", ", documentTypes.Take(3))}";
+                    if (documentTypes.Count > 3)
+                    {
+                        summary += " và các loại tài liệu khác";
+                    }
+                    summary += ". ";
+                }
+                
+                // Add context about departments if multiple departments involved
+                var departments = ragResponse.Sources.Select(s => s.DepartmentName).Distinct().Where(d => !string.IsNullOrEmpty(d)).ToList();
+                if (departments.Count > 1)
+                {
+                    summary += $"Tài liệu đến từ {departments.Count} phòng ban khác nhau.";
+                }
+                
+                return summary.Trim();
+            }
+            
+            _logger.LogInformation("🔍 [SEARCH-SUMMARY] Generated AI summary for query: {Query}, {Count} documents",
+                query.Substring(0, Math.Min(30, query.Length)), totalCount);
+            
+            return CreateQuickSearchSummary(query, sources, totalCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "⚠️ [SEARCH-SUMMARY] Failed to generate AI summary, using fallback");
+            return CreateQuickSearchSummary(query, sources, totalCount);
+        }
+    }
+
+    /// <summary>
+    /// Determine the appropriate search prompt based on query content
+    /// </summary>
+    private string DetermineSearchPromptType(string query)
+    {
+        var queryLower = query.ToLowerInvariant();
+        
+        // Check for legal/regulatory terms
+        if (queryLower.Contains("luật") || queryLower.Contains("quy định") || queryLower.Contains("thông tư") || 
+            queryLower.Contains("nghị định") || queryLower.Contains("pháp lý") || queryLower.Contains("law"))
+        {
+            return AiPromptConstant.SemanticSearch.LegalSearchPrompt;
+        }
+        
+        // Check for procedural terms
+        if (queryLower.Contains("làm thế nào") || queryLower.Contains("quy trình") || queryLower.Contains("thủ tục") || 
+            queryLower.Contains("hướng dẫn") || queryLower.Contains("what should") || queryLower.Contains("how to"))
+        {
+            return AiPromptConstant.SemanticSearch.ProcedureSearchPrompt;
+        }
+        
+        // Default to general search
+        return AiPromptConstant.SemanticSearch.SearchResultSummaryPrompt;
+    }
+
+    /// <summary>
+    /// Create a quick, simple search summary for fast response
+    /// </summary>
+    private string CreateQuickSearchSummary(string query, List<DocumentSourceResponse> sources, int totalCount)
+    {
+        var topDocuments = sources.Take(2).Select(s => s.Title ?? "Unknown Document").ToList();
+        var categories = sources.Select(s => s.DocumentType ?? "tài liệu")
+                               .Where(x => !string.IsNullOrEmpty(x))
+                               .GroupBy(x => x)
+                               .OrderByDescending(g => g.Count())
+                               .Select(g => g.Key)
+                               .Take(2)
+                               .ToList();
+        
+        // Start with natural phrase, let content determine what was found
+        string summary;
+        if (categories.Count > 1)
+        {
+            summary = $"Tôi tìm thấy các tài liệu về {categories.First().ToLower()} và {categories.Last().ToLower()}";
+        }
+        else if (categories.Any())
+        {
+            summary = $"Tôi tìm thấy {totalCount} {categories.First().ToLower()}";
+        }
+        else
+        {
+            summary = $"Tôi tìm thấy {totalCount} tài liệu";
+        }
+        
+        if (topDocuments.Any())
+        {
+            summary += $", bao gồm {string.Join(" và ", topDocuments.Take(2))}";
+        }
+        
+        // Add department info if available and relevant
+        var departments = sources.Where(s => !string.IsNullOrEmpty(s.DepartmentName))
+                                .Select(s => s.DepartmentName)
+                                .Distinct()
+                                .Take(1)
+                                .ToList();
+        if (departments.Any())
+        {
+            summary += $" từ {departments.First()}";
+        }
+        
+        summary += ".";
+        
+        return summary;
+    }
+
+    /// <summary>
+    /// Create document overview for AI prompt
+    /// </summary>
+    private string CreateDocumentOverview(List<DocumentSourceResponse> sources)
+    {
+        return string.Join("\n", sources.Select((source, index) => 
+            $"{index + 1}. {source.Title} - {source.DocumentType} ({source.DepartmentName})"));
     }
 
     /// <summary>

@@ -60,7 +60,7 @@ namespace ChatBox.API.Controllers
         /// Thống kê sử dụng từng model chi tiết
         /// </summary>
         [HttpGet(ApiEndPointConstant.Admin.ModelUsage)]
-        [CustomAuthorize(Roles = new[] { Roles.Admin, Roles.Manager })]
+        [CustomAuthorize(Roles = new[] { Roles.Admin })]
         [ProducesResponseType(typeof(List<ModelUsageStatistics>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
