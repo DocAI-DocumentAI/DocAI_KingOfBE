@@ -1,4 +1,4 @@
-using AutoMapper;
+﻿using AutoMapper;
 using Document.API.Attributes;
 using Document.API.Constants;
 using Document.API.Models;
@@ -78,7 +78,7 @@ public class DocumentService : IDocumentService
         {
             _logger.LogWarning("Kernel Memory configuration service is NOT initialized.");
         }
-        
+
         // Log enrichment service status
         if (_enrichmentService != null)
         {
@@ -1402,7 +1402,7 @@ public class DocumentService : IDocumentService
             .SingleOrDefaultAsync(
                 predicate: d => d.Id == documentId,
                 include: q => q.Include(d => d.DocumentVersions)
-            ) ?? throw new ErrorException(StatusCodes.Status404NotFound,ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
+            ) ?? throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DocumentNotFound);
 
         _logger.LogInformation("Document found: {Title}", documentToDelete.Title);
 
@@ -1411,7 +1411,7 @@ public class DocumentService : IDocumentService
         if (documentToDelete.OwnerId != userId)
         {
             _logger.LogWarning("User {UserId} attempted to delete a document they do not own.", userId);
-            throw new ErrorException(StatusCodes.Status403Forbidden,ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToDelete);
+            throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN, MessageConstant.UnauthorizedToDelete);
         }
 
         _logger.LogInformation("User {UserId} is the owner of the document", userId);
@@ -1811,7 +1811,7 @@ public class DocumentService : IDocumentService
         {
             throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.DraftDocumentNotFound);
         }
-        
+
         var response = _mapper.Map<DocumentDraftResponse>(draft);
 
         var enrichedResponse = await _enrichmentService.EnrichDocumentDraftResponseAsync(response);
@@ -1961,7 +1961,7 @@ public class DocumentService : IDocumentService
 
         var rejectedDocuments = await _unitOfWork.GetRepository<DocumentVersion>().GetPagingListAsync(
             filter: null,
-            selector : d => _mapper.Map<DocumentDraftResponse>(d),
+            selector: d => _mapper.Map<DocumentDraftResponse>(d),
             predicate: v => v.DocumentFile.OwnerId == userId && v.Status == StatusEnum.Rejected,
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
@@ -2005,7 +2005,7 @@ public class DocumentService : IDocumentService
 
         if (rejectedDocument == null)
         {
-            throw new ErrorException(StatusCodes.Status404NotFound,ErrorCode.NOT_FOUND, MessageConstant.RejectedDocumentNotFound);
+            throw new ErrorException(StatusCodes.Status404NotFound, ErrorCode.NOT_FOUND, MessageConstant.RejectedDocumentNotFound);
         }
 
         var response = _mapper.Map<DocumentDraftResponse>(rejectedDocument);
@@ -2782,7 +2782,8 @@ public class DocumentService : IDocumentService
                     documentCountFromAI = ragResponse.Sources.GroupBy(s => s.DocumentId).Count();
                 }
 
-                response.RelevantDocuments = ragResponse.Sources
+                // ✅ Create base response objects with proper field mapping
+                var baseResponses = ragResponse.Sources
                     .GroupBy(s => s.DocumentId)
                     .Select(g => g.OrderByDescending(s => s.RelevanceScore).First())
                     .Take(documentCountFromAI)
@@ -2790,21 +2791,25 @@ public class DocumentService : IDocumentService
                     {
                         Id = source.DocumentId,
                         Title = source.Title ?? "Unknown Document",
-                        DocumentName = source.Title ?? "Unknown Document",
+                        DocumentName = source.Title ?? "Unknown Document", // Document name should match title
                         Description = source.Description ?? string.Empty,
                         Status = source.Status ?? "approved",
                         DepartmentId = source.DepartmentId ?? string.Empty,
-                        DepartmentName = source.DepartmentName ?? string.Empty,
+                        DepartmentName = string.Empty, // Will be enriched later
                         CreatedBy = source.CreatedBy ?? string.Empty,
-                        CreatedByName = source.CreatedBy ?? string.Empty,
-                        CreatedTime = DateTime.UtcNow,
+                        CreatedByName = string.Empty, // Will be enriched later
+                        CreatedTime = source.ApprovalDate ?? DateTime.UtcNow, // Use approval date as creation time
+                        LastUpdatedby = source.SubmittedBy ?? string.Empty, // Use SubmittedBy as last updated by
+                        LastUpdatedByName = string.Empty, // Will be enriched later
+                        LastUpdatedTime = source.LastSubmitted, // Use LastSubmitted as last updated time
+                        FilePath = source.GoogleDriveFileId ?? string.Empty, // Use GoogleDriveFileId as file path
                         FileType = source.FileType ?? string.Empty,
                         FileSize = source.FileSize ?? 0,
                         Version = source.VersionName ?? "1.0",
-                        Tags = source.Tags ?? new List<string>(),
+                        Tags = source.Tags ?? new List<string>(), // All tags will be preserved
                         Relevance = source.RelevanceScore,
                         DocumentTypeId = source.DocumentType ?? string.Empty,
-                        DocumentTypeName = source.DocumentType ?? string.Empty,
+                        DocumentTypeName = string.Empty, // Will be enriched later
                         IsPublic = source.IsPublic,
                         SignedBy = source.SignedBy ?? string.Empty,
                         EffectiveFrom = source.EffectiveFrom,
@@ -2821,7 +2826,11 @@ public class DocumentService : IDocumentService
                         IsDepartmentBoosted = source.DepartmentId == userDepartmentId,
                         Rank = index + 1
                     }).ToList();
-                _logger.LogInformation("✅ [ENHANCED-SEARCH] Successfully generated search summary for {Count} documents",
+
+                // ✅ Enrich responses with proper names using the enrichment service
+                response.RelevantDocuments = await _enrichmentService.EnrichSemanticSearchResponsesAsync(baseResponses);
+
+                _logger.LogInformation("✅ [ENHANCED-SEARCH] Successfully enriched {Count} documents with proper names and metadata",
                     response.RelevantDocuments.Count);
             }
             else
@@ -2908,16 +2917,16 @@ public class DocumentService : IDocumentService
 
             // Use DocumentRAGService to search and get content
             var ragResponse = await _documentRAGService.SearchDocumentsWithRAGAsync(ragRequest);
-            
+
             // If we got valid content and sources, generate a natural summary
             if (ragResponse?.Success == true && ragResponse.Sources?.Any() == true)
             {
                 // Create a natural summary based on the found documents
                 var documentCount = ragResponse.Sources.Count;
-                var summary = documentCount > 1 
+                var summary = documentCount > 1
                     ? $"Tôi tìm thấy {documentCount} tài liệu liên quan đến yêu cầu của bạn. "
                     : "Tôi tìm thấy một tài liệu liên quan đến yêu cầu của bạn. ";
-                
+
                 // Add a brief description based on document types found
                 var documentTypes = ragResponse.Sources.Select(s => s.DocumentTypeName).Distinct().Where(t => !string.IsNullOrEmpty(t)).ToList();
                 if (documentTypes.Any())
@@ -2929,20 +2938,20 @@ public class DocumentService : IDocumentService
                     }
                     summary += ". ";
                 }
-                
+
                 // Add context about departments if multiple departments involved
                 var departments = ragResponse.Sources.Select(s => s.DepartmentName).Distinct().Where(d => !string.IsNullOrEmpty(d)).ToList();
                 if (departments.Count > 1)
                 {
                     summary += $"Tài liệu đến từ {departments.Count} phòng ban khác nhau.";
                 }
-                
+
                 return summary.Trim();
             }
-            
+
             _logger.LogInformation("🔍 [SEARCH-SUMMARY] Generated AI summary for query: {Query}, {Count} documents",
                 query.Substring(0, Math.Min(30, query.Length)), totalCount);
-            
+
             return CreateQuickSearchSummary(query, sources, totalCount);
         }
         catch (Exception ex)
@@ -2958,21 +2967,21 @@ public class DocumentService : IDocumentService
     private string DetermineSearchPromptType(string query)
     {
         var queryLower = query.ToLowerInvariant();
-        
+
         // Check for legal/regulatory terms
-        if (queryLower.Contains("luật") || queryLower.Contains("quy định") || queryLower.Contains("thông tư") || 
+        if (queryLower.Contains("luật") || queryLower.Contains("quy định") || queryLower.Contains("thông tư") ||
             queryLower.Contains("nghị định") || queryLower.Contains("pháp lý") || queryLower.Contains("law"))
         {
             return AiPromptConstant.SemanticSearch.LegalSearchPrompt;
         }
-        
+
         // Check for procedural terms
-        if (queryLower.Contains("làm thế nào") || queryLower.Contains("quy trình") || queryLower.Contains("thủ tục") || 
+        if (queryLower.Contains("làm thế nào") || queryLower.Contains("quy trình") || queryLower.Contains("thủ tục") ||
             queryLower.Contains("hướng dẫn") || queryLower.Contains("what should") || queryLower.Contains("how to"))
         {
             return AiPromptConstant.SemanticSearch.ProcedureSearchPrompt;
         }
-        
+
         // Default to general search
         return AiPromptConstant.SemanticSearch.SearchResultSummaryPrompt;
     }
@@ -2990,7 +2999,7 @@ public class DocumentService : IDocumentService
                                .Select(g => g.Key)
                                .Take(2)
                                .ToList();
-        
+
         // Start with natural phrase, let content determine what was found
         string summary;
         if (categories.Count > 1)
@@ -3005,12 +3014,12 @@ public class DocumentService : IDocumentService
         {
             summary = $"Tôi tìm thấy {totalCount} tài liệu";
         }
-        
+
         if (topDocuments.Any())
         {
             summary += $", bao gồm {string.Join(" và ", topDocuments.Take(2))}";
         }
-        
+
         // Add department info if available and relevant
         var departments = sources.Where(s => !string.IsNullOrEmpty(s.DepartmentName))
                                 .Select(s => s.DepartmentName)
@@ -3021,9 +3030,9 @@ public class DocumentService : IDocumentService
         {
             summary += $" từ {departments.First()}";
         }
-        
+
         summary += ".";
-        
+
         return summary;
     }
 
@@ -3801,7 +3810,7 @@ public class DocumentService : IDocumentService
 
         // Enrich all documents with names in bulk for better performance
         var enrichedDocuments = await _enrichmentService.EnrichDocumentDraftResponsesAsync(documents.Items.ToList());
-        
+
         // Create new paginated result with enriched documents
         var enrichedPaginated = new Paginate<DocumentDraftResponse>
         {
@@ -3811,7 +3820,7 @@ public class DocumentService : IDocumentService
             Total = documents.Total,
             TotalPages = documents.TotalPages
         };
-        
+
         _logger.LogInformation("Enriched {Count} full text search documents with names", enrichedDocuments.Count);
         return enrichedPaginated;
     }
