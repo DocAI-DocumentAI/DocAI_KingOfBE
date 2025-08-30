@@ -2821,7 +2821,6 @@ public class DocumentService : IDocumentService
                         IsDepartmentBoosted = source.DepartmentId == userDepartmentId,
                         Rank = index + 1
                     }).ToList();
-
                 _logger.LogInformation("✅ [ENHANCED-SEARCH] Successfully generated search summary for {Count} documents",
                     response.RelevantDocuments.Count);
             }
@@ -2873,7 +2872,6 @@ public class DocumentService : IDocumentService
     private int ExtractDocumentCountFromAIAnswer(string aiAnswer)
     {
         if (string.IsNullOrEmpty(aiAnswer)) return 0;
-
         var patterns = new[]
         {
         @"tìm thấy (\d+) tài liệu",
