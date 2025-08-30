@@ -1,5 +1,6 @@
 ﻿using AutoMapper;
 using MassTransit;
+using Microsoft.Extensions.Logging;
 using Notification.API.Constants;
 using Notification.API.Payload.Response;
 using Notification.API.Services.Interfaces;
@@ -48,17 +49,17 @@ namespace Notification.API.Services.Implement
 
             try
             {
-                var allDocuments = await GetAllDocumentsFromServiceAsync(config.WarningThresholdDays);
+                var allDocuments = await GetAllDocumentsFromServiceAsync(config.WarningThresholdDays + 30);
                 var vietnamToday = TimeZoneHelper.VietnamToday;
 
-                // FIX: Use consistent filtering logic
                 var expiredDocs = allDocuments.Where(doc =>
                     doc.EffectiveFrom.HasValue &&
                     doc.EffectiveUntil.HasValue &&
-                    TimeZoneHelper.DaysFromTodayFromDatabase(doc.EffectiveUntil.Value) < 0).ToList();
+                    IsDocumentExpired(doc, vietnamToday))
+                    .ToList();
 
                 _logger.LogInformation("Found {Count} expired documents (Vietnam today: {VietnamToday})",
-                                   expiredDocs.Count, vietnamToday.ToString("yyyy-MM-dd"));
+                    expiredDocs.Count, vietnamToday.ToString("yyyy-MM-dd"));
                 return expiredDocs;
             }
             catch (Exception ex)
@@ -67,7 +68,26 @@ namespace Notification.API.Services.Implement
                 return new List<DocumentExpirationDto>();
             }
         }
+        private bool IsDocumentExpired(DocumentExpirationDto doc, DateTime vietnamToday)
+        {
+            try
+            {
+                var docUtc = DateTime.SpecifyKind(doc.EffectiveUntil.Value, DateTimeKind.Utc);
+                var docVietnamDate = TimeZoneHelper.ConvertUtcToVietnam(docUtc).Date;
 
+                bool isExpired = docVietnamDate < vietnamToday;
+
+                _logger.LogDebug("Expiration check: Doc={DocId}, DbTime={DbUtc}, VietnamExpiry={VietnamDate}, Today={Today}, Expired={Result}",
+                    doc.DocumentId, doc.EffectiveUntil.Value, docVietnamDate, vietnamToday, isExpired);
+
+                return isExpired;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking expiration for document {DocId}", doc.DocumentId);
+                return false;
+            }
+        }
         public async Task<List<DocumentExpirationDto>> GetNearExpiredDocumentsAsync()
         {
             var config = await _configService.GetNotificationConfigAsync();
@@ -81,23 +101,50 @@ namespace Notification.API.Services.Implement
             try
             {
                 var allDocuments = await GetAllDocumentsFromServiceAsync(config.WarningThresholdDays);
-                var todayUtc = TimeZoneHelper.UtcToday;
-                var warningDateUtc = todayUtc.AddDays(config.WarningThresholdDays);
+                var vietnamNow = TimeZoneHelper.VietnamNow;
+                var vietnamToday = vietnamNow.Date; // 30/08/2025 00:00:00
+
+                // Create UTC date range for the warning period in Vietnam timezone
+                var vietnamEndDate = vietnamToday.AddDays(config.WarningThresholdDays); // 04/09/2025 00:00:00
+                var (startUtc, endUtc) = TimeZoneHelper.CreateUtcDateRange(vietnamToday);
+                var (_, warningEndUtc) = TimeZoneHelper.CreateUtcDateRange(vietnamEndDate);
 
                 var nearExpiredDocs = allDocuments.Where(doc =>
-                    doc.EffectiveFrom.HasValue &&
-                    doc.EffectiveUntil.HasValue &&
-                    doc.EffectiveUntil.Value.Date >= todayUtc &&
-                    doc.EffectiveUntil.Value.Date <= warningDateUtc).ToList();
+                       doc.EffectiveFrom.HasValue &&
+                       doc.EffectiveUntil.HasValue &&
+                       IsDocumentInNearExpirationWindow(doc, vietnamToday, vietnamEndDate))
+                       .ToList();
 
-                _logger.LogInformation("Found {Count} near-expired documents using runtime threshold {Threshold} days (warning date: {WarningDate})",
-                    nearExpiredDocs.Count, config.WarningThresholdDays, warningDateUtc.ToString("yyyy-MM-dd"));
-                return nearExpiredDocs;
+               return nearExpiredDocs;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting near-expired documents");
                 return new List<DocumentExpirationDto>();
+            }
+        }
+        private bool IsDocumentInNearExpirationWindow(DocumentExpirationDto doc, DateTime vietnamToday, DateTime vietnamWarningEnd)
+        {
+            try
+            {
+                // Force treat database date as UTC (Entity Framework loses Kind)
+                var docUtc = DateTime.SpecifyKind(doc.EffectiveUntil.Value, DateTimeKind.Utc);
+                var docVietnamDate = TimeZoneHelper.ConvertUtcToVietnam(docUtc).Date;
+
+                // Document is near-expired if it expires:
+                // - Today or later (not already expired)
+                // - Within warning threshold days
+                bool isInWindow = docVietnamDate >= vietnamToday && docVietnamDate <= vietnamWarningEnd;
+
+                _logger.LogDebug("Near-expiration check: Doc={DocId}, DbTime={DbUtc}, VietnamExpiry={VietnamDate}, Today={Today}, WarningEnd={WarningEnd}, InWindow={Result}",
+                    doc.DocumentId, doc.EffectiveUntil.Value, docVietnamDate, vietnamToday, vietnamWarningEnd, isInWindow);
+
+                return isInWindow;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking near-expiration for document {DocId}", doc.DocumentId);
+                return false;
             }
         }
 
