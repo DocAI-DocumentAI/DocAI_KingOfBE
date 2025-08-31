@@ -152,8 +152,6 @@ try
 
     app.Run();
 
-    app.Run();
-
     Log.Information("Stopped cleanly");
 
     return 0;
