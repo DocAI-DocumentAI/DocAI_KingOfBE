@@ -21,7 +21,7 @@ namespace Notification.API.Mappers
                 .ForMember(dest => dest.UpdateAt, opt => opt.Ignore());
 
             CreateMap<NotificationConfig, NotificationConfigResponse>()
-                .ForMember(dest => dest.NextExpiredNotificationTime, opt => opt.Ignore())
+                .ForMember(dest => dest.NextDocumentStatusUpdateTime, opt => opt.Ignore())
                 .ForMember(dest => dest.NextNearExpiredNotificationTime, opt => opt.Ignore());
 
             // ✅ EXISTING: Notification Log mappings

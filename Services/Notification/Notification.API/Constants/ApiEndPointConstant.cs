@@ -46,7 +46,7 @@ public static class ApiEndpointConstant
         public const string Update = "config";
         public const string GetStatus = "config/status";
         public const string GetNextRuns = "config/next-runs";
-
+        public const string TriggerStatusUpdate = "config/trigger-status-update";
         public const string TriggerExpired = "config/trigger-expired";
         public const string TriggerNearExpired = "config/trigger-near-expired";
         public const string TriggerCleanup = "config/trigger-cleanup";

@@ -31,17 +31,24 @@ namespace Auth.API.Consumers
                 {
                     var userSetting = await _userSettingService.GetUserSettingByUserIdAsync(userId);
 
+                    // SIMPLIFIED: Dựa trên single NotificationsEnabled flag
+                    var notificationsEnabled = userSetting?.NotificationsEnabled ?? true; // Default true nếu không có setting
+
                     preferences.Add(new UserNotificationPreferencesDto
                     {
                         UserId = userId,
-                        NotificationsEnabled = userSetting?.NotificationsEnabled ?? true,
-                        EmailNotificationsEnabled = userSetting?.NotificationsEnabled ?? true,
-                        SystemNotificationsEnabled = userSetting?.NotificationsEnabled ?? true,
-                        DocumentWorkflowEnabled = userSetting?.NotificationsEnabled ?? true,
-                        DocumentExpirationEnabled = userSetting?.NotificationsEnabled ?? true,
-                        DocumentSubmissionEnabled = userSetting?.NotificationsEnabled ?? true,
-                        DocumentApprovalEnabled = userSetting?.NotificationsEnabled ?? true,
-                        DocumentRejectionEnabled = userSetting?.NotificationsEnabled ?? true
+
+                        // Main flag từ database
+                        NotificationsEnabled = notificationsEnabled,
+
+                        // SIMPLIFIED: Tất cả sub-types đều follow NotificationsEnabled flag
+                        EmailNotificationsEnabled = notificationsEnabled,
+                        SystemNotificationsEnabled = notificationsEnabled,
+                        DocumentWorkflowEnabled = notificationsEnabled,
+                        DocumentExpirationEnabled = notificationsEnabled,
+                        DocumentSubmissionEnabled = notificationsEnabled,
+                        DocumentApprovalEnabled = notificationsEnabled,
+                        DocumentRejectionEnabled = notificationsEnabled
                     });
                 }
 
@@ -51,6 +58,8 @@ namespace Auth.API.Consumers
                     Success = true,
                     RequestId = command.RequestId
                 });
+
+                _logger.LogInformation("Successfully returned notification preferences for {Count} users", preferences.Count);
             }
             catch (Exception ex)
             {

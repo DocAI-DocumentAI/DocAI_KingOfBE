@@ -154,13 +154,13 @@ public static class DependencyService
             // ✅ FIX: Add Vietnam timezone
             var vietnamTimeZone = TimeZoneHelper.VietnamTimeZone;
 
-            // ✅ Job 1: Expired Documents
-            var expiredJobKey = new JobKey("ExpiredDocumentNotificationJob");
-            q.AddJob<ExpiredDocumentNotificationJob>(opts => opts.WithIdentity(expiredJobKey));
-            q.AddTrigger(opts => opts
-                .ForJob(expiredJobKey)
-                .WithIdentity("ExpiredDocumentTrigger")
-                .WithCronSchedule("0 0 7 * * ?", x => x.InTimeZone(vietnamTimeZone))); // Default 7:00 AM
+            //// ✅ Job 1: Expired Documents
+            //var expiredJobKey = new JobKey("ExpiredDocumentNotificationJob");
+            //q.AddJob<ExpiredDocumentNotificationJob>(opts => opts.WithIdentity(expiredJobKey));
+            //q.AddTrigger(opts => opts
+            //    .ForJob(expiredJobKey)
+            //    .WithIdentity("ExpiredDocumentTrigger")
+            //    .WithCronSchedule("0 0 7 * * ?", x => x.InTimeZone(vietnamTimeZone))); // Default 7:00 AM
 
             var nearExpiredJobKey = new JobKey("NearExpiredDocumentNotificationJob");
             q.AddJob<NearExpiredDocumentNotificationJob>(opts => opts.WithIdentity(nearExpiredJobKey));

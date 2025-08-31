@@ -76,18 +76,20 @@ namespace Notification.API.Services.Implement
                 var quartzStatus = await schedulerService.GetSchedulerStatusAsync();
                 var needsUpdate = await CheckIfUpdateNeeded(config, quartzStatus);
 
-                if (needsUpdate.expiredNeedsUpdate)
-                {
-                    await schedulerService.UpdateExpiredDocumentJobSchedule(config.ExpiredNotificationCron);
-                    _logger.LogInformation("Updated expired document schedule to: '{Cron}'",
-                        config.ExpiredNotificationCron);
-                }
+                // REMOVED: ExpiredNotificationCron sync - ExpiredDocumentNotificationJob is disabled
 
                 if (needsUpdate.nearExpiredNeedsUpdate)
                 {
                     await schedulerService.UpdateNearExpiredDocumentJobSchedule(config.NearExpiredNotificationCron);
                     _logger.LogInformation("Updated near-expired document schedule to: '{Cron}'",
                         config.NearExpiredNotificationCron);
+                }
+
+                if (needsUpdate.statusUpdateNeedsUpdate)
+                {
+                    await schedulerService.UpdateDocumentStatusUpdateJobSchedule(config.DocumentStatusUpdateCron);
+                    _logger.LogInformation("Updated document status update schedule to: '{Cron}'",
+                        config.DocumentStatusUpdateCron);
                 }
 
                 if (needsUpdate.enabledStateChanged)
@@ -113,7 +115,6 @@ namespace Notification.API.Services.Implement
                     var logService = scope.ServiceProvider.GetService<INotificationLogService>();
                     if (logService != null)
                     {
-                        // Trigger immediate cleanup in background
                         _ = Task.Run(async () =>
                         {
                             try
@@ -145,10 +146,10 @@ namespace Notification.API.Services.Implement
             }
         }
 
-        // Include ALL config values in hash
+        // Updated to exclude ExpiredNotificationCron
         private string ComputeConfigHash(NotificationConfigResponse config)
         {
-            var configString = $"{config.ExpiredNotificationCron}|{config.NearExpiredNotificationCron}|" +
+            var configString = $"{config.NearExpiredNotificationCron}|{config.DocumentStatusUpdateCron}|" +
                               $"{config.QuartzEnabled}|{config.EnableExpiredNotifications}|{config.EnableNearExpiredNotifications}|" +
                               $"{config.WarningThresholdDays}|{config.LogRetentionDays}|{config.UpdateAt}";
 
@@ -157,13 +158,14 @@ namespace Notification.API.Services.Implement
             return Convert.ToBase64String(hashBytes);
         }
 
-        private async Task<(bool expiredNeedsUpdate, bool nearExpiredNeedsUpdate, bool enabledStateChanged)>
+        // Updated to check DocumentStatusUpdateCron instead of ExpiredNotificationCron
+        private async Task<(bool nearExpiredNeedsUpdate, bool statusUpdateNeedsUpdate, bool enabledStateChanged)>
             CheckIfUpdateNeeded(NotificationConfigResponse config, dynamic quartzStatus)
         {
             try
             {
-                string currentExpiredCron = null;
                 string currentNearExpiredCron = null;
+                string currentStatusUpdateCron = null;
                 bool currentQuartzRunning = false;
 
                 if (quartzStatus != null && quartzStatus.GetType().GetProperty("Jobs") != null)
@@ -173,16 +175,18 @@ namespace Notification.API.Services.Implement
                     {
                         var jobsType = jobs.GetType();
 
-                        var expiredJob = jobsType.GetProperty("ExpiredDocumentJob")?.GetValue(jobs);
-                        if (expiredJob != null)
-                        {
-                            currentExpiredCron = expiredJob.GetType().GetProperty("CronExpression")?.GetValue(expiredJob)?.ToString();
-                        }
+                        // REMOVED: ExpiredDocumentJob check
 
                         var nearExpiredJob = jobsType.GetProperty("NearExpiredDocumentJob")?.GetValue(jobs);
                         if (nearExpiredJob != null)
                         {
                             currentNearExpiredCron = nearExpiredJob.GetType().GetProperty("CronExpression")?.GetValue(nearExpiredJob)?.ToString();
+                        }
+
+                        var statusUpdateJob = jobsType.GetProperty("DocumentStatusUpdateJob")?.GetValue(jobs);
+                        if (statusUpdateJob != null)
+                        {
+                            currentStatusUpdateCron = statusUpdateJob.GetType().GetProperty("CronExpression")?.GetValue(statusUpdateJob)?.ToString();
                         }
                     }
 
@@ -191,11 +195,11 @@ namespace Notification.API.Services.Implement
                     currentQuartzRunning = schedulerStarted is true && standbyMode is false;
                 }
 
-                bool expiredNeedsUpdate = !string.Equals(currentExpiredCron, config.ExpiredNotificationCron, StringComparison.OrdinalIgnoreCase);
                 bool nearExpiredNeedsUpdate = !string.Equals(currentNearExpiredCron, config.NearExpiredNotificationCron, StringComparison.OrdinalIgnoreCase);
+                bool statusUpdateNeedsUpdate = !string.Equals(currentStatusUpdateCron, config.DocumentStatusUpdateCron, StringComparison.OrdinalIgnoreCase);
                 bool enabledStateChanged = currentQuartzRunning != config.QuartzEnabled;
 
-                return (expiredNeedsUpdate, nearExpiredNeedsUpdate, enabledStateChanged);
+                return (nearExpiredNeedsUpdate, statusUpdateNeedsUpdate, enabledStateChanged);
             }
             catch (Exception ex)
             {

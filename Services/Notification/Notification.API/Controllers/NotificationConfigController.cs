@@ -10,9 +10,6 @@ using Notification.API.Services.Interfaces;
 namespace Notification.API.Controllers
 {
 
-        /// <summary>
-        /// API quản lý cấu hình notification system - thresholds, cron jobs, scheduling modes
-        /// </summary>
         [ApiController]
         [Route(ApiEndpointConstant.ApiEndpoint)]
         public class NotificationConfigController : ControllerBase
@@ -36,14 +33,14 @@ namespace Notification.API.Controllers
 
             private Guid GetUserId()
             {
-            var userIdClaim = User.FindFirst("userId")?.Value ??
-                             User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                var userIdClaim = User.FindFirst("userId")?.Value ??
+                                 User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-            if (Guid.TryParse(userIdClaim, out var userId))
-                return userId;
+                if (Guid.TryParse(userIdClaim, out var userId))
+                    return userId;
 
-            throw new UnauthorizedAccessException("User ID not found or invalid in claims");
-        }
+                throw new UnauthorizedAccessException("User ID not found or invalid in claims");
+            }
 
             /// <summary>
             /// Lấy cấu hình notification hiện tại
@@ -82,15 +79,16 @@ namespace Notification.API.Controllers
                 {
                     var userId = GetUserId();
 
-                    // ✅ NEW: Validate cron expressions before updating
-                    if (!IsValidCronExpression(request.ExpiredNotificationCron))
-                    {
-                        return BadRequest($"Invalid expired notification cron expression: {request.ExpiredNotificationCron}");
-                    }
+                    // REMOVED: ExpiredNotificationCron validation since ExpiredDocumentNotificationJob is disabled
 
                     if (!IsValidCronExpression(request.NearExpiredNotificationCron))
                     {
                         return BadRequest($"Invalid near-expired notification cron expression: {request.NearExpiredNotificationCron}");
+                    }
+
+                    if (!IsValidCronExpression(request.DocumentStatusUpdateCron))
+                    {
+                        return BadRequest($"Invalid document status update cron expression: {request.DocumentStatusUpdateCron}");
                     }
 
                     var config = await _configService.UpdateNotificationConfigAsync(request);
@@ -146,10 +144,11 @@ namespace Notification.API.Controllers
 
                     return Ok(new
                     {
-                        nextExpiredNotificationTime = config.NextExpiredNotificationTime,
+                        // REMOVED: nextExpiredNotificationTime and expiredNotificationCron
                         nextNearExpiredNotificationTime = config.NextNearExpiredNotificationTime,
-                        expiredNotificationCron = config.ExpiredNotificationCron,
+                        nextDocumentStatusUpdateTime = config.NextDocumentStatusUpdateTime, // NEW
                         nearExpiredNotificationCron = config.NearExpiredNotificationCron,
+                        documentStatusUpdateCron = config.DocumentStatusUpdateCron, // NEW
                         enableExpiredNotifications = config.EnableExpiredNotifications,
                         enableNearExpiredNotifications = config.EnableNearExpiredNotifications,
                         quartzEnabled = config.QuartzEnabled
@@ -163,31 +162,30 @@ namespace Notification.API.Controllers
             }
 
             /// <summary>
-            /// Trigger expired document notification job ngay lập tức - chỉ Admin
+            /// Trigger document status update job (handles both status update + expired notifications) - chỉ Admin
             /// </summary>
-            [HttpPost(ApiEndpointConstant.Config.TriggerExpired)]
+            [HttpPost(ApiEndpointConstant.Config.TriggerStatusUpdate)]
             [CustomAuthorize(Roles = new[] { Roles.Admin })]
             [ProducesResponseType(StatusCodes.Status200OK)]
             [ProducesResponseType(StatusCodes.Status401Unauthorized)]
             [ProducesResponseType(StatusCodes.Status403Forbidden)]
             [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-            public async Task<IActionResult> TriggerExpiredJobAsync()
+            public async Task<IActionResult> TriggerStatusUpdateJobAsync()
             {
                 try
                 {
                     var userId = GetUserId();
-                    await _schedulerService.TriggerExpiredDocumentJobNow();
+                    await _schedulerService.TriggerDocumentStatusUpdateJobNow();
 
-                    _logger.LogInformation("Expired document job manually triggered by {UserId}", userId);
-                    return Ok(new { message = "Expired document notification job triggered successfully" });
+                    _logger.LogInformation("Document status update job manually triggered by {UserId}", userId);
+                    return Ok(new { message = "Document status update job triggered successfully (includes expired notifications)" });
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error triggering expired document job");
+                    _logger.LogError(ex, "Error triggering document status update job");
                     return Problem(MessageConstant.Config.JobTriggerFailed);
                 }
             }
-
             /// <summary>
             /// Trigger near-expired document notification job ngay lập tức - chỉ Admin
             /// </summary>
@@ -299,9 +297,8 @@ namespace Notification.API.Controllers
                     if (string.IsNullOrWhiteSpace(cronExpression))
                         return false;
 
-                    // Simple validation - can be enhanced with Quartz CronExpression.IsValidExpression
                     var parts = cronExpression.Split(' ');
-                    return parts.Length == 6; // Basic cron format: second minute hour day month dayOfWeek
+                    return parts.Length == 6; // Quartz cron format: second minute hour day month dayOfWeek
                 }
                 catch
                 {

@@ -27,7 +27,7 @@ namespace Notification.API.Jobs
         {
             var jobId = Guid.NewGuid().ToString("N")[..8];
             var jobType = "document_status_update";
-            var lockDuration = TimeSpan.FromMinutes(40);
+            var lockDuration = TimeSpan.FromMinutes(25);
 
             // Try lock job
             var jobLocked = await _redisService.TryLockJobAsync(jobType, lockDuration);

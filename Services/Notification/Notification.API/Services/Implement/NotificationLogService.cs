@@ -96,32 +96,6 @@ namespace Notification.API.Services.Implement
             }
         }
 
-        // ✅ NEW: Additional cleanup methods for specific log types
-        public async Task CleanUpProcessingLogsAsync()
-        {
-            try
-            {
-                var logRepo = _unitOfWork.GetRepository<NotificationLog>();
-                var cutoffTime = DateTime.UtcNow.AddHours(-24);
-
-                var processingLogs = await logRepo.GetListAsync(predicate: l =>
-                    l.Subject == "PROCESSING..." &&
-                    l.IsSent == false &&
-                    l.CreateAt < cutoffTime);
-
-                if (processingLogs.Any())
-                {
-                    logRepo.DeleteRangeAsync(processingLogs);
-                    await _unitOfWork.CommitAsync();
-                    _logger.LogInformation("Cleaned up {Count} stale processing logs", processingLogs.Count);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during processing logs cleanup");
-            }
-        }
-
         public async Task CleanUpGroupedNotificationLogsAsync(int? customRetentionDays = null)
         {
             try
@@ -145,97 +119,6 @@ namespace Notification.API.Services.Implement
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during grouped notification logs cleanup");
-            }
-        }
-
-        // ✅ NEW: Get statistics for monitoring
-        public async Task<object> GetNotificationStatisticsAsync(int days = 30)
-        {
-            try
-            {
-                var logRepo = _unitOfWork.GetRepository<NotificationLog>();
-                var cutoffDate = DateTime.UtcNow.AddDays(-days);
-
-                var logs = await logRepo.GetListAsync(predicate: l => l.CreateAt >= cutoffDate);
-
-                var stats = new
-                {
-                    totalNotifications = logs.Count,
-                    successfulNotifications = logs.Count(l => l.IsSent == true),
-                    failedNotifications = logs.Count(l => l.IsSent == false && l.Subject != "PROCESSING..."),
-                    processingNotifications = logs.Count(l => l.Subject == "PROCESSING..."),
-                    expiredDocumentNotifications = logs.Count(l => l.NotificationType == Domain.Enums.NotificationType.Expired),
-                    nearExpiredDocumentNotifications = logs.Count(l => l.NotificationType == Domain.Enums.NotificationType.NearingExpiration),
-                    dailyGroupedNotifications = logs.Count(l => l.DocumentId == "DAILY_GROUP"),
-                    systemNotifications = logs.Count(l => l.RecipientAddress == "system"),
-                    uniqueRecipients = logs.Where(l => !string.IsNullOrEmpty(l.RecipientAddress) && l.RecipientAddress != "system")
-                                          .Select(l => l.RecipientAddress)
-                                          .Distinct()
-                                          .Count(),
-                    periodDays = days,
-                    generatedAt = DateTime.UtcNow
-                };
-
-                return stats;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting notification statistics");
-                return new { error = "Failed to get notification statistics" };
-            }
-        }
-
-        // ✅ NEW: Get notification logs by type
-        public async Task<IPaginate<NotificationResponse>> GetNotificationLogsByTypeAsync(
-            string notificationType, int page = 1, int size = 20)
-        {
-            try
-            {
-                var repo = _unitOfWork.GetRepository<NotificationLog>();
-
-                Expression<Func<NotificationLog, bool>> predicate = l =>
-                    l.NotificationType.ToString() == notificationType;
-
-                var logs = await repo.GetPagingListAsync(
-                    selector: l => _mapper.Map<NotificationResponse>(l),
-                    predicate: predicate,
-                    filter: null,
-                    page: page,
-                    size: Math.Min(size, ApiConstants.MAX_PAGE_SIZE),
-                    sortBy: "CreateAt",
-                    isAsc: false
-                );
-
-                return logs;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting notification logs by type {Type}", notificationType);
-                throw;
-            }
-        }
-
-        // ✅ NEW: Get recent failed notifications for monitoring
-        public async Task<List<NotificationResponse>> GetRecentFailedNotificationsAsync(int hours = 24)
-        {
-            try
-            {
-                var repo = _unitOfWork.GetRepository<NotificationLog>();
-                var cutoffTime = DateTime.UtcNow.AddHours(-hours);
-
-                var failedLogs = await repo.GetListAsync(predicate: l =>
-                    l.IsSent == false &&
-                    l.Subject != "PROCESSING..." &&
-                    l.CreateAt >= cutoffTime);
-
-                return failedLogs.Select(l => _mapper.Map<NotificationResponse>(l))
-                                .OrderByDescending(l => l.CreateAt)
-                                .ToList();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting recent failed notifications");
-                return new List<NotificationResponse>();
             }
         }
     }

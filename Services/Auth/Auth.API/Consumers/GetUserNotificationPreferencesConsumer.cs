@@ -23,21 +23,21 @@ namespace Auth.API.Consumers
             try
             {
                 var command = context.Message;
-                _logger.LogInformation("Getting notification preferences for user {UserId}", command.UserId);
-
                 var userSetting = await _userSettingService.GetUserSettingByUserIdAsync(command.UserId);
+
+                var notificationsEnabled = userSetting?.NotificationsEnabled ?? true;
 
                 var preferences = new UserNotificationPreferencesDto
                 {
                     UserId = command.UserId,
-                    NotificationsEnabled = userSetting?.NotificationsEnabled ?? true,
-                    EmailNotificationsEnabled = userSetting?.NotificationsEnabled ?? true,
-                    SystemNotificationsEnabled = userSetting?.NotificationsEnabled ?? true,
-                    DocumentWorkflowEnabled = userSetting?.NotificationsEnabled ?? true,
-                    DocumentExpirationEnabled = userSetting?.NotificationsEnabled ?? true,
-                    DocumentSubmissionEnabled = userSetting?.NotificationsEnabled ?? true,
-                    DocumentApprovalEnabled = userSetting?.NotificationsEnabled ?? true,
-                    DocumentRejectionEnabled = userSetting?.NotificationsEnabled ?? true
+                    NotificationsEnabled = notificationsEnabled,
+                    EmailNotificationsEnabled = notificationsEnabled,
+                    SystemNotificationsEnabled = notificationsEnabled,
+                    DocumentWorkflowEnabled = notificationsEnabled,
+                    DocumentExpirationEnabled = notificationsEnabled,
+                    DocumentSubmissionEnabled = notificationsEnabled,
+                    DocumentApprovalEnabled = notificationsEnabled,
+                    DocumentRejectionEnabled = notificationsEnabled
                 };
 
                 await context.RespondAsync(new GetUserNotificationPreferencesResponse
@@ -49,7 +49,7 @@ namespace Auth.API.Consumers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting user notification preferences");
+                _logger.LogError(ex, "Error getting user notification preferences for {UserId}", context.Message.UserId);
                 await context.RespondAsync(new GetUserNotificationPreferencesResponse
                 {
                     Preferences = null,
