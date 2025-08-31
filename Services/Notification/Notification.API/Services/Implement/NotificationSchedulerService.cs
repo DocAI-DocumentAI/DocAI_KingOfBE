@@ -21,15 +21,13 @@ namespace Notification.API.Services.Implement
             _logger = logger;
         }
 
-        public async Task UpdateExpiredDocumentJobSchedule(string cronExpression)
-        {
-            await UpdateJobSchedule("ExpiredDocumentTrigger", cronExpression, "Expired Document");
-        }
+        // REMOVED: UpdateExpiredDocumentJobSchedule - ExpiredDocumentNotificationJob is disabled
+
         public async Task UpdateNearExpiredDocumentJobSchedule(string cronExpression)
         {
             await UpdateJobSchedule("NearExpiredDocumentTrigger", cronExpression, "Near-Expired Document");
-
         }
+
         public async Task UpdateDocumentStatusUpdateJobSchedule(string cronExpression)
         {
             await UpdateJobSchedule("DocumentStatusUpdateTrigger", cronExpression, "Document Status Update");
@@ -39,6 +37,7 @@ namespace Notification.API.Services.Implement
         {
             await TriggerJobNow("DocumentStatusUpdateJob", "Document Status Update");
         }
+
         private async Task UpdateJobSchedule(string triggerKey, string cronExpression, string jobName)
         {
             try
@@ -84,10 +83,10 @@ namespace Notification.API.Services.Implement
 
                 var jobKeys = new[]
                 {
-                    new JobKey("ExpiredDocumentNotificationJob"),
+                    // REMOVED: ExpiredDocumentNotificationJob - it's disabled
                     new JobKey("NearExpiredDocumentNotificationJob"),
                     new JobKey("CleanUpOldLogsJob"),
-                    new JobKey("DocumentStatusUpdateJob")
+                    new JobKey("DocumentStatusUpdateJob") // This handles both status update + expired notifications
                 };
 
                 foreach (var jobKey in jobKeys)
@@ -114,10 +113,10 @@ namespace Notification.API.Services.Implement
 
                 var jobKeys = new[]
                 {
-                    new JobKey("ExpiredDocumentNotificationJob"),
+                    // REMOVED: ExpiredDocumentNotificationJob - it's disabled
                     new JobKey("NearExpiredDocumentNotificationJob"),
                     new JobKey("CleanUpOldLogsJob"),
-                    new JobKey("DocumentStatusUpdateJob")
+                    new JobKey("DocumentStatusUpdateJob") // This handles both status update + expired notifications
                 };
 
                 foreach (var jobKey in jobKeys)
@@ -142,12 +141,11 @@ namespace Notification.API.Services.Implement
             {
                 var scheduler = await _schedulerFactory.GetScheduler();
 
-                var expiredJobKey = new JobKey("ExpiredDocumentNotificationJob");
+                // REMOVED: ExpiredDocumentNotificationJob references
                 var nearExpiredJobKey = new JobKey("NearExpiredDocumentNotificationJob");
                 var statusUpdateJobKey = new JobKey("DocumentStatusUpdateJob");
                 var cleanupJobKey = new JobKey("CleanUpOldLogsJob");
 
-                var expiredTriggerKey = new TriggerKey("ExpiredDocumentTrigger");
                 var nearExpiredTriggerKey = new TriggerKey("NearExpiredDocumentTrigger");
                 var statusUpdateTriggerKey = new TriggerKey("DocumentStatusUpdateTrigger");
                 var cleanupTriggerKey = new TriggerKey("CleanUpOldLogsTrigger");
@@ -161,7 +159,7 @@ namespace Notification.API.Services.Implement
                     CurrentVietnamTime = vietnamNow.ToString("yyyy-MM-dd HH:mm:ss (dddd)"),
                     Jobs = new
                     {
-                        ExpiredDocumentJob = await GetJobStatus(scheduler, expiredJobKey, expiredTriggerKey),
+                        // REMOVED: ExpiredDocumentJob
                         NearExpiredDocumentJob = await GetJobStatus(scheduler, nearExpiredJobKey, nearExpiredTriggerKey),
                         DocumentStatusUpdateJob = await GetJobStatus(scheduler, statusUpdateJobKey, statusUpdateTriggerKey),
                         CleanupJob = await GetJobStatus(scheduler, cleanupJobKey, cleanupTriggerKey)
@@ -221,11 +219,6 @@ namespace Notification.API.Services.Implement
             {
                 return new { Status = "Error", Error = ex.Message };
             }
-        }
-
-        public async Task TriggerExpiredDocumentJobNow()
-        {
-            await TriggerJobNow("ExpiredDocumentNotificationJob", "Expired Document Notification");
         }
 
         public async Task TriggerNearExpiredDocumentJobNow()

@@ -15,7 +15,7 @@ namespace Notification.Domain.Models
         public bool QuartzEnabled { get; set; } = true;
 
         [Required]
-        public string ExpiredNotificationCron { get; set; } = "0 0 8 * * ?";     // 8:00 AM daily
+        public string DocumentStatusUpdateCron { get; set; } = "0 0 0 * * ?";
         [Required]
         public string NearExpiredNotificationCron { get; set; } = "0 0 9 * * MON"; // 9:00 AM Monday
 

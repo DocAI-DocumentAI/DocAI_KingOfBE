@@ -46,13 +46,14 @@ namespace Notification.API.Services.Implement
                     return response.Message.Preferences;
                 }
 
-                // Default preferences if not found
+                // SIMPLIFIED: Default preferences based on single NotificationsEnabled flag
                 var defaultPreferences = new UserNotificationPreferencesDto
                 {
                     UserId = userId,
-                    NotificationsEnabled = true,
+                    NotificationsEnabled = true, // Default to enabled if not found
                     EmailNotificationsEnabled = true,
                     SystemNotificationsEnabled = true,
+                    // SIMPLIFIED: All notification types follow the main NotificationsEnabled flag
                     DocumentWorkflowEnabled = true,
                     DocumentExpirationEnabled = true,
                     DocumentSubmissionEnabled = true,
@@ -98,44 +99,21 @@ namespace Notification.API.Services.Implement
                 {
                     var preferences = response.Message.Preferences.FirstOrDefault(p => p.UserId == user.UserId);
 
-                    if (preferences == null)
-                    {
-                        // If no preferences found, allow by default
-                        filteredUsers.Add(user);
-                        continue;
-                    }
+                    // SIMPLIFIED: Only check NotificationsEnabled (single flag)
+                    var notificationsEnabled = preferences?.NotificationsEnabled ?? true; // Default to true
 
-                    // Check if user has notifications enabled
-                    if (!preferences.NotificationsEnabled)
-                    {
-                        _logger.LogDebug("User {UserId} has notifications disabled", user.UserId);
-                        continue;
-                    }
-
-                    // Check specific notification type preferences
-                    var shouldInclude = notificationType.ToLower() switch
-                    {
-                        "documentexpiration" => preferences.DocumentExpirationEnabled,
-                        "documentsubmission" => preferences.DocumentSubmissionEnabled,
-                        "documentapproval" => preferences.DocumentApprovalEnabled,
-                        "documentrejection" => preferences.DocumentRejectionEnabled,
-                        "documentworkflow" => preferences.DocumentWorkflowEnabled,
-                        _ => true // Default to true for unknown types
-                    };
-
-                    if (shouldInclude)
+                    if (notificationsEnabled)
                     {
                         filteredUsers.Add(user);
                     }
                     else
                     {
-                        _logger.LogDebug("User {UserId} has {NotificationType} notifications disabled",
-                            user.UserId, notificationType);
+                        _logger.LogDebug("User {UserId} has notifications disabled", user.UserId);
                     }
                 }
 
-                _logger.LogInformation("Filtered {Original} users to {Filtered} based on preferences for {Type}",
-                    users.Count, filteredUsers.Count, notificationType);
+                _logger.LogInformation("Filtered recipients from {Total} to {Filtered} based on NotificationsEnabled preference",
+                    users.Count, filteredUsers.Count);
 
                 return filteredUsers;
             }
@@ -151,18 +129,8 @@ namespace Notification.API.Services.Implement
             var preferences = await GetUserPreferencesAsync(userId);
             if (preferences == null) return true; // Default to true
 
-            if (!preferences.NotificationsEnabled || !preferences.EmailNotificationsEnabled)
-                return false;
-
-            return notificationType.ToLower() switch
-            {
-                "documentexpiration" => preferences.DocumentExpirationEnabled,
-                "documentsubmission" => preferences.DocumentSubmissionEnabled,
-                "documentapproval" => preferences.DocumentApprovalEnabled,
-                "documentrejection" => preferences.DocumentRejectionEnabled,
-                "documentworkflow" => preferences.DocumentWorkflowEnabled,
-                _ => true
-            };
+            // SIMPLIFIED: Only check NotificationsEnabled flag
+            return preferences.NotificationsEnabled;
         }
 
         public async Task<bool> ShouldSendSystemNotificationAsync(Guid userId, string notificationType)
@@ -170,18 +138,7 @@ namespace Notification.API.Services.Implement
             var preferences = await GetUserPreferencesAsync(userId);
             if (preferences == null) return true; // Default to true
 
-            if (!preferences.NotificationsEnabled || !preferences.SystemNotificationsEnabled)
-                return false;
-
-            return notificationType.ToLower() switch
-            {
-                "documentexpiration" => preferences.DocumentExpirationEnabled,
-                "documentsubmission" => preferences.DocumentSubmissionEnabled,
-                "documentapproval" => preferences.DocumentApprovalEnabled,
-                "documentrejection" => preferences.DocumentRejectionEnabled,
-                "documentworkflow" => preferences.DocumentWorkflowEnabled,
-                _ => true
-            };
+            return preferences.NotificationsEnabled;
         }
     }
 }

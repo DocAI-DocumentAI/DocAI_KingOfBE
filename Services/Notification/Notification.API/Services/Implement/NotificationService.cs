@@ -36,6 +36,7 @@ public class NotificationService : INotificationService
     private readonly IConfiguration _configuration;
     private readonly IServiceProvider _serviceProvider;
     private readonly IUserService _userService;
+    private readonly IUserPreferencesService _userPreferencesService; 
 
     public NotificationService(
         IUnitOfWork<NotificationDbContext> unitOfWork,
@@ -46,7 +47,8 @@ public class NotificationService : INotificationService
         IHubContext<NotificationHub> hubContext,
         IConfiguration configuration,
         IServiceProvider serviceProvider,
-        IUserService userService)
+        IUserService userService,
+        IUserPreferencesService userPreferencesService)
     {
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -57,6 +59,7 @@ public class NotificationService : INotificationService
         _configuration = configuration;
         _serviceProvider = serviceProvider;
         _userService = userService;
+        _userPreferencesService = userPreferencesService;
     }
 
     private async Task<List<UserDto>> GetAuthorizedRecipientsAsync(DocumentExpirationDto document)
@@ -242,7 +245,18 @@ public class NotificationService : INotificationService
     private async Task SendNotificationsToRecipientsAsync(DocumentExpirationDto document,
         NotificationType type, string templateName, List<UserDto> recipients)
     {
-        foreach (var user in recipients)
+        var filteredRecipients = await FilterUsersByNotificationPreference(recipients);
+
+        if (!filteredRecipients.Any())
+        {
+            _logger.LogInformation("No recipients with enabled notifications for document {DocId}", document.DocumentId);
+            return;
+        }
+
+        _logger.LogInformation("Filtered recipients from {Total} to {Filtered} based on preferences for document {DocId}",
+            recipients.Count, filteredRecipients.Count, document.DocumentId);
+
+        foreach (var user in filteredRecipients)
         {
             try
             {
@@ -404,79 +418,6 @@ public class NotificationService : INotificationService
         }
     }
 
-
-    private async Task TryUpdateDocumentStatusAsync(DocumentExpirationDto document)
-    {
-        try
-        {
-            if (string.IsNullOrEmpty(document.DocumentId) || string.IsNullOrEmpty(document.Version))
-            {
-                _logger.LogWarning("Cannot update document status: DocumentId or Version is null/empty");
-                return;
-            }
-
-            // ✅ Use unified helper for Vietnam time display
-            var vietnamTime = TimeZoneHelper.VietnamNow;
-            _logger.LogInformation("Updating document {DocId}/{Version} status to Archived at Vietnam time: {VietnamTime}",
-                document.DocumentId, document.Version, vietnamTime.ToString("yyyy-MM-dd HH:mm:ss"));
-
-            var updateClient = _serviceProvider.GetService<IRequestClient<UpdateDocumentStatusCommand>>();
-            if (updateClient == null)
-            {
-                _logger.LogError("UpdateDocumentStatusCommand client is not registered");
-                return;
-            }
-
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-
-            var response = await updateClient.GetResponse<UpdateDocumentStatusResponse>(
-                new UpdateDocumentStatusCommand
-                {
-                    DocumentId = document.DocumentId,
-                    Version = document.Version,
-                    NewStatus = "Archived",
-                    UpdateKernelMemory = true,
-                    VietnamTime = vietnamTime, // ✅ Pass Vietnam time for logging
-                    UpdatedBy = "system_expiration",
-                    RequestId = Guid.NewGuid()
-                },
-                timeout.Token);
-
-            if (response?.Message?.Success == true)
-            {
-                _logger.LogInformation("Successfully updated document {DocId}/{Version} from {OldStatus} to {NewStatus}",
-                    document.DocumentId, document.Version, response.Message.OldStatus, response.Message.NewStatus);
-
-                var archiveLog = new NotificationLog
-                {
-                    DocumentId = document.DocumentId,
-                    DocumentVersion = document.Version,
-                    NotificationType = NotificationType.General,
-                    RecipientType = RecipientType.SystemAlert,
-                    RecipientAddress = "system",
-                    Subject = $"Document Archived: {document.Title}",
-                    Message = $"Document '{document.Title}' has been automatically archived due to expiration.",
-                    IsSent = true,
-                    SentAt = TimeZoneHelper.UtcNow,     // ✅ Store UTC in database
-                    CreateAt = TimeZoneHelper.UtcNow,   // ✅ Store UTC in database
-                    ErrorMessage = null
-                };
-
-                await _logService.CreateLogAsync(archiveLog);
-            }
-            else
-            {
-                _logger.LogError("Failed to update document status for {DocId}/{Version}: {Error}",
-                    document.DocumentId, document.Version, response?.Message?.ErrorMessage ?? "Unknown error");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating document status for {DocId}/{Version}",
-                document.DocumentId, document.Version);
-        }
-    }
-
     // ✅ NEW: Daily grouped notification method
     public async Task ProcessDailyGroupedNotificationAsync(List<DocumentExpirationDto> documents, string departmentName)
     {
@@ -503,12 +444,24 @@ public class NotificationService : INotificationService
                 return;
             }
 
-            var recipients = await GetDepartmentRecipientsAsync(documents.First().DepartmentId);
-            if (!recipients.Any())
+            var allRecipients = await GetDepartmentRecipientsAsync(documents.First().DepartmentId);
+            if (!allRecipients.Any())
             {
                 _logger.LogWarning("No recipients found for department {DepartmentName}", departmentName);
                 return;
             }
+
+            // SIMPLIFIED FILTER: Chỉ check NotificationsEnabled flag
+            var filteredRecipients = await FilterUsersByNotificationPreference(allRecipients);
+
+            if (!filteredRecipients.Any())
+            {
+                _logger.LogInformation("No users with enabled notifications found for department {DepartmentName}", departmentName);
+                return;
+            }
+
+            _logger.LogInformation("Filtered recipients from {Total} to {Filtered} based on NotificationsEnabled for {DepartmentName}",
+                allRecipients.Count, filteredRecipients.Count, departmentName);
 
             var documentsListHtml = CreateDocumentsListHtml(documents, groupType.Contains("Expired"));
             var timeRange = TimeZoneHelper.VietnamNow.ToString("dd/MM/yyyy");
@@ -516,7 +469,7 @@ public class NotificationService : INotificationService
                 ? $"[{departmentName}] Thông báo: {documents.Count} tài liệu đã hết hạn"
                 : $"[{departmentName}] Thông báo: {documents.Count} tài liệu sắp hết hạn";
 
-            var notificationType = groupType.Contains("Expired")
+            var notificationTypeEnum = groupType.Contains("Expired")
                 ? NotificationType.Expired
                 : NotificationType.NearingExpiration;
 
@@ -524,7 +477,7 @@ public class NotificationService : INotificationService
             var successCount = 0;
             var errorCount = 0;
 
-            foreach (var user in recipients)
+            foreach (var user in filteredRecipients)
             {
                 try
                 {
@@ -544,23 +497,22 @@ public class NotificationService : INotificationService
                         .Replace("{{StatusMessage}}", groupType.Contains("Expired") ? "đã hết hạn và sẽ được chuyển sang trạng thái Archived" : "sắp hết hạn")
                         .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm"));
 
-                    // SEND EMAIL
+                    // SEND EMAIL (user already filtered by NotificationsEnabled)
                     var emailSent = await _emailService.SendEmailAsync(user.Email, subject, emailBody);
 
                     if (emailSent)
                     {
                         successCount++;
 
-                        // FIXED: Lưu full email content thay vì generic message
                         var log = new NotificationLog
                         {
                             DocumentId = groupId,
                             DocumentVersion = documents.First().DepartmentId.ToString(),
-                            NotificationType = notificationType,
+                            NotificationType = notificationTypeEnum,
                             RecipientType = RecipientType.Email,
                             RecipientAddress = user.Email,
                             Subject = subject,
-                            Message = emailBody, 
+                            Message = emailBody,
                             IsSent = true,
                             SentAt = TimeZoneHelper.UtcNow,
                             CreateAt = TimeZoneHelper.UtcNow
@@ -568,6 +520,9 @@ public class NotificationService : INotificationService
                         await _logService.CreateLogAsync(log);
 
                         _logger.LogInformation("Successfully sent grouped notification to {Email}", user.Email);
+
+                        // SEND SIGNALR (user already filtered by NotificationsEnabled, no need to double-check)
+                        await SendSignalRNotificationAsync(user, notificationTypeEnum, subject, documents.First());
                     }
                     else
                     {
@@ -593,80 +548,26 @@ public class NotificationService : INotificationService
             _logger.LogError(ex, "Error processing grouped notification for {DepartmentName}", departmentName);
         }
     }
-
-    private async Task SendGroupedNotificationAsync(
-      string recipientEmail,
-      string recipientName,
-      string subject,
-      string templateName,
-      string departmentName,
-      int documentCount,
-      string documentsListHtml,
-      string timeRange,
-      string departmentId,
-      Guid userId,
-      string groupType,
-      int duplicateCheckDays,
-      NotificationType notificationType,
-      string groupId)
+    private async Task<List<UserDto>> FilterUsersByNotificationPreference(List<UserDto> users)
     {
+        if (!users.Any()) return users;
+
         try
         {
-            var utcNow = TimeZoneHelper.UtcNow;
+            // Use public method from UserPreferencesService
+            var filteredUsers = await _userPreferencesService.FilterUsersByPreferencesAsync(users, "documentexpiration");
 
-            var template = await _emailTemplateService.GetEmailTemplateByNameAsync(templateName);
-            if (template == null)
-            {
-                _logger.LogError("Template '{TemplateName}' not found", templateName);
-                return;
-            }
+            _logger.LogInformation("Filtered {Total} users to {Filtered} based on NotificationsEnabled preference",
+                users.Count, filteredUsers.Count);
 
-            var vietnamTimeForDisplay = TimeZoneHelper.ConvertUtcToVietnam(utcNow);
-
-            // Enhanced template replacement for expired documents
-            var emailBody = template.BodyHtml
-                .Replace("{{RecipientName}}", SanitizeValue(recipientName))
-                .Replace("{{RecipientEmail}}", SanitizeValue(recipientEmail))
-                .Replace("{{UserName}}", SanitizeValue(recipientName))
-                .Replace("{{UserEmail}}", SanitizeValue(recipientEmail))
-                .Replace("{{DepartmentName}}", SanitizeValue(departmentName))
-                .Replace("{{DocumentCount}}", documentCount.ToString())
-                .Replace("{{DocumentsList}}", documentsListHtml)
-                .Replace("{{TimeRange}}", SanitizeValue(timeRange))
-                .Replace("{{GroupType}}", groupType)
-                .Replace("{{NotificationType}}", groupType.Contains("Expired") ? "expired" : "near-expired")
-                .Replace("{{StatusMessage}}", groupType.Contains("Expired") ? "đã hết hạn và sẽ được chuyển sang trạng thái Archived" : "sắp hết hạn")
-                .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm"));
-
-            var emailSent = await _emailService.SendEmailAsync(recipientEmail, subject, emailBody);
-
-            var log = new NotificationLog
-            {
-                DocumentId = groupId,
-                DocumentVersion = departmentId,
-                NotificationType = notificationType,
-                RecipientType = RecipientType.Email,
-                RecipientAddress = recipientEmail,
-                Subject = subject,
-                Message = emailBody,
-                IsSent = emailSent,
-                SentAt = emailSent ? TimeZoneHelper.UtcNow : null,
-                CreateAt = TimeZoneHelper.UtcNow,
-                ErrorMessage = emailSent ? null : $"Failed to send {groupType.ToLower()} grouped notification"
-            };
-
-            await _logService.CreateLogAsync(log);
-
-            _logger.LogInformation("Successfully sent {GroupType} grouped notification to {Email}",
-                groupType, recipientEmail);
+            return filteredUsers;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error sending {GroupType} grouped notification to {Email}", groupType, recipientEmail);
+            _logger.LogError(ex, "Error filtering users by preferences, sending to all users");
+            return users; // Fallback
         }
     }
-
-
     // Helper methods
     private string CreateDocumentsListHtml(List<DocumentExpirationDto> documents, bool isExpiredNotification = false)
     {
@@ -729,41 +630,14 @@ public class NotificationService : INotificationService
         html += "</ul>";
         return html;
     }
-    private async Task<bool> SendGroupedNotificationEmailAsync(
-       string recipientEmail, string recipientName, string subject,
-       EmailTemplateResponse template, string departmentName, int documentCount,
-       string documentsListHtml, string timeRange)
-    {
-        try
-        {
-            var vietnamTimeForDisplay = TimeZoneHelper.VietnamNow;
-            var emailBody = template.BodyHtml
-                .Replace("{{RecipientName}}", SanitizeValue(recipientName))
-                .Replace("{{RecipientEmail}}", SanitizeValue(recipientEmail))
-                .Replace("{{UserName}}", SanitizeValue(recipientName))
-                .Replace("{{UserEmail}}", SanitizeValue(recipientEmail))
-                .Replace("{{DepartmentName}}", SanitizeValue(departmentName))
-                .Replace("{{DocumentCount}}", documentCount.ToString())
-                .Replace("{{DocumentsList}}", documentsListHtml)
-                .Replace("{{TimeRange}}", SanitizeValue(timeRange))
-                .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm"));
-
-            return await _emailService.SendEmailAsync(recipientEmail, subject, emailBody);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending grouped notification email to {Email}", recipientEmail);
-            return false;
-        }
-    }
-    public async Task UpdateExpiredDocumentStatusAsync(DocumentExpirationDto document)
+    public async Task<bool> UpdateExpiredDocumentStatusAsync(DocumentExpirationDto document)
     {
         try
         {
             if (string.IsNullOrEmpty(document.DocumentId) || string.IsNullOrEmpty(document.Version))
             {
                 _logger.LogWarning("Cannot update document status: DocumentId or Version is null/empty");
-                return;
+                return false;
             }
 
             var vietnamTime = TimeZoneHelper.VietnamNow;
@@ -774,7 +648,7 @@ public class NotificationService : INotificationService
             if (updateClient == null)
             {
                 _logger.LogError("UpdateDocumentStatusCommand client is not registered");
-                return;
+                return false;
             }
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -797,34 +671,37 @@ public class NotificationService : INotificationService
                 _logger.LogInformation("Successfully updated document {DocId}/{Version} from {OldStatus} to {NewStatus}",
                     document.DocumentId, document.Version, response.Message.OldStatus, response.Message.NewStatus);
 
-                // Create consolidated log entry for both notification and status update
-                var consolidatedLog = new NotificationLog
+                // Create log entry for successful status update
+                var statusUpdateLog = new NotificationLog
                 {
                     DocumentId = document.DocumentId,
                     DocumentVersion = document.Version,
                     NotificationType = NotificationType.General,
                     RecipientType = RecipientType.SystemAlert,
                     RecipientAddress = "system",
-                    Subject = $"Document Archived: {document.Title}",
-                    Message = $"Document '{document.Title}' has been automatically archived due to expiration. Notification sent and status updated.",
+                    Subject = $"Status Updated to Archived: {document.Title}",
+                    Message = $"Document '{document.Title}' has been automatically updated to Archived status due to expiration.",
                     IsSent = true,
                     SentAt = TimeZoneHelper.UtcNow,
                     CreateAt = TimeZoneHelper.UtcNow,
                     ErrorMessage = null
                 };
 
-                await _logService.CreateLogAsync(consolidatedLog);
+                await _logService.CreateLogAsync(statusUpdateLog);
+                return true; // SUCCESS
             }
             else
             {
                 _logger.LogError("Failed to update document status for {DocId}/{Version}: {Error}",
                     document.DocumentId, document.Version, response?.Message?.ErrorMessage ?? "Unknown error");
+                return false; // FAILED
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating document status for {DocId}/{Version}",
                 document.DocumentId, document.Version);
+            return false; // ERROR
         }
     }
     private async Task<List<UserDto>> GetDepartmentRecipientsAsync(Guid departmentId)
@@ -833,12 +710,12 @@ public class NotificationService : INotificationService
         {
             var allRecipients = new List<UserDto>();
 
-            var managers = await _userService.GetDepartmentManagersAsync(departmentId);
-            var editors = await _userService.GetDepartmentEditorsAsync(departmentId);
+            //var managers = await _userService.GetDepartmentManagersAsync(departmentId);
+            //var editors = await _userService.GetDepartmentEditorsAsync(departmentId);
             var departmentUsers = await _userService.GetUsersByDepartmentAsync(departmentId);
 
-            allRecipients.AddRange(managers);
-            allRecipients.AddRange(editors);
+            //allRecipients.AddRange(managers);
+            //allRecipients.AddRange(editors);
             allRecipients.AddRange(departmentUsers);
 
             // Improved deduplication

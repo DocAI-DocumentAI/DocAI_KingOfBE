@@ -7,24 +7,24 @@ namespace Notification.API.Payload.Request
 {
     public class NotificationConfigRequest : IValidatableObject
     {
-        [Range(1, 30, ErrorMessage = "Warning threshold must be between 1-30 days")]
-        public int WarningThresholdDays { get; set; } = 7;
+        [Range(1, 365)]
+        public int WarningThresholdDays { get; set; }
 
-        [Range(7, 365, ErrorMessage = "Log retention must be between 7-365 days")]
-        public int LogRetentionDays { get; set; } = 90;
+        [Range(1, 3650)]
+        public int LogRetentionDays { get; set; }
 
-        public bool QuartzEnabled { get; set; } = true;
+        public bool QuartzEnabled { get; set; }
 
-        [Required]
-        [StringLength(50)]
-        public string ExpiredNotificationCron { get; set; } = "0 0 8 * * ?"; // Fixed
+        // REMOVED: public string ExpiredNotificationCron { get; set; }
 
         [Required]
-        [StringLength(50)]
-        public string NearExpiredNotificationCron { get; set; } = "0 0 9 * * ?"; // Fixed
+        public string NearExpiredNotificationCron { get; set; }
 
-        public bool EnableExpiredNotifications { get; set; } = true;
-        public bool EnableNearExpiredNotifications { get; set; } = true;
+        [Required]
+        public string DocumentStatusUpdateCron { get; set; } // NEW
+
+        public bool EnableExpiredNotifications { get; set; }
+        public bool EnableNearExpiredNotifications { get; set; }
 
         // Custom validation method
         public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
@@ -32,11 +32,11 @@ namespace Notification.API.Payload.Request
             var results = new List<ValidationResult>();
 
             // Use Quartz's built-in validation
-            if (!CronExpression.IsValidExpression(ExpiredNotificationCron))
+            if (!CronExpression.IsValidExpression(DocumentStatusUpdateCron))
             {
                 results.Add(new ValidationResult(
                     "Invalid expired notification cron expression",
-                    new[] { nameof(ExpiredNotificationCron) }));
+                    new[] { nameof(DocumentStatusUpdateCron) }));
             }
 
             if (!CronExpression.IsValidExpression(NearExpiredNotificationCron))
