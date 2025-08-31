@@ -275,23 +275,23 @@ public class NotificationService : INotificationService
 
             var logRepo = _unitOfWork.GetRepository<NotificationLog>();
 
-            var checkPeriod = type == NotificationType.Expired
-                ? TimeZoneHelper.UtcNow.AddDays(-1)
-                : TimeZoneHelper.UtcNow.AddDays(-7);
+            //var checkPeriod = type == NotificationType.Expired
+            //? TimeZoneHelper.UtcNow.AddHours(-1)   
+            //: TimeZoneHelper.UtcNow.AddHours(-2);
 
-            var existingNotification = await logRepo.AnyAsync(l =>
-                l.DocumentId == document.DocumentId &&
-                l.DocumentVersion == document.Version &&
-                l.NotificationType == type &&
-                l.RecipientAddress == user.Email &&
-                l.IsSent == true &&
-                l.SentAt >= checkPeriod);
+            //var existingNotification = await logRepo.AnyAsync(l =>
+            //    l.DocumentId == document.DocumentId &&
+            //    l.DocumentVersion == document.Version &&
+            //    l.NotificationType == type &&
+            //    l.RecipientAddress == user.Email &&
+            //    l.IsSent == true &&
+            //    l.SentAt >= checkPeriod);
 
-            if (existingNotification)
-            {
-                _logger.LogDebug("Duplicate notification skipped for {Email}", user.Email);
-                return;
-            }
+            //if (existingNotification)
+            //{
+            //    _logger.LogDebug("Duplicate notification skipped for {Email}", user.Email);
+            //    return;
+            //}
 
             var processingLog = new NotificationLog
             {
@@ -353,6 +353,7 @@ public class NotificationService : INotificationService
                     DateTime.SpecifyKind(document.EffectiveUntil.Value, DateTimeKind.Utc)
                   ).ToString("dd/MM/yyyy")
                 : "N/A";
+            var timeStamp = vietnamTimeForDisplay.ToString("HH:mm");
 
             var emailBody = template.BodyHtml
                 .Replace("{{RecipientEmail}}", user.Email ?? "")
@@ -366,7 +367,8 @@ public class NotificationService : INotificationService
                 .Replace("{{DepartmentName}}", document.DepartmentName ?? "Unknown Department")
                 .Replace("{{ExpirationStatus}}", expirationStatus)
                 .Replace("{{DaysUntilExpiration}}", daysUntilExpiration)
-                .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm"));
+                .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm"))
+                .Replace("{{Timestamp}}", timeStamp);
 
             var subject = type == NotificationType.Expired
                 ? $"[{document.DepartmentName}] Tài liệu '{document.Title}' đã hết hạn"
@@ -522,20 +524,34 @@ public class NotificationService : INotificationService
             var successCount = 0;
             var errorCount = 0;
 
-            // Simple sequential processing - no complex duplicate checks
             foreach (var user in recipients)
             {
                 try
                 {
-                    var emailSent = await SendGroupedNotificationEmailAsync(
-                        user.Email, user.Name, subject, template,
-                        departmentName, documents.Count, documentsListHtml, timeRange);
+                    // BUILD FULL EMAIL CONTENT
+                    var vietnamTimeForDisplay = TimeZoneHelper.VietnamNow;
+                    var emailBody = template.BodyHtml
+                        .Replace("{{RecipientName}}", SanitizeValue(user.Name))
+                        .Replace("{{RecipientEmail}}", SanitizeValue(user.Email))
+                        .Replace("{{UserName}}", SanitizeValue(user.Name))
+                        .Replace("{{UserEmail}}", SanitizeValue(user.Email))
+                        .Replace("{{DepartmentName}}", SanitizeValue(departmentName))
+                        .Replace("{{DocumentCount}}", documents.Count.ToString())
+                        .Replace("{{DocumentsList}}", documentsListHtml)
+                        .Replace("{{TimeRange}}", SanitizeValue(timeRange))
+                        .Replace("{{GroupType}}", groupType)
+                        .Replace("{{NotificationType}}", groupType.Contains("Expired") ? "expired" : "near-expired")
+                        .Replace("{{StatusMessage}}", groupType.Contains("Expired") ? "đã hết hạn và sẽ được chuyển sang trạng thái Archived" : "sắp hết hạn")
+                        .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm"));
+
+                    // SEND EMAIL
+                    var emailSent = await _emailService.SendEmailAsync(user.Email, subject, emailBody);
 
                     if (emailSent)
                     {
                         successCount++;
 
-                        // Log success
+                        // FIXED: Lưu full email content thay vì generic message
                         var log = new NotificationLog
                         {
                             DocumentId = groupId,
@@ -544,7 +560,7 @@ public class NotificationService : INotificationService
                             RecipientType = RecipientType.Email,
                             RecipientAddress = user.Email,
                             Subject = subject,
-                            Message = "Grouped notification sent successfully",
+                            Message = emailBody, 
                             IsSent = true,
                             SentAt = TimeZoneHelper.UtcNow,
                             CreateAt = TimeZoneHelper.UtcNow
