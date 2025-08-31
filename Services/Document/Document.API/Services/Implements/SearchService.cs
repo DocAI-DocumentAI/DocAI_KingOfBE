@@ -72,27 +72,32 @@ namespace Document.API.Services.Implements
                 // Create context for custom prompt configuration
         var searchContext = new Microsoft.KernelMemory.Context.RequestContext();
         
-        // Set custom system prompt for search
+        // Set custom system prompt for search with markdown formatting
         var customSystemPrompt = @"Facts:
 {{$facts}}
 ======
-You are a document search assistant. Provide DIRECT answers based only on the provided facts.
+You are a document search assistant. Provide DIRECT answers based only on the provided facts in **MARKDOWN FORMAT**.
 
 Guidelines:
-- Maximum 2-3 sentences
+- Format response in clean markdown
+- Use headers (##) for main topics
+- Use bullet points (-) for lists
+- Use **bold** for key information
+- Use *italics* for emphasis
+- Maximum 2-3 sentences per section
 - Only use information from the provided facts
-- Be extremely concise
-- Cite sources briefly
 - If no relevant information found, state '{{$notFound}}'
 
 Question: {{$input}}
-Answer:";
+
+Answer (in markdown format):";
         
         searchContext.SetArg("custom_rag_prompt_str", customSystemPrompt);
         
-        // Optionally customize the fact template for better source attribution
-        var customFactTemplate = @"[Source: {{$source}} | Relevance: {{$relevance}}]
+        // Optionally customize the fact template for better markdown source attribution
+        var customFactTemplate = @"**[Source: {{$source}}]** *(Relevance: {{$relevance}})*
 {{$content}}
+
 ---";
         searchContext.SetArg("custom_rag_fact_template_str", customFactTemplate);
 
@@ -145,9 +150,20 @@ Answer:";
                 // Convert relevant sources to document responses
                 if (askResult.RelevantSources?.Any() == true)
                 {
-                    response.RelevantDocuments = await ConvertSourcesToDocumentResponses(
+                    var allDocuments = await ConvertSourcesToDocumentResponses(
                         askResult.RelevantSources, requestId);
+                    
+                    // Apply post-processing access control filter
+                    response.RelevantDocuments = FilterDocumentsByAccess(
+                        allDocuments, userId, userDepartmentId, userRole);
                 }
+                else
+                {
+                    response.RelevantDocuments = new List<SemanticSearchResponse>();
+                }
+
+                // Update total documents count after filtering
+                response.TotalDocuments = response.RelevantDocuments.Count;
 
                 _logger.LogInformation("✅ [SEARCH-KM] Search completed successfully - RequestId: {RequestId}, DocumentCount: {DocumentCount}",
                     requestId, response.RelevantDocuments.Count);
@@ -199,91 +215,64 @@ Answer:";
             var memoryFilter = new MemoryFilter();
 
             // Always filter for approved documents only
-            memoryFilter.ByTag("status", "approved");
+            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.Status, "approved");
 
             // Apply access control based on user's department and role
             if (userRole?.ToUpper() != "ADMIN")
             {
-                // Users can access:
+                // For non-admin users, we need to create an OR logic:
                 // 1. Documents from their own department (if they have a department)
-                // 2. Public documents from any department
+                // 2. Public documents from ANY department
                 // 3. Documents they own
-
-                var accessFilters = new List<MemoryFilter>();
-
-                // Add department access if user has a department
-                if (!string.IsNullOrEmpty(userDepartmentId))
+                
+                // Since Kernel Memory doesn't support OR logic in filters,
+                // we'll use a more permissive approach and filter by:
+                // - Public documents from all departments OR
+                // - All documents from user's department
+                
+                // Apply scope-based filtering first
+                switch (request.Scope)
                 {
-                    var deptFilter = new MemoryFilter()
-                        .ByTag("status", "approved")
-                        .ByTag("departmentId", userDepartmentId);
-                    accessFilters.Add(deptFilter);
-                }
-
-                // Add public documents access
-                var publicFilter = new MemoryFilter()
-                    .ByTag("status", "approved")
-                    .ByTag("isPublic", "True");
-                accessFilters.Add(publicFilter);
-
-                // Add owned documents access
-                if (!string.IsNullOrEmpty(userId))
-                {
-                    var ownerFilter = new MemoryFilter()
-                        .ByTag("status", "approved")
-                        .ByTag("ownerId", userId);
-                    accessFilters.Add(ownerFilter);
-                }
-
-                // For now, we'll use the department filter as primary and rely on post-processing
-                // This is a limitation of current Kernel Memory filter capabilities
-                if (!string.IsNullOrEmpty(userDepartmentId))
-                {
-                    memoryFilter.ByTag("departmentId", userDepartmentId);
-                }
-                else
-                {
-                    // If no department, only show public documents
-                    memoryFilter.ByTag("isPublic", "True");
+                    case SearchScope.PublicOnly:
+                        // Only public documents from all departments
+                        memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.IsPublic, "True");
+                        break;
+                    case SearchScope.DepartmentOnly:
+                        // Only documents from user's department (both public and private)
+                        if (!string.IsNullOrEmpty(userDepartmentId))
+                        {
+                            memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.DepartmentId, userDepartmentId);
+                        }
+                        break;
+                    case SearchScope.All:
+                    default:
+                        // For "All" scope, we don't add additional department restrictions
+                        // Let the search find documents from all departments
+                        // The post-processing will handle access control
+                        break;
                 }
             }
 
             // Apply additional filters
             if (!string.IsNullOrEmpty(filter.DepartmentId))
             {
-                memoryFilter.ByTag("departmentId", filter.DepartmentId);
+                memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.DepartmentId, filter.DepartmentId);
             }
 
             if (!string.IsNullOrEmpty(filter.DocumentTypeId))
             {
-                memoryFilter.ByTag("documentType", filter.DocumentTypeId);
+                memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.DocumentType, filter.DocumentTypeId);
             }
 
             // Apply date filters if specified
             if (filter.EffectiveFrom.HasValue)
             {
-                memoryFilter.ByTag("effectiveFrom", filter.EffectiveFrom.Value.ToString("yyyy-MM-dd"));
+                memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.EffectiveFrom, filter.EffectiveFrom.Value.ToString("yyyy-MM-dd"));
             }
 
             if (filter.EffectiveUntil.HasValue)
             {
-                memoryFilter.ByTag("effectiveUntil", filter.EffectiveUntil.Value.ToString("yyyy-MM-dd"));
-            }
-
-            // Apply scope-based filtering
-            switch (request.Scope)
-            {
-                case SearchScope.PublicOnly:
-                    memoryFilter.ByTag("isPublic", "True");
-                    break;
-                case SearchScope.DepartmentOnly:
-                    if (!string.IsNullOrEmpty(userDepartmentId))
-                    {
-                        memoryFilter.ByTag("departmentId", userDepartmentId);
-                        memoryFilter.ByTag("isPublic", "False");
-                    }
-                    break;
-                // SearchScope.All is default - no additional filtering
+                memoryFilter.ByTag(SemanticSearchConstant.MemoryTags.EffectiveUntil, filter.EffectiveUntil.Value.ToString("yyyy-MM-dd"));
             }
 
             return memoryFilter;
@@ -305,41 +294,42 @@ Answer:";
                 {
                     var response = new SemanticSearchResponse
                     {
-                        Id = GetTagValue(source, "documentId") ?? Guid.NewGuid().ToString(),
-                        Title = GetTagValue(source, "title") ?? "Unknown Document",
-                        DocumentName = GetTagValue(source, "title") ?? "Unknown Document",
-                        Description = GetTagValue(source, "description") ?? string.Empty,
-                        Status = GetTagValue(source, "status") ?? "approved",
-                        DepartmentId = GetTagValue(source, "departmentId"),
-                        DepartmentName = GetTagValue(source, "departmentName"),
-                        CreatedBy = GetTagValue(source, "createdBy") ?? string.Empty,
-                        CreatedByName = GetTagValue(source, "ownerName"),
-                        FileType = GetTagValue(source, "fileType") ?? string.Empty,
-                        Version = GetTagValue(source, "version") ?? "1.0",
-                        DocumentTypeId = GetTagValue(source, "documentType") ?? string.Empty,
-                        DocumentTypeName = GetTagValue(source, "documentTypeName"),
-                        IsPublic = ParseBooleanTag(source, "isPublic"),
-                        SignedBy = GetTagValue(source, "signedBy"),
+                        Id = GetTagValue(source, SemanticSearchConstant.MemoryTags.DocumentId) ?? Guid.NewGuid().ToString(),
+                        Title = GetTagValue(source, SemanticSearchConstant.MemoryTags.Title) ?? "Unknown Document",
+                        DocumentName = GetTagValue(source, SemanticSearchConstant.MemoryTags.Title) ?? "Unknown Document",
+                        Description = GetTagValue(source, SemanticSearchConstant.MemoryTags.Description) ?? string.Empty,
+                        Status = GetTagValue(source, SemanticSearchConstant.MemoryTags.Status) ?? "approved",
+                        DepartmentId = GetTagValue(source, SemanticSearchConstant.MemoryTags.DepartmentId),
+                        DepartmentName = GetTagValue(source, SemanticSearchConstant.MemoryTags.DepartmentName),
+                        CreatedBy = GetTagValue(source, SemanticSearchConstant.MemoryTags.CreatedBy) ?? string.Empty,
+                        CreatedByName = GetTagValue(source, SemanticSearchConstant.MemoryTags.OwnerName),
+                        FileType = GetTagValue(source, SemanticSearchConstant.MemoryTags.FileType) ?? string.Empty,
+                        Version = GetTagValue(source, SemanticSearchConstant.MemoryTags.Version) ?? "1.0",
+                        DocumentTypeId = GetTagValue(source, SemanticSearchConstant.MemoryTags.DocumentType) ?? string.Empty,
+                        DocumentTypeName = GetTagValue(source, SemanticSearchConstant.MemoryTags.DocumentTypeName),
+                        IsPublic = ParseBooleanTag(source, SemanticSearchConstant.MemoryTags.IsPublic),
+                        SignedBy = GetTagValue(source, SemanticSearchConstant.MemoryTags.SignedBy),
                         Relevance = source.Partitions?.FirstOrDefault()?.Relevance ?? 0.0,
                         Rank = rank++
                     };
 
                     // Parse dates
-                    if (DateTime.TryParse(GetTagValue(source, "createdTime"), out var createdTime))
-                        response.CreatedTime = createdTime;
+                    // Note: For now, we don't have a specific CreatedTime tag, so we skip this parsing
+                    // if (DateTime.TryParse(GetTagValue(source, "createdTime"), out var createdTime))
+                    //     response.CreatedTime = createdTime;
 
-                    if (DateTime.TryParse(GetTagValue(source, "effectiveFrom"), out var effectiveFrom))
+                    if (DateTime.TryParse(GetTagValue(source, SemanticSearchConstant.MemoryTags.EffectiveFrom), out var effectiveFrom))
                         response.EffectiveFrom = effectiveFrom;
 
-                    if (DateTime.TryParse(GetTagValue(source, "effectiveUntil"), out var effectiveUntil))
+                    if (DateTime.TryParse(GetTagValue(source, SemanticSearchConstant.MemoryTags.EffectiveUntil), out var effectiveUntil))
                         response.EffectiveUntil = effectiveUntil;
 
                     // Parse file size
-                    if (long.TryParse(GetTagValue(source, "fileSize"), out var fileSize))
+                    if (long.TryParse(GetTagValue(source, SemanticSearchConstant.MemoryTags.FileSize), out var fileSize))
                         response.FileSize = fileSize;
 
                     // Parse tags - get all tag values
-                    response.Tags = GetAllTagValues(source, "tags");
+                    response.Tags = GetAllTagValues(source, SemanticSearchConstant.MemoryTags.Tags);
 
                     responses.Add(response);
                 }
@@ -351,6 +341,54 @@ Answer:";
             }
 
             return Task.FromResult(responses);
+        }
+
+        /// <summary>
+        /// Filters documents based on user access control
+        /// </summary>
+        private List<SemanticSearchResponse> FilterDocumentsByAccess(
+            List<SemanticSearchResponse> documents,
+            string userId,
+            string? userDepartmentId,
+            string? userRole)
+        {
+            // Admin users can see all documents
+            if (userRole?.ToUpper() == "ADMIN")
+            {
+                return documents;
+            }
+
+            var accessibleDocuments = new List<SemanticSearchResponse>();
+
+            foreach (var doc in documents)
+            {
+                bool hasAccess = false;
+
+                // Check if document is public (accessible to all users)
+                if (doc.IsPublic)
+                {
+                    hasAccess = true;
+                }
+                // Check if document is from user's department
+                else if (!string.IsNullOrEmpty(userDepartmentId) && 
+                         doc.DepartmentId == userDepartmentId)
+                {
+                    hasAccess = true;
+                }
+                // Check if user owns the document
+                else if (!string.IsNullOrEmpty(userId) && 
+                         doc.CreatedBy == userId)
+                {
+                    hasAccess = true;
+                }
+
+                if (hasAccess)
+                {
+                    accessibleDocuments.Add(doc);
+                }
+            }
+
+            return accessibleDocuments;
         }
 
         /// <summary>
