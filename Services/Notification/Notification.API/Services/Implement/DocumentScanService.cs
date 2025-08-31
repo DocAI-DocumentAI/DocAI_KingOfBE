@@ -176,11 +176,11 @@ namespace Notification.API.Services.Implement
                     var deptDocuments = group.ToList();
 
                     // Check for recent expired grouped notification (daily check)
-                    if (await HasRecentGroupedNotificationForDepartmentAsync(group.Key.DepartmentId.ToString(), "EXPIRED_DAILY_GROUP", 1))
-                    {
-                        skippedCount += deptDocuments.Count;
-                        continue;
-                    }
+                    //if (await HasRecentGroupedNotificationForDepartmentAsync(group.Key.DepartmentId.ToString(), "EXPIRED_DAILY_GROUP", 1))
+                    //{
+                    //    skippedCount += deptDocuments.Count;
+                    //    continue;
+                    //}
 
                     // Send grouped expired notification
                     await _notificationService.ProcessDailyGroupedExpiredNotificationAsync(deptDocuments, group.Key.DepartmentName);
@@ -324,12 +324,12 @@ namespace Notification.API.Services.Implement
                 successCount, errorCount);
         }
         // Update the expired notification check method
-        private async Task<bool> HasRecentGroupedNotificationForDepartmentAsync(string departmentId, string groupType, int days)
+        private async Task<bool> HasRecentGroupedNotificationForDepartmentAsync(string departmentId, string groupType, int hours)
         {
             try
             {
                 var logRepo = _unitOfWork.GetRepository<NotificationLog>();
-                var cutoffTime = TimeZoneHelper.UtcNow.AddDays(-days);
+                var cutoffTime = TimeZoneHelper.UtcNow.AddMinutes(-hours);
 
                 var notificationType = groupType.Contains("EXPIRED")
                     ? NotificationType.Expired
@@ -400,11 +400,11 @@ namespace Notification.API.Services.Implement
             {
                 try
                 {
-                    if (await HasRecentNotificationAsync(doc, NotificationType.Expired, 24))
-                    {
-                        skippedCount++;
-                        continue;
-                    }
+                    //if (await HasRecentNotificationAsync(doc, NotificationType.Expired, 1))
+                    //{
+                    //    skippedCount++;
+                    //    continue;
+                    //}
 
                     await _notificationService.ProcessExpiredDocumentNotification(doc);
                     processedCount++;
@@ -435,11 +435,11 @@ namespace Notification.API.Services.Implement
                 {
                     var deptDocuments = group.ToList();
 
-                    if (await HasRecentGroupedNotificationForDepartmentAsync(group.Key.DepartmentId.ToString(), "DAILY_GROUP", 1))
-                    {
-                        skippedCount += deptDocuments.Count;
-                        continue;
-                    }
+                    //if (await HasRecentGroupedNotificationForDepartmentAsync(group.Key.DepartmentId.ToString(), "DAILY_GROUP", 1))
+                    //{
+                    //    skippedCount += deptDocuments.Count;
+                    //    continue;
+                    //}
 
                     await _notificationService.ProcessDailyGroupedNotificationAsync(deptDocuments, group.Key.DepartmentName);
                     processedCount += deptDocuments.Count;

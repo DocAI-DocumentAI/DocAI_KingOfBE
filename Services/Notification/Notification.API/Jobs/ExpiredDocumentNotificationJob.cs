@@ -30,7 +30,7 @@ namespace Notification.API.Jobs
         {
             var jobId = Guid.NewGuid().ToString("N")[..8];
             var jobType = "expired_notification";
-            var lockDuration = TimeSpan.FromMinutes(40); // Longer than max cron interval
+            var lockDuration = TimeSpan.FromMinutes(25); // Longer than max cron interval
 
             // Try lock job
             var jobLocked = await _redisService.TryLockJobAsync(jobType, lockDuration);
@@ -98,7 +98,7 @@ namespace Notification.API.Jobs
         {
             var jobId = Guid.NewGuid().ToString("N")[..8];
             var jobType = "near_expired_notification";
-            var lockDuration = TimeSpan.FromMinutes(40);
+            var lockDuration = TimeSpan.FromMinutes(25);
 
             // Try lock job
             var jobLocked = await _redisService.TryLockJobAsync(jobType, lockDuration);

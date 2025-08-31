@@ -275,23 +275,23 @@ public class NotificationService : INotificationService
 
             var logRepo = _unitOfWork.GetRepository<NotificationLog>();
 
-            var checkPeriod = type == NotificationType.Expired
-                ? TimeZoneHelper.UtcNow.AddDays(-1)
-                : TimeZoneHelper.UtcNow.AddDays(-7);
+            //var checkPeriod = type == NotificationType.Expired
+            //? TimeZoneHelper.UtcNow.AddHours(-1)   
+            //: TimeZoneHelper.UtcNow.AddHours(-2);
 
-            var existingNotification = await logRepo.AnyAsync(l =>
-                l.DocumentId == document.DocumentId &&
-                l.DocumentVersion == document.Version &&
-                l.NotificationType == type &&
-                l.RecipientAddress == user.Email &&
-                l.IsSent == true &&
-                l.SentAt >= checkPeriod);
+            //var existingNotification = await logRepo.AnyAsync(l =>
+            //    l.DocumentId == document.DocumentId &&
+            //    l.DocumentVersion == document.Version &&
+            //    l.NotificationType == type &&
+            //    l.RecipientAddress == user.Email &&
+            //    l.IsSent == true &&
+            //    l.SentAt >= checkPeriod);
 
-            if (existingNotification)
-            {
-                _logger.LogDebug("Duplicate notification skipped for {Email}", user.Email);
-                return;
-            }
+            //if (existingNotification)
+            //{
+            //    _logger.LogDebug("Duplicate notification skipped for {Email}", user.Email);
+            //    return;
+            //}
 
             var processingLog = new NotificationLog
             {
@@ -353,6 +353,7 @@ public class NotificationService : INotificationService
                     DateTime.SpecifyKind(document.EffectiveUntil.Value, DateTimeKind.Utc)
                   ).ToString("dd/MM/yyyy")
                 : "N/A";
+            var timeStamp = vietnamTimeForDisplay.ToString("HH:mm");
 
             var emailBody = template.BodyHtml
                 .Replace("{{RecipientEmail}}", user.Email ?? "")
@@ -366,7 +367,8 @@ public class NotificationService : INotificationService
                 .Replace("{{DepartmentName}}", document.DepartmentName ?? "Unknown Department")
                 .Replace("{{ExpirationStatus}}", expirationStatus)
                 .Replace("{{DaysUntilExpiration}}", daysUntilExpiration)
-                .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm"));
+                .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm"))
+                .Replace("{{Timestamp}}", timeStamp);
 
             var subject = type == NotificationType.Expired
                 ? $"[{document.DepartmentName}] Tài liệu '{document.Title}' đã hết hạn"
@@ -487,6 +489,8 @@ public class NotificationService : INotificationService
         {
             _logger.LogInformation("Processing {GroupType} grouped notification for {DepartmentName} with {Count} documents",
                 groupType, departmentName, documents.Count);
+            var vietnamTime = TimeZoneHelper.VietnamNow;
+            var timeStamp = vietnamTime.ToString("HH:mm");
 
             var template = await _emailTemplateService.GetEmailTemplateByNameAsync(templateName);
             if (template == null)
@@ -511,8 +515,8 @@ public class NotificationService : INotificationService
             var documentsListHtml = CreateDocumentsListHtml(documents, groupType.Contains("Expired"));
             var timeRange = TimeZoneHelper.VietnamNow.ToString("dd/MM/yyyy");
             var subject = groupType.Contains("Expired")
-                ? $"[{departmentName}] Thông báo: {documents.Count} tài liệu đã hết hạn"
-                : $"[{departmentName}] Thông báo: {documents.Count} tài liệu sắp hết hạn";
+                   ? $"[{departmentName}] Thông báo: {documents.Count} tài liệu đã hết hạn - {timeStamp}"
+                   : $"[{departmentName}] Thông báo: {documents.Count} tài liệu sắp hết hạn - {timeStamp}";
 
             var notificationType = groupType.Contains("Expired")
                 ? NotificationType.Expired
