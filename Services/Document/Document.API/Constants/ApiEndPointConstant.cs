@@ -26,6 +26,7 @@ public class ApiEndPointConstant
         public const string SemanticSearch = ApiEndpoint + "/semantic-search"; // Remains the same
         public const string EnhancedSemanticSearch = ApiEndpoint + "/enhanced-semantic-search"; // AI-powered conversational search
         public const string FullTextSearch = ApiEndpoint + "/full-text-search";
+        public const string KernelMemorySearch = ApiEndpoint + "/kernel-memory-search"; // AI-powered conversational search with Kernel Memory
         public const string GetDrafts = ApiEndpoint + "/drafts";
         public const string GetDraftById = ApiEndpoint + "/drafts/{id}";
         public const string GetRejectedDocuments = ApiEndpoint + "/rejected-documents";

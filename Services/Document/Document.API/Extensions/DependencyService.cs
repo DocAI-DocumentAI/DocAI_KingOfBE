@@ -193,6 +193,7 @@ public static class DependencyService
         services.AddScoped<IDocumentExpirationService, DocumentExpirationService>();
         services.AddScoped<IAIConfigurationService, AIConfigurationService>();
         services.AddScoped<IKernelMemoryConfigurationService, KernelMemoryConfigurationService>();
+        services.AddScoped<ISearchService, SearchService>();
 
 
         return services;
