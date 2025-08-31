@@ -19,6 +19,7 @@ using Polly.Retry;
 using Quartz;
 using Serilog;
 using Shared.Command;
+using Shared.Utils;
 using StackExchange.Redis;
 
 namespace Notification.API.Extensions;
@@ -79,7 +80,6 @@ public static class DependencyService
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IAuthorizationService, AuthorizationService>();
         services.AddScoped<INotificationSchedulerService, NotificationSchedulerService>();
-        services.AddScoped<IRateLimitingService, RateLimitingService>();
         services.AddScoped<INotificationReadService, NotificationReadService>();
 
         // Enhanced services with user preferences
@@ -152,7 +152,7 @@ public static class DependencyService
             q.UseMicrosoftDependencyInjectionJobFactory();
 
             // ✅ FIX: Add Vietnam timezone
-            var vietnamTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+            var vietnamTimeZone = TimeZoneHelper.VietnamTimeZone;
 
             // ✅ Job 1: Expired Documents
             var expiredJobKey = new JobKey("ExpiredDocumentNotificationJob");
@@ -168,6 +168,13 @@ public static class DependencyService
                 .ForJob(nearExpiredJobKey)
                 .WithIdentity("NearExpiredDocumentTrigger")
                 .WithCronSchedule("0 0 7 * * ?", x => x.InTimeZone(vietnamTimeZone)));
+
+            var statusUpdateJobKey = new JobKey("DocumentStatusUpdateJob");
+            q.AddJob<DocumentStatusUpdateJob>(opts => opts.WithIdentity(statusUpdateJobKey));
+            q.AddTrigger(opts => opts
+                .ForJob(statusUpdateJobKey)
+                .WithIdentity("DocumentStatusUpdateTrigger")
+                .WithCronSchedule("0 0 0 * * ?", x => x.InTimeZone(vietnamTimeZone))); // 00:00 Midnight
 
             // ✅ Job 3: Cleanup (keep existing)
             var cleanupJobKey = new JobKey("CleanUpOldLogsJob");

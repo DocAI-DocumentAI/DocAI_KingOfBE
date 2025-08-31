@@ -28,6 +28,16 @@ namespace Notification.API.Services.Implement
         public async Task UpdateNearExpiredDocumentJobSchedule(string cronExpression)
         {
             await UpdateJobSchedule("NearExpiredDocumentTrigger", cronExpression, "Near-Expired Document");
+
+        }
+        public async Task UpdateDocumentStatusUpdateJobSchedule(string cronExpression)
+        {
+            await UpdateJobSchedule("DocumentStatusUpdateTrigger", cronExpression, "Document Status Update");
+        }
+
+        public async Task TriggerDocumentStatusUpdateJobNow()
+        {
+            await TriggerJobNow("DocumentStatusUpdateJob", "Document Status Update");
         }
         private async Task UpdateJobSchedule(string triggerKey, string cronExpression, string jobName)
         {
@@ -76,7 +86,8 @@ namespace Notification.API.Services.Implement
                 {
                     new JobKey("ExpiredDocumentNotificationJob"),
                     new JobKey("NearExpiredDocumentNotificationJob"),
-                    new JobKey("CleanUpOldLogsJob")
+                    new JobKey("CleanUpOldLogsJob"),
+                    new JobKey("DocumentStatusUpdateJob")
                 };
 
                 foreach (var jobKey in jobKeys)
@@ -105,7 +116,8 @@ namespace Notification.API.Services.Implement
                 {
                     new JobKey("ExpiredDocumentNotificationJob"),
                     new JobKey("NearExpiredDocumentNotificationJob"),
-                    new JobKey("CleanUpOldLogsJob")
+                    new JobKey("CleanUpOldLogsJob"),
+                    new JobKey("DocumentStatusUpdateJob")
                 };
 
                 foreach (var jobKey in jobKeys)
@@ -132,13 +144,15 @@ namespace Notification.API.Services.Implement
 
                 var expiredJobKey = new JobKey("ExpiredDocumentNotificationJob");
                 var nearExpiredJobKey = new JobKey("NearExpiredDocumentNotificationJob");
+                var statusUpdateJobKey = new JobKey("DocumentStatusUpdateJob");
                 var cleanupJobKey = new JobKey("CleanUpOldLogsJob");
 
                 var expiredTriggerKey = new TriggerKey("ExpiredDocumentTrigger");
                 var nearExpiredTriggerKey = new TriggerKey("NearExpiredDocumentTrigger");
+                var statusUpdateTriggerKey = new TriggerKey("DocumentStatusUpdateTrigger");
                 var cleanupTriggerKey = new TriggerKey("CleanUpOldLogsTrigger");
 
-                var vietnamNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, VietnamTimeZone);
+                var vietnamNow = TimeZoneHelper.VietnamNow;
 
                 return new
                 {
@@ -149,6 +163,7 @@ namespace Notification.API.Services.Implement
                     {
                         ExpiredDocumentJob = await GetJobStatus(scheduler, expiredJobKey, expiredTriggerKey),
                         NearExpiredDocumentJob = await GetJobStatus(scheduler, nearExpiredJobKey, nearExpiredTriggerKey),
+                        DocumentStatusUpdateJob = await GetJobStatus(scheduler, statusUpdateJobKey, statusUpdateTriggerKey),
                         CleanupJob = await GetJobStatus(scheduler, cleanupJobKey, cleanupTriggerKey)
                     }
                 };

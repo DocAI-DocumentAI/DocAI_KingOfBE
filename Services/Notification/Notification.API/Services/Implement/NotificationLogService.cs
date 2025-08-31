@@ -1,14 +1,13 @@
-﻿using AutoMapper;
+﻿using System.Linq.Expressions;
+using AutoMapper;
 using Notification.API.Constants;
 using Notification.API.Payload.Request;
 using Notification.API.Payload.Response;
 using Notification.API.Services.Interfaces;
+using Notification.Domain.Enums;
 using Notification.Domain.Models;
 using Notification.Infrastructure.Paginate;
 using Notification.Infrastructure.Repository.Interfaces;
-using Quartz.Impl.AdoJobStore;
-using Quartz.Util;
-using System.Linq.Expressions;
 
 namespace Notification.API.Services.Implement
 {

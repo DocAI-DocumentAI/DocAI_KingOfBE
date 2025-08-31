@@ -12,4 +12,8 @@ public interface IRedisService
 
     Task<List<string>> GetListAsync(string key);
     Task<bool> CheckRateLimitAsync(string key, int limit, TimeSpan window);
+
+    Task<bool> TryLockJobAsync(string jobType, TimeSpan lockDuration);
+    Task ReleaseLockJobAsync(string jobType);
+
 }

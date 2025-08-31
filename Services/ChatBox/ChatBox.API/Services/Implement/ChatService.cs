@@ -343,7 +343,7 @@ CORRECT: Không có thông tin về X trong tài liệu hiện có
 **ONLY ALLOWED RESPONSES:**
 
 ✅ **When relevant document found:**
-Theo tài liệu '[TITLE_ONLY]':
+Theo tài liệu '[EXACT_TITLE]':
 [EXACT_CONTENT_FROM_DOCUMENT_ONLY]
 
 " + citationSuffix + @"
@@ -353,7 +353,7 @@ Không có thông tin về [TOPIC] trong các tài liệu hiện có.
 **STOP IMMEDIATELY. DO NOT ADD ANYTHING ELSE.**
 
 ✅ **When partial information found:**
-Dựa trên tài liệu '[TITLE_ONLY]', tôi có thông tin sau:
+Dựa trên tài liệu '[EXACT_TITLE]', tôi có thông tin sau:
 [EXACT_AVAILABLE_INFO]
 
 Tuy nhiên, tài liệu không đề cập chi tiết về [MISSING_ASPECT].
@@ -402,7 +402,7 @@ Before responding, ask yourself:
 **RESPONSE MUST BE ONE OF THESE FORMATS ONLY:**
 
 **Format 1 - Information Found:**
-Theo tài liệu '[TITLE_ONLY]':
+Theo tài liệu '[TITLE]':
 [EXACT_QUOTE_FROM_DOCUMENT]
 
 " + citationSuffix + @"
@@ -411,7 +411,7 @@ Theo tài liệu '[TITLE_ONLY]':
 Không có thông tin về [TOPIC] trong các tài liệu hiện có.
 
 **Format 3 - Partial Information:**
-Dựa trên tài liệu '[TITLE_ONLY]':
+Dựa trên tài liệu '[TITLE]':
 [EXACT_AVAILABLE_INFO]
 
 Tuy nhiên, tài liệu không đề cập chi tiết về [MISSING_PART].
@@ -696,13 +696,13 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
 
         private bool IsDocumentCurrentlyEffective(DocumentInfo doc)
         {
-            var now = DateTime.Now.Date;
+            var now = DateTime.UtcNow.Date;
             var isEffective = true;
 
             if (doc.EffectiveFrom.HasValue && now < doc.EffectiveFrom.Value.Date)
                 isEffective = false;
 
-            if (doc.EffectiveUntil.HasValue && now > doc.EffectiveUntil.Value.Date)
+            if (doc.EffectiveUntil.HasValue && now >= doc.EffectiveUntil.Value.Date.AddDays(1))
                 isEffective = false;
 
             return isEffective;
@@ -710,12 +710,17 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
 
         private bool IsDocumentExpired(DocumentInfo doc)
         {
-            return doc.EffectiveUntil.HasValue && DateTime.Now.Date > doc.EffectiveUntil.Value.Date;
+            if (!doc.EffectiveUntil.HasValue) return false;
+
+            return DateTime.UtcNow.Date >= doc.EffectiveUntil.Value.Date.AddDays(1);
         }
 
         private bool IsDocumentPending(DocumentInfo doc)
         {
-            return doc.EffectiveFrom.HasValue && DateTime.Now.Date < doc.EffectiveFrom.Value.Date;
+            if (!doc.EffectiveFrom.HasValue) return false;
+
+            // Thống nhất: dùng UTC Date  
+            return DateTime.UtcNow.Date < doc.EffectiveFrom.Value.Date;
         }
 
         private string GetAccessLevelForUser(DocumentInfo source, UserContextFromJWT userContext)
@@ -785,7 +790,7 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
             if (source.EffectiveFrom.HasValue)
             {
                 var effectiveInfo = FormatDateWithRelative(source.EffectiveFrom.Value);
-                var isPending = DateTime.Now.Date < source.EffectiveFrom.Value.Date;
+                var isPending = DateTime.UtcNow.Date < source.EffectiveFrom.Value.Date;
                 var icon = isPending ? "⏳" : "✅";
                 package.AppendLine($"   {icon} **Có hiệu lực từ:** {effectiveInfo}");
             }
@@ -793,7 +798,7 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
             if (source.EffectiveUntil.HasValue)
             {
                 var expiryInfo = FormatDateWithRelative(source.EffectiveUntil.Value);
-                var isExpired = DateTime.Now.Date > source.EffectiveUntil.Value.Date;
+                var isExpired = DateTime.UtcNow.Date >= source.EffectiveUntil.Value.Date.AddDays(1);
                 var icon = isExpired ? "❌" : "⏰";
                 package.AppendLine($"   {icon} **Hết hiệu lực:** {expiryInfo}");
             }
@@ -824,7 +829,7 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
                 package.AppendLine($"   📊 **Trạng thái:** {source.Status}");
 
             // ✅ Add comprehensive effectiveness check
-            var now = DateTime.Now.Date;
+            var now = DateTime.UtcNow.Date;
             var effectivenessStatus = GetEffectivenessStatus(source, now);
             package.AppendLine($"   {effectivenessStatus.Icon} **Tình trạng hiệu lực:** {effectivenessStatus.Description}");
         }
