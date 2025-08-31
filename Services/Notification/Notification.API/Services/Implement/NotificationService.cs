@@ -489,8 +489,6 @@ public class NotificationService : INotificationService
         {
             _logger.LogInformation("Processing {GroupType} grouped notification for {DepartmentName} with {Count} documents",
                 groupType, departmentName, documents.Count);
-            var vietnamTime = TimeZoneHelper.VietnamNow;
-            var timeStamp = vietnamTime.ToString("HH:mm");
 
             var template = await _emailTemplateService.GetEmailTemplateByNameAsync(templateName);
             if (template == null)
@@ -515,8 +513,8 @@ public class NotificationService : INotificationService
             var documentsListHtml = CreateDocumentsListHtml(documents, groupType.Contains("Expired"));
             var timeRange = TimeZoneHelper.VietnamNow.ToString("dd/MM/yyyy");
             var subject = groupType.Contains("Expired")
-                   ? $"[{departmentName}] Thông báo: {documents.Count} tài liệu đã hết hạn - {timeStamp}"
-                   : $"[{departmentName}] Thông báo: {documents.Count} tài liệu sắp hết hạn - {timeStamp}";
+                ? $"[{departmentName}] Thông báo: {documents.Count} tài liệu đã hết hạn"
+                : $"[{departmentName}] Thông báo: {documents.Count} tài liệu sắp hết hạn";
 
             var notificationType = groupType.Contains("Expired")
                 ? NotificationType.Expired
@@ -526,20 +524,34 @@ public class NotificationService : INotificationService
             var successCount = 0;
             var errorCount = 0;
 
-            // Simple sequential processing - no complex duplicate checks
             foreach (var user in recipients)
             {
                 try
                 {
-                    var emailSent = await SendGroupedNotificationEmailAsync(
-                        user.Email, user.Name, subject, template,
-                        departmentName, documents.Count, documentsListHtml, timeRange);
+                    // BUILD FULL EMAIL CONTENT
+                    var vietnamTimeForDisplay = TimeZoneHelper.VietnamNow;
+                    var emailBody = template.BodyHtml
+                        .Replace("{{RecipientName}}", SanitizeValue(user.Name))
+                        .Replace("{{RecipientEmail}}", SanitizeValue(user.Email))
+                        .Replace("{{UserName}}", SanitizeValue(user.Name))
+                        .Replace("{{UserEmail}}", SanitizeValue(user.Email))
+                        .Replace("{{DepartmentName}}", SanitizeValue(departmentName))
+                        .Replace("{{DocumentCount}}", documents.Count.ToString())
+                        .Replace("{{DocumentsList}}", documentsListHtml)
+                        .Replace("{{TimeRange}}", SanitizeValue(timeRange))
+                        .Replace("{{GroupType}}", groupType)
+                        .Replace("{{NotificationType}}", groupType.Contains("Expired") ? "expired" : "near-expired")
+                        .Replace("{{StatusMessage}}", groupType.Contains("Expired") ? "đã hết hạn và sẽ được chuyển sang trạng thái Archived" : "sắp hết hạn")
+                        .Replace("{{VietnamTime}}", vietnamTimeForDisplay.ToString("dd/MM/yyyy HH:mm"));
+
+                    // SEND EMAIL
+                    var emailSent = await _emailService.SendEmailAsync(user.Email, subject, emailBody);
 
                     if (emailSent)
                     {
                         successCount++;
 
-                        // Log success
+                        // FIXED: Lưu full email content thay vì generic message
                         var log = new NotificationLog
                         {
                             DocumentId = groupId,
@@ -548,7 +560,7 @@ public class NotificationService : INotificationService
                             RecipientType = RecipientType.Email,
                             RecipientAddress = user.Email,
                             Subject = subject,
-                            Message = "Grouped notification sent successfully",
+                            Message = emailBody, 
                             IsSent = true,
                             SentAt = TimeZoneHelper.UtcNow,
                             CreateAt = TimeZoneHelper.UtcNow
