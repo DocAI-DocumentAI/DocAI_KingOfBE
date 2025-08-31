@@ -10,7 +10,8 @@ namespace Document.API.Services.Interfaces
         /// <summary>
         /// Sends notification when a document is submitted for approval
         /// </summary>
-        /// <param name="documentId">Document version ID</param>
+        /// <param name="documentId">Actual Document ID (DocumentFile.Id)</param>
+        /// <param name="versionId">Document version ID (DocumentVersion.Id)</param>
         /// <param name="documentTitle">Document title</param>
         /// <param name="documentVersion">Document version name</param>
         /// <param name="submitterUser">Claims principal of the user who submitted the document</param>
@@ -18,6 +19,7 @@ namespace Document.API.Services.Interfaces
         /// <param name="documentLink">Optional link to the document</param>
         Task SendDocumentSubmissionNotificationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             ClaimsPrincipal submitterUser,
@@ -27,7 +29,8 @@ namespace Document.API.Services.Interfaces
         /// <summary>
         /// Sends confirmation notification to the submitter when a document is submitted for approval
         /// </summary>
-        /// <param name="documentId">Document version ID</param>
+        /// <param name="documentId">Actual Document ID (DocumentFile.Id)</param>
+        /// <param name="versionId">Document version ID (DocumentVersion.Id)</param>
         /// <param name="documentTitle">Document title</param>
         /// <param name="documentVersion">Document version name</param>
         /// <param name="submitterEmail">Email of the document submitter</param>
@@ -36,6 +39,7 @@ namespace Document.API.Services.Interfaces
         /// <param name="documentLink">Optional link to the document</param>
         Task SendDocumentSubmissionConfirmationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             string submitterEmail,
@@ -46,7 +50,8 @@ namespace Document.API.Services.Interfaces
         /// <summary>
         /// Sends notification when a document is approved
         /// </summary>
-        /// <param name="documentId">Document version ID</param>
+        /// <param name="documentId">Actual Document ID (DocumentFile.Id)</param>
+        /// <param name="versionId">Document version ID (DocumentVersion.Id)</param>
         /// <param name="documentTitle">Document title</param>
         /// <param name="documentVersion">Document version name</param>
         /// <param name="ownerEmail">Email of the document owner</param>
@@ -56,6 +61,7 @@ namespace Document.API.Services.Interfaces
         /// <param name="documentLink">Optional link to the document</param>
         Task SendDocumentApprovalNotificationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             string ownerEmail,
@@ -67,7 +73,8 @@ namespace Document.API.Services.Interfaces
         /// <summary>
         /// Sends notification when a document is rejected
         /// </summary>
-        /// <param name="documentId">Document version ID</param>
+        /// <param name="documentId">Actual Document ID (DocumentFile.Id)</param>
+        /// <param name="versionId">Document version ID (DocumentVersion.Id)</param>
         /// <param name="documentTitle">Document title</param>
         /// <param name="documentVersion">Document version name</param>
         /// <param name="ownerEmail">Email of the document owner</param>
@@ -77,6 +84,7 @@ namespace Document.API.Services.Interfaces
         /// <param name="documentLink">Optional link to the document</param>
         Task SendDocumentRejectionNotificationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             string ownerEmail,
@@ -88,7 +96,8 @@ namespace Document.API.Services.Interfaces
         /// <summary>
         /// Sends notification to all department users when a document is published
         /// </summary>
-        /// <param name="documentId">Document version ID</param>
+        /// <param name="documentId">Actual Document ID (DocumentFile.Id)</param>
+        /// <param name="versionId">Document version ID (DocumentVersion.Id)</param>
         /// <param name="documentTitle">Document title</param>
         /// <param name="documentVersion">Document version name</param>
         /// <param name="approverUser">Claims principal of the user who approved the document</param>
@@ -101,6 +110,7 @@ namespace Document.API.Services.Interfaces
         /// <param name="documentLink">Optional link to the document</param>
         Task SendDocumentPublicationNotificationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             ClaimsPrincipal approverUser,

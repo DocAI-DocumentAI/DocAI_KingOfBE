@@ -41,6 +41,7 @@ namespace Notification.API.Consumers
 
                 await _notificationService.SendDocumentPublicationNotificationAsync(
                     command.DocumentId,
+                    command.VersionId,
                     command.DocumentTitle,
                     command.DocumentVersion,
                     approverInfo,

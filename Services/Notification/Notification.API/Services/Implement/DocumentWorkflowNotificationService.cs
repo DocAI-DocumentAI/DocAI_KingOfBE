@@ -41,6 +41,7 @@ namespace Notification.API.Services.Implement
 
         public async Task SendDocumentSubmissionNotificationAsync(
                string documentId,
+               string versionId,
                string documentTitle,
                string documentVersion,
                UserDto submitterInfo,
@@ -79,7 +80,7 @@ namespace Notification.API.Services.Implement
                     return;
                 }
 
-                var finalDocumentLink = documentLink ?? $"https://docai.asia/manager/document-review/{documentId}";
+                var finalDocumentLink = documentLink ?? $"https://docai.asia/manager/document-review/{documentId}/{versionId}";
                 var submissionDate = DateTime.UtcNow;
 
                 // Prevent duplicate notifications with tracking
@@ -125,6 +126,7 @@ namespace Notification.API.Services.Implement
 
         public async Task SendDocumentSubmissionConfirmationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             string submitterEmail,
@@ -187,6 +189,7 @@ namespace Notification.API.Services.Implement
 
         public async Task SendDocumentApprovalNotificationAsync(
          string documentId,
+         string versionId,
          string documentTitle,
          string documentVersion,
          string ownerEmail,
@@ -214,7 +217,7 @@ namespace Notification.API.Services.Implement
                     return;
                 }
 
-                var finalDocumentLink = documentLink ?? $"https://docai.asia/editor/doc/{documentId}";
+                var finalDocumentLink = documentLink ?? $"https://docai.asia/editor/doc/{documentId}/{versionId}";
                 var approvalDate = DateTime.UtcNow;
 
                 await SendDocumentWorkflowNotificationAsync(
@@ -244,6 +247,7 @@ namespace Notification.API.Services.Implement
         }
         public async Task SendDocumentRejectionNotificationAsync(
            string documentId,
+           string versionId,
            string documentTitle,
            string documentVersion,
            string ownerEmail,
@@ -271,7 +275,7 @@ namespace Notification.API.Services.Implement
                     return;
                 }
 
-                var finalDocumentLink = documentLink ?? $"https://docai.asia/editor/doc/{documentId}";
+                var finalDocumentLink = documentLink ?? $"https://docai.asia/editor/doc/{documentId}/{versionId}";
                 var rejectionDate = DateTime.UtcNow;
 
                 await SendDocumentWorkflowNotificationAsync(
@@ -301,6 +305,7 @@ namespace Notification.API.Services.Implement
         }
         public async Task SendDocumentPublicationNotificationAsync(
           string documentId,
+          string versionId,
           string documentTitle,
           string documentVersion,
           UserInfo approverInfo,
@@ -315,8 +320,8 @@ namespace Notification.API.Services.Implement
         {
             try
             {
-                _logger.LogInformation("Sending document publication notification for document {DocumentId} to department {DepartmentId}",
-                    documentId, departmentId);
+                _logger.LogInformation("Sending document publication notification for document {DocumentId} (version {VersionId}) to department {DepartmentId}",
+                    documentId, versionId, departmentId);
 
                 var template = await _emailTemplateService.GetEmailTemplateByNameAsync("DocumentPublished");
                 if (template == null)

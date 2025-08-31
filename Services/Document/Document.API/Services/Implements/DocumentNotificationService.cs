@@ -24,6 +24,7 @@ namespace Document.API.Services.Implements
 
         public async Task SendDocumentSubmissionNotificationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             ClaimsPrincipal submitterUser,
@@ -37,6 +38,7 @@ namespace Document.API.Services.Implements
                 var command = new DocumentSubmissionNotificationCommand
                 {
                     DocumentId = documentId,
+                    VersionId = versionId,
                     DocumentTitle = documentTitle,
                     DocumentVersion = documentVersion,
                     DocumentLink = documentLink,
@@ -60,6 +62,7 @@ namespace Document.API.Services.Implements
 
         public async Task SendDocumentSubmissionConfirmationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             string submitterEmail,
@@ -74,6 +77,7 @@ namespace Document.API.Services.Implements
                 var command = new DocumentSubmissionConfirmationCommand
                 {
                     DocumentId = documentId,
+                    VersionId = versionId,
                     DocumentTitle = documentTitle,
                     DocumentVersion = documentVersion,
                     DocumentLink = documentLink,
@@ -97,6 +101,7 @@ namespace Document.API.Services.Implements
 
         public async Task SendDocumentApprovalNotificationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             string ownerEmail,
@@ -112,6 +117,7 @@ namespace Document.API.Services.Implements
                 var command = new DocumentApprovalNotificationCommand
                 {
                     DocumentId = documentId,
+                    VersionId = versionId,
                     DocumentTitle = documentTitle,
                     DocumentVersion = documentVersion,
                     DocumentLink = documentLink,
@@ -136,6 +142,7 @@ namespace Document.API.Services.Implements
 
         public async Task SendDocumentRejectionNotificationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             string ownerEmail,
@@ -151,6 +158,7 @@ namespace Document.API.Services.Implements
                 var command = new DocumentRejectionNotificationCommand
                 {
                     DocumentId = documentId,
+                    VersionId = versionId,
                     DocumentTitle = documentTitle,
                     DocumentVersion = documentVersion,
                     DocumentLink = documentLink,
@@ -175,6 +183,7 @@ namespace Document.API.Services.Implements
 
         public async Task SendDocumentPublicationNotificationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             ClaimsPrincipal approverUser,
@@ -193,6 +202,7 @@ namespace Document.API.Services.Implements
                 var command = new DocumentPublicationNotificationCommand
                 {
                     DocumentId = documentId,
+                    VersionId = versionId,
                     DocumentTitle = documentTitle,
                     DocumentVersion = documentVersion,
                     DocumentLink = documentLink,

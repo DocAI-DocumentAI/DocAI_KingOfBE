@@ -11,6 +11,7 @@ namespace Notification.API.Services.Interfaces
     {
         Task SendDocumentSubmissionNotificationAsync(
            string documentId,
+           string versionId,
            string documentTitle,
            string documentVersion,
            UserDto submitterInfo,
@@ -22,6 +23,7 @@ namespace Notification.API.Services.Interfaces
         /// </summary>
         Task SendDocumentSubmissionConfirmationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             string submitterEmail,
@@ -32,6 +34,7 @@ namespace Notification.API.Services.Interfaces
 
         Task SendDocumentApprovalNotificationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             string ownerEmail,
@@ -42,6 +45,7 @@ namespace Notification.API.Services.Interfaces
 
         Task SendDocumentRejectionNotificationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             string ownerEmail,
@@ -53,7 +57,8 @@ namespace Notification.API.Services.Interfaces
         /// <summary>
         /// Sends notification to all department users when a document is published
         /// </summary>
-        /// <param name="documentId">Document version ID</param>
+        /// <param name="documentId">Actual Document ID (DocumentFile.Id)</param>
+        /// <param name="versionId">Document version ID (DocumentVersion.Id)</param>
         /// <param name="documentTitle">Document title</param>
         /// <param name="documentVersion">Document version name</param>
         /// <param name="approverInfo">Information about the user who approved the document</param>
@@ -67,6 +72,7 @@ namespace Notification.API.Services.Interfaces
         /// <param name="documentLink">Link to view the document</param>
         Task SendDocumentPublicationNotificationAsync(
             string documentId,
+            string versionId,
             string documentTitle,
             string documentVersion,
             UserInfo approverInfo,

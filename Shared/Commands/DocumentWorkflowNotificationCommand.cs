@@ -6,6 +6,7 @@ namespace Shared.Commands
     public abstract class DocumentWorkflowNotificationCommand
     {
         public string DocumentId { get; set; } = string.Empty;
+        public string VersionId { get; set; } = string.Empty;
         public string DocumentTitle { get; set; } = string.Empty;
         public string DocumentVersion { get; set; } = string.Empty;
         public string? DocumentLink { get; set; }

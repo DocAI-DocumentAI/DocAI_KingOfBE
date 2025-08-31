@@ -66,6 +66,7 @@ namespace Notification.API.Consumers
                 }
                 await _notificationService.SendDocumentSubmissionNotificationAsync(
                     command.DocumentId,
+                    command.VersionId,
                     command.DocumentTitle,
                     command.DocumentVersion,
                     submitterInfo,
@@ -111,6 +112,7 @@ namespace Notification.API.Consumers
 
                 await _notificationService.SendDocumentSubmissionConfirmationAsync(
                     command.DocumentId,
+                    command.VersionId,
                     command.DocumentTitle,
                     command.DocumentVersion,
                     command.SubmitterEmail,
@@ -182,6 +184,7 @@ namespace Notification.API.Consumers
                 }
                 await _notificationService.SendDocumentApprovalNotificationAsync(
                     command.DocumentId,
+                    command.VersionId,
                     command.DocumentTitle,
                     command.DocumentVersion,
                     command.OwnerEmail,
@@ -253,6 +256,7 @@ namespace Notification.API.Consumers
                 }
                 await _notificationService.SendDocumentRejectionNotificationAsync(
                     command.DocumentId,
+                    command.VersionId,
                     command.DocumentTitle,
                     command.DocumentVersion,
                     command.OwnerEmail,

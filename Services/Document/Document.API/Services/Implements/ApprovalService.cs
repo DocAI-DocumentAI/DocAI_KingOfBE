@@ -973,6 +973,7 @@ namespace Document.API.Services.Implements
                         if (!string.IsNullOrEmpty(ownerEmail))
                         {
                             await _notificationService.SendDocumentApprovalNotificationAsync(
+                                versionToReview.DocumentFile.Id,
                                 versionId,
                                 versionToReview.Title,
                                 versionToReview.VersionName,
@@ -990,6 +991,7 @@ namespace Document.API.Services.Implements
                         // 2. Send department-wide publication notification
                         var documentTags = versionToReview.DocumentTags?.Select(dt => dt.Tag.Name).ToList() ?? new List<string>();
                         await _notificationService.SendDocumentPublicationNotificationAsync(
+                            versionToReview.DocumentFile.Id,
                             versionId,
                             versionToReview.Title,
                             versionToReview.VersionName,
@@ -1011,6 +1013,7 @@ namespace Document.API.Services.Implements
                         if (!string.IsNullOrEmpty(ownerEmail))
                         {
                             await _notificationService.SendDocumentRejectionNotificationAsync(
+                                versionToReview.DocumentFile.Id,
                                 versionId,
                                 versionToReview.Title,
                                 versionToReview.VersionName,
@@ -1147,29 +1150,39 @@ namespace Document.API.Services.Implements
                 if (currentUser != null)
                 {
                     // 8a. Send confirmation notification to submitter
-                    var submitterEmail = JwtTokenHelper.GetUserEmail(_httpContextAccessor);
-                    var submitterName = JwtTokenHelper.GetUserFullName(_httpContextAccessor);
+                    var submitterEmail = await GetUserEmailByIdAsync(userId);
+                    var submitterName = await GetUserNameByIdAsync(userId);
 
                     if (!string.IsNullOrEmpty(submitterEmail))
                     {
                         await _notificationService.SendDocumentSubmissionConfirmationAsync(
+                            version.DocumentFile.Id,
                             versionId,
                             version.Title,
                             version.VersionName,
                             submitterEmail,
                             submitterName ?? "Document Submitter",
                             currentUser);
-                        _logger.LogInformation("Document submission confirmation sent to submitter for document {VersionId}", versionId);
+                        _logger.LogInformation("Document submission confirmation sent to submitter {SubmitterEmail} for document {VersionId}", submitterEmail, versionId);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Could not get submitter email for user {UserId}, skipping submission confirmation notification", userId);
                     }
 
                     // 8b. Send notification to department managers
                     await _notificationService.SendDocumentSubmissionNotificationAsync(
+                        version.DocumentFile.Id,
                         versionId,
                         version.Title,
                         version.VersionName,
                         currentUser,
                         version.DocumentFile.DepartmentId);
-                    _logger.LogInformation("Document submission notification sent to managers for document {VersionId}", versionId);
+                    _logger.LogInformation("Document submission notification sent to managers for document {VersionId} in department {DepartmentId}", versionId, version.DocumentFile.DepartmentId);
+                }
+                else
+                {
+                    _logger.LogWarning("Current user context is null, skipping submission notifications for document {VersionId}", versionId);
                 }
             }
             catch (Exception ex)
@@ -1296,13 +1309,15 @@ namespace Document.API.Services.Implements
                                 }, "system"));
 
                             await _notificationService.SendDocumentRejectionNotificationAsync(
+                                expiredDocument.DocumentFile.Id,
                                 expiredDocument.Id,
                                 expiredDocument.Title,
                                 expiredDocument.VersionName,
                                 ownerEmail,
                                 ownerName ?? "Document Owner",
                                 systemClaims,
-                                "Your document submission has been automatically rejected due to 7-day timeout. Please review and resubmit if needed.");
+                                "Your document submission has been automatically rejected due to 7-day timeout. Please review and resubmit if needed.",
+                                null);
                         }
                     }
                     catch (Exception notificationEx)
@@ -1369,13 +1384,15 @@ namespace Document.API.Services.Implements
                                 }, "system"));
 
                             await _notificationService.SendDocumentRejectionNotificationAsync(
+                                inactiveClaim.DocumentVersion.DocumentFile.Id,
                                 inactiveClaim.DocumentVersionId,
                                 inactiveClaim.DocumentVersion.Title,
                                 inactiveClaim.DocumentVersion.VersionName,
                                 managerEmail,
                                 managerName ?? "Manager",
                                 systemClaims,
-                                "Your claim on this document has been automatically released due to inactivity. The document is now available for other managers to review.");
+                                "Your claim on this document has been automatically released due to inactivity. The document is now available for other managers to review.",
+                                null);
                         }
                     }
                     catch (Exception notificationEx)
