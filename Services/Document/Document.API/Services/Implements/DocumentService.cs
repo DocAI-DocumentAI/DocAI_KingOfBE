@@ -383,6 +383,13 @@ public class DocumentService : IDocumentService
         documentFile.OwnerId = userId;
         documentFile.CreatedBy = userId;
         documentFile.ReplacementId = request.ReplacementDocumentId;
+        
+        // Validate against circular reference: a document cannot replace itself
+        if (!string.IsNullOrEmpty(documentFile.ReplacementId) && documentFile.ReplacementId == documentFile.Id)
+        {
+            throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.CannotReplaceDocumentWithItself);
+        }
+        
         // Do not set IsReplaced on the NEW document; it applies to the document being replaced.
         documentFile.IsReplaced = false;
 
@@ -2367,6 +2374,12 @@ public class DocumentService : IDocumentService
             if (string.IsNullOrEmpty(draftsFolderId))
             {
                 throw new InvalidOperationException("Could not find or create drafts folder for new version upload");
+            }
+
+            // Validate against circular reference: check if inherited replacement relationship creates a circular reference
+            if (!string.IsNullOrEmpty(documentToUpdate.ReplacementId) && documentToUpdate.ReplacementId == documentToUpdate.Id)
+            {
+                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.CannotReplaceDocumentWithItself);
             }
 
             // Create new version - inherit departmentId and replacementId from existing DocumentFile

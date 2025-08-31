@@ -170,9 +170,21 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
 		public override Task UpdateAsync(T entity)
 		{
 			if (entity == null) return Task.CompletedTask;
-			// Avoid graph updates that can cause duplicate tracking of related entities
-			// Mark only the root entity as Modified without traversing the graph
-			_dbContext.Entry(entity).State = EntityState.Modified;
+			
+			// Check if entity is already being tracked to avoid duplicate tracking conflicts
+			var existingEntry = _dbContext.Entry(entity);
+			if (existingEntry.State == EntityState.Detached)
+			{
+				// Only attach and mark as Modified if not already tracked
+				_dbContext.Entry(entity).State = EntityState.Modified;
+			}
+			else if (existingEntry.State == EntityState.Unchanged)
+			{
+				// Mark as Modified if it's unchanged
+				existingEntry.State = EntityState.Modified;
+			}
+			// If already Modified or Added, no action needed
+			
 			return Task.CompletedTask;
     }
 

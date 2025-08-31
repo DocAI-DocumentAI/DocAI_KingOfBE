@@ -48,6 +48,7 @@ public class MessageConstant
     public const string DocumentAlreadyUnderReplacement = "This document is already in the process of being replaced.";
     public const string UnauthorizedToReplaceDocumentInOtherDepartment = "You do not have permission to replace documents in this department.";
     public const string CanOnlyReplaceApprovedDocument = "Only documents with status 'Approved' can be selected for replacement.";
+    public const string CannotReplaceDocumentWithItself = "A document cannot replace itself. Please select a different document for replacement.";
     public const string IneligibleDocumentContent = "Document content is not eligible for upload. Transactional forms or invoices are not allowed.";
     public const string SummaryTooLong = "Generated summary exceeds the maximum allowed length of {0} words.";
     public const string DocumentAlreadyClaimed = "This document is currently being reviewed by {0}.";

@@ -483,6 +483,13 @@ namespace Document.API.Services.Implements
 
                             // ✅ ALWAYS UPDATE: Mark the DocumentFile as replaced regardless of archiving
                             replacedDocument.IsReplaced = true;
+                            
+                            // Validate against circular reference before setting reverse relationship
+                            if (documentFile.Id == replacedDocument.Id)
+                            {
+                                throw new ErrorException(StatusCodes.Status400BadRequest, ErrorCode.BADREQUEST, MessageConstant.CannotReplaceDocumentWithItself);
+                            }
+                            
                             replacedDocument.ReplacedById = documentFile.Id; // Set reverse relationship
                             await _unitOfWork.GetRepository<DocumentFile>().UpdateAsync(replacedDocument);
                         }
