@@ -35,18 +35,84 @@ namespace Document.API.Services.Implements
             _departmentClient = departmentClient;
             _userClient = userClient;
         }
+        public async Task<List<DocumentExpirationDto>> GetDocumentsRequiringStatusUpdateAsync()
+        {
+            var todayUtc = TimeZoneHelper.UtcToday;
 
+            _logger.LogInformation("Getting documents requiring status update to Archived. Today UTC: {TodayUtc}", todayUtc);
+
+            try
+            {
+                // Get documents that are Approved and expired today
+                var documentsToUpdate = await _unitOfWork.GetRepository<DocumentVersion>()
+                    .GetListAsync(
+                        predicate: dv =>
+                            dv.Status == StatusEnum.Approved &&
+                            dv.EffectiveFrom.HasValue &&
+                            dv.EffectiveUntil.HasValue &&
+                            dv.EffectiveUntil.Value.Date <= todayUtc.Date, // Documents that expired today or before
+                        include: i => i.Include(dv => dv.DocumentFile)
+                                       .ThenInclude(df => df.DocumentType)
+                    );
+
+                var result = new List<DocumentExpirationDto>();
+                var departmentIds = documentsToUpdate
+                    .Select(doc => doc.DocumentFile.DepartmentId)
+                    .Where(id => !string.IsNullOrEmpty(id))
+                    .Select(id => Guid.TryParse(id, out var guid) ? guid : Guid.Empty)
+                    .Where(id => id != Guid.Empty)
+                    .Distinct()
+                    .ToList();
+
+                var departmentNames = await GetDepartmentNamesAsync(departmentIds);
+
+                foreach (var doc in documentsToUpdate)
+                {
+                    // Double-check with TimeZoneHelper to ensure accuracy
+                    var daysFromToday = TimeZoneHelper.DaysFromTodayFromDatabase(doc.EffectiveUntil.Value);
+
+                    // Only include documents that are actually expired (daysFromToday <= 0)
+                    if (daysFromToday > 0) continue;
+
+                    var departmentId = Guid.TryParse(doc.DocumentFile.DepartmentId, out var deptId) ? deptId : Guid.Empty;
+                    var departmentName = departmentNames.TryGetValue(departmentId, out var name) ? name : "Unknown Department";
+
+                    result.Add(new DocumentExpirationDto
+                    {
+                        DocumentId = doc.DocumentFile.Id,
+                        Title = doc.Title,
+                        Version = doc.VersionName,
+                        DepartmentId = departmentId,
+                        DepartmentName = departmentName,
+                        EffectiveFrom = doc.EffectiveFrom,
+                        EffectiveUntil = doc.EffectiveUntil,
+                        Status = doc.Status.ToString(),
+                        DocumentLink = GenerateDocumentLink(doc.DocumentFile.Id, doc.Id),
+                        IsPublic = doc.IsPublic,
+                        CreatedBy = doc.DocumentFile.CreatedBy
+                    });
+                }
+
+                _logger.LogInformation("Found {Count} documents requiring status update to Archived", result.Count);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting documents requiring status update");
+                return new List<DocumentExpirationDto>();
+            }
+        }
         public async Task<List<DocumentExpirationDto>> GetExpiringDocumentsAsync(DateTime warningDate)
         {
 
-            // ✅ Ensure warningDate is UTC for PostgreSQL compatibility
+            // Ensure warningDate is UTC for PostgreSQL compatibility
             var warningDateUtc = TimeZoneHelper.EnsureUtc(warningDate);
-            var todayUtc = TimeZoneHelper.UtcToday; // PostgreSQL-safe UTC date
+            var todayUtc = TimeZoneHelper.UtcToday;
 
-            _logger.LogInformation("🔍 Getting documents for expiration check. Warning date UTC: {WarningDateUtc}, Today UTC: {TodayUtc}",
+            _logger.LogInformation("Getting documents for expiration check. Warning date UTC: {WarningDateUtc}, Today UTC: {TodayUtc}",
                 warningDateUtc, todayUtc);
 
-            // ✅ Query database with UTC dates to prevent PostgreSQL timezone errors
+            // Query database with UTC dates to prevent PostgreSQL timezone errors
             var expiringDocuments = await _unitOfWork.GetRepository<DocumentVersion>()
                 .GetListAsync(
                     predicate: dv =>
@@ -58,7 +124,7 @@ namespace Document.API.Services.Implements
                                    .ThenInclude(df => df.DocumentType)
                 );
 
-            _logger.LogInformation("📋 Found {Count} documents with expiration dates before {WarningDateUtc}",
+            _logger.LogInformation("Found {Count} documents with expiration dates before {WarningDateUtc}",
                 expiringDocuments.Count, warningDateUtc);
 
             var result = new List<DocumentExpirationDto>();
@@ -80,11 +146,12 @@ namespace Document.API.Services.Implements
                 var departmentId = Guid.TryParse(doc.DocumentFile.DepartmentId, out var deptId) ? deptId : Guid.Empty;
                 var departmentName = departmentNames.TryGetValue(departmentId, out var name) ? name : "Unknown Department";
 
-                // ✅ Convert to Vietnam time for logging only
-                var vietnamExpiryDate = TimeZoneHelper.ConvertUtcToVietnam(doc.EffectiveUntil.Value);
-                var daysFromToday = TimeZoneHelper.DaysFromToday(doc.EffectiveUntil.Value);
+                // Use TimeZoneHelper for consistent date calculations
+                var daysFromToday = TimeZoneHelper.DaysFromTodayFromDatabase(doc.EffectiveUntil.Value);
+                var vietnamExpiryDate = TimeZoneHelper.ConvertUtcToVietnam(
+                    DateTime.SpecifyKind(doc.EffectiveUntil.Value, DateTimeKind.Utc));
 
-                _logger.LogDebug("📄 Document {DocId} expires on {ExpiryDateVietnam} (Vietnam time), {Days} days from today",
+                _logger.LogDebug("Document {DocId} expires on {ExpiryDateVietnam} (Vietnam time), {Days} days from today",
                     doc.DocumentFile.Id, vietnamExpiryDate.ToString("yyyy-MM-dd"), daysFromToday);
 
                 result.Add(new DocumentExpirationDto
@@ -103,7 +170,7 @@ namespace Document.API.Services.Implements
                 });
             }
 
-            _logger.LogInformation("✅ Returning {Count} expiring/expired documents", result.Count);
+            _logger.LogInformation("Returning {Count} expiring/expired documents", result.Count);
             return result;
         }
         private async Task<Dictionary<Guid, string>> GetDepartmentNamesAsync(List<Guid> departmentIds)
@@ -151,7 +218,7 @@ namespace Document.API.Services.Implements
             var vietnamTime = TimeZoneHelper.VietnamNow; // For display/logging
             var utcNow = TimeZoneHelper.UtcNow; // For database storage - PostgreSQL safe
 
-            _logger.LogInformation("🔄 Updating document {DocumentId} version {Version} to status {NewStatus} at Vietnam time {VietnamTime}",
+            _logger.LogInformation("Updating document {DocumentId} version {Version} to status {NewStatus} at Vietnam time {VietnamTime}",
                 documentId, version, newStatus, vietnamTime.ToString("yyyy-MM-dd HH:mm:ss"));
 
             try
@@ -165,7 +232,7 @@ namespace Document.API.Services.Implements
 
                 if (document == null)
                 {
-                    _logger.LogWarning("⚠️ Document not found for update: {DocumentId}/{Version}", documentId, version);
+                    _logger.LogWarning("Document not found for update: {DocumentId}/{Version}", documentId, version);
                     return false;
                 }
 
@@ -173,25 +240,25 @@ namespace Document.API.Services.Implements
                 {
                     var oldStatus = document.Status;
                     document.Status = status;
-                    document.LastUpdatedTime = utcNow; // ✅ Always store UTC in database
+                    document.LastUpdatedTime = utcNow; // Always store UTC in database
                     document.LastUpdatedBy = "system_notification";
 
                     await _unitOfWork.GetRepository<DocumentVersion>().UpdateAsync(document);
                     await _unitOfWork.CommitAsync();
 
-                    _logger.LogInformation("✅ Successfully updated document {DocumentId} from {OldStatus} to {NewStatus} at Vietnam time {VietnamTime}",
+                    _logger.LogInformation("Successfully updated document {DocumentId} from {OldStatus} to {NewStatus} at Vietnam time {VietnamTime}",
                         documentId, oldStatus, newStatus, vietnamTime.ToString("yyyy-MM-dd HH:mm:ss"));
                     return true;
                 }
                 else
                 {
-                    _logger.LogError("❌ Invalid status provided: {NewStatus}", newStatus);
+                    _logger.LogError("Invalid status provided: {NewStatus}", newStatus);
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error updating document status for {DocumentId} at Vietnam time {VietnamTime}",
+                _logger.LogError(ex, "Error updating document status for {DocumentId} at Vietnam time {VietnamTime}",
                     documentId, vietnamTime.ToString("yyyy-MM-dd HH:mm:ss"));
                 return false;
             }

@@ -69,4 +69,46 @@ public class RedisService : IRedisService
             return true; // Allow on error
         }
     }
+    public async Task<bool> TryLockJobAsync(string jobType, TimeSpan lockDuration)
+    {
+        var lockKey = $"job_lock:{jobType}";
+        var lockValue = $"{Environment.MachineName}_{Guid.NewGuid()}";
+
+        try
+        {
+            var locked = await _database.StringSetAsync(lockKey, lockValue, lockDuration, When.NotExists);
+
+            if (locked)
+            {
+                _logger.LogInformation("Successfully locked job: {JobType}", jobType);
+            }
+            else
+            {
+                _logger.LogInformation("Job lock already exists: {JobType}", jobType);
+            }
+
+            return locked;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to lock job: {JobType}", jobType);
+            return true; // Fail-safe: allow job on Redis error
+        }
+    }
+
+    public async Task ReleaseLockJobAsync(string jobType)
+    {
+        var lockKey = $"job_lock:{jobType}";
+
+        try
+        {
+            await _database.KeyDeleteAsync(lockKey);
+            _logger.LogInformation("Released job lock: {JobType}", jobType);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to release job lock: {JobType}", jobType);
+        }
+    }
+
 }

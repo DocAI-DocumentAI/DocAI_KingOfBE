@@ -189,6 +189,45 @@ new EmailTemplate
     AssociatedEvent = NotificationType.General.ToString(),
     CreateAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
     UpdateAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+},
+new EmailTemplate
+{
+    Id = Guid.Parse("c3c4c5c6-d7d8-e9e0-f1f2-333333333333"),
+    TemplateName = "DailyExpiredDocuments",
+    Subject = "[{{DepartmentName}}] URGENT - {{DocumentCount}} documents have EXPIRED",
+    BodyHtml = @"
+        <div style='background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 20px; margin: 10px 0;'>
+            <h3 style='color: #856404; margin-top: 0;'>⚠️ Document Expiration Alert</h3>
+            <p>Dear {{UserName}},</p>
+            <p><strong style='color: #d63031;'>{{DocumentCount}} documents</strong> in <strong>{{DepartmentName}}</strong> department have <strong style='color: #d63031;'>EXPIRED</strong> as of {{TimeRange}}:</p>
+        </div>
+        
+        {{DocumentsList}}
+        
+        <div style='background-color: #f8f9fa; border-left: 4px solid #d63031; padding: 15px; margin: 20px 0;'>
+            <h4 style='color: #d63031; margin-top: 0;'>📋 Important Notice</h4>
+            <p><strong>These documents have been automatically moved to 'Archived' status</strong> and are no longer accessible to users.</p>
+            <p>If any of these documents should remain active, please contact your system administrator immediately to review and restore them.</p>
+        </div>
+        
+        <div style='background-color: #e7f3ff; border: 1px solid #b3d7ff; border-radius: 8px; padding: 15px; margin: 20px 0;'>
+            <h4 style='color: #0066cc; margin-top: 0;'>💡 Recommended Actions</h4>
+            <ul>
+                <li>Review expired documents to determine if new versions are needed</li>
+                <li>Update or create replacement documents where necessary</li>
+                <li>Notify affected team members about document status changes</li>
+                <li>Check if any processes or procedures need to be updated</li>
+            </ul>
+        </div>
+        
+        <hr style='border: none; border-top: 1px solid #ddd; margin: 30px 0;'>
+        <p style='font-size: 12px; color: #6c757d;'>
+            Generated at {{VietnamTime}} (Vietnam Time) - DocAI System<br>
+            This is an automated notification. Please do not reply to this email.
+        </p>",
+    AssociatedEvent = NotificationType.Expired.ToString(),
+    CreateAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+    UpdateAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
 }
             );
         }

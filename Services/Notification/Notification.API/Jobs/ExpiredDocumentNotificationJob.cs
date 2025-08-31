@@ -14,21 +14,33 @@ namespace Notification.API.Jobs
     {
         private readonly ILogger<ExpiredDocumentNotificationJob> _logger;
         private readonly IDocumentScanService _scanService;
-        private readonly IBus _bus;
+        private readonly IRedisService _redisService;
 
         public ExpiredDocumentNotificationJob(
             ILogger<ExpiredDocumentNotificationJob> logger,
             IDocumentScanService scanService,
-            IBus bus)
+            IRedisService redisService)
         {
             _logger = logger;
             _scanService = scanService;
-            _bus = bus;
+            _redisService = redisService;
         }
 
         public async Task Execute(IJobExecutionContext context)
         {
             var jobId = Guid.NewGuid().ToString("N")[..8];
+            var jobType = "expired_notification";
+            var lockDuration = TimeSpan.FromMinutes(40); // Longer than max cron interval
+
+            // Try lock job
+            var jobLocked = await _redisService.TryLockJobAsync(jobType, lockDuration);
+
+            if (!jobLocked)
+            {
+                _logger.LogWarning("Another expired notification job is running, skipping - JobId: {JobId}", jobId);
+                return;
+            }
+
             _logger.LogInformation("ExpiredDocumentNotificationJob started - JobId: {JobId}", jobId);
 
             try
@@ -44,15 +56,7 @@ namespace Notification.API.Jobs
                 _logger.LogInformation("Found {Count} expired documents to process - JobId: {JobId}",
                     expiredDocuments.Count, jobId);
 
-                // Send commands to process expired documents via existing consumer
-                var tasks = expiredDocuments.Select(doc =>
-                    _bus.Send(new ProcessDocumentExpirationCommand
-                    {
-                        Document = doc,
-                        NotificationType = NotificationType.Expired
-                    }));
-
-                await Task.WhenAll(tasks);
+                await _scanService.ProcessExpiredDocumentsAsync(expiredDocuments, jobId);
 
                 _logger.LogInformation("ExpiredDocumentNotificationJob completed - JobId: {JobId}", jobId);
                 context.JobDetail.JobDataMap.Put("LastSuccessfulRun", DateTime.UtcNow);
@@ -64,6 +68,11 @@ namespace Notification.API.Jobs
                 context.JobDetail.JobDataMap.Put("LastError", ex.Message);
                 throw new JobExecutionException(ex, refireImmediately: false);
             }
+            finally
+            {
+                // Always release lock
+                await _redisService.ReleaseLockJobAsync(jobType);
+            }
         }
     }
 
@@ -73,18 +82,33 @@ namespace Notification.API.Jobs
     {
         private readonly ILogger<NearExpiredDocumentNotificationJob> _logger;
         private readonly IDocumentScanService _scanService;
+        private readonly IRedisService _redisService;
 
         public NearExpiredDocumentNotificationJob(
             ILogger<NearExpiredDocumentNotificationJob> logger,
-            IDocumentScanService scanService)
+            IDocumentScanService scanService,
+            IRedisService redisService)
         {
             _logger = logger;
             _scanService = scanService;
+            _redisService = redisService;
         }
 
         public async Task Execute(IJobExecutionContext context)
         {
             var jobId = Guid.NewGuid().ToString("N")[..8];
+            var jobType = "near_expired_notification";
+            var lockDuration = TimeSpan.FromMinutes(40);
+
+            // Try lock job
+            var jobLocked = await _redisService.TryLockJobAsync(jobType, lockDuration);
+
+            if (!jobLocked)
+            {
+                _logger.LogWarning("Another near-expired notification job is running, skipping - JobId: {JobId}", jobId);
+                return;
+            }
+
             _logger.LogInformation("NearExpiredDocumentNotificationJob started - JobId: {JobId}", jobId);
 
             try
@@ -111,6 +135,11 @@ namespace Notification.API.Jobs
                 context.JobDetail.JobDataMap.Put("LastErrorTime", DateTime.UtcNow);
                 context.JobDetail.JobDataMap.Put("LastError", ex.Message);
                 throw new JobExecutionException(ex, refireImmediately: false);
+            }
+            finally
+            {
+                // Always release lock
+                await _redisService.ReleaseLockJobAsync(jobType);
             }
         }
     }

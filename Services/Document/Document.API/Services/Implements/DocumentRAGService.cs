@@ -971,7 +971,7 @@ namespace Document.API.Services.Implements
                 {
                     if (DateTime.TryParse(effectiveUntilStr, out var effectiveUntil))
                     {
-                        if (today > effectiveUntil.Date)
+                        if (today >= effectiveUntil.Date.AddDays(1))
                         {
                             _logger.LogDebug("⏰ [EFFECTIVE-{RequestId}] Document expired: EffectiveUntil {EffUntil} < Today {Today}",
                                 requestId, effectiveUntil.Date, today);

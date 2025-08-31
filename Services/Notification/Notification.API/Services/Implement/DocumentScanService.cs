@@ -22,19 +22,22 @@ namespace Notification.API.Services.Implement
         private readonly INotificationService _notificationService;
         private readonly INotificationConfigService _configService;
         private readonly IRequestClient<GetExpiringDocumentsCommand> _documentClient;
+        private readonly INotificationLogService _logService;
 
         public DocumentScanService(
             IUnitOfWork<NotificationDbContext> unitOfWork,
             ILogger<DocumentScanService> logger,
             INotificationService notificationService,
             INotificationConfigService configService,
-            IRequestClient<GetExpiringDocumentsCommand> documentClient)
+            IRequestClient<GetExpiringDocumentsCommand> documentClient,
+            INotificationLogService logService)
         {
             _unitOfWork = unitOfWork;
             _logger = logger;
             _notificationService = notificationService;
             _configService = configService;
             _documentClient = documentClient;
+            _logService = logService;
         }
 
         public async Task<List<DocumentExpirationDto>> GetExpiredDocumentsAsync()
@@ -49,43 +52,23 @@ namespace Notification.API.Services.Implement
 
             try
             {
-                var allDocuments = await GetAllDocumentsFromServiceAsync(config.WarningThresholdDays + 30);
+                var allDocuments = await GetAllDocumentsFromServiceAsync(30);
                 var vietnamToday = TimeZoneHelper.VietnamToday;
 
+                // CHỈ lấy tài liệu hết hạn hôm nay để gửi notification
                 var expiredDocs = allDocuments.Where(doc =>
                     doc.EffectiveFrom.HasValue &&
                     doc.EffectiveUntil.HasValue &&
-                    IsDocumentExpired(doc, vietnamToday))
+                    IsDocumentExpiredToday(doc, vietnamToday))
                     .ToList();
 
-                _logger.LogInformation("Found {Count} expired documents (Vietnam today: {VietnamToday})",
-                    expiredDocs.Count, vietnamToday.ToString("yyyy-MM-dd"));
+                _logger.LogInformation("Found {Count} expired documents for notification", expiredDocs.Count);
                 return expiredDocs;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting expired documents");
+                _logger.LogError(ex, "Error getting expired documents for notification");
                 return new List<DocumentExpirationDto>();
-            }
-        }
-        private bool IsDocumentExpired(DocumentExpirationDto doc, DateTime vietnamToday)
-        {
-            try
-            {
-                var docUtc = DateTime.SpecifyKind(doc.EffectiveUntil.Value, DateTimeKind.Utc);
-                var docVietnamDate = TimeZoneHelper.ConvertUtcToVietnam(docUtc).Date;
-
-                bool isExpired = docVietnamDate < vietnamToday;
-
-                _logger.LogDebug("Expiration check: Doc={DocId}, DbTime={DbUtc}, VietnamExpiry={VietnamDate}, Today={Today}, Expired={Result}",
-                    doc.DocumentId, doc.EffectiveUntil.Value, docVietnamDate, vietnamToday, isExpired);
-
-                return isExpired;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error checking expiration for document {DocId}", doc.DocumentId);
-                return false;
             }
         }
         public async Task<List<DocumentExpirationDto>> GetNearExpiredDocumentsAsync()
@@ -101,21 +84,17 @@ namespace Notification.API.Services.Implement
             try
             {
                 var allDocuments = await GetAllDocumentsFromServiceAsync(config.WarningThresholdDays);
-                var vietnamNow = TimeZoneHelper.VietnamNow;
-                var vietnamToday = vietnamNow.Date; // 30/08/2025 00:00:00
-
-                // Create UTC date range for the warning period in Vietnam timezone
-                var vietnamEndDate = vietnamToday.AddDays(config.WarningThresholdDays); // 04/09/2025 00:00:00
-                var (startUtc, endUtc) = TimeZoneHelper.CreateUtcDateRange(vietnamToday);
-                var (_, warningEndUtc) = TimeZoneHelper.CreateUtcDateRange(vietnamEndDate);
+                var vietnamToday = TimeZoneHelper.VietnamToday;
+                var vietnamWarningStart = vietnamToday.AddDays(1); 
+                var vietnamWarningEnd = vietnamToday.AddDays(config.WarningThresholdDays);
 
                 var nearExpiredDocs = allDocuments.Where(doc =>
-                       doc.EffectiveFrom.HasValue &&
-                       doc.EffectiveUntil.HasValue &&
-                       IsDocumentInNearExpirationWindow(doc, vietnamToday, vietnamEndDate))
-                       .ToList();
+                    doc.EffectiveFrom.HasValue &&
+                    doc.EffectiveUntil.HasValue &&
+                    IsDocumentInNearExpirationWindow(doc, vietnamWarningStart, vietnamWarningEnd))
+                    .ToList();
 
-               return nearExpiredDocs;
+                return nearExpiredDocs;
             }
             catch (Exception ex)
             {
@@ -123,21 +102,34 @@ namespace Notification.API.Services.Implement
                 return new List<DocumentExpirationDto>();
             }
         }
-        private bool IsDocumentInNearExpirationWindow(DocumentExpirationDto doc, DateTime vietnamToday, DateTime vietnamWarningEnd)
+        private bool IsDocumentExpiredToday(DocumentExpirationDto doc, DateTime vietnamToday)
         {
             try
             {
-                // Force treat database date as UTC (Entity Framework loses Kind)
+                if (!doc.EffectiveUntil.HasValue) return false;
+
+                var daysFromToday = TimeZoneHelper.DaysFromTodayFromDatabase(doc.EffectiveUntil.Value);
+                bool isExpiredToday = daysFromToday <= 0;
+
+                _logger.LogDebug("Document {DocId} expiration check: EffectiveUntil={EffectiveUntil}, DaysFromToday={Days}, IsExpired={IsExpired}",
+                    doc.DocumentId, doc.EffectiveUntil, daysFromToday, isExpiredToday);
+
+                return isExpiredToday;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking expiration for document {DocId}", doc.DocumentId);
+                return false;
+            }
+        }
+        private bool IsDocumentInNearExpirationWindow(DocumentExpirationDto doc, DateTime vietnamWarningStart, DateTime vietnamWarningEnd)
+        {
+            try
+            {
                 var docUtc = DateTime.SpecifyKind(doc.EffectiveUntil.Value, DateTimeKind.Utc);
                 var docVietnamDate = TimeZoneHelper.ConvertUtcToVietnam(docUtc).Date;
 
-                // Document is near-expired if it expires:
-                // - Today or later (not already expired)
-                // - Within warning threshold days
-                bool isInWindow = docVietnamDate >= vietnamToday && docVietnamDate <= vietnamWarningEnd;
-
-                _logger.LogDebug("Near-expiration check: Doc={DocId}, DbTime={DbUtc}, VietnamExpiry={VietnamDate}, Today={Today}, WarningEnd={WarningEnd}, InWindow={Result}",
-                    doc.DocumentId, doc.EffectiveUntil.Value, docVietnamDate, vietnamToday, vietnamWarningEnd, isInWindow);
+                bool isInWindow = docVietnamDate >= vietnamWarningStart && docVietnamDate <= vietnamWarningEnd;
 
                 return isInWindow;
             }
@@ -159,7 +151,204 @@ namespace Notification.API.Services.Implement
             // CHỈ GỬI DAILY GROUPED NOTIFICATIONS
             await ProcessDailyGroupedNotificationsAsync(documents, jobId);
         }
+        public async Task ProcessExpiredDocumentsAsync(List<DocumentExpirationDto> documents, string jobId)
+        {
+            var vietnamNow = TimeZoneHelper.VietnamNow;
+            _logger.LogInformation("Processing {Count} expired documents for NOTIFICATION ONLY at Vietnam time: {VietnamTime} - JobId: {JobId}",
+                documents.Count, vietnamNow.ToString("yyyy-MM-dd HH:mm:ss"), jobId);
 
+            await ProcessDailyGroupedExpiredNotificationsAsync(documents, jobId);
+        }
+
+        private async Task ProcessDailyGroupedExpiredNotificationsAsync(List<DocumentExpirationDto> documents, string jobId)
+        {
+            _logger.LogInformation("Sending daily grouped EXPIRED notifications for {Count} documents - JobId: {JobId}",
+               documents.Count, jobId);
+
+            var departmentGroups = documents.GroupBy(d => new { d.DepartmentId, d.DepartmentName });
+            var processedCount = 0;
+            var skippedCount = 0;
+
+            foreach (var group in departmentGroups)
+            {
+                try
+                {
+                    var deptDocuments = group.ToList();
+
+                    // Check for recent expired grouped notification (daily check)
+                    if (await HasRecentGroupedNotificationForDepartmentAsync(group.Key.DepartmentId.ToString(), "EXPIRED_DAILY_GROUP", 1))
+                    {
+                        skippedCount += deptDocuments.Count;
+                        continue;
+                    }
+
+                    // Send grouped expired notification
+                    await _notificationService.ProcessDailyGroupedExpiredNotificationAsync(deptDocuments, group.Key.DepartmentName);
+                    processedCount += deptDocuments.Count;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error processing daily expired notification for department {DeptName}",
+                        group.Key.DepartmentName);
+                    skippedCount += group.Count();
+                }
+            }
+
+            _logger.LogInformation("Daily expired notifications completed - Processed: {Processed}, Skipped: {Skipped}",
+                processedCount, skippedCount);
+        }
+
+        //private async Task ProcessExpiredDocumentStatusUpdatesAsync(List<DocumentExpirationDto> documents, string jobId)
+        //{
+        //    _logger.LogInformation("Updating status to 'Archived' for {Count} expired documents - JobId: {JobId}",
+        //        documents.Count, jobId);
+
+        //    var successCount = 0;
+        //    var errorCount = 0;
+
+        //    foreach (var doc in documents)
+        //    {
+        //        try
+        //        {
+        //            // Check if status was already updated recently
+        //            var logRepo = _unitOfWork.GetRepository<NotificationLog>();
+        //            var cutoffTime = TimeZoneHelper.UtcNow.AddHours(-12); // Check last 12 hours
+
+        //            var alreadyUpdated = await logRepo.AnyAsync(l =>
+        //                l.DocumentId == doc.DocumentId &&
+        //                l.DocumentVersion == doc.Version &&
+        //                l.NotificationType == NotificationType.General &&
+        //                l.Subject.Contains("Document Archived") &&
+        //                l.IsSent == true &&
+        //                l.SentAt >= cutoffTime);
+
+        //            if (alreadyUpdated)
+        //            {
+        //                _logger.LogDebug("Status already updated for document {DocId}/{Version}", doc.DocumentId, doc.Version);
+        //                continue;
+        //            }
+
+        //            // Update status to Archived via notification service
+        //            await _notificationService.UpdateExpiredDocumentStatusAsync(doc);
+        //            successCount++;
+        //        }
+        //        catch (Exception ex)
+        //        {
+        //            _logger.LogError(ex, "Error updating status for expired document {DocId}/{Version}",
+        //                doc.DocumentId, doc.Version);
+        //            errorCount++;
+        //        }
+        //    }
+
+        //    _logger.LogInformation("Expired document status updates completed - Success: {Success}, Errors: {Errors}",
+        //        successCount, errorCount);
+        //}
+        public async Task<List<DocumentExpirationDto>> GetDocumentsForStatusUpdateAsync()
+        {
+            var config = await _configService.GetNotificationConfigAsync();
+
+            if (!config.QuartzEnabled)
+            {
+                return new List<DocumentExpirationDto>();
+            }
+
+            try
+            {
+                // Lấy tài liệu hết hạn hôm nay cần update status
+                var allDocuments = await GetAllDocumentsFromServiceAsync(30); // Lấy 30 ngày
+                var vietnamToday = TimeZoneHelper.VietnamToday;
+
+                var documentsToUpdate = allDocuments.Where(doc =>
+                    doc.EffectiveFrom.HasValue &&
+                    doc.EffectiveUntil.HasValue &&
+                    doc.Status == "Approved" && // Chỉ update những tài liệu đang Approved
+                    IsDocumentExpiredToday(doc, vietnamToday))
+                    .ToList();
+
+                _logger.LogInformation("Found {Count} documents requiring status update to Archived today",
+                    documentsToUpdate.Count);
+
+                return documentsToUpdate;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting documents for status update");
+                return new List<DocumentExpirationDto>();
+            }
+        }
+        public async Task ProcessDocumentStatusUpdatesAsync(List<DocumentExpirationDto> documents, string jobId)
+        {
+            _logger.LogInformation("Processing status updates for {Count} expired documents - JobId: {JobId}",
+                documents.Count, jobId);
+
+            var successCount = 0;
+            var errorCount = 0;
+
+            foreach (var doc in documents)
+            {
+                try
+                {
+                    // Kiểm tra xem status đã được update chưa trong 24h qua
+                    var logRepo = _unitOfWork.GetRepository<NotificationLog>();
+                    var cutoffTime = TimeZoneHelper.UtcNow.AddHours(-24);
+
+                    var alreadyUpdated = await logRepo.AnyAsync(l =>
+                        l.DocumentId == doc.DocumentId &&
+                        l.DocumentVersion == doc.Version &&
+                        l.NotificationType == NotificationType.General &&
+                        l.Subject.Contains("Status Updated to Archived") &&
+                        l.IsSent == true &&
+                        l.SentAt >= cutoffTime);
+
+                    if (alreadyUpdated)
+                    {
+                        _logger.LogDebug("Status already updated for document {DocId}/{Version} within last 24h",
+                            doc.DocumentId, doc.Version);
+                        continue;
+                    }
+
+                    // Update status via NotificationService
+                    await _notificationService.UpdateExpiredDocumentStatusAsync(doc);
+                    successCount++;
+
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error updating status for expired document {DocId}/{Version}",
+                        doc.DocumentId, doc.Version);
+                    errorCount++;
+                }
+            }
+
+            _logger.LogInformation("Document status updates completed - Success: {Success}, Errors: {Errors}",
+                successCount, errorCount);
+        }
+        // Update the expired notification check method
+        private async Task<bool> HasRecentGroupedNotificationForDepartmentAsync(string departmentId, string groupType, int days)
+        {
+            try
+            {
+                var logRepo = _unitOfWork.GetRepository<NotificationLog>();
+                var cutoffTime = TimeZoneHelper.UtcNow.AddDays(-days);
+
+                var notificationType = groupType.Contains("EXPIRED")
+                    ? NotificationType.Expired
+                    : NotificationType.NearingExpiration;
+
+                return await logRepo.AnyAsync(l =>
+                    l.DocumentId == groupType &&
+                    l.DocumentVersion == departmentId &&
+                    l.NotificationType == notificationType &&
+                    l.IsSent == true &&
+                    l.SentAt >= cutoffTime);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error checking recent {GroupType} notifications for department {DepartmentId}",
+                    groupType, departmentId);
+                return false;
+            }
+        }
         // Keep for backward compatibility
         public async Task ScanAndProcessDocumentsAsync()
         {
@@ -199,7 +388,7 @@ namespace Notification.API.Services.Implement
             }
         }
 
-        private async Task ProcessExpiredDocumentsDirectlyAsync(List<DocumentExpirationDto> expiredDocs, string scanId)
+        public async Task ProcessExpiredDocumentsDirectlyAsync(List<DocumentExpirationDto> expiredDocs, string scanId)
         {
             _logger.LogInformation("Processing {Count} expired documents directly - ScanId: {ScanId}",
                  expiredDocs.Count, scanId);
@@ -315,27 +504,6 @@ namespace Notification.API.Services.Implement
             {
                 _logger.LogWarning(ex, "Error checking recent notifications for {DocId}/{Version}",
                     doc.DocumentId, doc.Version);
-                return false;
-            }
-        }
-        private async Task<bool> HasRecentGroupedNotificationForDepartmentAsync(string departmentId, string groupType, int days)
-        {
-            try
-            {
-                var logRepo = _unitOfWork.GetRepository<NotificationLog>();
-                var cutoffTime = TimeZoneHelper.UtcNow.AddDays(-days);
-
-                return await logRepo.AnyAsync(l =>
-                    l.DocumentId == groupType &&
-                    l.DocumentVersion == departmentId &&
-                    l.NotificationType == NotificationType.NearingExpiration && // THAY ĐỔI: từ General -> NearingExpiration
-                    l.IsSent == true &&
-                    l.SentAt >= cutoffTime);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error checking recent {GroupType} notifications for department {DepartmentId}",
-                    groupType, departmentId);
                 return false;
             }
         }
