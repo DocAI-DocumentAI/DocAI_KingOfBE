@@ -140,13 +140,13 @@ jobs:
           script: |
             export LANG=C.UTF-8
             export LC_ALL=C.UTF-8
-            cd ~/Deepguard
-            docker-compose down --rmi all --volumes --remove-orphans
+            # cd ~/Deepguard
+            # docker-compose down --rmi all --volumes --remove-orphans
             cd ~/DocAI
             docker-compose down --rmi all --volumes --remove-orphans
             docker system prune -a -f
             docker-compose pull
             docker-compose up -d
-            cd ~/Deepguard
-            docker-compose pull
-            docker-compose up -d
+            # cd ~/Deepguard
+            # docker-compose pull
+            # docker-compose up -d
