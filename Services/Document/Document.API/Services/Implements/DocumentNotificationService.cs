@@ -33,17 +33,31 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                _logger.LogInformation("Sending document submission notification for document {DocumentId}", documentId);
+                _logger.LogInformation("Starting document submission notification for document {DocumentId}", documentId);
 
-                // ✅ FIX: Extract user information with better logging for debugging
+                // ✅ FIX: Extract user information with enhanced logging for debugging
                 var submitterId = GetUserIdAsGuid(submitterUser);
                 var submitterEmail = GetUserEmail(submitterUser);
                 var submitterName = GetUserFullName(submitterUser);
                 var departmentName = GetDepartmentName(submitterUser);
 
+                // ✅ FIX: Log all available claims for debugging
+                if (submitterUser?.Claims != null)
+                {
+                    var allClaims = string.Join(", ", submitterUser.Claims.Select(c => $"{c.Type}: {c.Value}"));
+                    _logger.LogInformation("All available claims: {Claims}", allClaims);
+                }
+
                 // ✅ FIX: Log extracted user information to verify claims are working
                 _logger.LogInformation("Extracted user info for submission notification - ID: {SubmitterId}, Email: {Email}, Name: {Name}, Department: {DepartmentName}", 
                     submitterId, submitterEmail, submitterName, departmentName);
+
+                // Validate required information
+                if (submitterId == Guid.Empty)
+                {
+                    _logger.LogError("Failed to extract valid user ID from claims for document {DocumentId}", documentId);
+                    return;
+                }
 
                 var command = new DocumentSubmissionNotificationCommand
                 {
@@ -59,9 +73,10 @@ namespace Document.API.Services.Implements
                     DepartmentName = departmentName
                 };
 
+                _logger.LogInformation("Publishing document submission notification command for document {DocumentId}", documentId);
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 await _publishEndpoint.Publish(command, cts.Token);
-                _logger.LogInformation("Document submission notification command published for document {DocumentId}", documentId);
+                _logger.LogInformation("Document submission notification command published successfully for document {DocumentId}", documentId);
             }
             catch (Exception ex)
             {
@@ -82,7 +97,21 @@ namespace Document.API.Services.Implements
         {
             try
             {
-                _logger.LogInformation("Sending document submission confirmation for document {DocumentId} to submitter {SubmitterEmail}", documentId, submitterEmail);
+                _logger.LogInformation("Starting document submission confirmation for document {DocumentId} to submitter {SubmitterEmail}", documentId, submitterEmail);
+
+                var submitterId = GetUserIdAsGuid(submitterUser);
+                var departmentId = GetDepartmentIdAsGuid(submitterUser);
+                var departmentName = GetDepartmentName(submitterUser);
+
+                _logger.LogInformation("Extracted user info for submission confirmation - ID: {SubmitterId}, DeptID: {DepartmentId}, DeptName: {DepartmentName}", 
+                    submitterId, departmentId, departmentName);
+
+                // Validate required information
+                if (submitterId == Guid.Empty)
+                {
+                    _logger.LogError("Failed to extract valid user ID from claims for submission confirmation {DocumentId}", documentId);
+                    return;
+                }
 
                 var command = new DocumentSubmissionConfirmationCommand
                 {
@@ -93,14 +122,15 @@ namespace Document.API.Services.Implements
                     DocumentLink = documentLink,
                     SubmitterEmail = submitterEmail,
                     SubmitterName = submitterName,
-                    SubmitterId = GetUserIdAsGuid(submitterUser),
-                    DepartmentId = GetDepartmentIdAsGuid(submitterUser),
-                    DepartmentName = GetDepartmentName(submitterUser)
+                    SubmitterId = submitterId,
+                    DepartmentId = departmentId,
+                    DepartmentName = departmentName
                 };
 
+                _logger.LogInformation("Publishing document submission confirmation command for document {DocumentId}", documentId);
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 await _publishEndpoint.Publish(command, cts.Token);
-                _logger.LogInformation("Document submission confirmation sent for document {DocumentId}", documentId);
+                _logger.LogInformation("Document submission confirmation command published successfully for document {DocumentId}", documentId);
             }
             catch (Exception ex)
             {
@@ -243,7 +273,11 @@ namespace Document.API.Services.Implements
 
         private static Guid GetUserIdAsGuid(ClaimsPrincipal user)
         {
-            var userIdString = user?.FindFirst("userId")?.Value;
+            // ✅ FIX: Use same robust claim extraction as JwtTokenHelper - try multiple claim names
+            var userIdString = user?.FindFirst("userId")?.Value ??
+                              user?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ??
+                              user?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+                              
             if (Guid.TryParse(userIdString, out var userId))
             {
                 return userId;
