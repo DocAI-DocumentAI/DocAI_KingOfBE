@@ -35,9 +35,9 @@ namespace ChatBox.API.Services.Implement
             _httpContextAccessor = httpContextAccessor;
         }
 
-        public async Task<ChatBoxDocumentResponse?> SearchDocumentsWithRAGAsync(string query, string userId, int maxResults = 15, string? documentId = null)
+        public async Task<ChatBoxDocumentResponse?> SearchDocumentsWithRAGAsync(string query, string userId, int maxResults = 20, string? documentId = null)
         {
-            maxResults = Math.Min(Math.Max(maxResults, 1), 15);
+            maxResults = Math.Min(Math.Max(maxResults, 1), 20);
             var userContext = GetUserContextFromJWT();
 
             var cacheKey = $"doc_raw_v3_{query.GetHashCode():X}_{userId}_{userContext.Role}_{userContext.DepartmentId}_{maxResults}_{documentId ?? "any"}";
@@ -159,7 +159,7 @@ namespace ChatBox.API.Services.Implement
 
             try
             {
-                var result = await SearchDocumentsWithRAGAsync(query, userId, 15, documentId);
+                var result = await SearchDocumentsWithRAGAsync(query, userId, 20, documentId);
 
                 if (result?.Success == true && !string.IsNullOrEmpty(result.RawContent))
                 {
@@ -186,7 +186,7 @@ namespace ChatBox.API.Services.Implement
 
             try
             {
-                var result = await SearchDocumentsWithRAGAsync(query, userId, 15, documentId);
+                var result = await SearchDocumentsWithRAGAsync(query, userId, 20, documentId);
 
                 if (result?.Success == true && !string.IsNullOrEmpty(result.RawContent))
                 {
@@ -375,7 +375,7 @@ namespace ChatBox.API.Services.Implement
         public async Task<ChatBoxDocumentResponse?> SearchOfficialDocumentsAsync(string query, string userId)
         {
             _logger.LogInformation("📋 [LEGACY] SearchOfficialDocumentsAsync called, redirecting to enhanced search");
-            return await SearchDocumentsWithRAGAsync(query, userId, 15);
+            return await SearchDocumentsWithRAGAsync(query, userId, 20);
         }
 
         public async Task<string> GetRAGAnswerAsync(string query, string userId)
@@ -401,7 +401,7 @@ namespace ChatBox.API.Services.Implement
                     response.AppendLine();
                     response.AppendLine("📚 **Nguồn tài liệu:**");
 
-                    for (int i = 0; i < Math.Min(sources.Count, 15); i++)
+                    for (int i = 0; i < Math.Min(sources.Count, 20); i++)
                     {
                         var source = sources[i];
                         response.AppendLine($"• {source.Title} v{source.VersionName}");

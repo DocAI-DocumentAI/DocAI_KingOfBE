@@ -2,8 +2,11 @@
 using Document.API.Payload.Request;
 using Document.API.Payload.Response;
 using Document.API.Services.Interfaces;
+using Document.Domain.Enums;
+using Document.Domain.Model;
 using Document.Domain.Models;
 using Document.Infrastructure.Repository.Interfaces;
+using DocumentFormat.OpenXml.Math;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -39,7 +42,7 @@ namespace Document.API.Services.Implements
             _enrichmentService = enrichmentService;
 
             _enableDebugLogging = _configuration.GetValue<bool>("RAG:EnableDebugLogging", true);
-            _maxSearchResults = _configuration.GetValue<int>("RAG:MaxSearchResults", 15);
+            _maxSearchResults = _configuration.GetValue<int>("RAG:MaxSearchResults", 20);
             _baseMinRelevanceScore = _configuration.GetValue<double>("RAG:BaseMinRelevanceScore", 0.001);
         }
 
@@ -115,11 +118,9 @@ namespace Document.API.Services.Implements
         private async Task<List<Citation>> SearchAllDocumentsOptimized(DocumentRAGRequest request, string requestId)
         {
             var queryType = ClassifyQuerySmart(request.Query);
-            var (limit, minRelevance) = GetSearchParams(queryType);
-
-            // Get configured Kernel Memory instance
+            var limit = 100;
+            var minRelevance = 0;
             var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
-
             var citations = new List<Citation>();
 
             try
@@ -161,25 +162,25 @@ namespace Document.API.Services.Implements
                     citations.AddRange(newPublicCitations);
                 }
 
-                if (citations.Count < limit && !string.IsNullOrEmpty(request.UserId) && request.Role?.ToUpper() != "ADMIN")
-                {
-                    var ownerFilter = new MemoryFilter()
-                        .ByTag("status", "approved")
-                        .ByTag("ownerId", request.UserId);
+                //if (citations.Count < limit && !string.IsNullOrEmpty(request.UserId) && request.Role?.ToUpper() != "ADMIN")
+                //{
+                //    var ownerFilter = new MemoryFilter()
+                //        .ByTag("status", "approved")
+                //        .ByTag("ownerId", request.UserId);
 
-                    var ownerResult = await memory.SearchAsync(
-                        request.Query,
-                        limit: limit - citations.Count,
-                        filter: ownerFilter,
-                        minRelevance: minRelevance);
+                //    var ownerResult = await memory.SearchAsync(
+                //        request.Query,
+                //        limit: limit - citations.Count,
+                //        filter: ownerFilter,
+                //        minRelevance: minRelevance);
 
-                    var newOwnerCitations = ownerResult.Results
-                        .Where(c => !citations.Any(existing =>
-                            GetDocumentIdFromCitation(existing) == GetDocumentIdFromCitation(c)))
-                        .ToList();
+                //    var newOwnerCitations = ownerResult.Results
+                //        .Where(c => !citations.Any(existing =>
+                //            GetDocumentIdFromCitation(existing) == GetDocumentIdFromCitation(c)))
+                //        .ToList();
 
-                    citations.AddRange(newOwnerCitations);
-                }
+                //    citations.AddRange(newOwnerCitations);
+                //}
 
                 return citations;
             }
@@ -370,9 +371,9 @@ namespace Document.API.Services.Implements
                 try
                 {
                     var hasAccess = await IsDocumentAccessibleToUser(firstCitation, request, requestId);
-                    var isEffective = IsDocumentCurrentlyEffective(firstCitation, today, requestId);
+                    //var isEffective = IsDocumentCurrentlyEffective(firstCitation, today, requestId);
 
-                    if (hasAccess && isEffective)
+                    if (hasAccess)
                     {
                         accessibleCitations.AddRange(docGroup);
                         _logger.LogDebug("✅ [PERMISSION-{RequestId}] Document {DocId} ACCESSIBLE - added {Count} citations",
@@ -381,7 +382,7 @@ namespace Document.API.Services.Implements
                     else
                     {
                         _logger.LogDebug("❌ [PERMISSION-{RequestId}] Document {DocId} BLOCKED - HasAccess: {Access}, IsEffective: {Effective}",
-                            requestId, docId, hasAccess, isEffective);
+                            requestId, docId, hasAccess);
                     }
                 }
                 catch (Exception ex)
@@ -422,16 +423,16 @@ namespace Document.API.Services.Implements
             return "general";
         }
 
-        private (int limit, double minRelevance) GetSearchParams(string queryType)
-        {
-            return queryType switch
-            {
-                "full_document" => (100, 0.0),
-                "specific_section" => (50, 0.01),
-                "question" => (75, 0.005),
-                _ => (50, 0.01)
-            };
-        }
+        //private (int limit, double minRelevance) GetSearchParams(string queryType)
+        //{
+        //    return queryType switch
+        //    {
+        //        "full_document" => (100, 0.0),
+        //        "specific_section" => (50, 0.01),
+        //        "question" => (75, 0.005),
+        //        _ => (50, 0.01)
+        //    };
+        //}
 
         private string ExtractOptimizedContent(List<Citation> citations, string query)
         {
@@ -506,7 +507,7 @@ namespace Document.API.Services.Implements
             var citationsByDoc = citations
                 .GroupBy(c => GetDocumentIdFromCitation(c))
                 .OrderByDescending(g => g.Max(c => c.Partitions.Max(p => p.Relevance)))
-                .Take(15)
+                .Take(20)
                 .ToList();
 
             foreach (var docGroup in citationsByDoc)
@@ -529,7 +530,7 @@ namespace Document.API.Services.Implements
                     .SelectMany(c => c.Partitions)
                     .Where(p => !string.IsNullOrWhiteSpace(p.Text))
                     .OrderByDescending(p => p.Relevance)
-                    .Take(15)
+                    .Take(20)
                     .ToList();
 
                 foreach (var partition in bestPartitions)
@@ -945,54 +946,54 @@ namespace Document.API.Services.Implements
             return baseRelevance * boost;
         }
 
-        private bool IsDocumentCurrentlyEffective(Citation citation, DateTime today, string requestId)
-        {
-            try
-            {
-                var effectiveFromStr = GetTagValueFromCitation(citation, "effectiveFrom");
-                var effectiveUntilStr = GetTagValueFromCitation(citation, "effectiveUntil");
+        //private bool IsDocumentCurrentlyEffective(Citation citation, DateTime today, string requestId)
+        //{
+        //    try
+        //    {
+        //        var effectiveFromStr = GetTagValueFromCitation(citation, "effectiveFrom");
+        //        var effectiveUntilStr = GetTagValueFromCitation(citation, "effectiveUntil");
 
-                // ✅ Check effective from
-                if (!string.IsNullOrEmpty(effectiveFromStr))    
-                {
-                    if (DateTime.TryParse(effectiveFromStr, out var effectiveFrom))
-                    {
-                        if (today < effectiveFrom.Date)
-                        {
-                            _logger.LogDebug("⏰ [EFFECTIVE-{RequestId}] Document not yet effective: EffectiveFrom {EffFrom} > Today {Today}",
-                                requestId, effectiveFrom.Date, today);
-                            return false;
-                        }
-                    }
-                }
+        //        // ✅ Check effective from
+        //        if (!string.IsNullOrEmpty(effectiveFromStr))
+        //        {
+        //            if (DateTime.TryParse(effectiveFromStr, out var effectiveFrom))
+        //            {
+        //                if (today < effectiveFrom.Date)
+        //                {
+        //                    _logger.LogDebug("⏰ [EFFECTIVE-{RequestId}] Document not yet effective: EffectiveFrom {EffFrom} > Today {Today}",
+        //                        requestId, effectiveFrom.Date, today);
+        //                    return false;
+        //                }
+        //            }
+        //        }
 
-                // ✅ NEW LOGIC: Check effective until ONLY if it exists
-                if (!string.IsNullOrEmpty(effectiveUntilStr))
-                {
-                    if (DateTime.TryParse(effectiveUntilStr, out var effectiveUntil))
-                    {
-                        if (today >= effectiveUntil.Date.AddDays(1))
-                        {
-                            _logger.LogDebug("⏰ [EFFECTIVE-{RequestId}] Document expired: EffectiveUntil {EffUntil} < Today {Today}",
-                                requestId, effectiveUntil.Date, today);
-                            return false;
-                        }
-                    }
-                }
-                else
-                {
-                    // ✅ NEW: If effectiveUntil is empty/null, document is valid indefinitely (after effectiveFrom)
-                    _logger.LogDebug("⏰ [EFFECTIVE-{RequestId}] Document has no expiry date - valid indefinitely", requestId);
-                }
+        //        // ✅ NEW LOGIC: Check effective until ONLY if it exists
+        //        if (!string.IsNullOrEmpty(effectiveUntilStr))
+        //        {
+        //            if (DateTime.TryParse(effectiveUntilStr, out var effectiveUntil))
+        //            {
+        //                if (today >= effectiveUntil.Date.AddDays(1))
+        //                {
+        //                    _logger.LogDebug("⏰ [EFFECTIVE-{RequestId}] Document expired: EffectiveUntil {EffUntil} < Today {Today}",
+        //                        requestId, effectiveUntil.Date, today);
+        //                    return false;
+        //                }
+        //            }
+        //        }
+        //        else
+        //        {
+        //            // ✅ NEW: If effectiveUntil is empty/null, document is valid indefinitely (after effectiveFrom)
+        //            _logger.LogDebug("⏰ [EFFECTIVE-{RequestId}] Document has no expiry date - valid indefinitely", requestId);
+        //        }
 
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "⏰ [EFFECTIVE-{RequestId}] Error checking effectiveness - denying access", requestId);
-                return false;
-            }
-        }
+        //        return true;
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.LogWarning(ex, "⏰ [EFFECTIVE-{RequestId}] Error checking effectiveness - denying access", requestId);
+        //        return false;
+        //    }
+        //}
 
         private async Task<bool> IsDocumentAccessibleToUser(Citation citation, DocumentRAGRequest userContext, string requestId)
         {
@@ -1010,10 +1011,10 @@ namespace Document.API.Services.Implements
                 var ownerId = GetTagValueFromCitation(citation, "ownerId");
                 var isPublic = ParseBooleanTag(citation, "isPublic");
 
-                if (!string.IsNullOrEmpty(ownerId) && ownerId == userContext.UserId)
-                {
-                    return true;
-                }
+                //if (!string.IsNullOrEmpty(ownerId) && ownerId == userContext.UserId)
+                //{
+                //    return true;
+                //}
 
                 if (isPublic)
                 {

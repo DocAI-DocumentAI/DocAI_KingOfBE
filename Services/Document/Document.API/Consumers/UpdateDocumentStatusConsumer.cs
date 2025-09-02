@@ -31,150 +31,188 @@ namespace Document.API.Consumers
             _unitOfWork = unitOfWork;
         }
 
+        // 1. Thêm extensive logging vào UpdateDocumentStatusConsumer
+
         public async Task Consume(ConsumeContext<UpdateDocumentStatusCommand> context)
         {
-            // ✅ Use unified timezone helper
             var vietnamTime = context.Message.VietnamTime ?? TimeZoneHelper.VietnamNow;
-            var utcNow = TimeZoneHelper.UtcNow; // For database operations
 
             try
             {
-                _logger.LogInformation("🔄 Processing UpdateDocumentStatusCommand for document {DocumentId}/{Version} to {NewStatus} at Vietnam time {VietnamTime}",
-                    context.Message.DocumentId, context.Message.Version, context.Message.NewStatus,
-                    vietnamTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                _logger.LogInformation("Processing UpdateDocumentStatusCommand for {DocId}/{Version} to {NewStatus}",
+                    context.Message.DocumentId, context.Message.Version, context.Message.NewStatus);
 
-                // ✅ Update document status via existing service
-                var result = await _expirationService.UpdateDocumentStatusAsync(
+                // STEP 1: Get document with current status BEFORE any changes
+                var documentInfo = await GetDocumentInfoForUpdate(context.Message.DocumentId, context.Message.Version);
+
+                if (documentInfo == null)
+                {
+                    await RespondWithError(context, "Document not found");
+                    return;
+                }
+
+                // STEP 2: Update document status
+                var statusUpdateResult = await _expirationService.UpdateDocumentStatusAsync(
                     context.Message.DocumentId,
                     context.Message.Version,
                     context.Message.NewStatus);
 
-                bool kernelMemoryUpdated = false;
-                string? oldStatus = null;
-
-                // ✅ If update successful and need to update kernel memory
-                if (result && context.Message.UpdateKernelMemory)
+                if (!statusUpdateResult)
                 {
-                    var (kmResult, oldStat) = await UpdateKernelMemoryForStatusChange(
-                        context.Message.DocumentId,
-                        context.Message.Version,
-                        context.Message.NewStatus,
-                        vietnamTime);
-
-                    kernelMemoryUpdated = kmResult;
-                    oldStatus = oldStat;
+                    await RespondWithError(context, "Failed to update document status");
+                    return;
                 }
 
+                // STEP 3: Handle Kernel Memory based on ORIGINAL status (before update)
+                var kernelMemoryResult = await HandleKernelMemoryUpdate(
+                    documentInfo,
+                    context.Message.NewStatus,
+                    context.Message.UpdateKernelMemory,
+                    vietnamTime);
+
+                // STEP 4: Send success response
                 await context.RespondAsync(new UpdateDocumentStatusResponse
                 {
-                    Success = result,
+                    Success = true,
                     DocumentId = context.Message.DocumentId,
                     Version = context.Message.Version,
-                    OldStatus = oldStatus,
+                    OldStatus = documentInfo.CurrentStatus,
                     NewStatus = context.Message.NewStatus,
-                    KernelMemoryUpdated = kernelMemoryUpdated,
+                    KernelMemoryUpdated = kernelMemoryResult.Updated,
+                    ErrorMessage = kernelMemoryResult.Error,
                     RequestId = context.Message.RequestId
                 });
 
-                _logger.LogInformation("✅ Successfully processed UpdateDocumentStatusCommand for {DocumentId}/{Version}, KM updated: {KMUpdated}",
-                    context.Message.DocumentId, context.Message.Version, kernelMemoryUpdated);
+                _logger.LogInformation("Successfully updated document {DocId}/{Version} from {OldStatus} to {NewStatus}, KM updated: {KMUpdated}",
+                    context.Message.DocumentId, context.Message.Version,
+                    documentInfo.CurrentStatus, context.Message.NewStatus, kernelMemoryResult.Updated);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error processing UpdateDocumentStatusCommand for {DocumentId}/{Version}",
+                _logger.LogError(ex, "Error processing UpdateDocumentStatusCommand for {DocId}/{Version}",
                     context.Message.DocumentId, context.Message.Version);
 
-                await context.RespondAsync(new UpdateDocumentStatusResponse
-                {
-                    Success = false,
-                    ErrorMessage = ex.Message,
-                    DocumentId = context.Message.DocumentId,
-                    Version = context.Message.Version,
-                    KernelMemoryUpdated = false,
-                    RequestId = context.Message.RequestId
-                });
+                await RespondWithError(context, ex.Message);
             }
         }
 
-        /// <summary>
-        /// Remove embeddings from Kernel Memory when document expires
-        /// Following ApprovalService pattern - complete removal instead of archiving
-        /// </summary>
-        private async Task<(bool success, string? oldStatus)> UpdateKernelMemoryForStatusChange(
-            string documentId, string version, string newStatus, DateTime vietnamTime)
+        // Clean separation of concerns
+        private async Task<DocumentUpdateInfo> GetDocumentInfoForUpdate(string documentId, string version)
         {
             try
             {
-                // ✅ Get document version to determine old status
                 var document = await _unitOfWork.GetRepository<DocumentVersion>()
                     .SingleOrDefaultAsync(
                         predicate: dv => dv.DocumentFile.Id == documentId && dv.VersionName == version,
                         include: i => i.Include(dv => dv.DocumentFile)
                     );
 
-                if (document == null)
+                if (document == null) return null;
+
+                return new DocumentUpdateInfo
                 {
-                    _logger.LogWarning("⚠️ Document not found for kernel memory update: {DocumentId}/{Version}",
-                        documentId, version);
-                    return (false, null);
-                }
-
-                var oldStatus = document.Status.ToString();
-
-                // ✅ Only remove embeddings if changing from Approved to Archived
-                if (document.Status == StatusEnum.Approved && newStatus == "Archived")
-                {
-                    await RemoveExpiredDocumentFromKernelMemory(document, vietnamTime);
-                    return (true, oldStatus);
-                }
-
-                _logger.LogDebug("ℹ️ No kernel memory update needed for status change from {OldStatus} to {NewStatus}",
-                    oldStatus, newStatus);
-                return (true, oldStatus); // Success but no KM update needed
+                    DocumentVersion = document,
+                    CurrentStatus = document.Status.ToString(),
+                    VersionId = Guid.Parse(document.Id)
+                };
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error updating kernel memory for document {DocumentId}/{Version}",
-                    documentId, version);
-                return (false, null);
+                _logger.LogError(ex, "Error getting document info for {DocId}/{Version}", documentId, version);
+                return null;
             }
         }
 
-        /// <summary>
-        /// Remove expired document embeddings from Kernel Memory completely
-        /// Following ApprovalService pattern - complete removal instead of archiving
-        /// </summary>
-        private async Task RemoveExpiredDocumentFromKernelMemory(DocumentVersion document, DateTime vietnamTime)
+        private async Task<KernelMemoryResult> HandleKernelMemoryUpdate(
+            DocumentUpdateInfo documentInfo,
+            string newStatus,
+            bool shouldUpdateKM,
+            DateTime vietnamTime)
         {
+            if (!shouldUpdateKM)
+            {
+                return new KernelMemoryResult { Updated = false, Error = null };
+            }
+
             try
             {
-                var versionKmId = document.Id.ToString();
-                _logger.LogInformation("🗑️ Removing expired document {VersionId} from Kernel Memory at Vietnam time {VietnamTime}",
-                    document.Id, vietnamTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                // Use ORIGINAL status for logic decision
+                var shouldRemoveFromKM = documentInfo.CurrentStatus == "Approved" && newStatus == "Archived";
 
-                // ✅ Complete removal like in ApprovalService - no re-indexing
-                try
+                if (shouldRemoveFromKM)
                 {
-                    await _memory.DeleteDocumentAsync(versionKmId).WaitAsync(TimeSpan.FromSeconds(10));
-                    _logger.LogInformation("✅ Removed expired document {VersionId} from Kernel Memory.", versionKmId);
+                    _logger.LogInformation("Removing document {VersionId} from Kernel Memory (status change: {OldStatus} -> {NewStatus})",
+                        documentInfo.VersionId, documentInfo.CurrentStatus, newStatus);
+
+                    await RemoveFromKernelMemory(documentInfo.VersionId, vietnamTime);
+                    return new KernelMemoryResult { Updated = true, Error = null };
                 }
-                catch (TimeoutException)
+                else
                 {
-                    _logger.LogWarning("⏰ Timeout removing expired document {VersionId} from Kernel Memory", versionKmId);
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "⚠️ Failed to remove expired document {VersionId} from Kernel Memory", versionKmId);
-                    throw;
+                    _logger.LogInformation("No Kernel Memory update needed for status change: {OldStatus} -> {NewStatus}",
+                        documentInfo.CurrentStatus, newStatus);
+                    return new KernelMemoryResult { Updated = false, Error = null };
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error removing expired document {VersionId} from Kernel Memory at Vietnam time {VietnamTime}",
-                    document.Id, vietnamTime.ToString("yyyy-MM-dd HH:mm:ss"));
-                throw; // Re-throw so consumer can handle and report error in response
+                _logger.LogWarning(ex, "Kernel Memory operation failed for document {VersionId}, but document status was updated successfully",
+                    documentInfo.VersionId);
+
+                return new KernelMemoryResult { Updated = false, Error = ex.Message };
             }
+        }
+
+        private async Task RemoveFromKernelMemory(Guid versionId, DateTime vietnamTime)
+        {
+            var versionKmId = versionId.ToString();
+
+            try
+            {
+                _logger.LogInformation("Starting Kernel Memory removal for document {VersionId}", versionId);
+
+                // Increase timeout and add better error handling
+                await _memory.DeleteDocumentAsync(versionKmId).WaitAsync(TimeSpan.FromSeconds(30));
+
+                _logger.LogInformation("Successfully removed document {VersionId} from Kernel Memory", versionId);
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("Timeout removing document {VersionId} from Kernel Memory after 30 seconds", versionId);
+                throw new InvalidOperationException($"Kernel Memory operation timed out for document {versionId}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to remove document {VersionId} from Kernel Memory", versionId);
+                throw new InvalidOperationException($"Kernel Memory operation failed: {ex.Message}");
+            }
+        }
+
+        private async Task RespondWithError(ConsumeContext<UpdateDocumentStatusCommand> context, string errorMessage)
+        {
+            await context.RespondAsync(new UpdateDocumentStatusResponse
+            {
+                Success = false,
+                ErrorMessage = errorMessage,
+                DocumentId = context.Message.DocumentId,
+                Version = context.Message.Version,
+                KernelMemoryUpdated = false,
+                RequestId = context.Message.RequestId
+            });
+        }
+
+        // Supporting classes for clean data flow
+        private class DocumentUpdateInfo
+        {
+            public DocumentVersion DocumentVersion { get; set; }
+            public string CurrentStatus { get; set; }
+            public Guid VersionId { get; set; }
+        }
+
+        private class KernelMemoryResult
+        {
+            public bool Updated { get; set; }
+            public string Error { get; set; }
         }
     }
 }
