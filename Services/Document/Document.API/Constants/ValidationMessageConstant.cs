@@ -199,7 +199,7 @@ public class ValidationMessageConstant
 public static class ValidationConstants
 {
     // Document validation constants
-    public const int DocumentTitleMaxLength = 200;
+    public const int DocumentTitleMaxLength = 400;
     public const int DocumentVersionNameMaxLength = 100;
     public const int DocumentSummaryMaxLength = 10000;
     public const int DocumentDescriptionMaxLength = 2000;
