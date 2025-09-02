@@ -186,6 +186,8 @@ public static class DependencyService
         services.AddScoped<IPermissionSyncService, PermissionSyncService>();
         // ✅ NEW: Simple department-based permission service
         services.AddScoped<ISimpleDepartmentPermissionService, SimpleDepartmentPermissionService>();
+        // ✅ NEW: Admin public folder management service
+        services.AddScoped<IAdminPublicFolderService, AdminPublicFolderService>();
         services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 
         services.AddScoped<IDocumentRAGService, DocumentRAGService>();

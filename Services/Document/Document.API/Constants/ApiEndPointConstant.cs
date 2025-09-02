@@ -208,6 +208,23 @@ public class ApiEndPointConstant
         public const string SyncPermissions = ApiEndpoint + "/folder-sync/sync-permissions/{folderId}";
     }
 
+    public class AdminPublicFolder
+    {
+        // Admin manager permission operations for public folders
+        public const string GrantPermission = ApiEndpoint + "/admin/public-folders/grant-permission";
+        public const string RevokePermission = ApiEndpoint + "/admin/public-folders/revoke-permission";
+        public const string BulkGrantPermissions = ApiEndpoint + "/admin/public-folders/bulk-grant-permissions";
+        public const string GetPermissions = ApiEndpoint + "/admin/public-folders/permissions";
+        public const string GetManagerAccessSummary = ApiEndpoint + "/admin/public-folders/managers/{managerUserId}/access-summary";
+        public const string GetFolderManagerAccess = ApiEndpoint + "/admin/public-folders/folders/{publicFolderId}/manager-access";
+        public const string GetManagersWithAccess = ApiEndpoint + "/admin/public-folders/managers-with-access";
+        public const string CheckPermission = ApiEndpoint + "/admin/public-folders/check-permission";
+        public const string GetAccessibleFolders = ApiEndpoint + "/admin/public-folders/managers/{managerUserId}/accessible-folders";
+        public const string GetAuditTrail = ApiEndpoint + "/admin/public-folders/audit-trail";
+        public const string GetAllPublicFolders = ApiEndpoint + "/admin/public-folders/folders";
+        public const string CleanupExpiredPermissions = ApiEndpoint + "/admin/public-folders/cleanup-expired-permissions";
+    }
+
     public static class AIConfiguration
     {
         public const string GetAll = ApiEndpoint + "/ai-configurations";
