@@ -49,7 +49,7 @@ namespace Document.API.Consumers
                     DepartmentId = request.DepartmentId,
                     DepartmentName = request.DepartmentName,
                     Permissions = request.Permissions ?? new List<string>(),
-                    MaxResults = Math.Min(Math.Max(request.MaxResults, 1), 15),
+                    MaxResults = Math.Min(Math.Max(request.MaxResults, 1), 20),
                     MinRelevanceScore = Math.Max(request.MinRelevanceScore ?? 0.01, 0.001),
                     OnlyPublic = request.OnlyPublic,
                     OnlyOfficial = false,
