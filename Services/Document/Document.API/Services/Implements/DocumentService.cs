@@ -1839,7 +1839,9 @@ public class DocumentService : IDocumentService
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
-                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                          .Include(v => v.Folder)
+                          .Include(v => v.TargetFolder),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -1973,7 +1975,9 @@ public class DocumentService : IDocumentService
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
-                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                          .Include(v => v.Folder)
+                          .Include(v => v.TargetFolder),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.LastUpdatedTime),
             page: pageNumber,
             size: pageSize
@@ -2008,6 +2012,8 @@ public class DocumentService : IDocumentService
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                          .Include(v => v.Folder)
+                          .Include(v => v.TargetFolder)
         );
 
         if (rejectedDocument == null)
@@ -2032,6 +2038,8 @@ public class DocumentService : IDocumentService
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
                           .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                          .Include(v => v.Folder)
+                          .Include(v => v.TargetFolder)
         );
 
         if (officialDocument == null)
@@ -2070,7 +2078,9 @@ public class DocumentService : IDocumentService
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
-                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                          .Include(v => v.Folder)
+                          .Include(v => v.TargetFolder),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -2134,7 +2144,9 @@ public class DocumentService : IDocumentService
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
-                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                          .Include(v => v.Folder)
+                          .Include(v => v.TargetFolder),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
@@ -2191,7 +2203,9 @@ public class DocumentService : IDocumentService
             include: i => i.Include(v => v.DocumentFile).ThenInclude(df => df.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacementDocument).ThenInclude(rd => rd.DocumentType)
                           .Include(v => v.DocumentFile).ThenInclude(df => df.ReplacedByDocument).ThenInclude(rbd => rbd.DocumentType)
-                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag),
+                          .Include(v => v.DocumentTags).ThenInclude(dt => dt.Tag)
+                          .Include(v => v.Folder)
+                          .Include(v => v.TargetFolder),
             orderBy: q => q.OrderByDescending(v => v.DocumentFile.CreatedTime),
             page: pageNumber,
             size: pageSize
