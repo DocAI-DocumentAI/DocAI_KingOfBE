@@ -335,5 +335,31 @@ namespace Document.API.Controllers
                 return StatusCode(500, ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while deleting the archived document", 500));
             }
         }
+
+        /// <summary>
+        /// ✅ UTILITY: Fix circular and orphaned replacement relationships in the database
+        /// This endpoint should be used to clean up existing bad data
+        /// </summary>
+        [HttpPost("/api/document/approval/fix-replacement-relationships")]
+        [CustomAuthorize(Roles = new[] { Roles.Manager })]
+        [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> FixReplacementRelationships()
+        {
+            try
+            {
+                var result = await _approvalService.FixReplacementRelationshipsAsync();
+                return Ok(ApiResponse<string>.Success(result, "Replacement relationships cleanup completed", 200));
+            }
+            catch (ErrorException ex)
+            {
+                return StatusCode(ex.StatusCode, ApiResponse<object>.Error(ex.ErrorDetail.ErrorCode, ex.ErrorDetail.Message?.ToString() ?? "An error occurred", ex.StatusCode));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while fixing replacement relationships", 500));
+            }
+        }
     }
 }

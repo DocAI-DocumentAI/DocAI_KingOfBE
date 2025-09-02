@@ -35,6 +35,16 @@ namespace Document.API.Services.Implements
             {
                 _logger.LogInformation("Sending document submission notification for document {DocumentId}", documentId);
 
+                // ✅ FIX: Extract user information with better logging for debugging
+                var submitterId = GetUserIdAsGuid(submitterUser);
+                var submitterEmail = GetUserEmail(submitterUser);
+                var submitterName = GetUserFullName(submitterUser);
+                var departmentName = GetDepartmentName(submitterUser);
+
+                // ✅ FIX: Log extracted user information to verify claims are working
+                _logger.LogInformation("Extracted user info for submission notification - ID: {SubmitterId}, Email: {Email}, Name: {Name}, Department: {DepartmentName}", 
+                    submitterId, submitterEmail, submitterName, departmentName);
+
                 var command = new DocumentSubmissionNotificationCommand
                 {
                     DocumentId = documentId,
@@ -42,16 +52,16 @@ namespace Document.API.Services.Implements
                     DocumentTitle = documentTitle,
                     DocumentVersion = documentVersion,
                     DocumentLink = documentLink,
-                    SubmitterId = GetUserIdAsGuid(submitterUser),
-                    SubmitterEmail = GetUserEmail(submitterUser),
-                    SubmitterName = GetUserFullName(submitterUser),
+                    SubmitterId = submitterId,
+                    SubmitterEmail = submitterEmail,
+                    SubmitterName = submitterName,
                     DepartmentId = Guid.Parse(departmentId),
-                    DepartmentName = GetDepartmentName(submitterUser)
+                    DepartmentName = departmentName
                 };
 
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 await _publishEndpoint.Publish(command, cts.Token);
-                _logger.LogInformation("Document submission notification sent for document {DocumentId}", documentId);
+                _logger.LogInformation("Document submission notification command published for document {DocumentId}", documentId);
             }
             catch (Exception ex)
             {
@@ -243,27 +253,38 @@ namespace Document.API.Services.Implements
 
         private static string GetUserEmail(ClaimsPrincipal user)
         {
-            return user?.FindFirst("email")?.Value ?? "Unknown";
+            // ✅ FIX: Use same robust claim extraction as JwtTokenHelper
+            return user?.FindFirst("email")?.Value ??
+                   user?.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ??
+                   user?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")?.Value ??
+                   "Unknown";
         }
 
         private static string GetUserFullName(ClaimsPrincipal user)
         {
-            return user?.FindFirst("fullName")?.Value ?? "Unknown User";
+            // ✅ FIX: Use same robust claim extraction as JwtTokenHelper
+            return user?.FindFirst("fullName")?.Value ??
+                   user?.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ??
+                   user?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value ??
+                   "Unknown User";
         }
 
         private static string GetDepartmentName(ClaimsPrincipal user)
         {
+            // ✅ FIX: Use same robust claim extraction as JwtTokenHelper
             return user?.FindFirst("departmentName")?.Value ?? "Unknown Department";
         }
 
         private static string GetDepartmentId(ClaimsPrincipal user)
         {
-            return user?.FindFirst("departmentId")?.Value ?? "Unknown";
+            // ✅ FIX: Use same robust claim extraction as JwtTokenHelper - try both claim names
+            return user?.FindFirst("departmentId")?.Value ?? user?.FindFirst("departmentID")?.Value ?? "Unknown";
         }
 
         private static Guid GetDepartmentIdAsGuid(ClaimsPrincipal user)
         {
-            var departmentIdString = user?.FindFirst("departmentId")?.Value;
+            // ✅ FIX: Use same robust claim extraction as JwtTokenHelper - try both claim names
+            var departmentIdString = user?.FindFirst("departmentId")?.Value ?? user?.FindFirst("departmentID")?.Value;
             if (Guid.TryParse(departmentIdString, out var departmentId))
             {
                 return departmentId;

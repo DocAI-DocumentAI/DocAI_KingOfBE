@@ -46,5 +46,11 @@ namespace Document.API.Services.Interfaces
         /// Get approval logs for managers to view department approval history with filtering
         /// </summary>
         Task<IPaginate<ManagerApprovalLogResponse>> GetApprovalLogsAsync(Document.Infrastructure.Filter.ManagerApprovalLogFilter filter, int pageNumber, int pageSize);
+        
+        /// <summary>
+        /// ✅ UTILITY: Fix circular and orphaned replacement relationships in the database
+        /// This method should be called to clean up existing bad data
+        /// </summary>
+        Task<string> FixReplacementRelationshipsAsync();
     }
 }
