@@ -294,7 +294,7 @@ namespace Document.API.Services.Implements
 
         private string GenerateDocumentLink(string documentId, string versionId)
         {
-            return $"/document/{documentId}/version/{versionId}";
+            return $"https://docai.asia/document/{documentId}/version/{versionId}";
         }
     }
 }

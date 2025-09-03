@@ -355,7 +355,9 @@ public class NotificationService : INotificationService
             else
             {
                 // For near-expired documents, include link
-                documentLink = $"https://docai.asia/document/{document.DocumentId}";
+                documentLink = !string.IsNullOrEmpty(document.DocumentLink)
+                                                 ? document.DocumentLink  
+                                                 : $"https://docai.asia/document/{document.DocumentId}";
             }
 
             var expirationStatus = type == NotificationType.Expired ? "đã hết hạn" : "sắp hết hạn";
