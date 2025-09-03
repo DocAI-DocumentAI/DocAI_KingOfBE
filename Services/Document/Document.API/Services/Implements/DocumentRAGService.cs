@@ -118,8 +118,10 @@ namespace Document.API.Services.Implements
         private async Task<List<Citation>> SearchAllDocumentsOptimized(DocumentRAGRequest request, string requestId)
         {
             var queryType = ClassifyQuerySmart(request.Query);
-            var limit = 100;
-            var minRelevance = 0;
+            //var limit = 100;
+            //var minRelevance = 0;
+            var (limit, minRelevance) = GetSearchParams(queryType);
+
             var memory = await _kernelMemoryConfigService.GetConfiguredKernelMemoryAsync();
             var citations = new List<Citation>();
 
@@ -423,16 +425,16 @@ namespace Document.API.Services.Implements
             return "general";
         }
 
-        //private (int limit, double minRelevance) GetSearchParams(string queryType)
-        //{
-        //    return queryType switch
-        //    {
-        //        "full_document" => (100, 0.0),
-        //        "specific_section" => (50, 0.01),
-        //        "question" => (75, 0.005),
-        //        _ => (50, 0.01)
-        //    };
-        //}
+        private (int limit, double minRelevance) GetSearchParams(string queryType)
+        {
+            return queryType switch
+            {
+                "full_document" => (100, 0.0),
+                "specific_section" => (50, 0.01),
+                "question" => (75, 0.005),
+                _ => (50, 0.01)
+            };
+        }
 
         private string ExtractOptimizedContent(List<Citation> citations, string query)
         {
@@ -507,7 +509,7 @@ namespace Document.API.Services.Implements
             var citationsByDoc = citations
                 .GroupBy(c => GetDocumentIdFromCitation(c))
                 .OrderByDescending(g => g.Max(c => c.Partitions.Max(p => p.Relevance)))
-                .Take(20)
+                .Take(15)
                 .ToList();
 
             foreach (var docGroup in citationsByDoc)
@@ -530,7 +532,7 @@ namespace Document.API.Services.Implements
                     .SelectMany(c => c.Partitions)
                     .Where(p => !string.IsNullOrWhiteSpace(p.Text))
                     .OrderByDescending(p => p.Relevance)
-                    .Take(20)
+                    .Take(15)
                     .ToList();
 
                 foreach (var partition in bestPartitions)

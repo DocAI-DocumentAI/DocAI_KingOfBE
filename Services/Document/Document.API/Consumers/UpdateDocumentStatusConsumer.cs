@@ -31,8 +31,6 @@ namespace Document.API.Consumers
             _unitOfWork = unitOfWork;
         }
 
-        // 1. Thêm extensive logging vào UpdateDocumentStatusConsumer
-
         public async Task Consume(ConsumeContext<UpdateDocumentStatusCommand> context)
         {
             var vietnamTime = context.Message.VietnamTime ?? TimeZoneHelper.VietnamNow;

@@ -402,13 +402,14 @@ Before responding, ask yourself:
 **RESPONSE MUST BE ONE OF THESE FORMATS ONLY:**
 
 **Format 1 - Information Found:**
-Theo tài liệu '[TITLE]':
-[EXACT_QUOTE_FROM_DOCUMENT]
+Theo tài liệu **'[TITLE]'**:
 
 " + citationSuffix + @"
 
-**Format 2 - No Information:**
-Không có thông tin về [TOPIC] trong các tài liệu hiện có.
+** Format 2 - No Information: **
+Không có thông tin về ** [TOPIC] * *trong các tài liệu hiện có.
+
+* Bạn có muốn tôi tìm kiếm thông tin khác không?*
 
 **Format 3 - Partial Information:**
 Dựa trên tài liệu '[TITLE]':
@@ -1218,10 +1219,10 @@ Tôi chỉ có thể trả lời dựa trên tài liệu nội bộ của công 
 
             if (aiConfig?.SystemPrompt != null)
             {
-                // ✅ AI Configuration được thêm TRƯỚC base prompt để không bị override
                 // Base prompt sẽ chứa document rules và sẽ có quyền ưu tiên cao hơn
-                //return $"{aiConfig.SystemPrompt}\n\n--- Base System Configuration ---\n{defaultPrompt}";
-                return aiConfig.SystemPrompt;
+                return $"{aiConfig.SystemPrompt}\n\n--- Base System Configuration ";
+                //return $"{aiConfig.SystemPrompt}\n\n--- Base System Configuration ---\n{aiConfig.SystemPrompt}";
+                //return aiConfig.SystemPrompt;
 
             }
 
