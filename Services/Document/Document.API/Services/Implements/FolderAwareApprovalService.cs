@@ -29,6 +29,7 @@ namespace Document.API.Services.Implements
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ILogger<FolderAwareApprovalService> _logger;
         private readonly IDocumentEnrichmentService _enrichmentService; // ✅ ADDED: For user name enrichment
+        private readonly IDocumentNotificationService _notificationService; // ✅ ADDED: For notifications
 
         public FolderAwareApprovalService(
             IUnitOfWork unitOfWork,
@@ -37,7 +38,8 @@ namespace Document.API.Services.Implements
             IStorageService storageService,
             IHttpContextAccessor httpContextAccessor,
             ILogger<FolderAwareApprovalService> logger,
-            IDocumentEnrichmentService enrichmentService) // ✅ ADDED: Enrichment service
+            IDocumentEnrichmentService enrichmentService, // ✅ ADDED: Enrichment service
+            IDocumentNotificationService notificationService) // ✅ ADDED: Notification service
         {
             _unitOfWork = unitOfWork;
             _folderService = folderService;
@@ -46,6 +48,7 @@ namespace Document.API.Services.Implements
             _httpContextAccessor = httpContextAccessor;
             _logger = logger;
             _enrichmentService = enrichmentService; // ✅ ADDED: Initialize enrichment service
+            _notificationService = notificationService; // ✅ ADDED: Initialize notification service
         }
 
         public async Task<ApprovalSubmissionResponse> SubmitForApprovalAsync(string versionId, string? targetFolderId = null)
@@ -149,6 +152,81 @@ namespace Document.API.Services.Implements
                 await _unitOfWork.CommitAsync();
 
                 response.NewStatus = version.Status.ToString();
+
+                // ✅ CRITICAL FIX: Add notification logic like ApprovalService
+                //8. Send notifications
+                try
+                {
+                    var currentUser = _httpContextAccessor.HttpContext?.User;
+                    if (currentUser != null)
+                    {
+                        _logger.LogInformation("🔔 Starting notification process for document {VersionId}", versionId);
+                        
+                        // Log all user claims for debugging
+                        var allClaims = currentUser.Claims.Select(c => $"{c.Type}={c.Value}").ToArray();
+                        _logger.LogInformation("🔍 Available claims for notification: {Claims}", string.Join(", ", allClaims));
+
+                        // 8a. Send confirmation notification to submitter
+                        var submitterEmail = GetCurrentEmail();
+                        var submitterName = GetCurrentFullName();
+
+                        _logger.LogInformation("📧 Extracted submitter info - Email: {Email}, Name: {Name}", submitterEmail, submitterName);
+
+                        if (!string.IsNullOrEmpty(submitterEmail))
+                        {
+                            try
+                            {
+                                _logger.LogInformation("📤 Sending submission confirmation to {SubmitterEmail} for document {VersionId}", submitterEmail, versionId);
+                                await _notificationService.SendDocumentSubmissionConfirmationAsync(
+                                    version.DocumentFile.Id,
+                                    versionId,
+                                    version.Title,
+                                    version.VersionName,
+                                    submitterEmail,
+                                    submitterName ?? "Unknown User",
+                                    currentUser);
+                                _logger.LogInformation("✅ Document submission confirmation sent successfully to submitter {SubmitterEmail} for document {VersionId}", submitterEmail, versionId);
+                            }
+                            catch (Exception confirmEx)
+                            {
+                                _logger.LogError(confirmEx, "❌ Failed to send submission confirmation to {SubmitterEmail} for document {VersionId}", submitterEmail, versionId);
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogWarning("⚠️ Could not get submitter email for user {UserId}, skipping submission confirmation notification", userId);
+                        }
+
+                        // 8b. Send notification to department managers
+                        _logger.LogInformation("🏢 Preparing to send submission notification for document {VersionId} to managers in department {DepartmentId}", versionId, version.DocumentFile.DepartmentId);
+                        
+                        try
+                        {
+                            _logger.LogInformation("📤 Sending manager notification for document {VersionId} to department {DepartmentId}", versionId, version.DocumentFile.DepartmentId);
+                            await _notificationService.SendDocumentSubmissionNotificationAsync(
+                                version.DocumentFile.Id,
+                                versionId,
+                                version.Title,
+                                version.VersionName,
+                                currentUser,
+                                version.DocumentFile.DepartmentId);
+                            _logger.LogInformation("✅ Document submission notification sent successfully to managers for document {VersionId} in department {DepartmentId}", versionId, version.DocumentFile.DepartmentId);
+                        }
+                        catch (Exception managerNotifEx)
+                        {
+                            _logger.LogError(managerNotifEx, "❌ Failed to send manager notification for document {VersionId} in department {DepartmentId}", versionId, version.DocumentFile.DepartmentId);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("⚠️ Current user context is null, skipping submission notifications for document {VersionId}", versionId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ Failed to send submission notifications for document {VersionId}", versionId);
+                    // Don't fail the entire operation for notification errors
+                }
 
                 _logger.LogInformation("Successfully submitted document {VersionId} for approval", versionId);
                 return response;
@@ -1485,6 +1563,16 @@ namespace Document.API.Services.Implements
             {
                 return node == _oldValue ? _newValue : base.Visit(node);
             }
+        }
+
+        private string GetCurrentEmail()
+        {
+            return JwtTokenHelper.GetUserEmail(_httpContextAccessor);
+        }
+
+        private string? GetCurrentFullName()
+        {
+            return JwtTokenHelper.GetUserFullName(_httpContextAccessor);
         }
 
         #endregion
