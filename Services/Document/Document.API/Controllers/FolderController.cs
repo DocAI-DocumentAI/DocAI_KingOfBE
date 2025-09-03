@@ -51,27 +51,10 @@ namespace Document.API.Controllers
             [FromQuery] bool includeSystemFolders = true,
             [FromQuery] int? maxDepth = null)
         {
-            try
-            {
-                // Extract department ID from JWT token for security
-                var departmentId = JwtTokenHelper.GetDepartmentId(_httpContextAccessor);
-                var result = await _folderService.GetFolderTreeAsync(departmentId, includeSystemFolders, maxDepth);
-                return Ok(ApiResponse<FolderTreeResponse>.Success(result, "Folder tree retrieved successfully"));
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                return Forbid(ApiResponse<object>.Error("ACCESS_DENIED", ex.Message).ToString());
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", ex.Message));
-            }
-            catch (Exception ex)
-            {
-                //_logger.LogError(ex, "Error retrieving folder tree for department {DepartmentId}", departmentId);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while retrieving folder tree"));
-            }
+            // Extract department ID from JWT token for security
+            var departmentId = JwtTokenHelper.GetDepartmentId(_httpContextAccessor);
+            var result = await _folderService.GetFolderTreeAsync(departmentId, includeSystemFolders, maxDepth);
+            return Ok(ApiResponse<FolderTreeResponse>.Success(result, "Folder tree retrieved successfully"));
         }
 
         /// <summary>
@@ -88,17 +71,8 @@ namespace Document.API.Controllers
             [FromQuery] bool includeSystemFolders = true,
             [FromQuery] int? maxDepth = null)
         {
-            try
-            {
-                var result = await _folderService.GetPublicFolderTreeAsync(includeSystemFolders, maxDepth);
-                return Ok(ApiResponse<FolderTreeResponse>.Success(result, "Public folder tree retrieved successfully"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving public folder tree");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while retrieving public folder tree"));
-            }
+            var result = await _folderService.GetPublicFolderTreeAsync(includeSystemFolders, maxDepth);
+            return Ok(ApiResponse<FolderTreeResponse>.Success(result, "Public folder tree retrieved successfully"));
         }
 
         /// <summary>
@@ -114,25 +88,8 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetFolderById([FromRoute] string folderId)
         {
-            try
-            {
-                var result = await _folderService.GetFolderByIdAsync(folderId);
-                return Ok(ApiResponse<FolderDetailResponse>.Success(result, "Folder details retrieved successfully"));
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                return Forbid(ApiResponse<object>.Error("ACCESS_DENIED", ex.Message).ToString());
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ApiResponse<object>.Error("FOLDER_NOT_FOUND", ex.Message));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving folder {FolderId}", folderId);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while retrieving folder details"));
-            }
+            var result = await _folderService.GetFolderByIdAsync(folderId);
+            return Ok(ApiResponse<FolderDetailResponse>.Success(result, "Folder details retrieved successfully"));
         }
 
         /// <summary>
@@ -148,30 +105,9 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> CreateFolder([FromBody] CreateFolderRequest request)
         {
-            try
-            {
-                var result = await _folderService.CreateFolderAsync(request);
-                return CreatedAtAction(nameof(GetFolderById), new { folderId = result.Id },
-                    ApiResponse<FolderDetailResponse>.Success(result, "Folder created successfully"));
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                return Forbid(ApiResponse<object>.Error("ACCESS_DENIED", ex.Message).ToString());
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", ex.Message));
-            }
-            catch (InvalidOperationException ex)
-            {
-                return BadRequest(ApiResponse<object>.Error("OPERATION_FAILED", ex.Message));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error creating folder {FolderName}", request.Name);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while creating folder"));
-            }
+            var result = await _folderService.CreateFolderAsync(request);
+            return CreatedAtAction(nameof(GetFolderById), new { folderId = result.Id },
+                ApiResponse<FolderDetailResponse>.Success(result, "Folder created successfully"));
         }
 
         /// <summary>
@@ -189,33 +125,8 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> UpdateFolder([FromRoute] string folderId, [FromBody] UpdateFolderRequest request)
         {
-            try
-            {
-                var result = await _folderService.UpdateFolderAsync(folderId, request);
-                return Ok(ApiResponse<FolderDetailResponse>.Success(result, "Folder updated successfully"));
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                return Forbid(ApiResponse<object>.Error("ACCESS_DENIED", ex.Message).ToString());
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ApiResponse<object>.Error("FOLDER_NOT_FOUND", ex.Message));
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", ex.Message));
-            }
-            catch (InvalidOperationException ex)
-            {
-                return BadRequest(ApiResponse<object>.Error("OPERATION_FAILED", ex.Message));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating folder {FolderId}", folderId);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while updating folder"));
-            }
+            var result = await _folderService.UpdateFolderAsync(folderId, request);
+            return Ok(ApiResponse<FolderDetailResponse>.Success(result, "Folder updated successfully"));
         }
 
         /// <summary>
@@ -233,33 +144,8 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> MoveFolder([FromRoute] string folderId, [FromBody] MoveFolderRequest request)
         {
-            try
-            {
-                var result = await _folderService.MoveFolderAsync(folderId, request);
-                return Ok(ApiResponse<FolderDetailResponse>.Success(result, "Folder moved successfully"));
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                return Forbid(ApiResponse<object>.Error("ACCESS_DENIED", ex.Message).ToString());
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ApiResponse<object>.Error("FOLDER_NOT_FOUND", ex.Message));
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", ex.Message));
-            }
-            catch (InvalidOperationException ex)
-            {
-                return BadRequest(ApiResponse<object>.Error("OPERATION_FAILED", ex.Message));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error moving folder {FolderId}", folderId);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while moving folder"));
-            }
+            var result = await _folderService.MoveFolderAsync(folderId, request);
+            return Ok(ApiResponse<FolderDetailResponse>.Success(result, "Folder moved successfully"));
         }
 
         /// <summary>
@@ -277,35 +163,14 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> DeleteFolder([FromRoute] string folderId, [FromQuery] bool force = false)
         {
-            try
+            var result = await _folderService.DeleteFolderAsync(folderId, force);
+            if (result)
             {
-                var result = await _folderService.DeleteFolderAsync(folderId, force);
-                if (result)
-                {
-                    return Ok(ApiResponse<object>.Success(null, "Folder deleted successfully"));
-                }
-                else
-                {
-                    return BadRequest(ApiResponse<object>.Error("DELETE_FAILED", "Folder could not be deleted"));
-                }
+                return Ok(ApiResponse<string>.Success("Success", "Folder deleted successfully"));
             }
-            catch (UnauthorizedAccessException ex)
+            else
             {
-                return Forbid(ApiResponse<object>.Error("ACCESS_DENIED", ex.Message).ToString());
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ApiResponse<object>.Error("FOLDER_NOT_FOUND", ex.Message));
-            }
-            catch (InvalidOperationException ex)
-            {
-                return BadRequest(ApiResponse<object>.Error("OPERATION_FAILED", ex.Message));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deleting folder {FolderId}", folderId);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while deleting folder"));
+                return BadRequest(ApiResponse<object>.Error("DELETE_FAILED", "Folder could not be deleted"));
             }
         }
 
@@ -324,20 +189,11 @@ namespace Document.API.Controllers
             [FromQuery] string? departmentId = null,
             [FromQuery] PermissionType permissionType = PermissionType.View)
         {
-            try
-            {
-                var userId = JwtTokenHelper.GetUserId(_httpContextAccessor);
-                var userDepartmentId = departmentId ?? JwtTokenHelper.GetDepartmentIdOrNull(_httpContextAccessor);
+            var userId = JwtTokenHelper.GetUserId(_httpContextAccessor);
+            var userDepartmentId = departmentId ?? JwtTokenHelper.GetDepartmentIdOrNull(_httpContextAccessor);
 
-                var result = await _folderService.GetAccessibleFoldersAsync(userId, userDepartmentId, permissionType);
-                return Ok(ApiResponse<List<FolderSummaryResponse>>.Success(result, "Accessible folders retrieved successfully"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving accessible folders");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while retrieving accessible folders"));
-            }
+            var result = await _folderService.GetAccessibleFoldersAsync(userId, userDepartmentId ?? "", permissionType);
+            return Ok(ApiResponse<List<FolderSummaryResponse>>.Success(result, "Accessible folders retrieved successfully"));
         }
 
         /// <summary>
@@ -353,25 +209,8 @@ namespace Document.API.Controllers
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetFolderBreadcrumb([FromRoute] string folderId)
         {
-            try
-            {
-                var result = await _folderService.GetFolderBreadcrumbAsync(folderId);
-                return Ok(ApiResponse<List<FolderBreadcrumbResponse>>.Success(result, "Folder breadcrumb retrieved successfully"));
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                return Forbid(ApiResponse<object>.Error("ACCESS_DENIED", ex.Message).ToString());
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ApiResponse<object>.Error("FOLDER_NOT_FOUND", ex.Message));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving folder breadcrumb for {FolderId}", folderId);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while retrieving folder breadcrumb"));
-            }
+            var result = await _folderService.GetFolderBreadcrumbAsync(folderId);
+            return Ok(ApiResponse<List<FolderBreadcrumbResponse>>.Success(result, "Folder breadcrumb retrieved successfully"));
         }
 
         /// <summary>
@@ -389,23 +228,14 @@ namespace Document.API.Controllers
             [FromQuery] string searchTerm,
             [FromQuery] string? departmentId = null)
         {
-            try
+            if (string.IsNullOrWhiteSpace(searchTerm))
             {
-                if (string.IsNullOrWhiteSpace(searchTerm))
-                {
-                    return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", "Search term is required"));
-                }
+                return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", "Search term is required"));
+            }
 
-                var userId = JwtTokenHelper.GetUserId(_httpContextAccessor);
-                var result = await _folderService.SearchFoldersAsync(searchTerm, departmentId, userId);
-                return Ok(ApiResponse<List<FolderSummaryResponse>>.Success(result, $"Found {result.Count} folders matching '{searchTerm}'"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error searching folders with term '{SearchTerm}'", searchTerm);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while searching folders"));
-            }
+            var userId = JwtTokenHelper.GetUserId(_httpContextAccessor);
+            var result = await _folderService.SearchFoldersAsync(searchTerm, departmentId, userId);
+            return Ok(ApiResponse<List<FolderSummaryResponse>>.Success(result, $"Found {result.Count} folders matching '{searchTerm}'"));
         }
 
         /// <summary>
@@ -423,22 +253,13 @@ namespace Document.API.Controllers
             [FromQuery] string folderName,
             [FromQuery] string? parentFolderId = null)
         {
-            try
+            if (string.IsNullOrWhiteSpace(folderName))
             {
-                if (string.IsNullOrWhiteSpace(folderName))
-                {
-                    return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", "Folder name is required"));
-                }
+                return BadRequest(ApiResponse<object>.Error("INVALID_REQUEST", "Folder name is required"));
+            }
 
-                var result = await _folderService.ValidateFolderNameAsync(folderName, parentFolderId);
-                return Ok(ApiResponse<FolderValidationResult>.Success(result, "Folder name validation completed"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error validating folder name '{FolderName}'", folderName);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse<object>.Error("INTERNAL_ERROR", "An error occurred while validating folder name"));
-            }
+            var result = await _folderService.ValidateFolderNameAsync(folderName, parentFolderId);
+            return Ok(ApiResponse<FolderValidationResult>.Success(result, "Folder name validation completed"));
         }
     }
 }

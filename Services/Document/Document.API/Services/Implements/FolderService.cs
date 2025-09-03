@@ -299,8 +299,13 @@ namespace Document.API.Services.Implements
                 {
                     if (!await HasFolderPermissionAsync(request.ParentFolderId, userId, userDepartmentId, PermissionType.Edit))
                     {
+                        // Get parent folder name for better error message
+                        var parentFolderForError = await _unitOfWork.GetRepository<Folder>()
+                            .SingleOrDefaultAsync(predicate: f => f.Id == request.ParentFolderId && !f.IsDeleted);
+                        var parentFolderName = parentFolderForError?.Name ?? request.ParentFolderId;
+                        
                         throw new ErrorException(StatusCodes.Status403Forbidden, ErrorCode.FORBIDDEN,
-                            FolderMessageConstant.Permissions.CannotCreateInFolder);
+                            string.Format(FolderMessageConstant.Permissions.CannotCreateInFolder, parentFolderName));
                     }
                 }
                 else if (!request.IsPublic && targetDepartmentId != userDepartmentId && !await IsUserAdminOrManagerAsync(userId))
