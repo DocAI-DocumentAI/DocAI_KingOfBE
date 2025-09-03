@@ -406,41 +406,62 @@ public class GoogleOAuthService : BaseService<GoogleOAuthService>, IGoogleOAuthS
 
     public async Task<string> HandleGoogleCallbackAndGenerateRedirectUrlAsync(GoogleOAuthRequest request)
     {
-        // 1. Gọi logic xác thực hiện có của bạn
-        var authResponse = await AuthenticateWithGoogleAsync(request);
+        try
+        {
+            // 1. Gọi logic xác thực hiện có của bạn
+            var authResponse = await AuthenticateWithGoogleAsync(request);
 
-        // 2. Tìm lại thông tin user và user setting để tạo LoginResponse hoàn chỉnh
-        var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
-            predicate: u => u.Email == authResponse.Email,
-            include: u => u.Include(x => x.Role)
-                .Include(x => x.Department)
-                .Include(x => x.UserPermissions)
-                .ThenInclude(up => up.Permission));
-        var userSetting = await _unitOfWork.GetRepository<UserSetting>().SingleOrDefaultAsync(
-            predicate: us => us.UserId == user.Id
-        );
+            // 2. Tìm lại thông tin user và user setting để tạo LoginResponse hoàn chỉnh
+            var user = await _unitOfWork.GetRepository<User>().SingleOrDefaultAsync(
+                predicate: u => u.Email == authResponse.Email,
+                include: u => u.Include(x => x.Role)
+                    .Include(x => x.Department)
+                    .Include(x => x.UserPermissions)
+                    .ThenInclude(up => up.Permission));
+            var userSetting = await _unitOfWork.GetRepository<UserSetting>().SingleOrDefaultAsync(
+                predicate: us => us.UserId == user.Id
+            );
 
-        // 3. Tạo đối tượng LoginResponse
-        var loginResponse = CreateGoogleOAuthResponse(user, userSetting,
-            authResponse.DocaiToken,
-            authResponse.DocaiRefreshToken,
-            authResponse.GoogleAccessToken,
-            authResponse.GoogleRefreshToken
-        );
+            // 3. Tạo đối tượng LoginResponse
+            var loginResponse = CreateGoogleOAuthResponse(user, userSetting,
+                authResponse.DocaiToken,
+                authResponse.DocaiRefreshToken,
+                authResponse.GoogleAccessToken,
+                authResponse.GoogleRefreshToken
+            );
 
-        // 4. Tạo code sử dụng một lần và key cho Redis
-        var oneTimeCode = Guid.NewGuid().ToString("N");
-        var redisKey = $"google-auth-code:{oneTimeCode}";
+            // 4. Tạo code sử dụng một lần và key cho Redis
+            var oneTimeCode = Guid.NewGuid().ToString("N");
+            var redisKey = $"google-auth-code:{oneTimeCode}";
 
-        // 5. SỬA ĐỔI: Serialize đối tượng LoginResponse thành một chuỗi JSON
-        var loginResponseJson = JsonSerializer.Serialize(loginResponse);
+            // 5. Serialize đối tượng LoginResponse thành một chuỗi JSON
+            var loginResponseJson = JsonSerializer.Serialize(loginResponse);
 
-        // 6. SỬA ĐỔI: Gọi SetStringAsync để lưu chuỗi JSON vào Redis với TTL là 1 phút
-        await _redisService.SetStringAsync(redisKey, loginResponseJson, TimeSpan.FromMinutes(1)); //
+            // 6. Gọi SetStringAsync để lưu chuỗi JSON vào Redis với TTL là 1 phút
+            await _redisService.SetStringAsync(redisKey, loginResponseJson, TimeSpan.FromMinutes(1));
 
-        // 7. Xây dựng URL để redirect về frontend
-        var frontendCallbackUrl = _configuration["FrontEnd:GoogleCallbackUrl"];
-        return $"{frontendCallbackUrl}?code={oneTimeCode}";
+            // 7. Xây dựng URL để redirect về frontend
+            var frontendCallbackUrl = _configuration["FrontEnd:GoogleCallbackUrl"];
+            return $"{frontendCallbackUrl}?code={oneTimeCode}";
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // Handle trường hợp email chưa được đăng ký
+            _logger.LogWarning(ex, "Google OAuth failed: {Message}", ex.Message);
+            
+            var loginUrl = _configuration["FrontEnd:LoginUrl"];
+            
+            return loginUrl;
+        }
+        catch (Exception ex)
+        {
+            // Handle các exception khác
+            _logger.LogError(ex, "Unexpected error during Google OAuth callback");
+            
+            var loginUrl = _configuration["FrontEnd:LoginUrl"];
+            
+            return loginUrl;
+        }
     }
 
     public async Task<LoginResponse> ExchangeCodeForLoginResponseAsync(string code)
