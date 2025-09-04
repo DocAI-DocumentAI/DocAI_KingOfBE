@@ -95,7 +95,7 @@ namespace Document.API.Consumers
         }
 
         // Clean separation of concerns
-        private async Task<DocumentUpdateInfo> GetDocumentInfoForUpdate(string documentId, string version)
+        private async Task<DocumentUpdateInfo?> GetDocumentInfoForUpdate(string documentId, string version)
         {
             try
             {
@@ -111,7 +111,7 @@ namespace Document.API.Consumers
                 {
                     DocumentVersion = document,
                     CurrentStatus = document.Status.ToString(),
-                    VersionId = Guid.Parse(document.Id)
+                    VersionId = document.Id
                 };
             }
             catch (Exception ex)
@@ -161,9 +161,9 @@ namespace Document.API.Consumers
             }
         }
 
-        private async Task RemoveFromKernelMemory(Guid versionId, DateTime vietnamTime)
+        private async Task RemoveFromKernelMemory(string versionId, DateTime vietnamTime)
         {
-            var versionKmId = versionId.ToString();
+            var versionKmId = versionId;
 
             try
             {
@@ -202,15 +202,15 @@ namespace Document.API.Consumers
         // Supporting classes for clean data flow
         private class DocumentUpdateInfo
         {
-            public DocumentVersion DocumentVersion { get; set; }
-            public string CurrentStatus { get; set; }
-            public Guid VersionId { get; set; }
+            public DocumentVersion DocumentVersion { get; set; } = null!;
+            public string CurrentStatus { get; set; } = string.Empty;
+            public string VersionId { get; set; } = string.Empty;
         }
 
         private class KernelMemoryResult
         {
             public bool Updated { get; set; }
-            public string Error { get; set; }
+            public string? Error { get; set; }
         }
     }
 }
