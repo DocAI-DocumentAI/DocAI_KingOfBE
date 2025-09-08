@@ -14,19 +14,39 @@ env:
   VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
 
 jobs:
-  # Job này chạy cho pull requests - chỉ build để kiểm tra
+  # Job này chạy cho pull requests - chỉ build để kiểm tra (không cần secrets)
   build:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create dummy appsettings for build test
+        run: |
+          # Thay thế placeholders bằng dummy values để build test
+          for file in Services/*/*/appsettings.json ApiGateway/appsettings.json; do
+            if [ -f "$file" ]; then
+              echo "Creating dummy config for: $file"
+              sed -i "s|__VPS_IP__|localhost|g" "$file"
+              sed -i "s|__DATABASE_PASSWORD__|testpass|g" "$file"
+              sed -i "s|__JWT_SECRET__|test-jwt-secret-key-for-build-only|g" "$file"
+              sed -i "s|__EMAIL_USERNAME__|test@example.com|g" "$file"
+              sed -i "s|__EMAIL_PASSWORD__|testpass|g" "$file"
+              sed -i "s|__GG_CLIENT_ID__|test-client-id|g" "$file"
+              sed -i "s|__GG_CLIENT_SECRET__|test-client-secret|g" "$file"
+              sed -i "s|__API_KEY__|test-api-key|g" "$file"
+              sed -i "s|__OPENAI_API_KEY__|test-openai-api-key|g" "$file"
+              sed -i "s|__GGDRIVE_CLIENT_ID__|test-ggdrive-client-id|g" "$file"
+              sed -i "s|__GGDRIVE_CLIENT_SECRET__|test-ggdrive-client-secret|g" "$file"
+            fi
+          done
 
       - name: Build Auth.API (test only)
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: Services/Auth/Auth.API/Dockerfile
@@ -34,7 +54,7 @@ jobs:
           tags: docai-auth-api:test
 
       - name: Build Document.API (test only)
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: Services/Document/Document.API/Dockerfile
@@ -42,7 +62,7 @@ jobs:
           tags: docai-document-api:test
 
       - name: Build Notification.API (test only)
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: Services/Notification/Notification.API/Dockerfile
@@ -50,7 +70,7 @@ jobs:
           tags: docai-notification-api:test
 
       - name: Build ChatBox.API (test only)
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: Services/ChatBox/ChatBox.API/Dockerfile
@@ -58,7 +78,7 @@ jobs:
           tags: docai-chatbox-api:test
 
       - name: Build API Gateway (test only)
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ApiGateway/Dockerfile
@@ -71,59 +91,120 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ env.DOCKER_HUB_USERNAME }}
           password: ${{ env.DOCKER_HUB_ACCESS_TOKEN }}
+          
+      - name: Replace secrets in all appsettings.json
+        run: |
+          # Tìm và thay thế secrets trong tất cả appsettings.json files
+          for file in Services/*/*/appsettings.json ApiGateway/appsettings.json; do
+            if [ -f "$file" ]; then
+              echo "Processing file: $file"
+              sed -i "s|__VPS_IP__|${{ secrets.VPS_IP }}|g" "$file"
+              sed -i "s|__DATABASE_PASSWORD__|${{ secrets.DATABASE_PASSWORD }}|g" "$file"
+              sed -i "s|__JWT_SECRET__|${{ secrets.JWT_SECRET }}|g" "$file"
+              sed -i "s|__EMAIL_USERNAME__|${{ secrets.EMAIL_USERNAME }}|g" "$file"
+              sed -i "s|__EMAIL_PASSWORD__|${{ secrets.EMAIL_PASSWORD }}|g" "$file"
+              sed -i "s|__GG_CLIENT_ID__|${{ secrets.GG_CLIENT_ID }}|g" "$file"
+              sed -i "s|__GG_CLIENT_SECRET__|${{ secrets.GG_CLIENT_SECRET }}|g" "$file"
+              sed -i "s|__API_KEY__|${{ secrets.API_KEY }}|g" "$file"
+              sed -i "s|__OPENAI_API_KEY__|${{ secrets.OPENAI_API_KEY }}|g" "$file"
+              sed -i "s|__GGDRIVE_CLIENT_ID__|${{ secrets.GGDRIVE_CLIENT_ID }}|g" "$file"
+              sed -i "s|__GGDRIVE_CLIENT_SECRET__|${{ secrets.GGDRIVE_CLIENT_SECRET }}|g" "$file"
+              sed -i "s|__AUTH_PRO_DOMAIN__|${{ secrets.AUTH_PRO_DOMAIN }}|g" "$file"
+              sed -i "s|__AUTH_LOCAL_DOMAIN_1__|${{ secrets.AUTH_LOCAL_DOMAIN_1 }}|g" "$file"
+              sed -i "s|__AUTH_LOCAL_DOMAIN_2__|${{ secrets.AUTH_LOCAL_DOMAIN_2 }}|g" "$file"
+              sed -i "s|__CHAT_PRO_DOMAIN__|${{ secrets.CHAT_PRO_DOMAIN }}|g" "$file"
+              sed -i "s|__CHAT_LOCAL_DOMAIN_1__|${{ secrets.CHAT_LOCAL_DOMAIN_1 }}|g" "$file"
+              sed -i "s|__CHAT_LOCAL_DOMAIN_2__|${{ secrets.CHAT_LOCAL_DOMAIN_2 }}|g" "$file"
+              sed -i "s|__DOC_PRO_DOMAIN__|${{ secrets.DOC_PRO_DOMAIN }}|g" "$file"
+              sed -i "s|__DOC_LOCAL_DOMAIN_1__|${{ secrets.DOC_LOCAL_DOMAIN_1 }}|g" "$file"
+              sed -i "s|__DOC_LOCAL_DOMAIN_2__|${{ secrets.DOC_LOCAL_DOMAIN_2 }}|g" "$file"
+              sed -i "s|__NOTI_PRO_DOMAIN__|${{ secrets.NOTI_PRO_DOMAIN }}|g" "$file"
+              sed -i "s|__NOTI_LOCAL_DOMAIN_1__|${{ secrets.NOTI_LOCAL_DOMAIN_1 }}|g" "$file"
+              sed -i "s|__NOTI_LOCAL_DOMAIN_2__|${{ secrets.NOTI_LOCAL_DOMAIN_2 }}|g" "$file"
+              echo "Processed: $file"
+            else
+              echo "Warning: File $file not found"
+            fi
+          done
+          
+      - name: Verify secrets replacement (optional debug step)
+        run: |
+          echo "Checking if secrets were replaced correctly..."
+          for file in Services/*/*/appsettings.json ApiGateway/appsettings.json; do
+            if [ -f "$file" ]; then
+              if grep -q "__.*__" "$file"; then
+                echo "WARNING: Unreplaced placeholders found in $file"
+                grep "__.*__" "$file" || true
+              else
+                echo "SUCCESS: All placeholders replaced in $file"
+              fi
+            fi
+          done
 
       # Build and push Auth.API
       - name: Build and push Auth.API
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: Services/Auth/Auth.API/Dockerfile
           push: true
           tags: magicflexing/docai-auth-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       # Build and push Document.API
       - name: Build and push Document.API
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: Services/Document/Document.API/Dockerfile
           push: true
           tags: magicflexing/docai-document-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       # Build and push Notification.API
       - name: Build and push Notification.API
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: Services/Notification/Notification.API/Dockerfile
           push: true
           tags: magicflexing/docai-notification-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
+      # Build and push ChatBox.API
       - name: Build and push ChatBox.API
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: Services/ChatBox/ChatBox.API/Dockerfile
           push: true
           tags: magicflexing/docai-chatbox-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
+      # Build and push API Gateway
       - name: Build and push API Gateway
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ApiGateway/Dockerfile
           push: true
           tags: magicflexing/docai-gateway:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # Job này chỉ chạy khi build-and-push thành công (tức là khi push vào main)
   deploy:
@@ -140,13 +221,33 @@ jobs:
           script: |
             export LANG=C.UTF-8
             export LC_ALL=C.UTF-8
-            # cd ~/Deepguard
-            # docker-compose down --rmi all --volumes --remove-orphans
+            
+            echo "Starting deployment process..."
             cd ~/DocAI
+            
+            # Stop và cleanup containers/images cũ
+            echo "Stopping and cleaning up old containers..."
             docker-compose down --rmi all --volumes --remove-orphans
+            
+            # Cleanup system
+            echo "Cleaning up Docker system..."
             docker system prune -a -f
+            
+            # Pull images mới nhất
+            echo "Pulling latest images..."
             docker-compose pull
+            
+            # Start services
+            echo "Starting services..."
             docker-compose up -d
-            # cd ~/Deepguard
-            # docker-compose pull
-            # docker-compose up -d
+            
+            echo "Deployment completed!"
+
+      - name: Notify deployment status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "🎉 Deployment successful!"
+          else
+            echo "💥 Deployment failed!"
+          fi
